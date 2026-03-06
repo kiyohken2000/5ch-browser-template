@@ -1,0 +1,9 @@
+﻿{
+  "theme": "geronimo-compatible",
+  "be": {
+    "enabled": false
+  },
+  "uplift": {
+    "enabled": false
+  }
+}

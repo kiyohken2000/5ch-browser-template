@@ -1,0 +1,118 @@
+{
+  "executed_at": "2026-03-07T01:38:56.127927",
+  "notes": [
+    "credential values are not stored",
+    "cookie values are not stored",
+    "anonymous baseline captured for comparison"
+  ],
+  "anonymous": {
+    "initial_get_status": 200,
+    "form_action": "/log",
+    "form_method": "POST",
+    "redirect_hops": [
+      {
+        "url": "https://be.5ch.net/log",
+        "status": 302,
+        "location": "http://be.5ch.net/err",
+        "set_cookie_names": []
+      },
+      {
+        "url": "http://be.5ch.net/err",
+        "status": 301,
+        "location": "https://be.5ch.net/err",
+        "set_cookie_names": []
+      },
+      {
+        "url": "https://be.5ch.net/err",
+        "status": 302,
+        "location": "http://be.5ch.net/",
+        "set_cookie_names": []
+      },
+      {
+        "url": "http://be.5ch.net/",
+        "status": 301,
+        "location": "https://be.5ch.net/",
+        "set_cookie_names": []
+      },
+      {
+        "url": "https://be.5ch.net/",
+        "status": 200,
+        "location": null,
+        "set_cookie_names": []
+      }
+    ],
+    "final_login_response_status": 200,
+    "session_cookie_names": [],
+    "home_status": 200,
+    "home_url": "https://be.5ch.net/",
+    "home_markers": {
+      "has_login_word": true,
+      "has_logout_word": false,
+      "has_status_word": false,
+      "has_error_word": false
+    },
+    "status_status": 200,
+    "status_url": "https://be.5ch.net/",
+    "status_markers": {
+      "has_login_word": true,
+      "has_logout_word": false,
+      "has_status_word": false,
+      "has_error_word": false
+    }
+  },
+  "authenticated": {
+    "initial_get_status": 200,
+    "form_action": "/log",
+    "form_method": "POST",
+    "redirect_hops": [
+      {
+        "url": "https://be.5ch.net/log",
+        "status": 302,
+        "location": "http://be.5ch.net/status",
+        "set_cookie_names": []
+      },
+      {
+        "url": "http://be.5ch.net/status",
+        "status": 301,
+        "location": "https://be.5ch.net/status",
+        "set_cookie_names": []
+      },
+      {
+        "url": "https://be.5ch.net/status",
+        "status": 302,
+        "location": "http://be.5ch.net/",
+        "set_cookie_names": []
+      },
+      {
+        "url": "http://be.5ch.net/",
+        "status": 301,
+        "location": "https://be.5ch.net/",
+        "set_cookie_names": []
+      },
+      {
+        "url": "https://be.5ch.net/",
+        "status": 200,
+        "location": null,
+        "set_cookie_names": []
+      }
+    ],
+    "final_login_response_status": 200,
+    "session_cookie_names": [],
+    "home_status": 200,
+    "home_url": "https://be.5ch.net/",
+    "home_markers": {
+      "has_login_word": true,
+      "has_logout_word": false,
+      "has_status_word": false,
+      "has_error_word": false
+    },
+    "status_status": 200,
+    "status_url": "https://be.5ch.net/",
+    "status_markers": {
+      "has_login_word": true,
+      "has_logout_word": false,
+      "has_status_word": false,
+      "has_error_word": false
+    }
+  }
+}

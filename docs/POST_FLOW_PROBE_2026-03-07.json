@@ -1,0 +1,107 @@
+{
+  "executed_at": "2026-03-07T01:51:26.124653",
+  "thread_url": "https://mao.5ch.io/test/read.cgi/ngt/9240230711/",
+  "result": [
+    {
+      "mode": "anonymous",
+      "thread_get_status": 200,
+      "form_action": "//mao.5ch.io/test/bbs.cgi",
+      "form_method": "POST",
+      "form_input_names": [
+        "FROM",
+        "bbs",
+        "key",
+        "mail",
+        "oekaki_thread1",
+        "submit",
+        "time"
+      ],
+      "hidden_input_names": [
+        "bbs",
+        "key",
+        "oekaki_thread1",
+        "time"
+      ],
+      "post_status": 200,
+      "post_location": null,
+      "response_cookie_names": [],
+      "session_cookie_names": [],
+      "response_markers": [
+        "confirm",
+        "error"
+      ],
+      "note": "empty MESSAGE used to avoid actual post"
+    },
+    {
+      "mode": "uplift_logged_in",
+      "thread_get_status": 200,
+      "form_action": "//mao.5ch.io/test/bbs.cgi",
+      "form_method": "POST",
+      "form_input_names": [
+        "FROM",
+        "bbs",
+        "key",
+        "mail",
+        "oekaki_thread1",
+        "submit",
+        "time"
+      ],
+      "hidden_input_names": [
+        "bbs",
+        "key",
+        "oekaki_thread1",
+        "time"
+      ],
+      "post_status": 200,
+      "post_location": null,
+      "response_cookie_names": [],
+      "session_cookie_names": [
+        "eid",
+        "sid"
+      ],
+      "response_markers": [
+        "confirm",
+        "error"
+      ],
+      "note": "empty MESSAGE used to avoid actual post"
+    },
+    {
+      "mode": "be_front_logged_in",
+      "thread_get_status": 200,
+      "form_action": "//mao.5ch.io/test/bbs.cgi",
+      "form_method": "POST",
+      "form_input_names": [
+        "FROM",
+        "bbs",
+        "key",
+        "mail",
+        "oekaki_thread1",
+        "submit",
+        "time"
+      ],
+      "hidden_input_names": [
+        "bbs",
+        "key",
+        "oekaki_thread1",
+        "time"
+      ],
+      "post_status": 200,
+      "post_location": null,
+      "response_cookie_names": [],
+      "session_cookie_names": [
+        "form_uid"
+      ],
+      "response_markers": [
+        "confirm",
+        "error",
+        "login"
+      ],
+      "note": "empty MESSAGE used to avoid actual post"
+    }
+  ],
+  "notes": [
+    "credentials are never printed",
+    "cookie values are omitted",
+    "probe uses empty MESSAGE to avoid actual posting"
+  ]
+}

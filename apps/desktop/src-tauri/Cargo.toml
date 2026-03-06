@@ -1,0 +1,19 @@
+﻿[package]
+name = "desktop"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "desktop_lib"
+crate-type = ["cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2" }
+
+[dependencies]
+core-fetch = { path = "../../../crates/core-fetch" }
+core-store = { path = "../../../crates/core-store" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tauri = { version = "2", features = [] }

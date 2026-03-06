@@ -1,0 +1,171 @@
+{
+  "executed_at": "2026-03-06T16:45:16.896Z",
+  "final_url": "https://be.5ch.net/",
+  "title": "5ちゃんねる BE2.1",
+  "markers": {
+    "has_login_word": true,
+    "has_logout_word": false,
+    "has_status_word": false
+  },
+  "cookies": [],
+  "events": [
+    {
+      "url": "https://be.5ch.net/",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/css/style.css",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/css/bootstrap.min.css",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/css/ie10-viewport-bug-workaround.css",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/js/ie10-viewport-bug-workaround.js",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/js/bootstrap.min.js",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/js/jquery-1.9.1.js",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/css/ba.gif",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/cdn-cgi/rum?",
+      "status": 204,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/log",
+      "status": 302,
+      "location": "http://be.5ch.net/status",
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "http://be.5ch.net/status",
+      "status": 301,
+      "location": "https://be.5ch.net/status",
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/status",
+      "status": 302,
+      "location": "http://be.5ch.net/",
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "http://be.5ch.net/",
+      "status": 301,
+      "location": "https://be.5ch.net/",
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/css/bootstrap.min.css",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/js/jquery-1.9.1.js",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/js/bootstrap.min.js",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/css/ie10-viewport-bug-workaround.css",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/css/style.css",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/js/ie10-viewport-bug-workaround.js",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/static/css/ba.gif",
+      "status": 200,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.net/cdn-cgi/rum?",
+      "status": 204,
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    }
+  ],
+  "notes": [
+    "credential values are never written",
+    "cookie values are omitted"
+  ]
+}

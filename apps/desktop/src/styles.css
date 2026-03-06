@@ -1,0 +1,29 @@
+﻿:root {
+  font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+  color: #1f1f1f;
+  background: #f1ede4;
+}
+
+body {
+  margin: 0;
+}
+
+.app-root {
+  min-height: 100vh;
+  padding: 24px;
+  background: linear-gradient(160deg, #f1ede4, #ddd5c8);
+}
+
+button {
+  padding: 10px 14px;
+  border: 1px solid #6a5f4b;
+  background: #f8f4ea;
+  cursor: pointer;
+}
+
+pre {
+  margin-top: 16px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #c8c2b8;
+}

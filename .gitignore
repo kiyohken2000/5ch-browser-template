@@ -1,0 +1,25 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+apps/desktop/node_modules/
+
+# Env files
+.env
+.env.local
+apps/desktop/.env.local
+
+# Local temp artifacts
+docs/_tmp_*.html
+
+zzz_memo.txt

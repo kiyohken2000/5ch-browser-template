@@ -1,0 +1,655 @@
+{
+  "executed_at": "2026-03-06T16:50:50.738Z",
+  "final_url": "https://5ch.io/_profile",
+  "title": "５ちゃんねる",
+  "markers": {
+    "has_login_word": false,
+    "has_logout_word": true,
+    "has_ng_exact": false,
+    "login_post_body_preview": null
+  },
+  "cookies": [
+    {
+      "name": "Be3M",
+      "domain": ".5ch.io",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false
+    },
+    {
+      "name": "Be3D",
+      "domain": ".5ch.io",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false
+    },
+    {
+      "name": "_ga_7NQT8916KZ",
+      "domain": ".5ch.io",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false
+    },
+    {
+      "name": "_ga",
+      "domain": ".5ch.io",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false
+    }
+  ],
+  "events": [
+    {
+      "url": "https://5ch.io/_login",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": true,
+      "set_cookie_prefix": "form_uid"
+    },
+    {
+      "url": "https://5ch.io/images/rabbit.png",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/cdn-cgi/scripts/7d0fa10a/cloudflare-static/rocket-loader.min.js",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/css/css/font-awesome.min.css",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/css/5ch.css",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/images/5ch_mascot_normal.png",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/vendor/bootstrap/css/bootstrap.min.css",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/images/5ch_logo.png",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/js/filter-min.js",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/js/frontpage-min.js?tweKSxMB5J",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/vendor/bootstrap/js/bootstrap.bundle.min.js",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/_login",
+      "status": 302,
+      "method": "POST",
+      "location": "/_profile",
+      "set_cookie_present": true,
+      "set_cookie_prefix": "Be3M"
+    },
+    {
+      "url": "https://5ch.io/css/fonts/fontawesome-webfont.woff2?v=4.7.0",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/_profile",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/css/css/font-awesome.min.css",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/vendor/bootstrap/css/bootstrap.min.css",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/css/5ch.css",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/images/rabbit.png",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/images/5ch_logo.png",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/css/fonts/fontawesome-webfont.woff2?v=4.7.0",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/005.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/003.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/002.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/004.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/avatar/001.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/001.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/images/5ch_mascot_normal.png",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/16_1.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/2iyou_2.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/008.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/06otome.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/006.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1san2.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/2gaijin.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1san32.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1_2.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/01ohitsuji.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/2-1.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/03hutago.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/2.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/05shishi.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1k.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/009.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/2_1.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/007.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/010.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1sanmini32.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1san16.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/09hebitsukai.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/02oushi.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1san1.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1san.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/13uo.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/08sasori.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1fu.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/2_2.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/04kani.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/07tenbin.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1_1.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/16k.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/10ite.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/2mona.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/2mona2.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/2marumimi.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/2k.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/12mizugame.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/16.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/1sanmini16.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/11yagi.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/16_2.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://be.5ch.io/static/img/2hikky.gif",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/cdn-cgi/scripts/7d0fa10a/cloudflare-static/rocket-loader.min.js",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/js/filter-min.js",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://5ch.io/vendor/bootstrap/js/bootstrap.bundle.min.js",
+      "status": 200,
+      "method": "GET",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    },
+    {
+      "url": "https://analytics.google.com/g/collect?v=2&tid=G-7NQT8916KZ&gtm=45je6341v9116189270za200zd9116189270&_p=1772815850312&_gaz=1&gcd=13l3l3l3l1l1&npa=0&dma=0&cid=970016956.1772815850&ul=ja&sr=1280x720&uaa=x86&uab=64&uafvl=Not%253AA-Brand%3B99.0.0.0%7CHeadlessChrome%3B145.0.7632.6%7CChromium%3B145.0.7632.6&uamb=0&uam=&uap=Windows&uapv=19.0.0&uaw=0&are=1&frm=0&pscdl=noapi&_eu=AAAAAGA&_s=1&tag_exp=102015666~103116026~103200004~115938465~115938469~116024733~117484252~117625639&sid=1772815850&sct=1&seg=0&dl=https%3A%2F%2F5ch.io%2F_profile&dr=https%3A%2F%2F5ch.io%2F_login&dt=%EF%BC%95%E3%81%A1%E3%82%83%E3%82%93%E3%81%AD%E3%82%8B&en=page_view&_fv=1&_nsi=1&_ss=1&_ee=1&tfd=4045",
+      "status": 204,
+      "method": "POST",
+      "location": null,
+      "set_cookie_present": false,
+      "set_cookie_prefix": null
+    }
+  ],
+  "notes": [
+    "credential values are never written",
+    "cookie values are omitted"
+  ]
+}

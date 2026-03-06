@@ -1,0 +1,23 @@
+{
+  "executed_at": "2026-03-06T16:53:09.404Z",
+  "final_url": "https://mao.5ch.io/test/bbs.cgi",
+  "context_cookie_names": [
+    "Be3D",
+    "Be3M"
+  ],
+  "bbs_records": [
+    {
+      "url": "https://mao.5ch.io/test/bbs.cgi",
+      "method": "POST",
+      "status": 200,
+      "request_header_cookie": {
+        "cookie_present": true,
+        "cookie_names": [
+          "Be3D",
+          "Be3M"
+        ]
+      },
+      "response_set_cookie_present": false
+    }
+  ]
+}

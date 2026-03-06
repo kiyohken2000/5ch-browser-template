@@ -1,0 +1,10 @@
+﻿[package]
+name = "core-fetch"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }

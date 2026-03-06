@@ -1,0 +1,41 @@
+{
+  "executed_at": "2026-03-06T16:52:16.658Z",
+  "thread_url": "https://mao.5ch.io/test/read.cgi/ngt/9240230711/",
+  "results": [
+    {
+      "mode": "anonymous",
+      "login_final_url": null,
+      "context_cookie_names": [],
+      "bbs_request_cookie_names": [],
+      "bbs_response_status": 200,
+      "bbs_response_location": null,
+      "markers": {
+        "has_confirm": true,
+        "has_error": false,
+        "has_login_word": false
+      }
+    },
+    {
+      "mode": "be_front_logged_in",
+      "login_final_url": "https://5ch.io/_profile",
+      "context_cookie_names": [
+        "Be3D",
+        "Be3M",
+        "_ga",
+        "_ga_7NQT8916KZ"
+      ],
+      "bbs_request_cookie_names": [],
+      "bbs_response_status": 200,
+      "bbs_response_location": null,
+      "markers": {
+        "has_confirm": true,
+        "has_error": false,
+        "has_login_word": false
+      }
+    }
+  ],
+  "notes": [
+    "credential values are never written",
+    "cookie values are omitted"
+  ]
+}

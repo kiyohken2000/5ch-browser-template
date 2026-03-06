@@ -1,0 +1,61 @@
+{
+  "executed_at": "2026-03-07T01:54:00.408416",
+  "env_file": "C:\\Users\\all\\develop\\python\\5ch-browser-template\\apps\\desktop\\.env.local",
+  "result": [
+    {
+      "service": "BE",
+      "login_url": "https://be.5ch.net/",
+      "form_action": "/log",
+      "form_method": "POST",
+      "get_status": 200,
+      "post_status": 302,
+      "location": "http://be.5ch.net/status",
+      "response_cookie_names": [],
+      "session_cookie_names": [],
+      "page_indicator_after_login": "login_marker_found",
+      "likely_logged_in": false,
+      "note": "redirect observed"
+    },
+    {
+      "service": "BE_FRONT_5CH_IO",
+      "login_url": "https://5ch.io/_login",
+      "form_action": "(same-url)",
+      "form_method": "POST",
+      "get_status": 200,
+      "post_status": 200,
+      "location": null,
+      "response_cookie_names": [],
+      "session_cookie_names": [
+        "form_uid"
+      ],
+      "page_indicator_after_login": "no_clear_marker",
+      "likely_logged_in": false,
+      "note": "front login flow"
+    },
+    {
+      "service": "UPLIFT",
+      "login_url": "https://uplift.5ch.io/login",
+      "form_action": "/log",
+      "form_method": "POST",
+      "get_status": 200,
+      "post_status": 302,
+      "location": "/dashboard",
+      "response_cookie_names": [
+        "sid",
+        "eid"
+      ],
+      "session_cookie_names": [
+        "sid",
+        "eid"
+      ],
+      "page_indicator_after_login": "logout_or_mypage_marker_found",
+      "likely_logged_in": true,
+      "note": "redirect observed"
+    }
+  ],
+  "notes": [
+    "credential values are never written to report",
+    "cookie values are omitted; only cookie names are recorded",
+    "likely_logged_in is heuristic and must be interpreted with page markers"
+  ]
+}

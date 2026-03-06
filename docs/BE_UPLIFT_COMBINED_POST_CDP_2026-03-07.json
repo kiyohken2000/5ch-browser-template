@@ -1,0 +1,75 @@
+{
+  "executed_at": "2026-03-06T16:57:31.943Z",
+  "be_login_final_url": "https://5ch.io/_profile",
+  "uplift_login_final_url": "https://uplift.5ch.io/dashboard",
+  "context_cookies": [
+    {
+      "name": "Be3M",
+      "domain": ".5ch.io",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false,
+      "expires": 1772902642.061598
+    },
+    {
+      "name": "Be3D",
+      "domain": ".5ch.io",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false,
+      "expires": 1772902642.061696
+    },
+    {
+      "name": "sid",
+      "domain": ".5ch.io",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false,
+      "expires": 1772899046.63669
+    },
+    {
+      "name": "eid",
+      "domain": ".uplift.5ch.io",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false,
+      "expires": 1772899046.636816
+    },
+    {
+      "name": "_ga",
+      "domain": ".5ch.io",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false,
+      "expires": 1807376249.578746
+    },
+    {
+      "name": "_ga_7NQT8916KZ",
+      "domain": ".5ch.io",
+      "path": "/",
+      "secure": false,
+      "httpOnly": false,
+      "expires": 1807376250.732087
+    }
+  ],
+  "bbs_records": [
+    {
+      "url": "https://mao.5ch.io/test/bbs.cgi",
+      "method": "POST",
+      "request_cookie_names": [
+        "Be3D",
+        "Be3M",
+        "_ga",
+        "_ga_7NQT8916KZ",
+        "sid"
+      ],
+      "response_set_cookie": false
+    }
+  ],
+  "login_set_cookie_headers": [
+    {
+      "url": "https://5ch.io/_login",
+      "set_cookie_raw": "form_uid=k6Yv2dPXq4"
+    }
+  ]
+}
