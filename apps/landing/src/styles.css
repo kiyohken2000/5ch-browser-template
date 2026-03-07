@@ -99,3 +99,9 @@ h1 {
   margin: 6px 0;
   color: var(--ink-sub);
 }
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin: 6px 0;
+  color: var(--ink-sub);
+}

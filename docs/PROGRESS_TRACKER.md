@@ -13,6 +13,7 @@
 - [x] `latest.json` 構造バリデーション導入
 - [x] 書き込みフロートウィンドウ（名前/メール/sage/本文/プレビュー）追加
 - [x] 書き込みフロートを confirm/finalize 実行APIに接続
+- [x] `apps/landing` に latest metadata 表示を実装
 
 ## 直近タスク（優先順）
 1. `core-fetch`: 実投稿フロー（confirm -> submit）本実装の実環境検証
