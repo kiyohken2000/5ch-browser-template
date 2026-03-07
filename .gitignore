@@ -25,6 +25,7 @@ docs/_tmp_*.html
 
 target/
 apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/data/
 
 zzz_memo.txt
 _temp

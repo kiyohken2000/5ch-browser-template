@@ -7,10 +7,13 @@
 - 実装進捗:
   - `core-auth`: BE/UPLIFT/どんぐり ログイン実装済み
   - `core-fetch`: `bbs/key/time` 動的取得 + confirm + finalize submit基盤実装済み
+  - `core-fetch`: `subject.txt` 解決を強化（thread URL / board URL / subject URL 入力に対応）
   - 更新チェック: `latest.json` 取得/比較 + 配布ページ起動実装済み
   - `apps/landing`: Vite + React ランディング雛形追加済み
   - `apps/desktop`: 上部URLバー + レスビューア/開発パネル分離UIを実装済み
+  - `apps/desktop`: スレ一覧取得時のステータス表示を追加（loading / rows / error）
 - Git は初期化済みで、`safe.directory` 設定済み（この環境から `git` 操作可能）。
+- 直近反映コミット: `8c1321c` (`desktop: improve thread load status and subject URL parsing`)
 
 ## 仕様確定ポイント（重要）
 - 5ch基盤:
@@ -32,6 +35,7 @@
 ## 実装優先タスク（次セッション）
 1. `core-fetch` 実環境検証
    - `allow_real_submit=true` で finalize submit の挙動確認
+   - board URL 入力（例: `https://mao.5ch.io/ngt/`）でのスレ一覧取得を実環境確認
 2. リリース運用実地
    - `scripts/prepare_release_metadata.py` で実ZIPから `latest.json` 生成 + strict検証
    - `apps/landing/public/latest.json` へ反映
@@ -39,7 +43,7 @@
    - ダウンロード導線文言/注意文言の調整
    - Cloudflare Pages プロジェクト設定（build dir: `apps/landing/dist`）
 4. geronimo互換UI本実装
-   - 行情報表示、キーボードショートカット、ペインリサイズの追加
+   - 行情報表示、ペインリサイズの追加
 
 ## 参照ドキュメント
 - 仕様: `docs/5ch_browser_spec.md`
