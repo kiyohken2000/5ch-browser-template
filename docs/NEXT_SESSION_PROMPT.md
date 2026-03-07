@@ -29,7 +29,7 @@
 1. `core-fetch` 実環境検証
    - finalize submit（`allow_real_submit=true`）の挙動確認
 2. リリース運用
-   - `scripts/generate_latest_json.py` で `latest.json` 生成
+   - `scripts/prepare_release_metadata.py` で `latest.json` 生成 + strict検証
    - `apps/landing/public/latest.json` 更新
 3. ランディング本番化
    - `apps/landing` の文言調整

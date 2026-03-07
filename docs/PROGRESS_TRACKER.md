@@ -16,7 +16,7 @@
 1. `core-fetch`: 実投稿フロー（confirm -> submit）本実装の実環境検証
 2. `apps/desktop`: Live5ch `geronimo` 互換UIの詳細調整（操作/行表示）
 3. `landing`: 文言/導線の本番向け調整
-4. `release`: タグ作成〜latest.json更新の半自動化
+4. `release`: タグ作成〜latest.json更新のワンショット運用定着
 
 ## 決定事項
 - `5ch.net` は入力時点で `5ch.io` に正規化

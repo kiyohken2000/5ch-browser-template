@@ -29,7 +29,7 @@
 
 ## 4. 次の優先タスク
 1. `core-fetch` 実投稿フロー（confirm -> submit）の実環境検証
-2. `scripts/generate_latest_json.py` を使ったリリース運用検証
+2. `scripts/prepare_release_metadata.py` を使ったリリース運用検証
 3. `apps/landing` をCloudflare Pagesへ本番デプロイ
 4. Live5ch `geronimo` 互換UIを本実装
 

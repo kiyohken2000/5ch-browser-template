@@ -25,10 +25,10 @@ Example:
 - `https://github.com/kiyohken2000/5ch-browser-template/releases/tag/v0.2.0`
 
 ## 4. Generate `latest.json`
-Use the script from repository root:
+Use the one-shot script from repository root:
 
 ```powershell
-python scripts/generate_latest_json.py `
+python scripts/prepare_release_metadata.py `
   --version 0.2.0 `
   --released-at 2026-03-07T15:30:00+09:00 `
   --download-page-url "https://github.com/kiyohken2000/5ch-browser-template/releases/tag/v0.2.0" `
@@ -36,7 +36,11 @@ python scripts/generate_latest_json.py `
   --mac-zip "C:\path\to\5ch-browser-mac-arm64.zip"
 ```
 
-This script calculates SHA-256 hashes and file sizes and writes to:
+This command:
+1. generates metadata with SHA-256 hashes and sizes
+2. validates the result in strict mode
+
+Output path:
 - `apps/landing/public/latest.json` (default)
 
 ## 5. Cloudflare Pages Deploy
@@ -67,6 +71,13 @@ Strict validation for release metadata (no placeholders):
 
 ```powershell
 python scripts/validate_latest_json.py --file apps/landing/public/latest.json --strict
+```
+
+Landing-local shortcut:
+
+```powershell
+cd apps/landing
+npm run check:latest:strict
 ```
 
 ## 6. `latest.json` Format

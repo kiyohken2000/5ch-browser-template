@@ -32,7 +32,7 @@
 1. `core-fetch` 実環境検証
    - `allow_real_submit=true` で finalize submit の挙動確認
 2. リリース運用実地
-   - `scripts/generate_latest_json.py` で実ZIPから `latest.json` 生成
+   - `scripts/prepare_release_metadata.py` で実ZIPから `latest.json` 生成 + strict検証
    - `apps/landing/public/latest.json` へ反映
 3. ランディング本番化
    - ダウンロード導線文言/注意文言の調整
