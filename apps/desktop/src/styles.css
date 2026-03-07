@@ -151,6 +151,52 @@ pre {
   color: var(--sub);
 }
 
+.compose-window {
+  position: fixed;
+  right: 20px;
+  bottom: 28px;
+  width: min(560px, calc(100vw - 28px));
+  border: 1px solid var(--line);
+  background: #efe7d8;
+  box-shadow: 0 12px 24px rgba(20, 20, 20, 0.28);
+  z-index: 30;
+}
+
+.compose-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding: 8px;
+  background: #e0d5c2;
+}
+
+.compose-grid {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.compose-body {
+  width: calc(100% - 16px);
+  margin: 0 8px;
+  min-height: 140px;
+  border: 1px solid #ad9f87;
+  background: #fffdfa;
+  padding: 8px;
+  resize: vertical;
+}
+
+.compose-preview {
+  margin: 8px;
+}
+
+.compose-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+}
+
 @media (max-width: 980px) {
   .shell {
     grid-template-rows: 26px auto 1fr 24px;

@@ -70,6 +70,13 @@ export default function App() {
   const [currentVersion, setCurrentVersion] = useState("0.1.0");
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
   const [updateProbe, setUpdateProbe] = useState("not run");
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [composeName, setComposeName] = useState("");
+  const [composeMail, setComposeMail] = useState("");
+  const [composeSage, setComposeSage] = useState(false);
+  const [composeBody, setComposeBody] = useState("");
+  const [composePreview, setComposePreview] = useState(false);
+  const [composeEnterSubmit, setComposeEnterSubmit] = useState(false);
 
   const fetchMenu = async () => {
     setStatus("loading...");
@@ -191,6 +198,8 @@ export default function App() {
     await invoke("open_external_url", { url: updateResult.downloadPageUrl });
   };
 
+  const composeMailValue = composeSage ? "sage" : composeMail;
+
   return (
     <div className="shell">
       <header className="menu-bar">File Edit View Board Thread Tools Help</header>
@@ -198,6 +207,7 @@ export default function App() {
         <button onClick={fetchMenu}>Refresh Menu</button>
         <button onClick={checkAuthEnv}>Auth Status</button>
         <button onClick={probeAuth}>Auth Probe</button>
+        <button onClick={() => setComposeOpen(true)}>Write</button>
       </div>
       <main className="layout">
         <section className="pane boards">
@@ -281,6 +291,54 @@ export default function App() {
         </section>
       </main>
       <footer className="status-bar">BE/UPLIFT/DONGURI | API: standby</footer>
+      {composeOpen && (
+        <section className="compose-window" role="dialog" aria-label="Write">
+          <header className="compose-header">
+            <strong>Write</strong>
+            <button onClick={() => setComposeOpen(false)}>Close</button>
+          </header>
+          <div className="compose-grid">
+            <label>
+              Name
+              <input value={composeName} onChange={(e) => setComposeName(e.target.value)} />
+            </label>
+            <label>
+              Mail
+              <input value={composeMailValue} onChange={(e) => setComposeMail(e.target.value)} disabled={composeSage} />
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={composeSage} onChange={(e) => setComposeSage(e.target.checked)} />
+              sage
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={composePreview} onChange={(e) => setComposePreview(e.target.checked)} />
+              preview
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={composeEnterSubmit}
+                onChange={(e) => setComposeEnterSubmit(e.target.checked)}
+              />
+              enter submit
+            </label>
+          </div>
+          <textarea
+            className="compose-body"
+            value={composeBody}
+            onChange={(e) => setComposeBody(e.target.value)}
+            placeholder="message"
+          />
+          {composePreview && <pre className="compose-preview">{composeBody || "(empty)"}</pre>}
+          <div className="compose-actions">
+            <button onClick={probePostConfirmEmpty}>Confirm</button>
+            <button onClick={probePostFinalizePreview}>Finalize Form</button>
+            <button onClick={probePostFinalizeSubmitEmpty} disabled={!allowRealSubmit}>
+              Submit
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
