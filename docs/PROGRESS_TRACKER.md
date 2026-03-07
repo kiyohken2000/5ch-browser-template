@@ -21,10 +21,11 @@
 - [x] 右ペインをレスビューアとDeveloper Tools折りたたみに分離
 - [x] `live5ch_3/4` 反映: スレ列情報強化 + レス右クリックメニュー拡張 + ステータス指標追加
 - [x] `subject.txt` 取得コマンド追加（Tauri経由でスレ一覧を実データ表示）
+- [x] キーボードショートカットを追加（`Ctrl+Shift+R`, `Ctrl+Shift+W`）
 
 ## 直近タスク（優先順）
 1. `core-fetch`: 実投稿フロー（confirm -> submit）本実装の実環境検証
-2. `apps/desktop`: Live5ch `geronimo` 互換UIの詳細調整（ショートカット/ペインリサイズ）
+2. `apps/desktop`: Live5ch `geronimo` 互換UIの詳細調整（ペインリサイズ）
 3. `landing`: 文言/導線の本番向け調整
 4. `release`: タグ作成〜latest.json更新のワンショット運用定着
 

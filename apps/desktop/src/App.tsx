@@ -1,4 +1,4 @@
-import { useState, type KeyboardEventHandler, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useState, type KeyboardEventHandler, type MouseEvent as ReactMouseEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -390,6 +390,22 @@ export default function App() {
     setResponseMenu(null);
   };
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        void fetchThreadListFromCurrent();
+        return;
+      }
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "w") {
+        e.preventDefault();
+        setComposeOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [threadUrl]);
+
   return (
     <div
       className="shell"
@@ -405,6 +421,7 @@ export default function App() {
         <button onClick={checkAuthEnv}>Auth Status</button>
         <button onClick={probeAuth}>Auth Probe</button>
         <button onClick={() => setComposeOpen(true)}>Write</button>
+        <span className="shortcut-hint">Shortcuts: Ctrl+Shift+R / Ctrl+Shift+W</span>
       </div>
       <div className="address-bar">
         <span>URL</span>

@@ -38,6 +38,13 @@ body {
   padding: 6px;
   display: flex;
   gap: 6px;
+  align-items: center;
+}
+
+.shortcut-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--sub);
 }
 
 .address-bar {
