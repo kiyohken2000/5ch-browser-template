@@ -166,6 +166,31 @@ async fn probe_post_confirm_empty(thread_url: String) -> Result<PostConfirmResul
 }
 
 #[tauri::command]
+async fn probe_post_confirm(
+    thread_url: String,
+    from: Option<String>,
+    mail: Option<String>,
+    message: Option<String>,
+) -> Result<PostConfirmResult, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("5ch-browser-template/0.1")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let tokens = fetch_post_form_tokens(&client, &thread_url)
+        .await
+        .map_err(|e| e.to_string())?;
+    submit_post_confirm(
+        &client,
+        &tokens,
+        from.as_deref().unwrap_or(""),
+        mail.as_deref().unwrap_or(""),
+        message.as_deref().unwrap_or(""),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn probe_post_finalize_preview(thread_url: String) -> Result<PostFinalizePreview, String> {
     let client = reqwest::Client::builder()
         .user_agent("5ch-browser-template/0.1")
@@ -177,6 +202,32 @@ async fn probe_post_finalize_preview(thread_url: String) -> Result<PostFinalizeP
     let (_, confirm_html) = submit_post_confirm_with_html(&client, &tokens, "", "", "")
         .await
         .map_err(|e| e.to_string())?;
+    parse_confirm_submit_form(&confirm_html, &tokens.post_url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn probe_post_finalize_preview_from_input(
+    thread_url: String,
+    from: Option<String>,
+    mail: Option<String>,
+    message: Option<String>,
+) -> Result<PostFinalizePreview, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("5ch-browser-template/0.1")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let tokens = fetch_post_form_tokens(&client, &thread_url)
+        .await
+        .map_err(|e| e.to_string())?;
+    let (_, confirm_html) = submit_post_confirm_with_html(
+        &client,
+        &tokens,
+        from.as_deref().unwrap_or(""),
+        mail.as_deref().unwrap_or(""),
+        message.as_deref().unwrap_or(""),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     parse_confirm_submit_form(&confirm_html, &tokens.post_url).map_err(|e| e.to_string())
 }
 
@@ -198,6 +249,38 @@ async fn probe_post_finalize_submit_empty(
     let (_, confirm_html) = submit_post_confirm_with_html(&client, &tokens, "", "", "")
         .await
         .map_err(|e| e.to_string())?;
+    submit_post_finalize_from_confirm(&client, &confirm_html, &tokens.post_url)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn probe_post_finalize_submit_from_input(
+    thread_url: String,
+    from: Option<String>,
+    mail: Option<String>,
+    message: Option<String>,
+    allow_real_submit: bool,
+) -> Result<PostSubmitResult, String> {
+    if !allow_real_submit {
+        return Err("blocked: set allow_real_submit=true to execute final submit".to_string());
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("5ch-browser-template/0.1")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let tokens = fetch_post_form_tokens(&client, &thread_url)
+        .await
+        .map_err(|e| e.to_string())?;
+    let (_, confirm_html) = submit_post_confirm_with_html(
+        &client,
+        &tokens,
+        from.as_deref().unwrap_or(""),
+        mail.as_deref().unwrap_or(""),
+        message.as_deref().unwrap_or(""),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     submit_post_finalize_from_confirm(&client, &confirm_html, &tokens.post_url)
         .await
         .map_err(|e| e.to_string())
@@ -340,8 +423,11 @@ pub fn run() {
             probe_post_cookie_scope_simulation,
             probe_thread_post_form,
             probe_post_confirm_empty,
+            probe_post_confirm,
             probe_post_finalize_preview,
+            probe_post_finalize_preview_from_input,
             probe_post_finalize_submit_empty,
+            probe_post_finalize_submit_from_input,
             check_for_updates,
             open_external_url
         ])

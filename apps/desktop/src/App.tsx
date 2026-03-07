@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type KeyboardEventHandler } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -151,10 +151,42 @@ export default function App() {
     }
   };
 
+  const probePostConfirmFromCompose = async () => {
+    setPostConfirmProbe("running...");
+    try {
+      const r = await invoke<PostConfirmResult>("probe_post_confirm", {
+        threadUrl,
+        from: composeName || null,
+        mail: composeMailValue || null,
+        message: composeBody || null,
+      });
+      setPostConfirmProbe(
+        `status=${r.status} type=${r.contentType ?? "-"} confirm=${r.containsConfirm} error=${r.containsError} preview=${r.bodyPreview}`
+      );
+    } catch (error) {
+      setPostConfirmProbe(`error: ${String(error)}`);
+    }
+  };
+
   const probePostFinalizePreview = async () => {
     setPostFinalizePreviewProbe("running...");
     try {
       const r = await invoke<PostFinalizePreview>("probe_post_finalize_preview", { threadUrl });
+      setPostFinalizePreviewProbe(`action=${r.actionUrl} fields=${r.fieldCount} names=${r.fieldNames.join(",")}`);
+    } catch (error) {
+      setPostFinalizePreviewProbe(`error: ${String(error)}`);
+    }
+  };
+
+  const probePostFinalizePreviewFromCompose = async () => {
+    setPostFinalizePreviewProbe("running...");
+    try {
+      const r = await invoke<PostFinalizePreview>("probe_post_finalize_preview_from_input", {
+        threadUrl,
+        from: composeName || null,
+        mail: composeMailValue || null,
+        message: composeBody || null,
+      });
       setPostFinalizePreviewProbe(`action=${r.actionUrl} fields=${r.fieldCount} names=${r.fieldNames.join(",")}`);
     } catch (error) {
       setPostFinalizePreviewProbe(`error: ${String(error)}`);
@@ -166,6 +198,24 @@ export default function App() {
     try {
       const r = await invoke<PostSubmitResult>("probe_post_finalize_submit_empty", {
         threadUrl,
+        allowRealSubmit,
+      });
+      setPostFinalizeSubmitProbe(
+        `status=${r.status} type=${r.contentType ?? "-"} error=${r.containsError} preview=${r.bodyPreview}`
+      );
+    } catch (error) {
+      setPostFinalizeSubmitProbe(`error: ${String(error)}`);
+    }
+  };
+
+  const probePostFinalizeSubmitFromCompose = async () => {
+    setPostFinalizeSubmitProbe("running...");
+    try {
+      const r = await invoke<PostSubmitResult>("probe_post_finalize_submit_from_input", {
+        threadUrl,
+        from: composeName || null,
+        mail: composeMailValue || null,
+        message: composeBody || null,
         allowRealSubmit,
       });
       setPostFinalizeSubmitProbe(
@@ -196,6 +246,14 @@ export default function App() {
   const openDownloadPage = async () => {
     if (!updateResult?.downloadPageUrl) return;
     await invoke("open_external_url", { url: updateResult.downloadPageUrl });
+  };
+
+  const onComposeBodyKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
+    if (!composeEnterSubmit) return;
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void probePostConfirmFromCompose();
+    }
   };
 
   const composeMailValue = composeSage ? "sage" : composeMail;
@@ -327,13 +385,14 @@ export default function App() {
             className="compose-body"
             value={composeBody}
             onChange={(e) => setComposeBody(e.target.value)}
+            onKeyDown={onComposeBodyKeyDown}
             placeholder="message"
           />
           {composePreview && <pre className="compose-preview">{composeBody || "(empty)"}</pre>}
           <div className="compose-actions">
-            <button onClick={probePostConfirmEmpty}>Confirm</button>
-            <button onClick={probePostFinalizePreview}>Finalize Form</button>
-            <button onClick={probePostFinalizeSubmitEmpty} disabled={!allowRealSubmit}>
+            <button onClick={probePostConfirmFromCompose}>Confirm</button>
+            <button onClick={probePostFinalizePreviewFromCompose}>Finalize Form</button>
+            <button onClick={probePostFinalizeSubmitFromCompose} disabled={!allowRealSubmit}>
               Submit
             </button>
           </div>
