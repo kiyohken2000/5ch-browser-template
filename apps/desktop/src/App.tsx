@@ -98,6 +98,7 @@ export default function App() {
   const [fetchedThreads, setFetchedThreads] = useState<ThreadListItem[]>([]);
   const [selectedBoard, setSelectedBoard] = useState("Favorite");
   const [selectedThread, setSelectedThread] = useState<number | null>(1);
+  const [closedThreadIds, setClosedThreadIds] = useState<number[]>([]);
   const [selectedResponse, setSelectedResponse] = useState<number>(1);
   const [threadReadMap, setThreadReadMap] = useState<Record<number, boolean>>({ 1: false, 2: true });
   const [threadMenu, setThreadMenu] = useState<{ x: number; y: number; threadId: number } | null>(null);
@@ -181,6 +182,7 @@ export default function App() {
         limit: 80,
       });
       setFetchedThreads(rows);
+      setClosedThreadIds([]);
       setThreadListProbe(`ok rows=${rows.length}`);
       if (rows.length > 0) {
         setSelectedThread(1);
@@ -359,6 +361,7 @@ export default function App() {
         }))
       : fallbackThreadItems
   ).slice(0, 80);
+  const visibleThreadItems = threadItems.filter((t) => !closedThreadIds.includes(t.id));
   const responseItems = [
     { id: 1, name: "Anonymous", time: "2026/03/07 10:00", text: "post flow trace ready" },
     { id: 2, name: "Anonymous", time: "2026/03/07 10:02", text: "be/uplift/donguri login checked" },
@@ -372,8 +375,8 @@ export default function App() {
     setResponseMenu(null);
   };
 
-  const onResponseContextMenu = (e: ReactMouseEvent, responseId: number) => {
-    e.preventDefault();
+  const onResponseNoClick = (e: ReactMouseEvent, responseId: number) => {
+    e.stopPropagation();
     setSelectedResponse(responseId);
     setResponseMenu({ x: e.clientX, y: e.clientY, responseId });
     setThreadMenu(null);
@@ -397,14 +400,30 @@ export default function App() {
         void fetchThreadListFromCurrent();
         return;
       }
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "w") {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "w") {
         e.preventDefault();
-        setComposeOpen(true);
+        if (selectedThread == null) return;
+        const ids = visibleThreadItems.map((t) => t.id);
+        const idx = ids.indexOf(selectedThread);
+        if (idx < 0) return;
+        setClosedThreadIds((prev) => [...prev, selectedThread]);
+        const nextIds = ids.filter((id) => id !== selectedThread);
+        setSelectedThread(nextIds.length > 0 ? nextIds[Math.min(idx, nextIds.length - 1)] : null);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === "/" || e.code === "Slash")) {
+        e.preventDefault();
+        const ids = visibleThreadItems.map((t) => t.id);
+        if (ids.length === 0) return;
+        const cur = selectedThread ?? ids[0];
+        const idx = ids.indexOf(cur);
+        const next = ids[(idx + 1 + ids.length) % ids.length];
+        setSelectedThread(next);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [threadUrl]);
+  }, [threadUrl, selectedThread, visibleThreadItems]);
 
   return (
     <div
@@ -421,7 +440,7 @@ export default function App() {
         <button onClick={checkAuthEnv}>Auth Status</button>
         <button onClick={probeAuth}>Auth Probe</button>
         <button onClick={() => setComposeOpen(true)}>Write</button>
-        <span className="shortcut-hint">Shortcuts: Ctrl+Shift+R / Ctrl+Shift+W</span>
+        <span className="shortcut-hint">Shortcuts: Ctrl+Shift+R | Ctrl/Cmd+W | Ctrl+Alt+/ (Cmd+Option+/)</span>
       </div>
       <div className="address-bar">
         <span>URL</span>
@@ -464,7 +483,7 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {threadItems.map((t) => (
+              {visibleThreadItems.map((t) => (
                 <tr
                   key={t.id}
                   className={selectedThread === t.id ? "selected-row" : ""}
@@ -510,9 +529,10 @@ export default function App() {
                     key={r.id}
                     className={selectedResponse === r.id ? "selected-row" : ""}
                     onClick={() => setSelectedResponse(r.id)}
-                    onContextMenu={(e) => onResponseContextMenu(e, r.id)}
                   >
-                    <td>{r.id}</td>
+                    <td className="response-no" onClick={(e) => onResponseNoClick(e, r.id)}>
+                      {r.id}
+                    </td>
                     <td>{r.name}</td>
                     <td>{r.time}</td>
                   </tr>

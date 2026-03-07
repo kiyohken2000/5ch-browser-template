@@ -135,6 +135,12 @@ body {
   text-align: left;
 }
 
+.response-no {
+  cursor: pointer;
+  color: #204f8a;
+  text-decoration: underline;
+}
+
 .response-viewer {
   border: 1px solid #beb29d;
   background: #fffdfa;

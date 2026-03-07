@@ -21,7 +21,8 @@
 - [x] 右ペインをレスビューアとDeveloper Tools折りたたみに分離
 - [x] `live5ch_3/4` 反映: スレ列情報強化 + レス右クリックメニュー拡張 + ステータス指標追加
 - [x] `subject.txt` 取得コマンド追加（Tauri経由でスレ一覧を実データ表示）
-- [x] キーボードショートカットを追加（`Ctrl+Shift+R`, `Ctrl+Shift+W`）
+- [x] レス番号セル左クリックでレスメニュー表示（`live5ch_4` 反映）
+- [x] キーボードショートカットを追加（`Ctrl/Cmd+W` タブ閉じ、`Ctrl+Alt+/`/`Cmd+Option+/` タブ切替）
 
 ## 直近タスク（優先順）
 1. `core-fetch`: 実投稿フロー（confirm -> submit）本実装の実環境検証
