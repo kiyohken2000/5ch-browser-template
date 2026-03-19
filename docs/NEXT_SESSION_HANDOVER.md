@@ -61,6 +61,9 @@
   - `apps/desktop`: レス書き込み後の自動リロード（投稿成功時にレス再取得）
   - `apps/desktop`: 画像URL自動サムネイル（jpg/png/gif/webp → インラインサムネイル）
   - `apps/desktop`: smoke-ui 40項目（タブ作成/切替/閉じ/サムネイル構造追加）
+  - `apps/desktop`: スレ一覧ソート（番号/タイトル/レス/勢い カラムクリック昇順降順）
+  - `apps/desktop`: レス本文コピー + NG名前追加（右クリックメニュー7アクション）
+  - `apps/desktop`: smoke-ui 42項目（ソートヘッダー/レスメニュー追加）
 - Git は初期化済みで、`safe.directory` 設定済み（この環境から `git` 操作可能）。
 - safe probe 実環境検証 (2026-03-19):
   - 全4モード（anonymous/uplift/be_front/be_uplift）で GET=200, confirm=200
@@ -116,8 +119,8 @@
    - board URL 入力（例: `https://mao.5ch.io/ngt/`）でのスレ一覧取得を実環境確認
 2. geronimo互換UI継続改善
    - 画像サムネイルクリック → 拡大表示/ダウンロード
-   - レス本文コピー機能
-   - スレ一覧ソート（勢い/レス数/最終書込）
+   - スレ一覧の新着レス数表示（既得レス vs 現在レス差分）
+   - ドラッグ&ドロップでタブ順序変更
 3. リリース運用実地
    - `scripts/prepare_release_metadata.py` で実ZIPから `latest.json` 生成 + strict検証
    - `apps/landing/public/latest.json` へ反映
