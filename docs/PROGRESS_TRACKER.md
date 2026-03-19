@@ -40,14 +40,26 @@
 - [x] `core-parse` に dat行パーサを追加
 - [x] `core-fetch` に dat取得 (`fetch_thread_responses`) を追加
 - [x] desktop にスレ本文レスの実データ表示を接続（Tauri実行時）
+- [x] `scripts/probe_post_flow.py`: マーカー検出を拡張（empty_body/oekaki/wait 追加）
+- [x] safe probe 実環境検証完了（2026-03-19: 全4モード GET/confirm 200確認、`oekaki_thread1` hidden field 新規観測）
+- [x] desktop: レスポンス本文HTML描画（`<br>`/entities/`>>N`アンカー対応）
+- [x] desktop: 未読スレ太字表示（CSS `unread-row` クラス）+ クリック時自動既読化
+- [x] desktop: スレタイトル省略表示（`text-overflow: ellipsis`）+ テーブル固定レイアウト
+- [x] desktop: メニューバー個別項目化（hover状態つき）
+- [x] desktop: スレ/レステーブルヘッダーをグラデーション + sticky化
+- [x] desktop: ツールバーにセパレーター追加 + ボタン hover/active 状態
+- [x] desktop: レスポンスビューア/テーブルのスクロール制御改善
+- [x] desktop: 選択行の自動スクロール（`scrollIntoView`）
+- [x] desktop: smoke-ui テスト拡張（メニュー項目/未読スタイル/省略表示/sticky/自動既読/セパレーター）
 
 ## 直近タスク（優先順）
-1. `core-fetch`: 実投稿フロー（confirm -> submit）本実装の実環境検証
-   - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_post_flow_probe.ps1 -Timeout 15` で safe probe
+1. `core-fetch`: 非空メッセージでの confirm form 検出を確認（safe probe 完了: 2026-03-19）
    - real submit時は `-AllowRealSubmit -RealSubmitToken I_UNDERSTAND_REAL_POST -Message "<non-empty>"` を必須化
-2. `apps/desktop`: Live5ch `geronimo` 互換UIの詳細調整（表示文言と操作感の詰め）
+2. `apps/desktop`: geronimo互換UI継続改善
+   - 板一覧の bbsmenu.json 動的取得 → ツリー表示
+   - `>>N` アンカークリック → レスジャンプ
+   - 書き込みウィンドウ UX（投稿先表示/文字数/投稿結果）
    - push前に `apps/desktop` で `npm run test:smoke-ui` を実行
-   - CI（GitHub Actions）でも smoke-ui を自動実行
 3. `landing`: 文言/導線の本番向け調整
 4. `release`: タグ作成〜latest.json更新のワンショット運用定着
 

@@ -28,10 +28,10 @@
 - 更新確認: Pages上の `latest.json` を参照し、更新時は配布ページへ誘導
 
 ## 4. 次の優先タスク
-1. `core-fetch` 実投稿フロー（confirm -> submit）の実環境検証
-2. `scripts/prepare_release_metadata.py` を使ったリリース運用検証
-3. `apps/landing` をCloudflare Pagesへ本番デプロイ
-4. Live5ch `geronimo` 互換UIを本実装
+1. `core-fetch` 実投稿フロー: 非空メッセージでの confirm form 検出を確認（safe probe 完了済み）
+2. `geronimo` 互換UI継続改善（板ツリー動的取得、アンカージャンプ、書き込みUX）
+3. `scripts/prepare_release_metadata.py` を使ったリリース運用検証
+4. `apps/landing` をCloudflare Pagesへ本番デプロイ
 
 ## 5. 注意
 - 観測結果で確定していない項目は推測で固定しない。

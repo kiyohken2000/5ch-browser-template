@@ -1,6 +1,6 @@
 ﻿# NEXT SESSION HANDOVER
 
-## 現在地（2026-03-19 JST）
+## 現在地（2026-03-19 JST 更新）
 - 仕様書: `docs/5ch_browser_spec.md` は `v1.0`。
 - BE/UPLIFT/どんぐり の通信仕様は観測ベースで実装可能な粒度まで整理済み。
 - 配布方針は確定: `Cloudflare Pages (Vite + React) + GitHub Releases`。
@@ -29,7 +29,22 @@
   - `scripts/probe_post_flow.py`: confirm/finalize解析を追加し、real submit を二重ガード化
   - `scripts/probe_post_flow.py`: real submit時は非空 `--message` 必須（空本文を事前拒否）
   - `scripts/run_post_flow_probe.ps1`: post flow probe 実行ラッパーを追加（終了コード伝播あり）
+  - `scripts/probe_post_flow.py`: マーカー検出拡張（empty_body/oekaki/wait）
+  - `apps/desktop`: レスポンス本文HTMLレンダリング（`<br>`, entities, `>>N`アンカー）
+  - `apps/desktop`: 未読スレ太字表示 + クリック時自動既読化
+  - `apps/desktop`: スレタイトル省略表示 + テーブル固定レイアウト
+  - `apps/desktop`: メニューバー個別項目化 + hover状態
+  - `apps/desktop`: テーブルヘッダー gradient + sticky化
+  - `apps/desktop`: ツールバーセパレーター + ボタン hover/active
+  - `apps/desktop`: レスポンスビューア/テーブルのスクロール制御改善
+  - `apps/desktop`: 選択行の自動スクロール
+  - `apps/desktop`: smoke-ui テスト拡張（メニュー/未読/省略/sticky/自動既読/セパレーター）
 - Git は初期化済みで、`safe.directory` 設定済み（この環境から `git` 操作可能）。
+- safe probe 実環境検証 (2026-03-19):
+  - 全4モード（anonymous/uplift/be_front/be_uplift）で GET=200, confirm=200
+  - hidden field に `oekaki_thread1` を新規観測
+  - 空 MESSAGE では confirm_form 検出なし（expected: サーバーがエラーページ返却）
+  - Cookie: uplift → sid,eid / be_front → form_uid / be_uplift → eid,form_uid,sid
 - 直近反映コミット:
   - `d7d1666` (`desktop: add draggable pane splitters for three-pane layout`)
   - `f62ef0e` (`desktop: persist pane sizes and add layout reset`)
@@ -68,19 +83,21 @@
   - `eid` は `.uplift.5ch.io` のため投稿先へは送信されない
 
 ## 実装優先タスク（次セッション）
-1. `core-fetch` 実環境検証
-   - `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run_post_flow_probe.ps1 -Timeout 15` で confirm/finalize safe probe
+1. `core-fetch` 実投稿フロー（confirm → submit）の実 MESSAGE 検証
+   - safe probe 完了（2026-03-19）、次は非空メッセージでの confirm form 検出を確認
    - 必要時のみ `-AllowRealSubmit -RealSubmitToken I_UNDERSTAND_REAL_POST -Message "<non-empty>"` で実送信検証
    - board URL 入力（例: `https://mao.5ch.io/ngt/`）でのスレ一覧取得を実環境確認
-2. リリース運用実地
+2. geronimo互換UI継続改善
+   - 板一覧を bbsmenu.json から動的取得してツリー表示
+   - レスポンス `>>N` アンカークリック時のジャンプ動作
+   - 書き込みウィンドウの操作感（投稿先スレ表示/文字数カウント/投稿結果フィードバック）
+   - スモークテスト対象ケースの拡張（アンカー操作/書き込み送信フロー）
+3. リリース運用実地
    - `scripts/prepare_release_metadata.py` で実ZIPから `latest.json` 生成 + strict検証
    - `apps/landing/public/latest.json` へ反映
-3. ランディング本番化
+4. ランディング本番化
    - ダウンロード導線文言/注意文言の調整
    - Cloudflare Pages プロジェクト設定（build dir: `apps/landing/dist`）
-4. geronimo互換UI本実装
-   - 表示文言・ショートカット・操作感の詰め
-   - スモークテスト対象ケースの拡張（右ペイン操作/ショートカット）
 
 ## 参照ドキュメント
 - 仕様: `docs/5ch_browser_spec.md`
