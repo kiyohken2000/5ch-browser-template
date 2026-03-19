@@ -78,6 +78,7 @@ const DEFAULT_BOARD_PANE_PX = 220;
 const DEFAULT_THREAD_PANE_PX = 420;
 const DEFAULT_RESPONSE_TOP_RATIO = 42;
 const LAYOUT_PREFS_KEY = "desktop.layoutPrefs.v1";
+const MENU_EDGE_PADDING = 8;
 
 type ResizeDragState =
   | { mode: "board-thread"; startX: number; startBoardPx: number; startThreadPx: number }
@@ -85,6 +86,10 @@ type ResizeDragState =
   | { mode: "response-rows"; startY: number; startResponseTopRatio: number; responseLayoutHeight: number };
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+const clampMenuPosition = (x: number, y: number, width: number, height: number) => ({
+  x: clamp(x, MENU_EDGE_PADDING, Math.max(MENU_EDGE_PADDING, window.innerWidth - width - MENU_EDGE_PADDING)),
+  y: clamp(y, MENU_EDGE_PADDING, Math.max(MENU_EDGE_PADDING, window.innerHeight - height - MENU_EDGE_PADDING)),
+});
 
 export default function App() {
   const [status, setStatus] = useState("not fetched");
@@ -398,14 +403,16 @@ export default function App() {
 
   const onThreadContextMenu = (e: ReactMouseEvent, threadId: number) => {
     e.preventDefault();
-    setThreadMenu({ x: e.clientX, y: e.clientY, threadId });
+    const p = clampMenuPosition(e.clientX, e.clientY, 180, 92);
+    setThreadMenu({ x: p.x, y: p.y, threadId });
     setResponseMenu(null);
   };
 
   const onResponseNoClick = (e: ReactMouseEvent, responseId: number) => {
     e.stopPropagation();
     setSelectedResponse(responseId);
-    setResponseMenu({ x: e.clientX, y: e.clientY, responseId });
+    const p = clampMenuPosition(e.clientX, e.clientY, 240, 224);
+    setResponseMenu({ x: p.x, y: p.y, responseId });
     setThreadMenu(null);
   };
 
