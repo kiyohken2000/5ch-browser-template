@@ -6,6 +6,7 @@ use core_fetch::{
     PostFinalizePreview, PostFormTokens, PostSubmitResult,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::process::Command;
 
 #[derive(Serialize)]
@@ -635,6 +636,82 @@ async fn fetch_board_categories() -> Result<Vec<BoardCategory>, String> {
     Ok(categories)
 }
 
+// --- Favorites persistence ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FavoriteBoard {
+    board_name: String,
+    url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FavoriteThread {
+    thread_url: String,
+    title: String,
+    board_url: String,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct FavoritesData {
+    boards: Vec<FavoriteBoard>,
+    threads: Vec<FavoriteThread>,
+}
+
+#[tauri::command]
+fn load_favorites() -> Result<FavoritesData, String> {
+    match core_store::load_json::<FavoritesData>("favorites.json") {
+        Ok(data) => Ok(data),
+        Err(_) => Ok(FavoritesData::default()),
+    }
+}
+
+#[tauri::command]
+fn save_favorites(favorites: FavoritesData) -> Result<(), String> {
+    core_store::save_json("favorites.json", &favorites).map_err(|e| e.to_string())
+}
+
+// --- NG filter persistence ---
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct NgFilters {
+    words: Vec<String>,
+    ids: Vec<String>,
+    names: Vec<String>,
+}
+
+#[tauri::command]
+fn load_ng_filters() -> Result<NgFilters, String> {
+    match core_store::load_json::<NgFilters>("ng_filters.json") {
+        Ok(data) => Ok(data),
+        Err(_) => Ok(NgFilters::default()),
+    }
+}
+
+#[tauri::command]
+fn save_ng_filters(filters: NgFilters) -> Result<(), String> {
+    core_store::save_json("ng_filters.json", &filters).map_err(|e| e.to_string())
+}
+
+// --- Read status persistence ---
+
+/// Map of board_url -> { thread_key -> last_read_response_no }
+type ReadStatusMap = HashMap<String, HashMap<String, u32>>;
+
+#[tauri::command]
+fn load_read_status() -> Result<ReadStatusMap, String> {
+    match core_store::load_json::<ReadStatusMap>("read_status.json") {
+        Ok(data) => Ok(data),
+        Err(_) => Ok(HashMap::new()),
+    }
+}
+
+#[tauri::command]
+fn save_read_status(status: ReadStatusMap) -> Result<(), String> {
+    core_store::save_json("read_status.json", &status).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -655,7 +732,13 @@ pub fn run() {
             probe_post_finalize_submit_from_input,
             probe_post_flow_trace,
             check_for_updates,
-            open_external_url
+            open_external_url,
+            load_favorites,
+            save_favorites,
+            load_ng_filters,
+            save_ng_filters,
+            load_read_status,
+            save_read_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

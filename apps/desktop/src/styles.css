@@ -564,6 +564,136 @@ pre {
   text-align: left;
 }
 
+.fav-star {
+  display: inline-block;
+  width: 14px;
+  font-size: 10px;
+  color: #b0a48e;
+  cursor: pointer;
+  margin-right: 2px;
+}
+
+.fav-star.active {
+  color: #c58a22;
+}
+
+.fav-star:hover {
+  color: #c58a22;
+}
+
+.fav-category {
+  background: linear-gradient(180deg, #ede2c8 0%, #d9cb9e 100%);
+}
+
+.ng-panel {
+  position: fixed;
+  left: 20px;
+  bottom: 28px;
+  width: min(420px, calc(100vw - 28px));
+  max-height: 400px;
+  border: 1px solid var(--line);
+  background: #efe7d8;
+  box-shadow: 0 12px 24px rgba(20, 20, 20, 0.28);
+  z-index: 30;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  overflow: hidden;
+}
+
+.ng-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding: 8px;
+  background: #e0d5c2;
+}
+
+.ng-panel-header button {
+  margin-left: auto;
+}
+
+.ng-panel-count {
+  font-size: 11px;
+  color: var(--sub);
+}
+
+.ng-panel-add {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #c4b8a2;
+}
+
+.ng-panel-add select {
+  border: 1px solid #ad9f87;
+  background: #faf8f3;
+  padding: 4px;
+  font-size: 11px;
+}
+
+.ng-panel-add input {
+  margin-top: 0;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.ng-panel-lists {
+  overflow-y: auto;
+  padding: 6px 8px;
+}
+
+.ng-list-section {
+  margin-bottom: 6px;
+}
+
+.ng-list-section h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: var(--sub);
+}
+
+.ng-empty {
+  font-size: 11px;
+  color: #a09080;
+}
+
+.ng-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ng-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+
+.ng-list li span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ng-remove {
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  color: #a04040;
+  cursor: pointer;
+}
+
+.ng-remove:hover {
+  color: #c02020;
+}
+
 @media (max-width: 980px) {
   .shell {
     grid-template-rows: 26px auto auto 1fr 24px;

@@ -227,6 +227,53 @@ try {
   await page.click(".compose-header button:has-text('Close')");
   console.log("smoke-ui: R key reply ok");
 
+  // --- favorites and NG filter UI ---
+
+  // fav-star elements exist in board items (fallback mode may not have them, but CSS class should exist)
+  // In WEB mode without categories, there's no board-tree, but the NG panel should work
+  const ngFilterBtn = await page.$(".tool-bar button:has-text('NG Filter')");
+  assert(ngFilterBtn, "toolbar should have NG Filter button");
+  console.log("smoke-ui: ng filter button ok");
+
+  // open NG panel
+  await ngFilterBtn.click();
+  await page.waitForSelector(".ng-panel");
+  const ngPanelHeader = await page.$(".ng-panel-header");
+  assert(ngPanelHeader, "NG panel should have header");
+  console.log("smoke-ui: ng panel opens ok");
+
+  // add an NG word
+  await page.fill(".ng-panel-add input", "testngword");
+  await page.click(".ng-panel-add button:has-text('Add')");
+  const ngListItems = await page.$$eval(".ng-list li", (els) => els.map((el) => el.textContent));
+  assert(ngListItems.some((t) => t.includes("testngword")), "NG word should appear in list after adding");
+  console.log("smoke-ui: ng add word ok");
+
+  // remove the NG word
+  await page.click(".ng-remove");
+  const ngListItemsAfter = await page.$$eval(".ng-list li", (els) => els.length);
+  assert(ngListItemsAfter === 0, "NG list should be empty after removing word");
+  console.log("smoke-ui: ng remove word ok");
+
+  // close NG panel
+  await page.click(".ng-panel-header button:has-text('Close')");
+  const ngPanelAfterClose = await page.$(".ng-panel");
+  assert(!ngPanelAfterClose, "NG panel should be closed after clicking Close");
+  console.log("smoke-ui: ng panel close ok");
+
+  // thread context menu has Favorite Thread option
+  await page.click(".threads tbody tr:first-child", { button: "right" });
+  const favThreadBtn = await page.$('.thread-menu button:has-text("Favorite Thread")');
+  assert(favThreadBtn, "thread menu should have Favorite Thread option");
+  // close menu
+  await page.click("body");
+  console.log("smoke-ui: favorite thread menu ok");
+
+  // response pane meta shows NG count when applicable
+  const responseMeta = await page.$eval(".responses .pane-meta", (el) => el.textContent || "");
+  assert(responseMeta.includes("Rows"), "response pane meta should show Rows");
+  console.log("smoke-ui: response pane meta ok");
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

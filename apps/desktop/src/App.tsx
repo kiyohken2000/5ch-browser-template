@@ -85,6 +85,10 @@ type ThreadResponseItem = {
 };
 type BoardEntry = { boardName: string; url: string };
 type BoardCategory = { categoryName: string; boards: BoardEntry[] };
+type FavoriteBoard = { boardName: string; url: string };
+type FavoriteThread = { threadUrl: string; title: string; boardUrl: string };
+type FavoritesData = { boards: FavoriteBoard[]; threads: FavoriteThread[] };
+type NgFilters = { words: string[]; ids: string[]; names: string[] };
 
 const MIN_BOARD_PANE_PX = 160;
 const MIN_THREAD_PANE_PX = 280;
@@ -174,6 +178,11 @@ export default function App() {
   const [fetchedResponses, setFetchedResponses] = useState<ThreadResponseItem[]>([]);
   const [boardCategories, setBoardCategories] = useState<BoardCategory[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [favorites, setFavorites] = useState<FavoritesData>({ boards: [], threads: [] });
+  const [ngFilters, setNgFilters] = useState<NgFilters>({ words: [], ids: [], names: [] });
+  const [ngPanelOpen, setNgPanelOpen] = useState(false);
+  const [ngInput, setNgInput] = useState("");
+  const [ngInputType, setNgInputType] = useState<"words" | "ids" | "names">("words");
   const [selectedBoard, setSelectedBoard] = useState("Favorite");
   const [selectedThread, setSelectedThread] = useState<number | null>(1);
   const [closedThreadIds, setClosedThreadIds] = useState<number[]>([]);
@@ -214,6 +223,104 @@ export default function App() {
     } catch (error) {
       setStatus(`board load error: ${String(error)}`);
     }
+  };
+
+  const loadFavorites = async () => {
+    if (!isTauriRuntime()) return;
+    try {
+      const data = await invoke<FavoritesData>("load_favorites");
+      setFavorites(data);
+    } catch {
+      // no saved favorites yet
+    }
+  };
+
+  const persistFavorites = async (next: FavoritesData) => {
+    setFavorites(next);
+    if (!isTauriRuntime()) return;
+    try {
+      await invoke("save_favorites", { favorites: next });
+    } catch (error) {
+      setStatus(`favorite save error: ${String(error)}`);
+    }
+  };
+
+  const toggleFavoriteBoard = (board: BoardEntry) => {
+    const exists = favorites.boards.some((b) => b.url === board.url);
+    const nextBoards = exists
+      ? favorites.boards.filter((b) => b.url !== board.url)
+      : [...favorites.boards, { boardName: board.boardName, url: board.url }];
+    void persistFavorites({ ...favorites, boards: nextBoards });
+    setStatus(exists ? `unfavorited board: ${board.boardName}` : `favorited board: ${board.boardName}`);
+  };
+
+  const toggleFavoriteThread = (thread: { threadUrl: string; title: string }) => {
+    const exists = favorites.threads.some((t) => t.threadUrl === thread.threadUrl);
+    const nextThreads = exists
+      ? favorites.threads.filter((t) => t.threadUrl !== thread.threadUrl)
+      : [...favorites.threads, { threadUrl: thread.threadUrl, title: thread.title, boardUrl: threadUrl }];
+    void persistFavorites({ ...favorites, threads: nextThreads });
+    setStatus(exists ? `unfavorited thread` : `favorited thread`);
+  };
+
+  const isFavoriteBoard = (url: string) => favorites.boards.some((b) => b.url === url);
+
+  const loadNgFilters = async () => {
+    if (!isTauriRuntime()) return;
+    try {
+      const data = await invoke<NgFilters>("load_ng_filters");
+      setNgFilters(data);
+    } catch {
+      // no saved NG filters yet
+    }
+  };
+
+  const persistNgFilters = async (next: NgFilters) => {
+    setNgFilters(next);
+    if (!isTauriRuntime()) return;
+    try {
+      await invoke("save_ng_filters", { filters: next });
+    } catch (error) {
+      setStatus(`ng save error: ${String(error)}`);
+    }
+  };
+
+  const addNgEntry = (type: "words" | "ids" | "names", value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (ngFilters[type].includes(trimmed)) {
+      setStatus(`already in NG ${type}: ${trimmed}`);
+      return;
+    }
+    void persistNgFilters({ ...ngFilters, [type]: [...ngFilters[type], trimmed] });
+    setStatus(`added NG ${type}: ${trimmed}`);
+  };
+
+  const removeNgEntry = (type: "words" | "ids" | "names", value: string) => {
+    void persistNgFilters({ ...ngFilters, [type]: ngFilters[type].filter((v) => v !== value) });
+    setStatus(`removed NG ${type}: ${value}`);
+  };
+
+  const isNgFiltered = (resp: { name: string; time: string; text: string }): boolean => {
+    if (ngFilters.words.length === 0 && ngFilters.ids.length === 0 && ngFilters.names.length === 0) return false;
+    const bodyLower = resp.text.toLowerCase();
+    const nameLower = resp.name.toLowerCase();
+    for (const w of ngFilters.words) {
+      if (bodyLower.includes(w.toLowerCase())) return true;
+    }
+    for (const n of ngFilters.names) {
+      if (nameLower.includes(n.toLowerCase())) return true;
+    }
+    // ID is typically in dateAndId like "2026/03/07(金) 10:00:00.00 ID:abcdef"
+    if (ngFilters.ids.length > 0) {
+      const idMatch = resp.time.match(/ID:([^\s]+)/);
+      if (idMatch) {
+        for (const id of ngFilters.ids) {
+          if (idMatch[1] === id) return true;
+        }
+      }
+    }
+    return false;
   };
 
   const toggleCategory = (name: string) => {
@@ -536,7 +643,9 @@ export default function App() {
           { id: 3, name: "Anonymous", time: "2026/03/07 10:04", text: "next: subject/dat fetch integration" },
         ]),
   ];
-  const activeResponse = responseItems.find((r) => r.id === selectedResponse) ?? responseItems[0];
+  const ngFilteredCount = responseItems.filter((r) => isNgFiltered(r)).length;
+  const visibleResponseItems = responseItems.filter((r) => !isNgFiltered(r));
+  const activeResponse = visibleResponseItems.find((r) => r.id === selectedResponse) ?? visibleResponseItems[0];
   const selectedResponseLabel = activeResponse ? `#${activeResponse.id}` : "-";
 
   const goFromLocationInput = () => {
@@ -696,7 +805,12 @@ export default function App() {
       return;
     }
     if (action === "add-ng-id") {
-      setStatus(`response #${id} added to NG list (mock)`);
+      const idMatch = resp.time.match(/ID:([^\s]+)/);
+      if (idMatch) {
+        addNgEntry("ids", idMatch[1]);
+      } else {
+        setStatus(`no ID found in response #${id}`);
+      }
       setResponseMenu(null);
       return;
     }
@@ -830,6 +944,8 @@ export default function App() {
     } catch {
       // ignore invalid localStorage payload
     }
+    void loadFavorites();
+    void loadNgFilters();
   }, []);
 
   useEffect(() => {
@@ -950,6 +1066,7 @@ export default function App() {
         <button onClick={reopenLastClosedThread} disabled={!hasReopenableClosedThread}>
           Undo Close
         </button>
+        <button onClick={() => setNgPanelOpen((v) => !v)}>NG Filter</button>
         <button onClick={resetLayout}>Reset Layout</button>
         <span className="shortcut-hint">
           Ctrl+Shift+R | Ctrl/Cmd+W | Ctrl/Cmd+Shift+W | Ctrl+Alt+/ | Ctrl/Cmd+Alt+Arrows
@@ -975,6 +1092,33 @@ export default function App() {
           </div>
           {boardCategories.length > 0 ? (
             <div className="board-tree">
+              {favorites.boards.length > 0 && (
+                <div className="board-category">
+                  <button
+                    className="category-toggle fav-category"
+                    onClick={() => toggleCategory("__favorites__")}
+                  >
+                    <span className="category-arrow">{expandedCategories.has("__favorites__") ? "\u25BC" : "\u25B6"}</span>
+                    Favorites ({favorites.boards.length})
+                  </button>
+                  {expandedCategories.has("__favorites__") && (
+                    <ul className="category-boards">
+                      {favorites.boards.map((b) => (
+                        <li key={b.url}>
+                          <button
+                            className={`board-item ${selectedBoard === b.boardName ? "selected" : ""}`}
+                            onClick={() => selectBoard(b)}
+                            title={b.url}
+                          >
+                            <span className="fav-star active" onClick={(e) => { e.stopPropagation(); toggleFavoriteBoard(b); }}>★</span>
+                            {b.boardName}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
               {boardCategories.map((cat) => (
                 <div key={cat.categoryName} className="board-category">
                   <button
@@ -993,6 +1137,12 @@ export default function App() {
                             onClick={() => selectBoard(b)}
                             title={b.url}
                           >
+                            <span
+                              className={`fav-star ${isFavoriteBoard(b.url) ? "active" : ""}`}
+                              onClick={(e) => { e.stopPropagation(); toggleFavoriteBoard(b); }}
+                            >
+                              {isFavoriteBoard(b.url) ? "★" : "☆"}
+                            </span>
                             {b.boardName}
                           </button>
                         </li>
@@ -1084,8 +1234,10 @@ export default function App() {
         <section className="pane responses">
           <h2>Responses</h2>
           <div className="pane-meta">
-            <strong>Rows</strong> {responseItems.length} | <strong>Selected</strong> #{activeResponse.id}/
-            {responseItems.length} | <strong>Split</strong> {Math.round(responseTopRatio)}%
+            <strong>Rows</strong> {visibleResponseItems.length}/{responseItems.length}
+            {ngFilteredCount > 0 && <> | <strong>NG</strong> {ngFilteredCount}</>}
+            {" "}| <strong>Selected</strong> #{activeResponse?.id ?? "-"}/
+            {visibleResponseItems.length} | <strong>Split</strong> {Math.round(responseTopRatio)}%
           </div>
           <div
             ref={responseLayoutRef}
@@ -1101,7 +1253,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody ref={responseTbodyRef}>
-                {responseItems.map((r) => (
+                {visibleResponseItems.map((r) => (
                   <tr
                     key={r.id}
                     className={selectedResponse === r.id ? "selected-row" : ""}
@@ -1274,6 +1426,55 @@ export default function App() {
           </div>
         </section>
       )}
+      {ngPanelOpen && (
+        <section className="ng-panel" role="dialog" aria-label="NG Filter">
+          <header className="ng-panel-header">
+            <strong>NG Filter</strong>
+            <span className="ng-panel-count">
+              {ngFilters.words.length}W / {ngFilters.ids.length}ID / {ngFilters.names.length}N
+            </span>
+            <button onClick={() => setNgPanelOpen(false)}>Close</button>
+          </header>
+          <div className="ng-panel-add">
+            <select value={ngInputType} onChange={(e) => setNgInputType(e.target.value as "words" | "ids" | "names")}>
+              <option value="words">Word</option>
+              <option value="ids">ID</option>
+              <option value="names">Name</option>
+            </select>
+            <input
+              value={ngInput}
+              onChange={(e) => setNgInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  addNgEntry(ngInputType, ngInput);
+                  setNgInput("");
+                }
+              }}
+              placeholder={`Add NG ${ngInputType}`}
+            />
+            <button onClick={() => { addNgEntry(ngInputType, ngInput); setNgInput(""); }}>Add</button>
+          </div>
+          <div className="ng-panel-lists">
+            {(["words", "ids", "names"] as const).map((type) => (
+              <div key={type} className="ng-list-section">
+                <h4>{type === "words" ? "Words" : type === "ids" ? "IDs" : "Names"} ({ngFilters[type].length})</h4>
+                {ngFilters[type].length === 0 ? (
+                  <span className="ng-empty">(none)</span>
+                ) : (
+                  <ul className="ng-list">
+                    {ngFilters[type].map((v) => (
+                      <li key={v}>
+                        <span>{v}</span>
+                        <button className="ng-remove" onClick={() => removeNgEntry(type, v)}>×</button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       {threadMenu && (
         <div className="thread-menu" style={{ left: threadMenu.x, top: threadMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => markThreadRead(threadMenu.threadId, true)}>Mark as Read</button>
@@ -1287,6 +1488,19 @@ export default function App() {
             Reopen All
           </button>
           <button onClick={() => void copyThreadUrl(threadMenu.threadId)}>Copy Thread URL</button>
+          <button onClick={() => {
+            const t = threadItems.find((item) => item.id === threadMenu.threadId);
+            if (t && "threadUrl" in t && typeof t.threadUrl === "string") {
+              toggleFavoriteThread({ threadUrl: t.threadUrl, title: t.title });
+            }
+            setThreadMenu(null);
+          }}>
+            {(() => {
+              const t = threadItems.find((item) => item.id === threadMenu.threadId);
+              const isFav = t && "threadUrl" in t && favorites.threads.some((f) => f.threadUrl === t.threadUrl);
+              return isFav ? "Unfavorite Thread" : "Favorite Thread";
+            })()}
+          </button>
         </div>
       )}
       {responseMenu && (
