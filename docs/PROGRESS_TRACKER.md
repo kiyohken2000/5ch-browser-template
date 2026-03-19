@@ -32,6 +32,7 @@
 - [x] スレ復元操作を追加（Reopen Last / `Ctrl/Cmd+Shift+W`）
 - [x] CIに desktop UIスモークテストを追加（Windows job）
 - [x] `scripts/probe_post_flow.py` を拡張（confirm解析 + finalize解析 + real submit二重ガード）
+- [x] ツールバーに `Undo Close` を追加し、`Ctrl/Cmd+W` 経由の履歴復元も統一
 
 ## 直近タスク（優先順）
 1. `core-fetch`: 実投稿フロー（confirm -> submit）本実装の実環境検証

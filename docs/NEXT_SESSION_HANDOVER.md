@@ -19,6 +19,7 @@
   - `apps/desktop`: 右クリックメニュー動作を拡張（スレ閉じる系、レス引用/URLコピー/IDコピー）
   - `apps/desktop`: Playwright UIスモークテストを追加（`npm run test:smoke-ui`）
   - `apps/desktop`: スレ復元操作を追加（`Reopen Last` / `Ctrl/Cmd+Shift+W`）
+  - `apps/desktop`: ツールバーから `Undo Close` 操作可能（ショートカット閉鎖履歴と統一）
   - `CI`: Windowsジョブで desktop smoke-ui を実行するよう更新
   - `scripts/probe_post_flow.py`: confirm/finalize解析を追加し、real submit を二重ガード化
 - Git は初期化済みで、`safe.directory` 設定済み（この環境から `git` 操作可能）。
@@ -34,6 +35,8 @@
   - `35a5e4c` (`desktop: extend smoke test coverage for keyboard navigation`)
   - `a18df58` (`ci: run desktop smoke-ui test on windows`)
   - `aa12d22` (`desktop: hide and cleanup cmd processes in smoke-ui runner`)
+  - `16217f6` (`scripts: extend post flow probe with confirm/finalize safety flow`)
+  - `678af95` (`desktop: add undo-close toolbar action and fix close history`)
 
 ## 仕様確定ポイント（重要）
 - 5ch基盤:
