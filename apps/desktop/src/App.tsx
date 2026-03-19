@@ -470,9 +470,63 @@ export default function App() {
     }
   };
 
-  const runResponseAction = (label: string) => {
+  const buildResponseUrl = (responseId: number) => `${threadUrl.endsWith("/") ? threadUrl : `${threadUrl}/`}${responseId}`;
+
+  const appendComposeQuote = (line: string) => {
+    setComposeOpen(true);
+    setComposeBody((prev) => (prev.trim().length === 0 ? `${line}\n` : `${prev}\n${line}\n`));
+  };
+
+  const runResponseAction = async (
+    action: "quote" | "quote-with-name" | "copy-url" | "add-ng-id" | "copy-id" | "settings"
+  ) => {
     if (!responseMenu) return;
-    setStatus(`response action: ${label} (#${responseMenu.responseId})`);
+    const id = responseMenu.responseId;
+    const resp = responseItems.find((r) => r.id === id);
+    if (!resp) {
+      setResponseMenu(null);
+      return;
+    }
+
+    if (action === "quote") {
+      appendComposeQuote(`>>${id}`);
+      setStatus(`quoted response #${id}`);
+      setResponseMenu(null);
+      return;
+    }
+    if (action === "quote-with-name") {
+      appendComposeQuote(`>>${id} ${resp.name}`);
+      setStatus(`quoted response #${id} with name`);
+      setResponseMenu(null);
+      return;
+    }
+    if (action === "copy-url") {
+      const url = buildResponseUrl(id);
+      try {
+        await navigator.clipboard.writeText(url);
+        setStatus(`response url copied: #${id}`);
+      } catch {
+        setStatus(`response url: ${url}`);
+      }
+      setResponseMenu(null);
+      return;
+    }
+    if (action === "copy-id") {
+      try {
+        await navigator.clipboard.writeText(String(id));
+        setStatus(`response id copied: #${id}`);
+      } catch {
+        setStatus(`response id: #${id}`);
+      }
+      setResponseMenu(null);
+      return;
+    }
+    if (action === "add-ng-id") {
+      setStatus(`response #${id} added to NG list (mock)`);
+      setResponseMenu(null);
+      return;
+    }
+    setStatus(`response settings opened for #${id} (mock)`);
     setResponseMenu(null);
   };
 
@@ -940,12 +994,12 @@ export default function App() {
       )}
       {responseMenu && (
         <div className="thread-menu response-menu" style={{ left: responseMenu.x, top: responseMenu.y }} onClick={(e) => e.stopPropagation()}>
-          <button onClick={() => runResponseAction("quote this response")}>Quote This Response</button>
-          <button onClick={() => runResponseAction("quote with name")}>Quote with Name</button>
-          <button onClick={() => runResponseAction("copy response url")}>Copy Response URL</button>
-          <button onClick={() => runResponseAction("add to ng id")}>Add to NG ID</button>
-          <button onClick={() => runResponseAction("copy id to clipboard")}>Copy ID</button>
-          <button onClick={() => runResponseAction("settings for response")}>Response Settings</button>
+          <button onClick={() => void runResponseAction("quote")}>Quote This Response</button>
+          <button onClick={() => void runResponseAction("quote-with-name")}>Quote with Name</button>
+          <button onClick={() => void runResponseAction("copy-url")}>Copy Response URL</button>
+          <button onClick={() => void runResponseAction("add-ng-id")}>Add to NG ID</button>
+          <button onClick={() => void runResponseAction("copy-id")}>Copy ID</button>
+          <button onClick={() => void runResponseAction("settings")}>Response Settings</button>
         </div>
       )}
     </div>
