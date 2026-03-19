@@ -148,6 +148,28 @@ try {
   assert(responseBody, "response body container should exist");
   console.log("smoke-ui: response body container ok");
 
+  // toolbar has separators between button groups
+  const toolSeps = await page.$$(".tool-bar .tool-sep");
+  assert(toolSeps.length >= 2, `toolbar should have at least 2 separators, got ${toolSeps.length}`);
+  console.log("smoke-ui: toolbar separators ok");
+
+  // clicking a thread marks it as read (removes unread-row class)
+  const firstRow = await page.$(".threads tbody tr:first-child");
+  if (firstRow) {
+    await firstRow.click();
+    const hasUnread = await firstRow.evaluate((el) => el.classList.contains("unread-row"));
+    assert(!hasUnread, "clicking thread should mark it as read (remove unread-row)");
+  }
+  console.log("smoke-ui: auto-read on click ok");
+
+  // sticky thread table headers
+  const threadTh = await page.$(".threads th");
+  if (threadTh) {
+    const pos = await threadTh.evaluate((el) => window.getComputedStyle(el).position);
+    assert(pos === "sticky", `thread header should be sticky, got ${pos}`);
+  }
+  console.log("smoke-ui: sticky thread headers ok");
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

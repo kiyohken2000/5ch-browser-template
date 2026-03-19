@@ -899,15 +899,17 @@ export default function App() {
         <button onClick={fetchMenu}>Refresh Menu</button>
         <button onClick={() => fetchThreadListFromCurrent()}>Load Threads</button>
         <button onClick={() => fetchResponsesFromCurrent()}>Load Responses</button>
+        <span className="tool-sep" />
         <button onClick={checkAuthEnv}>Auth Status</button>
         <button onClick={probeAuth}>Auth Probe</button>
+        <span className="tool-sep" />
         <button onClick={() => setComposeOpen(true)}>Write</button>
         <button onClick={reopenLastClosedThread} disabled={!hasReopenableClosedThread}>
           Undo Close
         </button>
         <button onClick={resetLayout}>Reset Layout</button>
         <span className="shortcut-hint">
-          Shortcuts: Ctrl+Shift+R | Ctrl/Cmd+W | Ctrl/Cmd+Shift+W | Ctrl+Alt+/ | Ctrl/Cmd+Alt+Arrows | Ctrl/Cmd+Arrows
+          Ctrl+Shift+R | Ctrl/Cmd+W | Ctrl/Cmd+Shift+W | Ctrl+Alt+/ | Ctrl/Cmd+Alt+Arrows
         </span>
       </div>
       <div className="address-bar">
@@ -972,6 +974,7 @@ export default function App() {
                     onClick={() => {
                       setSelectedThread(t.id);
                       setSelectedResponse(1);
+                      setThreadReadMap((prev) => ({ ...prev, [t.id]: true }));
                       if ("threadUrl" in t && typeof t.threadUrl === "string") {
                         setThreadUrl(t.threadUrl);
                         setLocationInput(t.threadUrl);
