@@ -431,6 +431,56 @@ try {
   assert(tabDraggable || (await page.$$(".thread-tab")).length === 0, "thread tabs should be draggable");
   console.log("smoke-ui: tab drag attribute ok");
 
+  // --- response jump input ---
+  const jumpInput = await page.$(".response-jump");
+  assert(jumpInput, "response pane should have jump input");
+  console.log("smoke-ui: response jump input ok");
+
+  // --- tab context menu ---
+  // open two tabs first
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll(".threads tbody tr");
+    if (rows[0]) rows[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll(".threads tbody tr");
+    if (rows[1]) rows[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  const tabsForMenu = await page.$$(".thread-tab");
+  if (tabsForMenu.length >= 2) {
+    await tabsForMenu[0].click({ button: "right" });
+    await new Promise((r) => setTimeout(r, 100));
+    const tabMenuClose = await page.$('.tab-menu button:has-text("タブを閉じる")');
+    assert(tabMenuClose, "tab context menu should have タブを閉じる");
+    const tabMenuOther = await page.$('.tab-menu button:has-text("他のタブを閉じる")');
+    assert(tabMenuOther, "tab context menu should have 他のタブを閉じる");
+    // dismiss
+    await page.evaluate(() => {
+      document.querySelector(".shell")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    console.log("smoke-ui: tab context menu ok");
+  }
+
+  // --- thread menu browser open ---
+  await page.evaluate(() => {
+    document.querySelector(".shell")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  await page.evaluate(() => {
+    const row = document.querySelector(".threads tbody tr:first-child");
+    if (row) row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 100, clientY: 100 }));
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  const browserOpenBtn = await page.$('.thread-menu button:has-text("ブラウザで開く")');
+  assert(browserOpenBtn, "thread context menu should have ブラウザで開く");
+  await page.evaluate(() => {
+    document.querySelector(".shell")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  console.log("smoke-ui: thread menu browser open ok");
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

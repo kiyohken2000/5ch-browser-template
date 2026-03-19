@@ -775,6 +775,21 @@ pre {
   color: #c02020;
 }
 
+.response-jump {
+  width: 48px;
+  padding: 1px 4px;
+  font-size: 10px;
+  border: 1px solid #ad9f87;
+  background: #faf8f3;
+  margin: 0;
+}
+
+.response-jump::-webkit-inner-spin-button,
+.response-jump::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .sortable-th {
   cursor: pointer;
   user-select: none;

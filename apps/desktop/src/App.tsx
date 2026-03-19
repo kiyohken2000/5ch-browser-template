@@ -216,6 +216,7 @@ export default function App() {
   const [anchorPopup, setAnchorPopup] = useState<{ x: number; y: number; responseId: number } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [tabDragIndex, setTabDragIndex] = useState<number | null>(null);
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tabIndex: number } | null>(null);
   const [boardPanePx, setBoardPanePx] = useState(DEFAULT_BOARD_PANE_PX);
   const [threadPanePx, setThreadPanePx] = useState(DEFAULT_THREAD_PANE_PX);
   const [responseTopRatio, setResponseTopRatio] = useState(DEFAULT_RESPONSE_TOP_RATIO);
@@ -471,6 +472,31 @@ export default function App() {
     }
     setThreadUrl(tab.threadUrl);
     setLocationInput(tab.threadUrl);
+  };
+
+  const closeOtherTabs = (keepIndex: number) => {
+    const kept = threadTabs[keepIndex];
+    if (!kept) return;
+    for (const tab of threadTabs) {
+      if (tab.threadUrl !== kept.threadUrl) tabCacheRef.current.delete(tab.threadUrl);
+    }
+    setThreadTabs([kept]);
+    setActiveTabIndex(0);
+    const cached = tabCacheRef.current.get(kept.threadUrl);
+    if (cached) {
+      setFetchedResponses(cached.responses);
+      setSelectedResponse(cached.selectedResponse);
+    }
+    setThreadUrl(kept.threadUrl);
+    setLocationInput(kept.threadUrl);
+  };
+
+  const closeAllTabs = () => {
+    tabCacheRef.current.clear();
+    setThreadTabs([]);
+    setActiveTabIndex(-1);
+    setFetchedResponses([]);
+    setSelectedResponse(1);
   };
 
   const toggleThreadSort = (key: "id" | "title" | "res" | "speed") => {
@@ -1277,6 +1303,7 @@ export default function App() {
       onClick={() => {
         setThreadMenu(null);
         setResponseMenu(null);
+        setTabMenu(null);
       }}
     >
       <header className="menu-bar">
@@ -1542,6 +1569,12 @@ export default function App() {
                   draggable
                   onClick={() => onTabClick(i)}
                   onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(i); } }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const p = clampMenuPosition(e.clientX, e.clientY, 160, 120);
+                    setTabMenu({ x: p.x, y: p.y, tabIndex: i });
+                  }}
                   onDragStart={() => setTabDragIndex(i)}
                   onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("drag-over"); }}
                   onDragLeave={(e) => { e.currentTarget.classList.remove("drag-over"); }}
@@ -1576,6 +1609,22 @@ export default function App() {
             {ngFilteredCount > 0 && <> | <strong>NG</strong> {ngFilteredCount}</>}
             {" "}| <strong>選択</strong> #{activeResponse?.id ?? "-"}/
             {visibleResponseItems.length} | <strong>分割</strong> {Math.round(responseTopRatio)}%
+            {" "}| <input
+              className="response-jump"
+              type="number"
+              min={1}
+              max={responseItems.length}
+              placeholder=">>N"
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                const no = Number((e.target as HTMLInputElement).value);
+                if (no > 0 && responseItems.some((r) => r.id === no)) {
+                  setSelectedResponse(no);
+                  setStatus(`jumped to >>${no}`);
+                  (e.target as HTMLInputElement).value = "";
+                }
+              }}
+            />
           </div>
           <div
             ref={responseLayoutRef}
@@ -1840,6 +1889,13 @@ export default function App() {
           <button onClick={() => {
             const t = threadItems.find((item) => item.id === threadMenu.threadId);
             if (t && "threadUrl" in t && typeof t.threadUrl === "string") {
+              window.open(t.threadUrl, "_blank");
+            }
+            setThreadMenu(null);
+          }}>ブラウザで開く</button>
+          <button onClick={() => {
+            const t = threadItems.find((item) => item.id === threadMenu.threadId);
+            if (t && "threadUrl" in t && typeof t.threadUrl === "string") {
               toggleFavoriteThread({ threadUrl: t.threadUrl, title: t.title });
             }
             setThreadMenu(null);
@@ -1861,6 +1917,15 @@ export default function App() {
           <button onClick={() => void runResponseAction("copy-id")}>IDをコピー</button>
           <button onClick={() => void runResponseAction("add-ng-id")}>NGIDに追加</button>
           <button onClick={() => void runResponseAction("add-ng-name")}>NG名前に追加</button>
+        </div>
+      )}
+      {tabMenu && (
+        <div className="thread-menu tab-menu" style={{ left: tabMenu.x, top: tabMenu.y }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => { closeTab(tabMenu.tabIndex); setTabMenu(null); }}>タブを閉じる</button>
+          <button onClick={() => { closeOtherTabs(tabMenu.tabIndex); setTabMenu(null); }} disabled={threadTabs.length <= 1}>
+            他のタブを閉じる
+          </button>
+          <button onClick={() => { closeAllTabs(); setTabMenu(null); }}>すべてのタブを閉じる</button>
         </div>
       )}
       {anchorPopup && (() => {
