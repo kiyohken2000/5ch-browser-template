@@ -804,6 +804,11 @@ export default function App() {
         const idx = Math.max(ids.indexOf(cur), 0);
         const nextIdx = e.key === "ArrowUp" ? Math.max(0, idx - 1) : Math.min(ids.length - 1, idx + 1);
         setSelectedResponse(ids[nextIdx]);
+        return;
+      }
+      if (e.key.toLowerCase() === "r" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        e.preventDefault();
+        appendComposeQuote(`>>${selectedResponse}`);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -1101,6 +1106,7 @@ export default function App() {
                     key={r.id}
                     className={selectedResponse === r.id ? "selected-row" : ""}
                     onClick={() => setSelectedResponse(r.id)}
+                    onDoubleClick={() => appendComposeQuote(`>>${r.id}`)}
                   >
                     <td className="response-no" onClick={(e) => onResponseNoClick(e, r.id)}>
                       {r.id}

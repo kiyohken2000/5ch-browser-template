@@ -200,6 +200,33 @@ try {
   // may not exist if fallback data has no >>N anchors, so just check class exists in CSS
   console.log("smoke-ui: anchor-ref structure ok");
 
+  // double-click response row opens compose with quote
+  // first close any open compose window
+  const openCompose = await page.$(".compose-window");
+  if (openCompose) {
+    await page.click(".compose-header button:has-text('Close')");
+  }
+  const responseRow = await page.$(".response-table tbody tr:first-child");
+  if (responseRow) {
+    await responseRow.dblclick();
+    await page.waitForSelector(".compose-window textarea.compose-body");
+    const dblclickText = await page.$eval(".compose-window textarea.compose-body", (el) => el.value);
+    assert(dblclickText.includes(">>"), "double-click should insert quote anchor into compose body");
+    // close compose
+    await page.click(".compose-header button:has-text('Close')");
+  }
+  console.log("smoke-ui: double-click reply ok");
+
+  // R key opens compose with quote for selected response
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "r", bubbles: true }));
+  });
+  await page.waitForSelector(".compose-window textarea.compose-body");
+  const rKeyText = await page.$eval(".compose-window textarea.compose-body", (el) => el.value);
+  assert(rKeyText.includes(">>"), "R key should insert quote anchor into compose body");
+  await page.click(".compose-header button:has-text('Close')");
+  console.log("smoke-ui: R key reply ok");
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {
