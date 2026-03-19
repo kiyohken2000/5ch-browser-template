@@ -18,6 +18,8 @@
   - `apps/desktop`: Threads/Responses ペインに行情報バーを追加
   - `apps/desktop`: 右クリックメニュー動作を拡張（スレ閉じる系、レス引用/URLコピー/IDコピー）
   - `apps/desktop`: Playwright UIスモークテストを追加（`npm run test:smoke-ui`）
+  - `apps/desktop`: スレ復元操作を追加（`Reopen Last` / `Ctrl/Cmd+Shift+W`）
+  - `CI`: Windowsジョブで desktop smoke-ui を実行するよう更新
 - Git は初期化済みで、`safe.directory` 設定済み（この環境から `git` 操作可能）。
 - 直近反映コミット:
   - `d7d1666` (`desktop: add draggable pane splitters for three-pane layout`)
@@ -27,6 +29,9 @@
   - `8cad916` (`desktop: wire response menu actions to compose and clipboard`)
   - `3dae2f9` (`desktop: add keyboard navigation for thread and response rows`)
   - `79b18d2` (`desktop: add playwright smoke test runner for ui interactions`)
+  - `fee2a48` (`desktop: add undo-close thread action and validate in smoke test`)
+  - `35a5e4c` (`desktop: extend smoke test coverage for keyboard navigation`)
+  - `a18df58` (`ci: run desktop smoke-ui test on windows`)
 
 ## 仕様確定ポイント（重要）
 - 5ch基盤:

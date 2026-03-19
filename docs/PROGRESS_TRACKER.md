@@ -29,11 +29,14 @@
 - [x] Threads/Responses ペインに行情報バー（件数/選択/分割比）を追加
 - [x] スレ/レス右クリックメニュー動作を拡張（閉じる/再表示/引用/コピー）
 - [x] Playwright UIスモークテストを追加（ペインリサイズ/メニュー操作/引用挿入）
+- [x] スレ復元操作を追加（Reopen Last / `Ctrl/Cmd+Shift+W`）
+- [x] CIに desktop UIスモークテストを追加（Windows job）
 
 ## 直近タスク（優先順）
 1. `core-fetch`: 実投稿フロー（confirm -> submit）本実装の実環境検証
 2. `apps/desktop`: Live5ch `geronimo` 互換UIの詳細調整（表示文言と操作感の詰め）
    - push前に `apps/desktop` で `npm run test:smoke-ui` を実行
+   - CI（GitHub Actions）でも smoke-ui を自動実行
 3. `landing`: 文言/導線の本番向け調整
 4. `release`: タグ作成〜latest.json更新のワンショット運用定着
 
