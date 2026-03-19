@@ -393,6 +393,14 @@ body {
   color: #204f8a;
   text-decoration: underline;
 }
+.response-id-cell {
+  font-size: 0.85em;
+  color: #555;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .row-splitter {
   background: linear-gradient(#c8ba9f 0, #b7a78b 50%, #c8ba9f 100%);

@@ -672,6 +672,14 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: compose prefs persistence ok");
 
+  // --- response ID column ---
+  const responseHeaders = await page.$$eval(
+    ".response-layout table thead th",
+    (ths) => ths.map((th) => th.textContent?.trim())
+  );
+  assert(responseHeaders.includes("ID"), `response table should have ID column, got ${responseHeaders}`);
+  console.log("smoke-ui: response ID column ok");
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

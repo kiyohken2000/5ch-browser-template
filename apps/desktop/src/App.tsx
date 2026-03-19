@@ -888,6 +888,21 @@ export default function App() {
           { id: 4, name: "名無しさん", time: "2026/03/07 10:06", text: "参考 https://example.com/page を参照" },
         ]),
   ];
+  const extractId = (time: string) => {
+    const m = time.match(/ID:(\S+)/);
+    return m ? m[1] : "";
+  };
+
+  // Build ID count map for highlighting frequent posters
+  const idCountMap = (() => {
+    const map = new Map<string, number>();
+    for (const r of responseItems) {
+      const id = extractId(r.time);
+      if (id) map.set(id, (map.get(id) ?? 0) + 1);
+    }
+    return map;
+  })();
+
   const ngFilteredCount = responseItems.filter((r) => isNgFiltered(r)).length;
   const visibleResponseItems = responseItems.filter((r) => !isNgFiltered(r));
   const activeResponse = visibleResponseItems.find((r) => r.id === selectedResponse) ?? visibleResponseItems[0];
@@ -1788,6 +1803,7 @@ export default function App() {
                 <tr>
                   <th>番号</th>
                   <th>名前</th>
+                  <th>ID</th>
                   <th>日時</th>
                 </tr>
               </thead>
@@ -1803,6 +1819,13 @@ export default function App() {
                       {r.id}
                     </td>
                     <td>{r.name}</td>
+                    <td className="response-id-cell">
+                      {(() => {
+                        const id = extractId(r.time);
+                        const count = id ? (idCountMap.get(id) ?? 0) : 0;
+                        return id ? `${id}(${count})` : "";
+                      })()}
+                    </td>
                     <td>{r.time}</td>
                   </tr>
                 ))}
