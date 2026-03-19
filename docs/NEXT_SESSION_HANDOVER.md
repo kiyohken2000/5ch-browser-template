@@ -64,6 +64,12 @@
   - `apps/desktop`: スレ一覧ソート（番号/タイトル/レス/勢い カラムクリック昇順降順）
   - `apps/desktop`: レス本文コピー + NG名前追加（右クリックメニュー7アクション）
   - `apps/desktop`: smoke-ui 42項目（ソートヘッダー/レスメニュー追加）
+  - `apps/desktop`: 画像ライトボックス（サムネイルクリック → 拡大モーダル）
+  - `apps/desktop`: 新着レス数表示（新着カラム）+ タブドラッグ並べ替え
+  - `apps/desktop`: タブ右クリックメニュー + レスジャンプ入力 + レスナビバー
+  - `apps/desktop`: 書き込みウィンドウのドラッグ移動
+  - `apps/desktop`: スレ右クリックに「ブラウザで開く」追加
+  - `apps/desktop`: smoke-ui 50項目
 - Git は初期化済みで、`safe.directory` 設定済み（この環境から `git` 操作可能）。
 - safe probe 実環境検証 (2026-03-19):
   - 全4モード（anonymous/uplift/be_front/be_uplift）で GET=200, confirm=200
@@ -118,9 +124,9 @@
    - 必要時のみ `-AllowRealSubmit -RealSubmitToken I_UNDERSTAND_REAL_POST -Message "<non-empty>"` で実送信検証
    - board URL 入力（例: `https://mao.5ch.io/ngt/`）でのスレ一覧取得を実環境確認
 2. geronimo互換UI継続改善
-   - 画像サムネイルクリック → 拡大表示/ダウンロード
-   - スレ一覧の新着レス数表示（既得レス vs 現在レス差分）
-   - ドラッグ&ドロップでタブ順序変更
+   - メニューバー各項目のドロップダウン実装
+   - キーボードショートカット一覧ヘルプ
+   - スレ/レスの文字サイズ設定
 3. リリース運用実地
    - `scripts/prepare_release_metadata.py` で実ZIPから `latest.json` 生成 + strict検証
    - `apps/landing/public/latest.json` へ反映

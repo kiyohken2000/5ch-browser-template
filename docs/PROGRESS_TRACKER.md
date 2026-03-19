@@ -79,14 +79,19 @@
 - [x] desktop: スレ一覧ソート（番号/タイトル/レス/勢い、昇順降順トグル）
 - [x] desktop: レス本文コピー + NG名前追加（右クリックメニュー拡張 7アクション）
 - [x] desktop: smoke-ui テスト 42項目（ソートヘッダー/レスメニュー追加）
+- [x] desktop: 画像ライトボックス（サムネイルクリック → 拡大モーダル + 新規タブで開く）
+- [x] desktop: 新着レス数表示（新着カラム: 現在レス − 既読レス差分）
+- [x] desktop: タブドラッグ並べ替え + タブ右クリックメニュー（閉じる/他を閉じる/すべて閉じる）
+- [x] desktop: レスジャンプ入力（>>N で指定レスへ移動）
+- [x] desktop: スレ右クリックに「ブラウザで開く」追加
+- [x] desktop: レスナビゲーションバー（先頭/最新ボタン + インラインスプリッター）
+- [x] desktop: 書き込みウィンドウのドラッグ移動
+- [x] desktop: smoke-ui テスト 50項目
 
 ## 直近タスク（優先順）
 1. `core-fetch`: 非空メッセージでの confirm form 検出を確認（safe probe 完了: 2026-03-19）
    - real submit時は `-AllowRealSubmit -RealSubmitToken I_UNDERSTAND_REAL_POST -Message "<non-empty>"` を必須化
 2. `apps/desktop`: geronimo互換UI継続改善
-   - 画像サムネイルクリック → 拡大表示/ダウンロード
-   - レス本文コピー機能
-   - スレ一覧ソート（勢い/レス数/最終書込）
    - push前に `apps/desktop` で `npm run test:smoke-ui` を実行
 3. `landing`: 文言/導線の本番向け調整
 4. `release`: タグ作成〜latest.json更新のワンショット運用定着
