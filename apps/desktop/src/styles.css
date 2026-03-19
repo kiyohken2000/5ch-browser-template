@@ -27,9 +27,21 @@ body {
 .menu-bar {
   border-bottom: 1px solid var(--line);
   background: #ddd4c5;
-  padding: 4px 10px;
+  padding: 0 4px;
   color: var(--sub);
   font-size: 12px;
+  display: flex;
+  align-items: center;
+}
+
+.menu-item {
+  padding: 4px 8px;
+  cursor: default;
+  user-select: none;
+}
+
+.menu-item:hover {
+  background: #c9c0b0;
 }
 
 .tool-bar {
@@ -136,7 +148,16 @@ body {
   width: 100%;
   border-collapse: collapse;
   background: #f7f4ee;
+  table-layout: fixed;
 }
+
+.threads th:nth-child(1) { width: 36px; }
+.threads th:nth-child(2) { width: auto; }
+.threads th:nth-child(3) { width: 44px; }
+.threads th:nth-child(4) { width: 44px; }
+.threads th:nth-child(5) { width: 48px; }
+.threads th:nth-child(6) { width: 64px; }
+.threads th:nth-child(7) { width: 64px; }
 
 .response-layout {
   display: grid;
@@ -200,6 +221,27 @@ body {
   line-height: 1.45;
 }
 
+.response-viewer-no {
+  color: #204f8a;
+  margin-right: 4px;
+}
+
+.response-body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.anchor-ref {
+  color: #204f8a;
+  cursor: pointer;
+}
+
+.anchor-ref:hover {
+  text-decoration: underline;
+}
+
 .threads th,
 .threads td {
   border: 1px solid #beb29d;
@@ -211,6 +253,16 @@ body {
 
 .selected-row td {
   background: #e8dcc5;
+}
+
+.unread-row td {
+  font-weight: 700;
+}
+
+.thread-title-cell {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dev-grid {

@@ -124,10 +124,13 @@ def marker_scan(text: str) -> list[str]:
     markers = []
     table = {
         "confirm": r"書き込み確認|確認画面|confirm",
-        "error": r"ERROR|ＥＲＲＯＲ|エラー|本文がありません|書き込み",
+        "error": r"ERROR|ＥＲＲＯＲ|エラー",
+        "empty_body": r"本文がありません|本文が空",
         "done": r"書きこみました|投稿しました|完了",
         "login": r"UPLIFT|BE|ログイン",
         "mona_ticket": r"MonaTicket",
+        "oekaki": r"oekaki_thread1|お絵描き",
+        "wait": r"ＷＡＩＴ|忍法帖|規制",
     }
     for key, pat in table.items():
         if re.search(pat, text, re.IGNORECASE):

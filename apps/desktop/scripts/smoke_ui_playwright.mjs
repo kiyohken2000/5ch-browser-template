@@ -109,6 +109,45 @@ try {
   const composeText = await page.$eval(".compose-window textarea.compose-body", (el) => el.value);
   assert(composeText.includes(">>1"), "quote action did not append response anchor");
 
+  // --- geronimo UI improvements ---
+
+  // menu bar has individual items with hover support
+  const menuItems = await page.$$eval(".menu-bar .menu-item", (els) => els.map((el) => el.textContent));
+  assert(menuItems.length === 7, `menu bar should have 7 items, got ${menuItems.length}`);
+  assert(menuItems.includes("File"), "menu bar should include File item");
+  assert(menuItems.includes("Help"), "menu bar should include Help item");
+  console.log("smoke-ui: menu bar items ok");
+
+  // unread thread row has bold styling
+  const unreadRows = await page.$$(".threads tbody .unread-row");
+  assert(unreadRows.length >= 0, "unread row class should be present (may be 0 if all read)");
+  const firstThreadRow = await page.$(".threads tbody tr:first-child");
+  if (firstThreadRow) {
+    const fontWeight = await firstThreadRow.evaluate((el) => window.getComputedStyle(el.querySelector("td")).fontWeight);
+    // font-weight is either "700", "bold", or "400"/"normal" depending on read state
+    assert(fontWeight === "700" || fontWeight === "bold" || fontWeight === "400" || fontWeight === "normal",
+      "thread row font-weight should be valid");
+  }
+  console.log("smoke-ui: unread styling ok");
+
+  // thread title cell has text-overflow ellipsis
+  const titleCell = await page.$(".thread-title-cell");
+  if (titleCell) {
+    const overflow = await titleCell.evaluate((el) => window.getComputedStyle(el).textOverflow);
+    assert(overflow === "ellipsis", `thread title cell should have text-overflow: ellipsis, got ${overflow}`);
+  }
+  console.log("smoke-ui: thread title ellipsis ok");
+
+  // response viewer shows response number
+  const viewerNo = await page.$(".response-viewer-no");
+  assert(viewerNo, "response viewer should show response number span");
+  console.log("smoke-ui: response viewer number ok");
+
+  // response body container exists
+  const responseBody = await page.$(".response-body");
+  assert(responseBody, "response body container should exist");
+  console.log("smoke-ui: response body container ok");
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

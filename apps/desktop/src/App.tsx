@@ -112,6 +112,33 @@ const isTypingTarget = (target: EventTarget | null) => {
   return target.isContentEditable || tag === "input" || tag === "textarea" || tag === "select";
 };
 
+const ENTITY_MAP: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&#44;": ",",
+  "&nbsp;": "\u00A0",
+};
+const decodeHtmlEntities = (s: string) =>
+  s.replace(/&(?:amp|lt|gt|quot|nbsp|#39|#44);/g, (m) => ENTITY_MAP[m] ?? m);
+
+const renderResponseBody = (html: string): { __html: string } => {
+  let safe = html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "");
+  safe = decodeHtmlEntities(safe);
+  safe = safe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  safe = safe.replace(/\n/g, "<br>");
+  safe = safe.replace(/&gt;&gt;(\d+)/g, '<span class="anchor-ref">&gt;&gt;$1</span>');
+  return { __html: safe };
+};
+
 export default function App() {
   const [status, setStatus] = useState("not fetched");
   const [authStatus, setAuthStatus] = useState("not checked");
@@ -153,6 +180,8 @@ export default function App() {
   const [responseTopRatio, setResponseTopRatio] = useState(DEFAULT_RESPONSE_TOP_RATIO);
   const resizeDragRef = useRef<ResizeDragState | null>(null);
   const responseLayoutRef = useRef<HTMLDivElement | null>(null);
+  const threadTbodyRef = useRef<HTMLTableSectionElement | null>(null);
+  const responseTbodyRef = useRef<HTMLTableSectionElement | null>(null);
 
   const fetchMenu = async () => {
     setStatus("loading...");
@@ -841,6 +870,18 @@ export default function App() {
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
   }, [boardPanePx, threadPanePx, responseTopRatio]);
 
+  useEffect(() => {
+    if (selectedThread == null || !threadTbodyRef.current) return;
+    const row = threadTbodyRef.current.querySelector<HTMLTableRowElement>(".selected-row");
+    row?.scrollIntoView({ block: "nearest" });
+  }, [selectedThread]);
+
+  useEffect(() => {
+    if (!responseTbodyRef.current) return;
+    const row = responseTbodyRef.current.querySelector<HTMLTableRowElement>(".selected-row");
+    row?.scrollIntoView({ block: "nearest" });
+  }, [selectedResponse]);
+
   return (
     <div
       className="shell"
@@ -849,7 +890,11 @@ export default function App() {
         setResponseMenu(null);
       }}
     >
-      <header className="menu-bar">File Edit View Board Thread Tools Help</header>
+      <header className="menu-bar">
+        {["File", "Edit", "View", "Board", "Thread", "Tools", "Help"].map((label) => (
+          <span key={label} className="menu-item">{label}</span>
+        ))}
+      </header>
       <div className="tool-bar">
         <button onClick={fetchMenu}>Refresh Menu</button>
         <button onClick={() => fetchThreadListFromCurrent()}>Load Threads</button>
@@ -917,34 +962,34 @@ export default function App() {
                 <th>Last Post</th>
               </tr>
             </thead>
-            <tbody>
-              {visibleThreadItems.map((t) => (
-                <tr
-                  key={t.id}
-                  className={selectedThread === t.id ? "selected-row" : ""}
-                  onClick={() => {
-                    setSelectedThread(t.id);
-                    setSelectedResponse(1);
-                    if ("threadUrl" in t && typeof t.threadUrl === "string") {
-                      setThreadUrl(t.threadUrl);
-                      setLocationInput(t.threadUrl);
-                      void fetchResponsesFromCurrent(t.threadUrl);
-                    }
-                  }}
-                  onContextMenu={(e) => onThreadContextMenu(e, t.id)}
-                >
-                  <td>{t.id}</td>
-                  <td>
-                    {threadReadMap[t.id] ? "" : "* "}
-                    {t.title}
-                  </td>
-                  <td>{t.res}</td>
-                  <td>{t.got}</td>
-                  <td>{t.speed.toFixed(1)}</td>
-                  <td>{t.lastLoad}</td>
-                  <td>{t.lastPost}</td>
-                </tr>
-              ))}
+            <tbody ref={threadTbodyRef}>
+              {visibleThreadItems.map((t) => {
+                const isUnread = !threadReadMap[t.id];
+                return (
+                  <tr
+                    key={t.id}
+                    className={`${selectedThread === t.id ? "selected-row" : ""} ${isUnread ? "unread-row" : ""}`}
+                    onClick={() => {
+                      setSelectedThread(t.id);
+                      setSelectedResponse(1);
+                      if ("threadUrl" in t && typeof t.threadUrl === "string") {
+                        setThreadUrl(t.threadUrl);
+                        setLocationInput(t.threadUrl);
+                        void fetchResponsesFromCurrent(t.threadUrl);
+                      }
+                    }}
+                    onContextMenu={(e) => onThreadContextMenu(e, t.id)}
+                  >
+                    <td>{t.id}</td>
+                    <td className="thread-title-cell">{t.title}</td>
+                    <td>{t.res}</td>
+                    <td>{t.got}</td>
+                    <td>{t.speed.toFixed(1)}</td>
+                    <td>{t.lastLoad}</td>
+                    <td>{t.lastPost}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </section>
@@ -975,7 +1020,7 @@ export default function App() {
                   <th>Time</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody ref={responseTbodyRef}>
                 {responseItems.map((r) => (
                   <tr
                     key={r.id}
@@ -1000,9 +1045,11 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
             />
             <article className="response-viewer">
-              <header>{activeResponse.name}</header>
+              <header>
+                <span className="response-viewer-no">{activeResponse.id}</span> {activeResponse.name}
+              </header>
               <time>{activeResponse.time}</time>
-              <p>{activeResponse.text}</p>
+              <div className="response-body" dangerouslySetInnerHTML={renderResponseBody(activeResponse.text)} />
             </article>
           </div>
           <details className="dev-panel">
