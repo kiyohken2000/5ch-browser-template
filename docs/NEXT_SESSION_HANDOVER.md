@@ -39,6 +39,12 @@
   - `apps/desktop`: レスポンスビューア/テーブルのスクロール制御改善
   - `apps/desktop`: 選択行の自動スクロール
   - `apps/desktop`: smoke-ui テスト拡張（メニュー/未読/省略/sticky/自動既読/セパレーター）
+  - `apps/desktop`: `>>N` アンカークリック → レスジャンプ + ホバーポップアップ
+  - `apps/desktop`: 書き込みウィンドウにスレタイトル + 文字数/行数表示
+  - `fetch_board_categories` Tauriコマンド（bbsmenu.json → カテゴリ/板ツリー）
+  - `apps/desktop`: 板ペインに折りたたみ式カテゴリツリー + 板クリック → スレ取得
+  - `apps/desktop`: レス行ダブルクリック / `R` キー → 引用書き込みフロート
+  - `apps/desktop`: smoke-ui 25件（板/書き込み/ダブルクリック/Rキー/アンカー他）
 - Git は初期化済みで、`safe.directory` 設定済み（この環境から `git` 操作可能）。
 - safe probe 実環境検証 (2026-03-19):
   - 全4モード（anonymous/uplift/be_front/be_uplift）で GET=200, confirm=200
@@ -88,10 +94,10 @@
    - 必要時のみ `-AllowRealSubmit -RealSubmitToken I_UNDERSTAND_REAL_POST -Message "<non-empty>"` で実送信検証
    - board URL 入力（例: `https://mao.5ch.io/ngt/`）でのスレ一覧取得を実環境確認
 2. geronimo互換UI継続改善
-   - 板一覧を bbsmenu.json から動的取得してツリー表示
-   - レスポンス `>>N` アンカークリック時のジャンプ動作
-   - 書き込みウィンドウの操作感（投稿先スレ表示/文字数カウント/投稿結果フィードバック）
-   - スモークテスト対象ケースの拡張（アンカー操作/書き込み送信フロー）
+   - お気に入り板/スレ管理機能
+   - NG ワード/ID フィルタリング
+   - 既読管理（SQLite 永続化）
+   - 投稿結果フィードバック（成功/失敗表示）
 3. リリース運用実地
    - `scripts/prepare_release_metadata.py` で実ZIPから `latest.json` 生成 + strict検証
    - `apps/landing/public/latest.json` へ反映

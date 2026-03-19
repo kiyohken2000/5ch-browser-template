@@ -51,14 +51,23 @@
 - [x] desktop: レスポンスビューア/テーブルのスクロール制御改善
 - [x] desktop: 選択行の自動スクロール（`scrollIntoView`）
 - [x] desktop: smoke-ui テスト拡張（メニュー項目/未読スタイル/省略表示/sticky/自動既読/セパレーター）
+- [x] desktop: `>>N` アンカークリック → レスジャンプ
+- [x] desktop: `>>N` アンカーホバー → レス内容ポップアップ表示
+- [x] desktop: 書き込みウィンドウにスレタイトル + 文字数/行数カウンター表示
+- [x] `fetch_board_categories` Tauriコマンド追加（bbsmenu.json → カテゴリ/板ツリー）
+- [x] desktop: 板ペインに折りたたみ式カテゴリツリー表示
+- [x] desktop: 板クリック → スレ一覧自動取得
+- [x] desktop: レス行ダブルクリック → 引用書き込みフロート起動
+- [x] desktop: `R` キー → 選択レス引用でフロート起動
+- [x] desktop: smoke-ui テスト追加（板/書き込み/ダブルクリック/Rキー/アンカー）
 
 ## 直近タスク（優先順）
 1. `core-fetch`: 非空メッセージでの confirm form 検出を確認（safe probe 完了: 2026-03-19）
    - real submit時は `-AllowRealSubmit -RealSubmitToken I_UNDERSTAND_REAL_POST -Message "<non-empty>"` を必須化
 2. `apps/desktop`: geronimo互換UI継続改善
-   - 板一覧の bbsmenu.json 動的取得 → ツリー表示
-   - `>>N` アンカークリック → レスジャンプ
-   - 書き込みウィンドウ UX（投稿先表示/文字数/投稿結果）
+   - お気に入り板/スレ管理機能
+   - NG ワード/ID フィルタリング
+   - 既読管理（SQLite 永続化）
    - push前に `apps/desktop` で `npm run test:smoke-ui` を実行
 3. `landing`: 文言/導線の本番向け調整
 4. `release`: タグ作成〜latest.json更新のワンショット運用定着
