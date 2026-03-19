@@ -28,6 +28,9 @@ try {
   const page = await context.newPage();
   await page.goto(targetUrl, { waitUntil: "load" });
   console.log("smoke-ui: page loaded");
+  const statusBarText = await page.$eval(".status-bar", (el) => el.textContent || "");
+  assert(statusBarText.includes("Runtime:WEB"), "status bar should indicate WEB runtime in smoke environment");
+  console.log("smoke-ui: runtime indicator ok");
 
   await page.waitForSelector(".layout");
   const initialColumns = await page.$eval(".layout", (el) => el.style.gridTemplateColumns);

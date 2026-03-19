@@ -97,6 +97,8 @@ const clampMenuPosition = (x: number, y: number, width: number, height: number) 
   x: clamp(x, MENU_EDGE_PADDING, Math.max(MENU_EDGE_PADDING, window.innerWidth - width - MENU_EDGE_PADDING)),
   y: clamp(y, MENU_EDGE_PADDING, Math.max(MENU_EDGE_PADDING, window.innerHeight - height - MENU_EDGE_PADDING)),
 });
+const isTauriRuntime = () =>
+  typeof window !== "undefined" && Boolean((globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
 const isTypingTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName.toLowerCase();
@@ -214,6 +216,11 @@ export default function App() {
   const fetchThreadListFromCurrent = async (targetThreadUrl?: string) => {
     const url = (targetThreadUrl ?? threadUrl).trim();
     if (!url) return;
+    if (!isTauriRuntime()) {
+      setThreadListProbe("web preview mode: thread fetch requires tauri runtime");
+      setStatus("thread fetch unavailable in web preview");
+      return;
+    }
     setThreadListProbe("running...");
     setStatus(`loading threads from: ${url}`);
     try {
@@ -372,6 +379,7 @@ export default function App() {
 
   const beState = authStatus.includes("BE(email:true, pass:true)") ? "ON" : "OFF";
   const upliftState = authStatus.includes("UPLIFT(email:true, pass:true)") ? "ON" : "OFF";
+  const runtimeState = isTauriRuntime() ? "TAURI" : "WEB";
   const updateState = updateResult
     ? updateResult.hasUpdate
       ? `UPDATE ${updateResult.latestVersion}`
@@ -1000,8 +1008,8 @@ export default function App() {
       </main>
       <footer className="status-bar">
         TS:{visibleThreadItems.length} | US:{unreadThreadCount} | Board:{selectedBoard} | Thread:{selectedThreadLabel} |
-        Res:{selectedResponseLabel} | API:ON | Ronin:ON | BE:{beState} | UPLIFT:{upliftState} | DONGURI:EXPERIMENTAL |{" "}
-        {updateState}
+        Res:{selectedResponseLabel} | Runtime:{runtimeState} | API:ON | Ronin:ON | BE:{beState} | UPLIFT:{upliftState} |
+        DONGURI:EXPERIMENTAL | {updateState}
       </footer>
       {composeOpen && (
         <section className="compose-window" role="dialog" aria-label="Write">
