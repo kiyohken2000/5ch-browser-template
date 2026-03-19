@@ -575,4 +575,16 @@ mod tests {
         let u = resolve_subject_url_from_thread_url("https://mao.5ch.io/ngt/").expect("subject url");
         assert_eq!(u, "https://mao.5ch.io/ngt/subject.txt");
     }
+
+    #[test]
+    fn resolve_subject_url_from_subject_url_works() {
+        let u = resolve_subject_url_from_thread_url("https://mao.5ch.io/ngt/subject.txt").expect("subject url");
+        assert_eq!(u, "https://mao.5ch.io/ngt/subject.txt");
+    }
+
+    #[test]
+    fn resolve_subject_url_rejects_unsupported_path() {
+        let err = resolve_subject_url_from_thread_url("https://mao.5ch.io/test/").expect_err("unsupported path");
+        assert!(err.to_string().contains("unsupported url"));
+    }
 }
