@@ -102,6 +102,7 @@ const DEFAULT_BOARD_PANE_PX = 220;
 const DEFAULT_THREAD_PANE_PX = 420;
 const DEFAULT_RESPONSE_TOP_RATIO = 42;
 const LAYOUT_PREFS_KEY = "desktop.layoutPrefs.v1";
+const COMPOSE_PREFS_KEY = "desktop.composePrefs.v1";
 const MENU_EDGE_PADDING = 8;
 
 type ResizeDragState =
@@ -150,6 +151,16 @@ const renderResponseBody = (html: string): { __html: string } => {
     (match) => {
       const href = match.replace(/&amp;/g, "&");
       return `<span class="thumb-link" data-lightbox-src="${href}">${match}<br><img class="response-thumb" src="${href}" loading="lazy" alt="" /></span>`;
+    }
+  );
+  // Linkify non-image URLs (must run after image thumb replacement)
+  safe = safe.replace(
+    /(https?:\/\/[^\s<>&]+(?:&amp;[^\s<>&]*)*)/gi,
+    (match) => {
+      // Skip if already inside a thumb-link or img tag
+      if (match.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i)) return match;
+      const href = match.replace(/&amp;/g, "&");
+      return `<a class="body-link" href="${href}" target="_blank" rel="noopener">${match}</a>`;
     }
   );
   safe = safe.replace(
@@ -613,6 +624,21 @@ export default function App() {
     }
   };
 
+  const refreshThreadListSilently = async () => {
+    const url = threadUrl.trim();
+    if (!url || !isTauriRuntime()) return;
+    try {
+      const rows = await invoke<ThreadListItem[]>("fetch_thread_list", {
+        threadUrl: url,
+        limit: 80,
+      });
+      setFetchedThreads(rows);
+      void loadReadStatusForBoard(url, rows);
+    } catch {
+      // silent refresh — ignore errors
+    }
+  };
+
   const fetchResponsesFromCurrent = async (targetThreadUrl?: string) => {
     const url = (targetThreadUrl ?? threadUrl).trim();
     if (!url) return;
@@ -830,6 +856,7 @@ export default function App() {
   const visibleThreadItems = threadItems
     .filter((t) => {
       if (closedThreadIds.includes(t.id)) return false;
+      if (ngFilters.words.some((w) => t.title.toLowerCase().includes(w.toLowerCase()))) return false;
       if (threadSearchQuery.trim()) {
         return t.title.toLowerCase().includes(threadSearchQuery.trim().toLowerCase());
       }
@@ -858,12 +885,27 @@ export default function App() {
           { id: 1, name: "名無しさん", time: "2026/03/07 10:00", text: "投稿フロートレース準備完了" },
           { id: 2, name: "名無しさん", time: "2026/03/07 10:02", text: "BE/UPLIFT/どんぐりログイン確認済み" },
           { id: 3, name: "名無しさん", time: "2026/03/07 10:04", text: "次: subject/dat取得連携" },
+          { id: 4, name: "名無しさん", time: "2026/03/07 10:06", text: "参考 https://example.com/page を参照" },
         ]),
   ];
   const ngFilteredCount = responseItems.filter((r) => isNgFiltered(r)).length;
   const visibleResponseItems = responseItems.filter((r) => !isNgFiltered(r));
   const activeResponse = visibleResponseItems.find((r) => r.id === selectedResponse) ?? visibleResponseItems[0];
   const selectedResponseLabel = activeResponse ? `#${activeResponse.id}` : "-";
+
+  // Build back-reference map: responseNo → list of responseNos that reference it
+  const backRefMap = (() => {
+    const map = new Map<number, number[]>();
+    for (const r of responseItems) {
+      const refs = r.text.matchAll(/>>(\d+)/g);
+      for (const m of refs) {
+        const target = Number(m[1]);
+        if (!map.has(target)) map.set(target, []);
+        map.get(target)!.push(r.id);
+      }
+    }
+    return map;
+  })();
 
   const goFromLocationInput = () => {
     const next = locationInput.trim();
@@ -1200,6 +1242,17 @@ export default function App() {
     } catch {
       // ignore invalid localStorage payload
     }
+    try {
+      const composeRaw = localStorage.getItem(COMPOSE_PREFS_KEY);
+      if (composeRaw) {
+        const cp = JSON.parse(composeRaw) as { name?: string; mail?: string; sage?: boolean };
+        if (typeof cp.name === "string") setComposeName(cp.name);
+        if (typeof cp.mail === "string") setComposeMail(cp.mail);
+        if (typeof cp.sage === "boolean") setComposeSage(cp.sage);
+      }
+    } catch {
+      // ignore
+    }
     void loadFavorites();
     void loadNgFilters();
   }, []);
@@ -1301,6 +1354,10 @@ export default function App() {
   }, [boardPanePx, threadPanePx, responseTopRatio, fontSize]);
 
   useEffect(() => {
+    localStorage.setItem(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeName, mail: composeMail, sage: composeSage }));
+  }, [composeName, composeMail, composeSage]);
+
+  useEffect(() => {
     if (selectedThread == null || !threadTbodyRef.current) return;
     const row = threadTbodyRef.current.querySelector<HTMLTableRowElement>(".selected-row");
     row?.scrollIntoView({ block: "nearest" });
@@ -1316,6 +1373,7 @@ export default function App() {
     if (!autoRefreshEnabled || !isTauriRuntime()) return;
     const id = setInterval(() => {
       void fetchResponsesFromCurrent();
+      void refreshThreadListSilently();
     }, autoRefreshInterval * 1000);
     return () => clearInterval(id);
   }, [autoRefreshEnabled, autoRefreshInterval, threadUrl]);
@@ -1807,6 +1865,23 @@ export default function App() {
               </header>
               <time>{activeResponse.time}</time>
               <div className="response-body" dangerouslySetInnerHTML={renderResponseBody(activeResponse.text)} />
+              {backRefMap.has(activeResponse.id) && (
+                <div className="back-refs">
+                  被参照:{" "}
+                  {backRefMap.get(activeResponse.id)!.map((refNo) => (
+                    <span
+                      key={refNo}
+                      className="anchor-ref"
+                      data-anchor={refNo}
+                      role="link"
+                      tabIndex={0}
+                      onClick={() => setSelectedResponse(refNo)}
+                    >
+                      &gt;&gt;{refNo}
+                    </span>
+                  ))}
+                </div>
+              )}
             </article>
           </div>
           <details className="dev-panel">
@@ -2016,6 +2091,13 @@ export default function App() {
             }
             setThreadMenu(null);
           }}>ブラウザで開く</button>
+          <button onClick={() => {
+            const t = threadItems.find((item) => item.id === threadMenu.threadId);
+            if (t) {
+              addNgEntry("words", t.title);
+            }
+            setThreadMenu(null);
+          }}>スレタイNGに追加</button>
           <button onClick={() => {
             const t = threadItems.find((item) => item.id === threadMenu.threadId);
             if (t && "threadUrl" in t && typeof t.threadUrl === "string") {

@@ -940,6 +940,25 @@ pre {
   border-color: var(--accent);
 }
 
+.body-link {
+  color: #0040e0;
+  text-decoration: none;
+}
+.body-link:hover {
+  text-decoration: underline;
+}
+
+.back-refs {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px solid #d0c8b0;
+  font-size: 0.9em;
+  color: #666;
+}
+.back-refs .anchor-ref {
+  margin-right: 6px;
+}
+
 .new-count.has-new {
   color: #c04020;
   font-weight: 700;

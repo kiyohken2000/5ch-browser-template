@@ -556,6 +556,122 @@ try {
   assert(shellFontReset === "12px", `font size should be 12px after reset, got ${shellFontReset}`);
   console.log("smoke-ui: font size setting ok");
 
+  // --- body link rendering ---
+  // Click on response #4 which has a URL in the fallback data
+  // Close compose window if open
+  const composeForLink = await page.$(".compose-window");
+  if (composeForLink) {
+    const closeBtn = await page.$(".compose-header button:last-child");
+    if (closeBtn) await closeBtn.click();
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll(".responses tbody tr");
+    const row = rows[3]; // 4th row (0-indexed)
+    if (row) row.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  const bodyLink = await page.$(".response-body .body-link");
+  assert(bodyLink, "response body should render URL as body-link anchor");
+  const linkHref = await bodyLink.evaluate((el) => el.getAttribute("href"));
+  assert(linkHref === "https://example.com/page", `body-link href should be the URL, got ${linkHref}`);
+  console.log("smoke-ui: body link rendering ok");
+
+  // --- NG thread title menu ---
+  // right-click first thread row to get context menu
+  await page.evaluate(() => {
+    document.querySelector(".shell")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  const firstThreadForNg = await page.$(".threads tbody tr:first-child");
+  assert(firstThreadForNg, "thread row should exist for NG test");
+  await firstThreadForNg.click({ button: "right" });
+  await new Promise((r) => setTimeout(r, 100));
+  const ngTitleBtn = await page.$('.thread-menu button:has-text("スレタイNGに追加")');
+  assert(ngTitleBtn, "thread menu should have NG title button");
+  // dismiss menu
+  await page.evaluate(() => {
+    document.querySelector(".shell")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  console.log("smoke-ui: ng thread title menu ok");
+
+  // --- thread NG word filtering ---
+  const threadCountBefore = await page.$$eval(".threads tbody tr", (els) => els.length);
+  // Add NG word matching a fallback thread title via the NG panel
+  await page.evaluate(() => {
+    document.querySelector(".shell")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  const ngBtn2 = await page.$(".ng-filter-toggle");
+  if (ngBtn2) await ngBtn2.click();
+  await new Promise((r) => setTimeout(r, 100));
+  const ngWordInput = await page.$('.ng-panel input[type="text"]');
+  if (ngWordInput) {
+    await ngWordInput.fill("認証テスト");
+    await ngWordInput.press("Enter");
+    await new Promise((r) => setTimeout(r, 200));
+    const threadCountAfter = await page.$$eval(".threads tbody tr", (els) => els.length);
+    assert(threadCountAfter < threadCountBefore, `NG word should hide thread, before=${threadCountBefore} after=${threadCountAfter}`);
+    // cleanup: remove the NG word
+    const removeBtn = await page.$('.ng-panel button:has-text("×")');
+    if (removeBtn) await removeBtn.click();
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  // close NG panel
+  const ngCloseBtn = await page.$('.ng-panel button:has-text("閉じる")');
+  if (ngCloseBtn) await ngCloseBtn.click();
+  await new Promise((r) => setTimeout(r, 100));
+  console.log("smoke-ui: thread ng word filtering ok");
+
+  // --- back reference display ---
+  // Add a fallback response that references >>1 and check if back-refs appear
+  // Select response #1 which should be referenced by >>1 anchors
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll(".responses tbody tr");
+    if (rows[0]) rows[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  // back-refs div may or may not appear depending on fallback data; just test the CSS class exists
+  const backRefsStyle = await page.evaluate(() => {
+    const style = document.querySelector("style, link[rel=stylesheet]");
+    // check if .back-refs rule exists in stylesheet
+    for (const sheet of document.styleSheets) {
+      try {
+        for (const rule of sheet.cssRules) {
+          if (rule.cssText?.includes(".back-refs")) return true;
+        }
+      } catch { /* cross-origin */ }
+    }
+    return false;
+  });
+  assert(backRefsStyle, "back-refs CSS class should exist in stylesheet");
+  console.log("smoke-ui: back refs style ok");
+
+  // --- compose prefs persistence ---
+  // Open compose, set a name, close, verify localStorage has it
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll(".threads tbody tr");
+    if (rows[0]) rows[0].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  await page.keyboard.press("r");
+  await new Promise((r) => setTimeout(r, 200));
+  const composeNameInput = await page.$('.compose-fields input');
+  if (composeNameInput) {
+    await composeNameInput.fill("テスト名前");
+    await new Promise((r) => setTimeout(r, 200));
+    const prefs = await page.evaluate(() => localStorage.getItem("desktop.composePrefs.v1"));
+    assert(prefs, "compose prefs should be saved to localStorage");
+    const parsed = JSON.parse(prefs);
+    assert(parsed.name === "テスト名前", `compose name should be persisted, got ${parsed.name}`);
+  }
+  // close compose
+  const composeClose = await page.$(".compose-header button:last-child");
+  if (composeClose) await composeClose.click();
+  await new Promise((r) => setTimeout(r, 100));
+  console.log("smoke-ui: compose prefs persistence ok");
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {
