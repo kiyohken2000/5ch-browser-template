@@ -125,6 +125,7 @@ export default function App() {
   const [selectedBoard, setSelectedBoard] = useState("Favorite");
   const [selectedThread, setSelectedThread] = useState<number | null>(1);
   const [closedThreadIds, setClosedThreadIds] = useState<number[]>([]);
+  const [closedThreadHistory, setClosedThreadHistory] = useState<number[]>([]);
   const [selectedResponse, setSelectedResponse] = useState<number>(1);
   const [threadReadMap, setThreadReadMap] = useState<Record<number, boolean>>({ 1: false, 2: true });
   const [threadMenu, setThreadMenu] = useState<{ x: number; y: number; threadId: number } | null>(null);
@@ -409,7 +410,7 @@ export default function App() {
 
   const onThreadContextMenu = (e: ReactMouseEvent, threadId: number) => {
     e.preventDefault();
-    const p = clampMenuPosition(e.clientX, e.clientY, 180, 92);
+    const p = clampMenuPosition(e.clientX, e.clientY, 180, 176);
     setThreadMenu({ x: p.x, y: p.y, threadId });
     setResponseMenu(null);
   };
@@ -432,6 +433,7 @@ export default function App() {
     const idx = ids.indexOf(threadId);
     if (idx < 0) return;
     setClosedThreadIds((prev) => (prev.includes(threadId) ? prev : [...prev, threadId]));
+    setClosedThreadHistory((prev) => [...prev, threadId]);
     setSelectedThread((prev) => {
       if (prev !== threadId) return prev;
       const nextIds = ids.filter((id) => id !== threadId);
@@ -446,6 +448,7 @@ export default function App() {
     if (!keep) return;
     const nextClosed = threadItems.filter((t) => t.id !== threadId).map((t) => t.id);
     setClosedThreadIds(nextClosed);
+    setClosedThreadHistory((prev) => [...prev, ...nextClosed]);
     setSelectedThread(threadId);
     setThreadMenu(null);
     setStatus(`other threads closed; keep #${threadId}`);
@@ -453,9 +456,29 @@ export default function App() {
 
   const reopenAllThreads = () => {
     setClosedThreadIds([]);
+    setClosedThreadHistory([]);
     if (selectedThread == null && threadItems.length > 0) setSelectedThread(threadItems[0].id);
     setThreadMenu(null);
     setStatus("all threads reopened");
+  };
+
+  const reopenLastClosedThread = () => {
+    const closedSet = new Set(closedThreadIds);
+    let idx = closedThreadHistory.length - 1;
+    while (idx >= 0 && !closedSet.has(closedThreadHistory[idx])) {
+      idx -= 1;
+    }
+    if (idx < 0) {
+      setStatus("no closed thread to reopen");
+      setThreadMenu(null);
+      return;
+    }
+    const reopened = closedThreadHistory[idx];
+    setClosedThreadHistory((prev) => prev.slice(0, idx));
+    setClosedThreadIds((prev) => prev.filter((id) => id !== reopened));
+    setSelectedThread(reopened);
+    setThreadMenu(null);
+    setStatus(`thread reopened: #${reopened}`);
   };
 
   const copyThreadUrl = async (threadId: number) => {
@@ -585,6 +608,11 @@ export default function App() {
         setClosedThreadIds((prev) => [...prev, selectedThread]);
         const nextIds = ids.filter((id) => id !== selectedThread);
         setSelectedThread(nextIds.length > 0 ? nextIds[Math.min(idx, nextIds.length - 1)] : null);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "w") {
+        e.preventDefault();
+        reopenLastClosedThread();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === "/" || e.code === "Slash")) {
@@ -756,7 +784,7 @@ export default function App() {
         <button onClick={() => setComposeOpen(true)}>Write</button>
         <button onClick={resetLayout}>Reset Layout</button>
         <span className="shortcut-hint">
-          Shortcuts: Ctrl+Shift+R | Ctrl/Cmd+W | Ctrl+Alt+/ | Ctrl/Cmd+Alt+Arrows | Ctrl/Cmd+Arrows
+          Shortcuts: Ctrl+Shift+R | Ctrl/Cmd+W | Ctrl/Cmd+Shift+W | Ctrl+Alt+/ | Ctrl/Cmd+Alt+Arrows | Ctrl/Cmd+Arrows
         </span>
       </div>
       <div className="address-bar">
@@ -1012,6 +1040,9 @@ export default function App() {
           <button onClick={() => markThreadRead(threadMenu.threadId, false)}>Mark as Unread</button>
           <button onClick={() => closeThread(threadMenu.threadId)}>Close Thread</button>
           <button onClick={() => closeOtherThreads(threadMenu.threadId)}>Close Others</button>
+          <button onClick={reopenLastClosedThread} disabled={closedThreadIds.length === 0}>
+            Reopen Last
+          </button>
           <button onClick={reopenAllThreads} disabled={closedThreadIds.length === 0}>
             Reopen All
           </button>

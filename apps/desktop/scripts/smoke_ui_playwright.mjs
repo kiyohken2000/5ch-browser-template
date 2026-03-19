@@ -52,6 +52,15 @@ try {
   console.log("smoke-ui: close thread ok");
 
   await page.click(".threads tbody tr:first-child", { button: "right" });
+  await page.click('.thread-menu button:has-text("Reopen Last")');
+  const rowsAfterReopenLast = await page.$$eval(".threads tbody tr", (rows) => rows.length);
+  assert(rowsAfterReopenLast >= rowsBefore, "reopen last action did not restore thread row");
+  console.log("smoke-ui: reopen last ok");
+
+  await page.click(".threads tbody tr:first-child", { button: "right" });
+  await page.click('.thread-menu button:has-text("Close Thread")');
+
+  await page.click(".threads tbody tr:first-child", { button: "right" });
   await page.click('.thread-menu button:has-text("Reopen All")');
   const rowsAfterReopen = await page.$$eval(".threads tbody tr", (rows) => rows.length);
   assert(rowsAfterReopen >= rowsBefore, "reopen all action did not restore thread rows");
