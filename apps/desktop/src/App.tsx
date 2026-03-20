@@ -145,6 +145,14 @@ const ENTITY_MAP: Record<string, string> = {
 };
 const decodeHtmlEntities = (s: string) =>
   s.replace(/&(?:amp|lt|gt|quot|nbsp|#39|#44);/g, (m) => ENTITY_MAP[m] ?? m);
+const normalizeExternalUrl = (raw: string): string | null => {
+  const v = raw.replace(/&amp;/g, "&");
+  if (/^https?:\/\//i.test(v)) return v;
+  if (/^ttps:\/\//i.test(v)) return `https://${v.slice("ttps://".length)}`;
+  if (/^ttp:\/\//i.test(v)) return `http://${v.slice("ttp://".length)}`;
+  if (/^s:\/\//i.test(v)) return `https://${v.slice("s://".length)}`;
+  return null;
+};
 
 const ID_COLORS = [
   "#c41a1a", "#1a8fc4", "#1aaa3e", "#b06d15", "#8c1ac4",
@@ -176,19 +184,21 @@ const renderResponseBody = (html: string): { __html: string } => {
     .replace(/"/g, "&quot;");
   safe = safe.replace(/\n/g, "<br>");
   safe = safe.replace(
-    /(https?:\/\/[^\s<>&"]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*(?:&amp;[^\s<>&"]*)*)?)/gi,
+    /((?:https?:\/\/|ttps?:\/\/|s:\/\/)[^\s<>&"]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*(?:&amp;[^\s<>&"]*)*)?)/gi,
     (match) => {
-      const href = match.replace(/&amp;/g, "&");
+      const href = normalizeExternalUrl(match);
+      if (!href) return match;
       return `<span class="thumb-link" data-lightbox-src="${href}"><a class="body-link" href="${href}" target="_blank" rel="noopener">${match}</a><br><img class="response-thumb" src="${href}" loading="lazy" alt="" /></span>`;
     }
   );
   // Linkify non-image URLs (must run after image thumb replacement)
   safe = safe.replace(
-    /(https?:\/\/[^\s<>&"]+(?:&amp;[^\s<>&"]*)*)/gi,
+    /((?:https?:\/\/|ttps?:\/\/|s:\/\/)[^\s<>&"]+(?:&amp;[^\s<>&"]*)*)/gi,
     (match) => {
       // Skip if already inside a thumb-link or img tag
       if (match.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i)) return match;
-      const href = match.replace(/&amp;/g, "&");
+      const href = normalizeExternalUrl(match);
+      if (!href) return match;
       return `<a class="body-link" href="${href}" target="_blank" rel="noopener">${match}</a>`;
     }
   );
@@ -2085,8 +2095,11 @@ export default function App() {
                 if (bodyLink) {
                   e.preventDefault();
                   const url = bodyLink.getAttribute("href");
-                  if (url && isTauriRuntime()) void invoke("open_external_url", { url });
-                  else if (url) window.open(url, "_blank");
+                  if (url && isTauriRuntime()) {
+                    void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
+                  } else if (url) {
+                    window.open(url, "_blank");
+                  }
                   return;
                 }
                 // thumb image click: open in external browser
@@ -2094,7 +2107,11 @@ export default function App() {
                   e.preventDefault();
                   const thumbLink = target.closest<HTMLElement>("[data-lightbox-src]");
                   const url = thumbLink?.dataset.lightboxSrc ?? "";
-                  if (url && isTauriRuntime()) void invoke("open_external_url", { url });
+                  if (url && isTauriRuntime()) {
+                    void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
+                  } else if (url) {
+                    window.open(url, "_blank");
+                  }
                   return;
                 }
                 const anchor = target.closest<HTMLElement>(".anchor-ref");
@@ -2166,16 +2183,21 @@ export default function App() {
                       </span>
                       <span className="response-name">{r.name}</span>
                       {r.beNumber && (
-                        <span
+                        <button
+                          type="button"
                           className="response-be-link"
                           onClick={(e) => {
                             e.stopPropagation();
                             const url = `https://be.5ch.io/user/${r.beNumber}`;
-                            if (isTauriRuntime()) void invoke("open_external_url", { url });
+                            if (isTauriRuntime()) {
+                              void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
+                            } else {
+                              window.open(url, "_blank");
+                            }
                           }}
                         >
                           BE:{r.beNumber}
-                        </span>
+                        </button>
                       )}
                       {backRefMap.has(r.id) && (
                         <span

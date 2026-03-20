@@ -533,6 +533,10 @@ body {
   cursor: pointer;
   font-size: 11px;
   margin-left: 4px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
 }
 .response-be-link:hover {
   text-decoration: underline;

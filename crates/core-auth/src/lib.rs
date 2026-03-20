@@ -131,7 +131,7 @@ pub async fn login_be_front(email: &str, password: &str) -> Result<LoginOutcome,
 
     let response = client
         .post(&post_url)
-        .form(&[("mail", email), ("pass", password), ("login", "")])
+        .form(&[("mail", email), ("pass", password), ("login", "ログイン")])
         .send()
         .await?;
 
