@@ -688,7 +688,7 @@ export default function App() {
     }
   };
 
-  const fetchResponsesFromCurrent = async (targetThreadUrl?: string) => {
+  const fetchResponsesFromCurrent = async (targetThreadUrl?: string, opts?: { keepSelection?: boolean }) => {
     const url = (targetThreadUrl ?? threadUrl).trim();
     if (!url) return;
     if (!isTauriRuntime()) {
@@ -703,16 +703,21 @@ export default function App() {
       });
       const prevCount = fetchedResponses.length;
       setFetchedResponses(rows);
-      setSelectedResponse(rows.length > 0 ? rows[0].responseNo : 1);
+      if (opts?.keepSelection) {
+        // auto-refresh: keep current selection, don't reset
+      } else {
+        setSelectedResponse(rows.length > 0 ? rows[0].responseNo : 1);
+      }
       tabCacheRef.current.set(url, { responses: rows, selectedResponse: rows.length > 0 ? rows[0].responseNo : 1 });
       setLastFetchTime(new Date().toLocaleTimeString());
       if (prevCount > 0 && rows.length > prevCount) {
         setNewResponseStart(prevCount + 1);
+        setStatus(`新着 ${rows.length - prevCount} レス (${rows.length})`);
       } else {
         setNewResponseStart(null);
+        setStatus(`responses loaded: ${rows.length}`);
       }
       setResponseListProbe(`ok rows=${rows.length}`);
-      setStatus(`responses loaded: ${rows.length}`);
     } catch (error) {
       const msg = String(error);
       setFetchedResponses([]);
@@ -1460,7 +1465,7 @@ export default function App() {
   useEffect(() => {
     if (!autoRefreshEnabled || !isTauriRuntime()) return;
     const id = setInterval(() => {
-      void fetchResponsesFromCurrent();
+      void fetchResponsesFromCurrent(undefined, { keepSelection: true });
       void refreshThreadListSilently();
     }, autoRefreshInterval * 1000);
     return () => clearInterval(id);

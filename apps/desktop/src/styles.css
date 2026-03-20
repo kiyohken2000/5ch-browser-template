@@ -553,12 +553,6 @@ body {
   word-break: break-word;
 }
 
-.response-body .be-icon {
-  width: 16px;
-  height: 16px;
-  vertical-align: text-bottom;
-  margin: 0 2px;
-}
 
 .anchor-ref {
   color: #0066cc;
