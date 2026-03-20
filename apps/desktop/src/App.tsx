@@ -1087,6 +1087,11 @@ export default function App() {
     const m = time.match(/ID:(\S+)/);
     return m ? m[1] : "";
   };
+  const formatResponseDate = (time: string) =>
+    time
+      .replace(/\s+ID:\S+/g, "")
+      .replace(/\s+BE[:：]\d+[^\s]*/gi, "")
+      .trim();
 
   // Build ID count map for highlighting frequent posters
   const idCountMap = (() => {
@@ -1608,10 +1613,18 @@ export default function App() {
         if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
       }
     };
+    const onWheel = (event: WheelEvent) => {
+      if (!hoverPreviewSrcRef.current || !event.ctrlKey) return;
+      event.preventDefault();
+      const next = Math.max(10, Math.min(500, hoverPreviewZoomRef.current + (event.deltaY < 0 ? 20 : -20)));
+      hoverPreviewZoomRef.current = next;
+      if (hoverPreviewImgRef.current) hoverPreviewImgRef.current.style.transform = `scale(${next / 100})`;
+    };
 
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       if (hoverPreviewHideTimerRef.current) {
         clearTimeout(hoverPreviewHideTimerRef.current);
@@ -1620,6 +1633,7 @@ export default function App() {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("wheel", onWheel as EventListener);
     };
   }, []);
 
@@ -2155,17 +2169,6 @@ export default function App() {
                   hoverPreviewRef.current.style.display = "block";
                 }
               }}
-              onMouseLeave={() => {
-                if (hoverPreviewHideTimerRef.current) {
-                  clearTimeout(hoverPreviewHideTimerRef.current);
-                  hoverPreviewHideTimerRef.current = null;
-                }
-                hoverPreviewHideTimerRef.current = setTimeout(() => {
-                  hoverPreviewSrcRef.current = null;
-                  if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
-                  hoverPreviewHideTimerRef.current = null;
-                }, 60);
-              }}
               onMouseOver={(e) => {
                 const target = e.target as HTMLElement;
                 const anchor = target.closest<HTMLElement>(".anchor-ref");
@@ -2204,23 +2207,6 @@ export default function App() {
                         {r.id}
                       </span>
                       <span className="response-name">{r.name}</span>
-                      {r.beNumber && (
-                        <button
-                          type="button"
-                          className="response-be-link"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const url = `https://be.5ch.io/user/${r.beNumber}`;
-                            if (isTauriRuntime()) {
-                              void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
-                            } else {
-                              window.open(url, "_blank");
-                            }
-                          }}
-                        >
-                          BE:{r.beNumber}
-                        </button>
-                      )}
                       {backRefMap.has(r.id) && (
                         <span
                           className="back-ref-trigger"
@@ -2234,7 +2220,7 @@ export default function App() {
                       )}
                       <span className="response-header-right">
                         {isNew && <span className="response-new-marker">New!</span>}
-                        <span className="response-date">{r.time}</span>
+                        <span className="response-date">{formatResponseDate(r.time)}</span>
                         {id && (
                           <span
                             className="response-id-cell"
@@ -2251,6 +2237,23 @@ export default function App() {
                           >
                             ID:{id}({count})
                           </span>
+                        )}
+                        {r.beNumber && (
+                          <button
+                            type="button"
+                            className="response-be-link"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const url = `https://be.5ch.io/user/${r.beNumber}`;
+                              if (isTauriRuntime()) {
+                                void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
+                              } else {
+                                window.open(url, "_blank");
+                              }
+                            }}
+                          >
+                            BE:{r.beNumber}
+                          </button>
                         )}
                       </span>
                     </div>
