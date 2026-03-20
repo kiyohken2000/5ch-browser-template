@@ -890,7 +890,7 @@ try {
   // --- response nav bar info ---
   const navInfoText = await page.$eval(".nav-info", (el) => el.textContent);
   assert(navInfoText.includes("レス:"), "nav info should show response count");
-  assert(navInfoText.includes("受信日時:"), "nav info should show fetch time");
+  assert(navInfoText.includes("受信:"), "nav info should show fetch time");
   console.log("smoke-ui: response nav info ok");
 
   // --- board search filter ---

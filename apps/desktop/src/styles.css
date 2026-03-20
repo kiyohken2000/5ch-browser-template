@@ -827,6 +827,10 @@ pre {
   gap: 8px;
 }
 
+.status-ng {
+  color: #c44;
+}
+
 .compose-window {
   position: fixed;
   right: 20px;

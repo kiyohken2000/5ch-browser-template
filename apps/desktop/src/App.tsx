@@ -2056,8 +2056,8 @@ export default function App() {
                 }}
               />
               <span className="nav-info">
-                <span>レス:{visibleResponseItems.length}</span>
-                <span>受信日時:{lastFetchTime ?? "-"}</span>
+                <span>レス:{visibleResponseItems.length}{ngFilteredCount > 0 ? ` (NG${ngFilteredCount})` : ""}</span>
+                <span>受信:{lastFetchTime ?? "-"}</span>
               </span>
             </div>
           </div>
@@ -2065,15 +2065,13 @@ export default function App() {
         </div>
       </main>
       <footer className="status-bar">
-        <span>dat取得予定残{visibleThreadItems.length}</span>
-        <span>(板情報レス:{responseItems.length} サイズ:{Math.round(responseItems.reduce((s, r) => s + r.text.length, 0) / 1024)}KB)</span>
-        <span>TS:{visibleThreadItems.length}</span>
-        <span>US:{unreadThreadCount}</span>
-        <span>API:ON</span>
-        <span>Ronin:ON</span>
+        <span>スレ:{visibleThreadItems.length}</span>
+        <span>未読:{unreadThreadCount}</span>
+        <span>レス:{responseItems.length}</span>
+        {ngFilteredCount > 0 && <span className="status-ng">NG:{ngFilteredCount}</span>}
+        <span>サイズ:{Math.round(responseItems.reduce((s, r) => s + r.text.length, 0) / 1024)}KB</span>
         <span>BE:{beState}</span>
         <span>UPLIFT:{upliftState}</span>
-        <span>DONGURI:EXPERIMENTAL</span>
         <span>Runtime:{runtimeState}</span>
       </footer>
       {composeOpen && (
