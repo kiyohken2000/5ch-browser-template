@@ -215,6 +215,8 @@ export default function App() {
   const [ngFilters, setNgFilters] = useState<NgFilters>({ words: [], ids: [], names: [] });
   const [ngPanelOpen, setNgPanelOpen] = useState(false);
   const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">("boards");
+  const [boardSearchQuery, setBoardSearchQuery] = useState("");
+  const [responsesLoading, setResponsesLoading] = useState(false);
   const [ngInput, setNgInput] = useState("");
   const [ngInputType, setNgInputType] = useState<"words" | "ids" | "names">("words");
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
@@ -696,6 +698,7 @@ export default function App() {
       return;
     }
     setResponseListProbe("running...");
+    setResponsesLoading(true);
     try {
       const rows = await invoke<ThreadResponseItem[]>("fetch_thread_responses_command", {
         threadUrl: url,
@@ -705,6 +708,13 @@ export default function App() {
       setFetchedResponses(rows);
       if (opts?.keepSelection) {
         // auto-refresh: keep current selection, don't reset
+        // scroll to first new response if there are new ones
+        if (prevCount > 0 && rows.length > prevCount) {
+          setTimeout(() => {
+            const newEl = responseScrollRef.current?.querySelector(`[data-response-no="${prevCount + 1}"]`);
+            if (newEl) newEl.scrollIntoView({ block: "start", behavior: "smooth" });
+          }, 50);
+        }
       } else {
         setSelectedResponse(rows.length > 0 ? rows[0].responseNo : 1);
       }
@@ -723,6 +733,8 @@ export default function App() {
       setFetchedResponses([]);
       setResponseListProbe(`error: ${msg}`);
       setStatus(`response load error: ${msg}`);
+    } finally {
+      setResponsesLoading(false);
     }
   };
 
@@ -1563,17 +1575,15 @@ export default function App() {
         ))}
       </header>
       <div className="tool-bar">
-        <button onClick={() => { void fetchMenu(); void fetchBoardCategories(); }}>更新</button>
+        <button onClick={() => { void fetchMenu(); void fetchBoardCategories(); }}>板更新</button>
         <button onClick={() => fetchThreadListFromCurrent()}>スレ取得</button>
         <button onClick={() => fetchResponsesFromCurrent()}>レス取得</button>
-        <span className="tool-sep" />
-        <button onClick={checkAuthEnv}>認証状態</button>
-        <button onClick={probeAuth}>認証テスト</button>
         <span className="tool-sep" />
         <button onClick={() => { setComposeOpen(true); setComposePos(null); }}>書き込み</button>
         <button onClick={reopenLastClosedThread} disabled={!hasReopenableClosedThread}>
           閉じたスレを戻す
         </button>
+        <span className="tool-sep" />
         <label className="auto-refresh-toggle">
           <input
             type="checkbox"
@@ -1582,11 +1592,7 @@ export default function App() {
           />
           自動更新 ({autoRefreshInterval}秒)
         </label>
-        <button onClick={() => setNgPanelOpen((v) => !v)}>NGフィルタ</button>
-        <button onClick={resetLayout}>レイアウトリセット</button>
-        <span className="shortcut-hint">
-          Ctrl+Shift+R | Ctrl/Cmd+W | Ctrl/Cmd+Shift+W | Ctrl+Alt+/ | Ctrl/Cmd+Alt+Arrows
-        </span>
+        <button onClick={() => setNgPanelOpen((v) => !v)}>NG</button>
       </div>
       <div className="address-bar">
         <span>URL</span>
@@ -1621,10 +1627,18 @@ export default function App() {
               <button className="boards-fetch" onClick={fetchBoardCategories}>取得</button>
             )}
           </div>
+          {boardPaneTab === "boards" && (
+            <input
+              className="board-search"
+              value={boardSearchQuery}
+              onChange={(e) => setBoardSearchQuery(e.target.value)}
+              placeholder="板を検索..."
+            />
+          )}
           {boardPaneTab === "boards" ? (
             boardCategories.length > 0 ? (
               <div className="board-tree">
-                {favorites.boards.length > 0 && (
+                {favorites.boards.length > 0 && !boardSearchQuery.trim() && (
                   <div className="board-category">
                     <button
                       className="category-toggle fav-category"
@@ -1651,38 +1665,46 @@ export default function App() {
                     )}
                   </div>
                 )}
-                {boardCategories.map((cat) => (
-                  <div key={cat.categoryName} className="board-category">
-                    <button
-                      className="category-toggle"
-                      onClick={() => toggleCategory(cat.categoryName)}
-                    >
-                      <span className="category-arrow">{expandedCategories.has(cat.categoryName) ? "\u25BC" : "\u25B6"}</span>
-                      {cat.categoryName} ({cat.boards.length})
-                    </button>
-                    {expandedCategories.has(cat.categoryName) && (
-                      <ul className="category-boards">
-                        {cat.boards.map((b) => (
-                          <li key={b.url}>
-                            <button
-                              className={`board-item ${selectedBoard === b.boardName ? "selected" : ""}`}
-                              onClick={() => selectBoard(b)}
-                              title={b.url}
-                            >
-                              <span
-                                className={`fav-star ${isFavoriteBoard(b.url) ? "active" : ""}`}
-                                onClick={(e) => { e.stopPropagation(); toggleFavoriteBoard(b); }}
-                              >
-                                {isFavoriteBoard(b.url) ? "★" : "☆"}
-                              </span>
-                              {b.boardName}
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))}
+                {boardCategories
+                  .map((cat) => {
+                    const q = boardSearchQuery.trim().toLowerCase();
+                    const filteredBoards = q ? cat.boards.filter((b) => b.boardName.toLowerCase().includes(q)) : cat.boards;
+                    if (q && filteredBoards.length === 0) return null;
+                    const isExpanded = q ? true : expandedCategories.has(cat.categoryName);
+                    return (
+                      <div key={cat.categoryName} className="board-category">
+                        <button
+                          className="category-toggle"
+                          onClick={() => toggleCategory(cat.categoryName)}
+                        >
+                          <span className="category-arrow">{isExpanded ? "\u25BC" : "\u25B6"}</span>
+                          {cat.categoryName} ({filteredBoards.length})
+                        </button>
+                        {isExpanded && (
+                          <ul className="category-boards">
+                            {filteredBoards.map((b) => (
+                              <li key={b.url}>
+                                <button
+                                  className={`board-item ${selectedBoard === b.boardName ? "selected" : ""}`}
+                                  onClick={() => selectBoard(b)}
+                                  title={b.url}
+                                >
+                                  <span
+                                    className={`fav-star ${isFavoriteBoard(b.url) ? "active" : ""}`}
+                                    onClick={(e) => { e.stopPropagation(); toggleFavoriteBoard(b); }}
+                                  >
+                                    {isFavoriteBoard(b.url) ? "★" : "☆"}
+                                  </span>
+                                  {b.boardName}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })
+                  .filter(Boolean)}
               </div>
             ) : (
               <ul>
@@ -1912,12 +1934,16 @@ export default function App() {
                 }
               }}
             >
+              {responsesLoading && (
+                <div className="response-loading">読み込み中...</div>
+              )}
               {visibleResponseItems.map((r) => {
                 const id = extractId(r.time);
                 const count = id ? (idCountMap.get(id) ?? 0) : 0;
                 return (
                   <div
                     key={r.id}
+                    data-response-no={r.id}
                     className={`response-block ${selectedResponse === r.id ? "selected" : ""}`}
                     onClick={() => setSelectedResponse(r.id)}
                     onDoubleClick={() => appendComposeQuote(`>>${r.id}`)}

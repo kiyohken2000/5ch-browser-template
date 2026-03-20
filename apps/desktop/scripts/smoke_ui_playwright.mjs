@@ -260,7 +260,7 @@ try {
 
   // fav-star elements exist in board items (fallback mode may not have them, but CSS class should exist)
   // In WEB mode without categories, there's no board-tree, but the NG panel should work
-  const ngFilterBtn = await page.$(".tool-bar button:has-text('NGフィルタ')");
+  const ngFilterBtn = await page.$(".tool-bar button:has-text('NG')");
   assert(ngFilterBtn, "toolbar should have NGフィルタ button");
   console.log("smoke-ui: ng filter button ok");
 
@@ -892,6 +892,30 @@ try {
   assert(navInfoText.includes("レス:"), "nav info should show response count");
   assert(navInfoText.includes("受信日時:"), "nav info should show fetch time");
   console.log("smoke-ui: response nav info ok");
+
+  // --- board search filter ---
+  const boardSearch = await page.$(".board-search");
+  assert(boardSearch, "board pane should have search input");
+  console.log("smoke-ui: board search ok");
+
+  // --- response loading CSS ---
+  const loadingCss = await page.evaluate(() => {
+    for (const sheet of document.styleSheets) {
+      try {
+        for (const rule of sheet.cssRules) {
+          if (rule.cssText?.includes(".response-loading")) return true;
+        }
+      } catch { /* cross-origin */ }
+    }
+    return false;
+  });
+  assert(loadingCss, "response-loading CSS should exist");
+  console.log("smoke-ui: response loading css ok");
+
+  // --- response block data attribute ---
+  const responseWithData = await page.$(".response-block[data-response-no]");
+  assert(responseWithData, "response blocks should have data-response-no attribute");
+  console.log("smoke-ui: response data attribute ok");
 
   console.log("smoke-ui: ok");
 } finally {

@@ -247,6 +247,15 @@ body {
   margin-left: auto;
 }
 
+.board-search {
+  width: 100%;
+  padding: 3px 6px;
+  font-size: 11px;
+  border: 1px solid #c0c0c0;
+  background: #ffffff;
+  margin-bottom: 4px;
+}
+
 .board-tree {
   overflow-y: auto;
 }
@@ -408,6 +417,19 @@ body {
   overflow-y: auto;
   background: #ffffff;
   padding: 0;
+}
+
+.response-loading {
+  padding: 12px;
+  text-align: center;
+  color: var(--sub);
+  font-size: 12px;
+  animation: response-loading-pulse 1s ease-in-out infinite;
+}
+
+@keyframes response-loading-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 
 .response-block {
@@ -1594,6 +1616,11 @@ pre {
   background: #1e1e1e;
   color: var(--ink);
   border-color: #555;
+}
+.dark .board-search {
+  background: #1e1e1e;
+  border-color: #555;
+  color: var(--ink);
 }
 .dark .board-item {
   color: var(--ink);
