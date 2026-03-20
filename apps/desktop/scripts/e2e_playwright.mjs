@@ -446,7 +446,7 @@ try {
     const btn = [...document.querySelectorAll(".menu-dropdown button")].find((el) => el.textContent?.includes("設定"));
     if (btn) btn.click();
   });
-  await new Promise((r) => setTimeout(r, 300));
+  await new Promise((r) => setTimeout(r, 500));
   const settingsPanel = await page.$(".settings-panel");
   assert(settingsPanel, "settings panel should be visible");
   const legends = await page.$$eval(".settings-body legend", (els) => els.map((el) => el.textContent?.trim()));
