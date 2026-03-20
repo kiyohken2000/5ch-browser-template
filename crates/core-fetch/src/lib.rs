@@ -240,17 +240,32 @@ pub fn probe_post_cookie_scope(jar: &Jar, post_url: &str) -> Result<PostCookieRe
 }
 
 fn extract_attr(snippet: &str, attr: &str) -> Option<String> {
+    // Try double-quoted: attr="value"
     let p1 = format!("{attr}=\"");
     if let Some(i) = snippet.find(&p1) {
         let v = &snippet[i + p1.len()..];
         let end = v.find('"')?;
         return Some(v[..end].to_string());
     }
+    // Try single-quoted: attr='value'
     let p2 = format!("{attr}='");
     if let Some(i) = snippet.find(&p2) {
         let v = &snippet[i + p2.len()..];
         let end = v.find('\'')?;
         return Some(v[..end].to_string());
+    }
+    // Try unquoted: attr=value (terminated by space, > or end)
+    let p3 = format!("{attr}=");
+    if let Some(i) = snippet.find(&p3) {
+        let after = &snippet[i + p3.len()..];
+        // Skip if next char is a quote (already handled above)
+        if after.starts_with('"') || after.starts_with('\'') {
+            return None;
+        }
+        let end = after.find(|c: char| c.is_whitespace() || c == '>' || c == '"' || c == '\'').unwrap_or(after.len());
+        if end > 0 {
+            return Some(after[..end].to_string());
+        }
     }
     None
 }
@@ -435,9 +450,9 @@ fn find_first_confirm_form(html: &str) -> Option<&str> {
         let close_rel = tail.find("</form>")?;
         let close = open + close_rel + "</form>".len();
         let form = &html[open..close];
-        let has_bbs = form.contains("name=\"bbs\"") || form.contains("name='bbs'");
-        let has_key = form.contains("name=\"key\"") || form.contains("name='key'");
-        let has_time = form.contains("name=\"time\"") || form.contains("name='time'");
+        let has_bbs = form.contains("name=\"bbs\"") || form.contains("name='bbs'") || form.contains("name=bbs ");
+        let has_key = form.contains("name=\"key\"") || form.contains("name='key'") || form.contains("name=key ");
+        let has_time = form.contains("name=\"time\"") || form.contains("name='time'") || form.contains("name=time ");
         if has_bbs && has_key && has_time {
             return Some(form);
         }
@@ -629,6 +644,30 @@ mod tests {
         assert!(parsed.field_names.iter().any(|n| n == "time"));
         assert!(parsed.field_names.iter().any(|n| n == "submit"));
         assert_eq!(parsed.field_count, 4);
+    }
+
+    #[test]
+    fn parse_confirm_submit_form_unquoted_attrs() {
+        // Actual 5ch confirm page uses unquoted attributes like name=bbs value=ngt
+        let html = r#"
+        <form method="POST" action="../test/bbs.cgi?guid=ON" accept-charset="Shift_JIS">
+          <input type=hidden name=FROM value="">
+          <input type=hidden name=mail value="">
+          <input type=hidden name=MESSAGE value="test">
+          <input type=hidden name=bbs value="ngt">
+          <input type=hidden name=time value="1741320000">
+          <input type=hidden name=key value="9240230711">
+          <input type=hidden name=oekaki_thread1 value="">
+          <input type=hidden name="feature" value="confirmed:abc123">
+          <input type=submit value="submit">
+        </form>
+        "#;
+        let parsed = parse_confirm_submit_form(html, "https://mao.5ch.io/test/bbs.cgi").unwrap();
+        assert!(parsed.field_names.iter().any(|n| n == "bbs"), "should find bbs");
+        assert!(parsed.field_names.iter().any(|n| n == "key"), "should find key");
+        assert!(parsed.field_names.iter().any(|n| n == "time"), "should find time");
+        assert!(parsed.field_names.iter().any(|n| n == "feature"), "should find feature");
+        assert!(parsed.field_names.iter().any(|n| n == "MESSAGE"), "should find MESSAGE");
     }
 
     #[test]

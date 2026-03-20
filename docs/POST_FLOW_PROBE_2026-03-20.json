@@ -1,0 +1,215 @@
+{
+  "executed_at": "2026-03-20T12:16:17.748137",
+  "thread_url": "https://mao.5ch.io/test/read.cgi/ngt/9240230711/",
+  "allow_real_submit_requested": false,
+  "allow_real_submit_effective": false,
+  "real_submit_token_ok": false,
+  "result": [
+    {
+      "mode": "anonymous",
+      "thread_get_status": 200,
+      "form_action": "//mao.5ch.io/test/bbs.cgi",
+      "form_method": "POST",
+      "form_input_names": [
+        "FROM",
+        "bbs",
+        "key",
+        "mail",
+        "oekaki_thread1",
+        "submit",
+        "time"
+      ],
+      "hidden_input_names": [
+        "bbs",
+        "key",
+        "oekaki_thread1",
+        "time"
+      ],
+      "confirm_status": 200,
+      "confirm_location": null,
+      "confirm_markers": [
+        "confirm",
+        "oekaki"
+      ],
+      "confirm_form_action": "https://mao.5ch.io/test/bbs.cgi?guid=ON",
+      "confirm_form_field_names": [
+        "FROM",
+        "MESSAGE",
+        "bbs",
+        "feature",
+        "key",
+        "mail",
+        "oekaki_thread1",
+        "submit",
+        "time"
+      ],
+      "confirm_form_field_count": 9,
+      "finalize_attempted": false,
+      "finalize_status": null,
+      "finalize_location": null,
+      "finalize_markers": [],
+      "response_cookie_names": [],
+      "session_cookie_names": [],
+      "note": "confirm form detected; finalize submit blocked"
+    },
+    {
+      "mode": "uplift_logged_in",
+      "thread_get_status": 200,
+      "form_action": "//mao.5ch.io/test/bbs.cgi",
+      "form_method": "POST",
+      "form_input_names": [
+        "FROM",
+        "bbs",
+        "key",
+        "mail",
+        "oekaki_thread1",
+        "submit",
+        "time"
+      ],
+      "hidden_input_names": [
+        "bbs",
+        "key",
+        "oekaki_thread1",
+        "time"
+      ],
+      "confirm_status": 200,
+      "confirm_location": null,
+      "confirm_markers": [
+        "confirm",
+        "oekaki"
+      ],
+      "confirm_form_action": "https://mao.5ch.io/test/bbs.cgi?guid=ON",
+      "confirm_form_field_names": [
+        "FROM",
+        "MESSAGE",
+        "bbs",
+        "feature",
+        "key",
+        "mail",
+        "oekaki_thread1",
+        "sid",
+        "submit",
+        "time"
+      ],
+      "confirm_form_field_count": 10,
+      "finalize_attempted": false,
+      "finalize_status": null,
+      "finalize_location": null,
+      "finalize_markers": [],
+      "response_cookie_names": [],
+      "session_cookie_names": [
+        "eid",
+        "sid"
+      ],
+      "note": "confirm form detected; finalize submit blocked"
+    },
+    {
+      "mode": "be_front_logged_in",
+      "thread_get_status": 200,
+      "form_action": "//mao.5ch.io/test/bbs.cgi",
+      "form_method": "POST",
+      "form_input_names": [
+        "FROM",
+        "bbs",
+        "key",
+        "mail",
+        "oekaki_thread1",
+        "submit",
+        "time"
+      ],
+      "hidden_input_names": [
+        "bbs",
+        "key",
+        "oekaki_thread1",
+        "time"
+      ],
+      "confirm_status": 200,
+      "confirm_location": null,
+      "confirm_markers": [
+        "confirm",
+        "oekaki"
+      ],
+      "confirm_form_action": "https://mao.5ch.io/test/bbs.cgi?guid=ON",
+      "confirm_form_field_names": [
+        "FROM",
+        "MESSAGE",
+        "bbs",
+        "feature",
+        "key",
+        "mail",
+        "oekaki_thread1",
+        "submit",
+        "time"
+      ],
+      "confirm_form_field_count": 9,
+      "finalize_attempted": false,
+      "finalize_status": null,
+      "finalize_location": null,
+      "finalize_markers": [],
+      "response_cookie_names": [],
+      "session_cookie_names": [
+        "form_uid"
+      ],
+      "note": "confirm form detected; finalize submit blocked"
+    },
+    {
+      "mode": "be_uplift_logged_in",
+      "thread_get_status": 200,
+      "form_action": "//mao.5ch.io/test/bbs.cgi",
+      "form_method": "POST",
+      "form_input_names": [
+        "FROM",
+        "bbs",
+        "key",
+        "mail",
+        "oekaki_thread1",
+        "submit",
+        "time"
+      ],
+      "hidden_input_names": [
+        "bbs",
+        "key",
+        "oekaki_thread1",
+        "time"
+      ],
+      "confirm_status": 200,
+      "confirm_location": null,
+      "confirm_markers": [
+        "confirm",
+        "login",
+        "oekaki"
+      ],
+      "confirm_form_action": "https://mao.5ch.io/test/bbs.cgi?guid=ON",
+      "confirm_form_field_names": [
+        "FROM",
+        "MESSAGE",
+        "bbs",
+        "feature",
+        "key",
+        "mail",
+        "oekaki_thread1",
+        "sid",
+        "submit",
+        "time"
+      ],
+      "confirm_form_field_count": 10,
+      "finalize_attempted": false,
+      "finalize_status": null,
+      "finalize_location": null,
+      "finalize_markers": [],
+      "response_cookie_names": [],
+      "session_cookie_names": [
+        "eid",
+        "form_uid",
+        "sid"
+      ],
+      "note": "confirm form detected; finalize submit blocked"
+    }
+  ],
+  "notes": [
+    "credentials are never printed",
+    "cookie values are omitted",
+    "real submit requires --allow-real-submit and --real-submit-token",
+    "required token: I_UNDERSTAND_REAL_POST"
+  ]
+}

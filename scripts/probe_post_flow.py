@@ -98,9 +98,9 @@ def parse_confirm_form(html: str, fallback_post_url: str) -> tuple[Optional[str]
     forms = re.finditer(r"<form[^>]*>(.*?)</form>", html, re.IGNORECASE | re.DOTALL)
     for m in forms:
         form_html = m.group(0)
-        has_bbs = re.search(r'name=["\']bbs["\']', form_html, re.IGNORECASE) is not None
-        has_key = re.search(r'name=["\']key["\']', form_html, re.IGNORECASE) is not None
-        has_time = re.search(r'name=["\']time["\']', form_html, re.IGNORECASE) is not None
+        has_bbs = re.search(r'name=["\']?bbs["\']?\b', form_html, re.IGNORECASE) is not None
+        has_key = re.search(r'name=["\']?key["\']?\b', form_html, re.IGNORECASE) is not None
+        has_time = re.search(r'name=["\']?time["\']?\b', form_html, re.IGNORECASE) is not None
         if not (has_bbs and has_key and has_time):
             continue
 
@@ -113,8 +113,12 @@ def parse_confirm_form(html: str, fallback_post_url: str) -> tuple[Optional[str]
             tag = input_match.group(0)
             name_match = re.search(r'name=["\']([^"\']+)["\']', tag, re.IGNORECASE)
             if not name_match:
+                name_match = re.search(r'name=([^\s>"\']+)', tag, re.IGNORECASE)
+            if not name_match:
                 continue
             value_match = re.search(r'value=["\']([^"\']*)["\']', tag, re.IGNORECASE)
+            if not value_match:
+                value_match = re.search(r'value=([^\s>"\']+)', tag, re.IGNORECASE)
             payload[name_match.group(1)] = value_match.group(1) if value_match else ""
         return action_url, payload
     return None, {}
