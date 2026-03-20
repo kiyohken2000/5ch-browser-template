@@ -341,6 +341,9 @@ body {
   color: var(--sub);
   flex-shrink: 0;
   gap: 2px;
+  position: sticky;
+  top: 0;
+  z-index: 6;
 }
 
 .threads-toolbar-left {
@@ -363,6 +366,7 @@ body {
 
 .thread-search {
   width: 80px;
+  min-width: 120px;
   padding: 1px 4px;
   font-size: 10px;
   border: 1px solid #a0a0a0;
