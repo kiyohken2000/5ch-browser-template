@@ -746,13 +746,14 @@ body {
   background: rgba(0, 0, 0, 0.82);
   padding: 0;
   overflow: auto;
-  pointer-events: none;
+  pointer-events: auto;
 }
 .hover-preview img {
   display: block;
   width: auto;
   height: auto;
   max-width: none;
+  cursor: zoom-out;
 }
 
 .anchor-popup-header {

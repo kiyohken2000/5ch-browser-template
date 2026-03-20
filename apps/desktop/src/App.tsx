@@ -1639,6 +1639,14 @@ export default function App() {
   }, [boardPanePx, threadPanePx]);
 
   useEffect(() => {
+    const closeHoverPreview = () => {
+      hoverPreviewSrcRef.current = null;
+      if (hoverPreviewHideTimerRef.current) {
+        clearTimeout(hoverPreviewHideTimerRef.current);
+        hoverPreviewHideTimerRef.current = null;
+      }
+      if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
+    };
     const onMouseMove = (event: MouseEvent) => {
       const cdrag = composeDragRef.current;
       if (cdrag) {
@@ -1686,16 +1694,6 @@ export default function App() {
       document.body.style.cursor = "";
     };
 
-    const onKeyUp = (event: KeyboardEvent) => {
-      if (event.key === "Control" && hoverPreviewSrcRef.current) {
-        hoverPreviewSrcRef.current = null;
-        if (hoverPreviewHideTimerRef.current) {
-          clearTimeout(hoverPreviewHideTimerRef.current);
-          hoverPreviewHideTimerRef.current = null;
-        }
-        if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
-      }
-    };
     const onWheel = (event: WheelEvent) => {
       if (!hoverPreviewSrcRef.current || !event.ctrlKey) return;
       event.preventDefault();
@@ -1706,16 +1704,11 @@ export default function App() {
 
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
-    window.addEventListener("keyup", onKeyUp);
     window.addEventListener("wheel", onWheel, { passive: false });
     return () => {
-      if (hoverPreviewHideTimerRef.current) {
-        clearTimeout(hoverPreviewHideTimerRef.current);
-        hoverPreviewHideTimerRef.current = null;
-      }
+      closeHoverPreview();
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
-      window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("wheel", onWheel as EventListener);
     };
   }, []);
@@ -2939,7 +2932,19 @@ export default function App() {
           }
         }}
       >
-        <img ref={hoverPreviewImgRef} alt="" style={{ width: "auto", transformOrigin: "left top", transform: "scale(1)" }} />
+        <img
+          ref={hoverPreviewImgRef}
+          alt=""
+          onMouseLeave={() => {
+            hoverPreviewSrcRef.current = null;
+            if (hoverPreviewHideTimerRef.current) {
+              clearTimeout(hoverPreviewHideTimerRef.current);
+              hoverPreviewHideTimerRef.current = null;
+            }
+            if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
+          }}
+          style={{ width: "auto", transformOrigin: "left top", transform: "scale(1)" }}
+        />
       </div>
       {lightboxUrl && (
         <div className="lightbox-overlay" onClick={() => setLightboxUrl(null)}>
