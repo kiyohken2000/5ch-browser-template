@@ -832,12 +832,18 @@ body {
   color: var(--sub);
 }
 
-input {
+input:not([type="checkbox"]):not([type="radio"]) {
   width: 100%;
   margin-top: 2px;
   border: 1px solid #c0c0c0;
   background: #ffffff;
   padding: 6px;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  margin: 0;
 }
 
 .dev-actions {

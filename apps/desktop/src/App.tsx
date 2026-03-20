@@ -165,6 +165,7 @@ const getIdColor = (id: string): string => {
 const renderResponseBody = (html: string): { __html: string } => {
   let safe = html
     .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<a\s[^>]*>(.*?)<\/a>/gi, "$1")
     .replace(/<[^>]+>/g, "");
   safe = decodeHtmlEntities(safe);
   safe = safe
@@ -671,12 +672,18 @@ export default function App() {
     if (!isTauriRuntime()) return;
     setStatus("ログイン中...");
     try {
+      // Save current config before login attempt
+      await invoke("save_auth_config", { config: authConfig });
       const results = await invoke<LoginOutcome[]>("login_with_config");
       for (const r of results) {
         if (r.provider === "Be" && r.success) setBeLoggedIn(true);
         if ((r.provider === "Uplift" || r.provider === "Donguri") && r.success) setRoninLoggedIn(true);
       }
-      setStatus(results.map((r) => `${r.provider}:${r.success ? "OK" : "NG"}`).join(", "));
+      if (results.length === 0) {
+        setStatus("ログイン対象なし (ID/PWが未入力)");
+      } else {
+        setStatus(results.map((r) => `${r.provider}:${r.success ? "OK" : "NG"}`).join(", "));
+      }
     } catch (error) {
       setStatus(`login error: ${String(error)}`);
     }
