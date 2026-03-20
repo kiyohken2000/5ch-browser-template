@@ -1594,31 +1594,23 @@ export default function App() {
         ))}
       </header>
       <div className="tool-bar">
-        <button onClick={() => { void fetchMenu(); void fetchBoardCategories(); }}>板更新</button>
-        <button onClick={() => fetchThreadListFromCurrent()}>スレ取得</button>
-        <button onClick={() => fetchResponsesFromCurrent()}>レス取得</button>
+        <button onClick={() => fetchResponsesFromCurrent()} title="再読み込み">🔄</button>
+        <button onClick={() => { void fetchMenu(); void fetchBoardCategories(); }} title="板更新">📋</button>
+        <span className="tool-sep" />
+        <input className="address-input" value={locationInput} onChange={(e) => setLocationInput(e.target.value)} onKeyDown={onLocationInputKeyDown} />
+        <button onClick={goFromLocationInput}>移動</button>
         <span className="tool-sep" />
         <button onClick={() => { setComposeOpen(true); setComposePos(null); }}>書き込み</button>
-        <button onClick={reopenLastClosedThread} disabled={!hasReopenableClosedThread}>
-          閉じたスレを戻す
-        </button>
-        <span className="tool-sep" />
+        <button onClick={reopenLastClosedThread} disabled={!hasReopenableClosedThread} title="閉じたスレを戻す">↩</button>
         <label className="auto-refresh-toggle">
           <input
             type="checkbox"
             checked={autoRefreshEnabled}
             onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
           />
-          自動更新 ({autoRefreshInterval}秒)
+          自動更新
         </label>
         <button onClick={() => setNgPanelOpen((v) => !v)}>NG</button>
-      </div>
-      <div className="address-bar">
-        <span>URL</span>
-        <input value={locationInput} onChange={(e) => setLocationInput(e.target.value)} onKeyDown={onLocationInputKeyDown} />
-        <button onClick={goFromLocationInput}>
-          移動
-        </button>
       </div>
       <main
         className="layout"
@@ -1776,14 +1768,29 @@ export default function App() {
           style={{ gridTemplateRows: `${responseTopRatio}% ${SPLITTER_PX}px 1fr` }}
         >
         <section className="pane threads">
-          <div className="threads-header">
-            <h2>スレッド</h2>
+          <div className="threads-toolbar">
+            <span className="threads-toolbar-left">
+              <span className="sortable-th" onClick={() => toggleThreadSort("id")}>番号</span>
+              <span className="th-sep">|</span>
+              <span className="sortable-th" onClick={() => toggleThreadSort("title")}>タイトル</span>
+            </span>
             <input
               className="thread-search"
               value={threadSearchQuery}
               onChange={(e) => setThreadSearchQuery(e.target.value)}
               placeholder="検索..."
             />
+            <span className="threads-toolbar-right">
+              <span className="sortable-th" onClick={() => toggleThreadSort("res")}>レス</span>
+              <span className="th-sep">|</span>
+              <span className="sortable-th" onClick={() => toggleThreadSort("speed")}>既読レス</span>
+              <span className="th-sep">|</span>
+              <span className="sortable-th" onClick={() => toggleThreadSort("fetched")}>取込</span>
+              <span className="th-sep">|</span>
+              <span>最終読み込み</span>
+              <span className="th-sep">|</span>
+              <span>最終書き込み</span>
+            </span>
           </div>
           <table>
             <thead>
@@ -1798,7 +1805,7 @@ export default function App() {
                   タイトル{threadSortKey === "title" ? (threadSortAsc ? " \u25B2" : " \u25BC") : ""}
                 </th>
                 <th className="sortable-th" onClick={() => toggleThreadSort("res")}>
-                  レス数{threadSortKey === "res" ? (threadSortAsc ? " \u25B2" : " \u25BC") : ""}
+                  レス{threadSortKey === "res" ? (threadSortAsc ? " \u25B2" : " \u25BC") : ""}
                 </th>
                 <th>既読</th>
                 <th>新着</th>
@@ -1867,6 +1874,26 @@ export default function App() {
           onClick={(e) => e.stopPropagation()}
         />
         <section className="pane responses">
+          {selectedThreadItem && (
+            <div className="thread-title-bar">
+              <span className="thread-title-text" title={selectedThreadItem.title}>
+                {selectedThreadItem.title}
+                {" "}[{selectedThreadItem.res}]
+              </span>
+              <span className="thread-title-actions">
+                <button onClick={() => fetchResponsesFromCurrent()} title="再読み込み">🔄</button>
+                <button onClick={() => { setComposeOpen(true); setComposePos(null); }} title="書き込み">✏️</button>
+                <button onClick={() => {
+                  const t = threadItems.find((item) => item.id === selectedThread);
+                  if (t && "threadUrl" in t && typeof t.threadUrl === "string") {
+                    toggleFavoriteThread({ threadUrl: t.threadUrl, title: t.title });
+                  }
+                }} title="お気に入り">
+                  {selectedThreadItem && favorites.threads.some((f) => f.threadUrl === (selectedThreadItem as any).threadUrl) ? "★" : "☆"}
+                </button>
+              </span>
+            </div>
+          )}
           {threadTabs.length > 0 && (
             <div className="thread-tab-bar">
               {threadTabs.map((tab, i) => (
@@ -1959,6 +1986,7 @@ export default function App() {
               {visibleResponseItems.map((r) => {
                 const id = extractId(r.time);
                 const count = id ? (idCountMap.get(id) ?? 0) : 0;
+                const isNew = newResponseStart !== null && r.id >= newResponseStart;
                 return (
                   <div
                     key={r.id}
@@ -1971,24 +1999,24 @@ export default function App() {
                       <span className="response-no" onClick={(e) => onResponseNoClick(e, r.id)}>
                         {r.id}
                       </span>
-                      {newResponseStart !== null && r.id >= newResponseStart && (
-                        <span className="response-new-marker">New</span>
-                      )}
-                      名前：<span className="response-name">{r.name}</span>
-                      投稿日：<span className="response-date">{r.time}</span>
-                      {id && (
-                        <span
-                          className="response-id-cell"
-                          style={{ color: getIdColor(id) }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const rect = (e.target as HTMLElement).getBoundingClientRect();
-                            setIdPopup({ x: rect.left, y: rect.bottom + 2, id });
-                          }}
-                        >
-                          {id}({count})
-                        </span>
-                      )}
+                      <span className="response-name">{r.name}</span>
+                      <span className="response-header-right">
+                        {isNew && <span className="response-new-marker">New!</span>}
+                        <span className="response-date">{r.time}</span>
+                        {id && (
+                          <span
+                            className="response-id-cell"
+                            style={{ color: getIdColor(id) }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const rect = (e.target as HTMLElement).getBoundingClientRect();
+                              setIdPopup({ x: rect.left, y: rect.bottom + 2, id });
+                            }}
+                          >
+                            ID:{id}({count})
+                          </span>
+                        )}
+                      </span>
                     </div>
                     <div className="response-body" dangerouslySetInnerHTML={renderResponseBody(r.text)} />
                     {backRefMap.has(r.id) && (
@@ -2013,51 +2041,49 @@ export default function App() {
               })}
             </div>
             <div className="response-nav-bar">
-              <button onClick={() => { if (visibleResponseItems.length > 0) setSelectedResponse(visibleResponseItems[0].id); }}>
-                先頭
-              </button>
-              <button onClick={() => {
-                const bm = loadBookmark(threadUrl);
-                if (bm && visibleResponseItems.some((r) => r.id === bm)) {
-                  setSelectedResponse(bm);
-                  setStatus(`栞: >>${bm}`);
-                } else {
-                  setStatus("栞なし");
-                }
-              }}>
-                栞
-              </button>
-              {newResponseStart !== null && (
-                <button
-                  className="nav-new-btn"
-                  onClick={() => {
-                    const first = visibleResponseItems.find((r) => r.id >= newResponseStart);
-                    if (first) setSelectedResponse(first.id);
-                  }}
-                >
-                  新着▼
-                </button>
-              )}
-              <button onClick={() => { if (visibleResponseItems.length > 0) setSelectedResponse(visibleResponseItems[visibleResponseItems.length - 1].id); }}>
-                最新
-              </button>
-              <input
-                className="nav-jump-input"
-                placeholder=">>"
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter") return;
-                  const val = (e.target as HTMLInputElement).value.replace(/^>>?/, "").trim();
-                  const no = Number(val);
-                  if (no > 0 && visibleResponseItems.some((r) => r.id === no)) {
-                    setSelectedResponse(no);
-                    (e.target as HTMLInputElement).value = "";
-                    setStatus(`>>${no}`);
-                  }
-                }}
-              />
               <span className="nav-info">
-                <span>レス:{visibleResponseItems.length}{ngFilteredCount > 0 ? ` (NG${ngFilteredCount})` : ""}</span>
-                <span>受信:{lastFetchTime ?? "-"}</span>
+                着:{visibleResponseItems.length}{ngFilteredCount > 0 ? `(NG${ngFilteredCount})` : ""}
+                {" "}サイズ:{Math.round(visibleResponseItems.reduce((s, r) => s + r.text.length, 0) / 1024)}KB
+                {" "}受信日時:{lastFetchTime ?? "-"}
+              </span>
+              <span className="nav-buttons">
+                <button onClick={() => fetchResponsesFromCurrent()}>Reload</button>
+                <button onClick={() => { if (visibleResponseItems.length > 0) setSelectedResponse(visibleResponseItems[0].id); }}>Top</button>
+                {newResponseStart !== null && (
+                  <button
+                    className="nav-new-btn"
+                    onClick={() => {
+                      const first = visibleResponseItems.find((r) => r.id >= newResponseStart);
+                      if (first) setSelectedResponse(first.id);
+                    }}
+                  >
+                    New
+                  </button>
+                )}
+                <button onClick={() => {
+                  const bm = loadBookmark(threadUrl);
+                  if (bm && visibleResponseItems.some((r) => r.id === bm)) {
+                    setSelectedResponse(bm);
+                    setStatus(`栞: >>${bm}`);
+                  } else {
+                    setStatus("栞なし");
+                  }
+                }}>栞</button>
+                <button onClick={() => { if (visibleResponseItems.length > 0) setSelectedResponse(visibleResponseItems[visibleResponseItems.length - 1].id); }}>End</button>
+                <input
+                  className="nav-jump-input"
+                  placeholder=">>"
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    const val = (e.target as HTMLInputElement).value.replace(/^>>?/, "").trim();
+                    const no = Number(val);
+                    if (no > 0 && visibleResponseItems.some((r) => r.id === no)) {
+                      setSelectedResponse(no);
+                      (e.target as HTMLInputElement).value = "";
+                      setStatus(`>>${no}`);
+                    }
+                  }}
+                />
               </span>
             </div>
           </div>
@@ -2065,13 +2091,20 @@ export default function App() {
         </div>
       </main>
       <footer className="status-bar">
-        <span>スレ:{visibleThreadItems.length}</span>
-        <span>未読:{unreadThreadCount}</span>
-        <span>レス:{responseItems.length}</span>
-        {ngFilteredCount > 0 && <span className="status-ng">NG:{ngFilteredCount}</span>}
-        <span>サイズ:{Math.round(responseItems.reduce((s, r) => s + r.text.length, 0) / 1024)}KB</span>
+        <span className="status-main">{status}</span>
+        <span className="status-sep">|</span>
+        <span>TS～{visibleThreadItems.length}</span>
+        <span className="status-sep">|</span>
+        <span>US～{unreadThreadCount}</span>
+        <span className="status-sep">|</span>
+        <span>API:ON</span>
+        <span className="status-sep">|</span>
+        <span>Ronin:ON</span>
+        <span className="status-sep">|</span>
         <span>BE:{beState}</span>
-        <span>UPLIFT:{upliftState}</span>
+        <span className="status-sep">|</span>
+        <span>OK</span>
+        <span className="status-sep">|</span>
         <span>Runtime:{runtimeState}</span>
       </footer>
       {composeOpen && (

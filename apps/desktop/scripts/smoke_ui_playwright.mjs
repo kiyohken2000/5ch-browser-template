@@ -83,7 +83,7 @@ try {
   assert(rowsAfterShortcutClose === Math.max(rowsBefore - 2, 0), "close thread shortcut did not reduce rows");
   console.log("smoke-ui: close thread shortcut ok");
 
-  await page.click(".tool-bar button:has-text('閉じたスレを戻す')");
+  await page.click(".tool-bar button:has-text('↩')");
   const rowsAfterUndoClose = await page.$$eval(".threads tbody tr", (rows) => rows.length);
   assert(rowsAfterUndoClose >= rowsAfterShortcutClose + 1, "undo close button did not reopen one thread");
   console.log("smoke-ui: undo close button ok");
@@ -322,8 +322,8 @@ try {
   console.log("smoke-ui: auto-refresh toggle ok");
 
   // --- sortable thread headers ---
-  const sortableHeaders = await page.$$(".sortable-th");
-  assert(sortableHeaders.length >= 3, `should have at least 3 sortable headers, got ${sortableHeaders.length}`);
+  const sortableHeaders = await page.$$(".threads th.sortable-th");
+  assert(sortableHeaders.length >= 3, `should have at least 3 sortable table headers, got ${sortableHeaders.length}`);
   // click res header to sort
   await sortableHeaders[2].click();
   await new Promise((r) => setTimeout(r, 100));
@@ -482,10 +482,10 @@ try {
   console.log("smoke-ui: thread menu browser open ok");
 
   // --- response nav bar ---
-  const navBarFirst = await page.$('.response-nav-bar button:has-text("先頭")');
-  assert(navBarFirst, "response nav bar should have 先頭 button");
-  const navBarLatest = await page.$('.response-nav-bar button:has-text("最新")');
-  assert(navBarLatest, "response nav bar should have 最新 button");
+  const navBarFirst = await page.$('.response-nav-bar button:has-text("Top")');
+  assert(navBarFirst, "response nav bar should have Top button");
+  const navBarLatest = await page.$('.response-nav-bar button:has-text("End")');
+  assert(navBarLatest, "response nav bar should have End button");
   const navInfo = await page.$(".response-nav-bar .nav-info");
   assert(navInfo, "response nav bar should have info section");
   console.log("smoke-ui: response nav bar ok");
@@ -889,8 +889,8 @@ try {
 
   // --- response nav bar info ---
   const navInfoText = await page.$eval(".nav-info", (el) => el.textContent);
-  assert(navInfoText.includes("レス:"), "nav info should show response count");
-  assert(navInfoText.includes("受信:"), "nav info should show fetch time");
+  assert(navInfoText.includes("着:"), "nav info should show response count");
+  assert(navInfoText.includes("受信日時:"), "nav info should show fetch time");
   console.log("smoke-ui: response nav info ok");
 
   // --- board search filter ---
