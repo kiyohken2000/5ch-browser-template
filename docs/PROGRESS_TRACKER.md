@@ -125,6 +125,17 @@
 - [x] desktop: レスナビバーに「新着▼」ジャンプボタン追加
 - [x] desktop: ダークテーマのブロックビュー/行分割/右ペイン対応
 - [x] desktop: smoke-ui テスト 76項目
+- [x] desktop: メタバー/開発者ツール撤去 + 名前HTMLタグ除去
+- [x] desktop: 板検索フィルタ（カテゴリ/板名部分一致）
+- [x] desktop: レス読み込み中表示 + 自動更新時新着自動スクロール
+- [x] desktop: IDカラーコーディング（ポスター別一貫色付け）
+- [x] desktop: レスジャンプ入力（>>N）をナビバーに追加
+- [x] desktop: 書き込み文字サイズ設定（設定パネル）
+- [x] desktop: ステータスバー整理（NG数表示追加）
+- [x] desktop: ツールバー整理（冗長ボタン削除）
+- [x] desktop: smoke-ui テスト 81項目
+- [x] core-store: ファイルログ出力（data/logs/app.log）
+- [x] desktop: レス取得件数制限撤廃（2000 → 無制限）
 
 - [x] core-fetch: 引用符なしHTML属性のサポート追加（confirm form parser）
 - [x] core-fetch: 非空メッセージでのconfirm form完全検出（全4モード: anonymous/uplift/be_front/be_uplift）

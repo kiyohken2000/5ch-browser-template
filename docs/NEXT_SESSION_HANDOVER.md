@@ -1,6 +1,6 @@
 ﻿# NEXT SESSION HANDOVER
 
-## 現在地（2026-03-20 JST 更新）
+## 現在地（2026-03-20 JST 更新 #2）
 - 仕様書: `docs/5ch_browser_spec.md` は `v1.0`。
 - BE/UPLIFT/どんぐり の通信仕様は観測ベースで実装可能な粒度まで整理済み。
 - 配布方針は確定: `Cloudflare Pages (Vite + React) + GitHub Releases`。
@@ -100,6 +100,14 @@
   - `apps/desktop`: スレタブにレス数バッジ + 新着ジャンプボタン
   - `apps/desktop`: ダークテーマのブロックビュー対応
   - `apps/desktop`: smoke-ui 76項目
+  - `apps/desktop`: メタバー/開発者ツール撤去 + 名前HTMLタグ除去
+  - `apps/desktop`: 板検索フィルタ（カテゴリ/板名部分一致）
+  - `apps/desktop`: レス読み込み中表示 + 自動更新時新着自動スクロール
+  - `apps/desktop`: IDカラーコーディング（20色パレットで一貫色付け）
+  - `apps/desktop`: レスジャンプ入力 + 書き込み文字サイズ設定 + ステータスバー整理
+  - `apps/desktop`: smoke-ui 81項目
+  - `core-store`: ファイルログ出力（`data/logs/app.log`、chrono タイムスタンプ）
+  - `apps/desktop`: レス取得件数制限撤廃
 - Git は初期化済みで、`safe.directory` 設定済み（この環境から `git` 操作可能）。
 - safe probe 実環境検証 (2026-03-19):
   - 全4モード（anonymous/uplift/be_front/be_uplift）で GET=200, confirm=200
@@ -138,6 +146,12 @@
   - `b9daef6` (`desktop: add dark theme, NG regex, and bookmark navigation`)
   - `ff4ad16` (`desktop: add settings panel, thread double-click bookmark jump`)
   - `0616542` (`desktop: add post history panel and speed gradient coloring`)
+  - `a9a645f` (`desktop: remove meta bars and dev panel, fix name HTML tag stripping`)
+  - `dd79d2e` (`desktop: add board search filter, response loading indicator, and auto-scroll to new responses`)
+  - `a1cec1c` (`desktop: add ID color coding, response jump input, and compose font size setting`)
+  - `089eb16` (`desktop: streamline status bar and show NG count in nav info`)
+  - `11b411f` (`core-store: add file logging to data/logs/app.log`)
+  - `2e3c750` (`desktop: remove response fetch limit`)
   - `dfeb6cf` (`desktop: refactor to 2-pane layout with block response viewer and UI polish`)
   - `032fd45` (`desktop: improve auto-refresh selection retention and new response tracking`)
   - `1243c4e` (`desktop: add tab response count badge, new-response jump button, and dark theme for block view`)
@@ -169,9 +183,8 @@
 2. geronimo互換UI継続改善
    - スレ一覧の列幅ドラッグリサイズ
    - レス本文の画像プレフェッチ/キャッシュ
-   - ポータブル `data/` ディレクトリ対応
-   - ファイルログ出力
-   - 書き込み欄のフォント/行間設定
+   - 板ペイン右クリックメニュー拡張
+   - レス本文フォント設定
 3. リリース運用実地
    - `scripts/prepare_release_metadata.py` で実ZIPから `latest.json` 生成 + strict検証
    - `apps/landing/public/latest.json` へ反映
