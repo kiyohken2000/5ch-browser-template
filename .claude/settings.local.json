@@ -33,7 +33,13 @@
       "Bash(ls:*)",
       "Bash(find C:Usersalldeveloppython5ch-browser-template -name log.txt -o -name *.log)",
       "Bash(taskkill //F //FI \"WINDOWTITLE eq *vite*\")",
-      "Bash(SMOKE_UI_URL=\"http://localhost:4174\" node scripts/smoke_ui_playwright.mjs)"
+      "Bash(SMOKE_UI_URL=\"http://localhost:4174\" node scripts/smoke_ui_playwright.mjs)",
+      "Bash(grep -r 5ch-browser C:Usersalldeveloppython5ch-browser-template --include=*.py --include=*.md --include=*.rs --include=*.ts --include=*.tsx)",
+      "Bash(grep -r \"5ch.io\\\\|5ch Browser\" C:Usersalldeveloppython5ch-browser-template --include=*.py --include=*.md)",
+      "Bash(grep -r \"5ch Browser\\\\|5ch-browser\" C:Usersalldeveloppython5ch-browser-template --include=*.md)",
+      "Bash(/c/Users/all/develop/python/5ch-browser-template/target/debug/deps/core_fetch-f6cb1a4327526625.exe --ignored --nocapture debug_curl_post_flow 2>&1)",
+      "Bash(xargs grep:*)",
+      "Bash(curl -s http://localhost:1420/src/styles.css)"
     ]
   }
 }
