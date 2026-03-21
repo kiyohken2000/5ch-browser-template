@@ -6,6 +6,7 @@ import screenshot2 from "./assets/images/screen_shot_2.jpg";
 import screenshot3 from "./assets/images/screen_shot_3.jpg";
 
 const REPO_RELEASES_URL = "https://github.com/kiyohken2000/5ch-browser-template/releases";
+const GITHUB_URL = "https://github.com/kiyohken2000/5ch-browser-template";
 const BMC_URL = "https://buymeacoffee.com/votepurchase";
 
 type PlatformAsset = {
@@ -86,13 +87,16 @@ export default function App() {
             <p className="kicker">5ch Browser Template</p>
             <h1>Live5chライクな専ブラを、現代技術で作り直す。</h1>
             <p className="lead">
-              PCの専ブラの選択肢が少なすぎる。SikiはLive5chからの乗り換えには向かなすぎる。
-              それならWindowsでもMacでも同じように5ちゃんを見られる、Live5chライクな専ブラを作る。
-              その動機で始めたプロジェクトです。
+              PCの専ブラの選択肢がなさすぎる。SikiはLive5chからの乗り換えには向かなすぎる。
+              だからWindowsでもMacでも同じように5ちゃんを見たい。
+              その動機で始めた、Live5chライクな専ブラプロジェクトです。
             </p>
             <div className="actions">
               <a className="btn primary" href={primaryDownloadUrl} target="_blank" rel="noreferrer">
                 最新版をダウンロード
+              </a>
+              <a className="btn" href={GITHUB_URL} target="_blank" rel="noreferrer">
+                GitHub
               </a>
               <a className="btn" href="/latest.json" target="_blank" rel="noreferrer">
                 latest.json を見る
