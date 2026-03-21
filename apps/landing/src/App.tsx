@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import appIcon from "./assets/images/icon.png";
+import bmcButton from "./assets/images/bmc-button.png";
 import screenshot1 from "./assets/images/screen_shot_1.jpg";
 import screenshot2 from "./assets/images/screen_shot_2.jpg";
 import screenshot3 from "./assets/images/screen_shot_3.jpg";
 
 const REPO_RELEASES_URL = "https://github.com/kiyohken2000/5ch-browser-template/releases";
+const BMC_URL = "https://buymeacoffee.com/votepurchase";
 
 type PlatformAsset = {
   sha256: string;
@@ -56,10 +58,11 @@ export default function App() {
       <section className="hero-block">
         <div className="hero-copy">
           <p className="kicker">5ch Browser Template</p>
-          <h1>速い。見やすい。<br />毎日使える 5ch 専ブラ。</h1>
+          <h1>Live5chライクな専ブラを、現代技術で作り直す。</h1>
           <p className="lead">
-            板一覧・スレ一覧・本文を3ペインで快適に閲覧。
-            デスクトップ向けに作り込んだ、軽量な 5ch ブラウザです。
+            PC向け専ブラの選択肢が少なすぎる。SikiはLive5chからの乗り換えに合わない。
+            そしてWindowsでもMacでも同じ感覚で5ちゃんを見たい。
+            その動機で始めたプロジェクトです。
           </p>
           <div className="actions">
             <a className="btn primary" href={primaryDownloadUrl} target="_blank" rel="noreferrer">
@@ -69,6 +72,9 @@ export default function App() {
               latest.json を見る
             </a>
           </div>
+          <a className="bmc-link" href={BMC_URL} target="_blank" rel="noreferrer">
+            <img src={bmcButton} alt="Buy Me a Coffee" />
+          </a>
         </div>
         <div className="hero-visual">
           <img className="app-icon" src={appIcon} alt="5ch Browser icon" />
@@ -85,7 +91,7 @@ export default function App() {
         <article className="card feature">
           <img src={screenshot3} alt="本文中のリンクと画像プレビュー" />
           <h2>読みやすい本文表示</h2>
-          <p>アンカー・ID・画像リンクの操作を強化し、レス追跡がスムーズです。</p>
+          <p>アンカーや画像リンクの操作を強化し、レス追跡を速くします。</p>
         </article>
       </section>
 

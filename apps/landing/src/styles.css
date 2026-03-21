@@ -66,6 +66,17 @@ h1 {
   flex-wrap: wrap;
 }
 
+.bmc-link {
+  display: inline-block;
+  margin-top: 14px;
+}
+
+.bmc-link img {
+  display: block;
+  width: min(260px, 100%);
+  height: auto;
+}
+
 .btn {
   display: inline-block;
   border: 1px solid var(--line);
