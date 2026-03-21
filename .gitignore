@@ -24,6 +24,7 @@ apps/desktop/.env.local
 docs/_tmp_*.html
 
 target/
+out/
 apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/data/
 
