@@ -84,7 +84,7 @@ export default function App() {
       <main className="page">
         <section className="hero-block">
           <div className="hero-copy">
-            <p className="kicker">5ch Browser Template</p>
+            <p className="kicker">Ember</p>
             <h1>Live5chライクな専ブラを、現代技術で作り直す。</h1>
             <p className="lead">
               PCの専ブラの選択肢がなさすぎる。SikiはLive5chからの乗り換えには向かなすぎる。
