@@ -204,6 +204,15 @@ h1 {
   margin-bottom: 16px;
 }
 
+.install-platform + .install-platform {
+  margin-top: 14px;
+}
+
+.install-platform h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
 .install-steps {
   margin: 0;
   padding-left: 22px;

@@ -98,7 +98,7 @@ export default function App() {
             <h1>Live5chライクな専ブラを、現代技術で作り直す。</h1>
             <p className="lead">
               PC向け専ブラの選択肢が少なく、SikiはLive5chからの移行には向かない。
-              だからこそ、WindowsとMacのどちらでも同じ感覚で5ちゃんを読める専ブラを作る。
+              だったら現代の技術でLive5chを作り直す。
               その課題感から始めたプロジェクトがEmberです。
             </p>
             <div className="actions">
@@ -164,11 +164,22 @@ export default function App() {
 
         <section className="card install-panel">
           <h2>インストール方法</h2>
-          <ol className="install-steps">
-            <li>「最新版をダウンロード」からZIPを取得します。</li>
-            <li>ZIPを展開し、`ember.exe` を実行します。</li>
-            <li>初回起動後、板一覧を取得して利用開始します。</li>
-          </ol>
+          <div className="install-platform">
+            <h3>Windows版</h3>
+            <ol className="install-steps">
+              <li>「最新版をダウンロード」から `ember-win-x64.zip` を取得します。</li>
+              <li>ZIPを展開し、`ember.exe` を実行します。</li>
+              <li>初回起動後、板一覧を取得して利用開始します。</li>
+            </ol>
+          </div>
+          <div className="install-platform">
+            <h3>Mac版</h3>
+            <ol className="install-steps">
+              <li>「最新版をダウンロード」から `ember-mac-arm64.zip` を取得します。</li>
+              <li>ZIPを展開し、`Ember_0.0.1_aarch64.dmg` を開きます。</li>
+              <li>アプリをApplicationsへ移動して起動します。</li>
+            </ol>
+          </div>
         </section>
 
         <section className="card download-panel">
