@@ -1,6 +1,6 @@
-# 5ch Browser Starter Template
+# Ember
 
-新ディレクトリで 5ch 専ブラ開発を開始するための最小雛形です。
+5ch.io 専用ブラウザ（Tauri + React デスクトップアプリ）。
 
 ## 構成
 - `apps/desktop`: Tauri + React のデスクトップアプリ置き場

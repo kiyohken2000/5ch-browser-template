@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useRef,
   useState,
@@ -89,7 +90,7 @@ type BoardCategory = { categoryName: string; boards: BoardEntry[] };
 type FavoriteBoard = { boardName: string; url: string };
 type FavoriteThread = { threadUrl: string; title: string; boardUrl: string };
 type FavoritesData = { boards: FavoriteBoard[]; threads: FavoriteThread[] };
-type NgFilters = { words: string[]; ids: string[]; names: string[] };
+type NgFilters = { words: string[]; ids: string[]; names: string[]; thread_words: string[] };
 type AuthConfig = {
   upliftEmail: string;
   upliftPassword: string;
@@ -113,10 +114,13 @@ const DEFAULT_THREAD_PANE_PX = 420;
 const DEFAULT_RESPONSE_TOP_RATIO = 42;
 const LAYOUT_PREFS_KEY = "desktop.layoutPrefs.v1";
 const COMPOSE_PREFS_KEY = "desktop.composePrefs.v1";
+const NAME_HISTORY_KEY = "desktop.nameHistory.v1";
 const BOOKMARK_KEY = "desktop.bookmarks.v1";
 const BOARD_CACHE_KEY = "desktop.boardCategories.v1";
 const EXPANDED_CATS_KEY = "desktop.expandedCategories.v1";
 const BOARD_TREE_SCROLL_KEY = "desktop.boardTreeScrollTop.v1";
+const SCROLL_POS_KEY = "desktop.scrollPositions.v1";
+const NEW_THREAD_SIZE_KEY = "desktop.newThreadDialogSize.v1";
 const MENU_EDGE_PADDING = 8;
 
 type ResizeDragState =
@@ -174,7 +178,7 @@ const highlightHtmlPreservingTags = (html: string, query: string) => {
     .join("");
 };
 const renderHighlightedPlainText = (text: string, query: string): { __html: string } =>
-  ({ __html: highlightHtmlPreservingTags(escapeHtml(text), query) });
+  ({ __html: highlightHtmlPreservingTags(escapeHtml(decodeHtmlEntities(text)), query) });
 const normalizeExternalUrl = (raw: string): string | null => {
   const v = raw.replace(/&amp;/g, "&");
   if (/^https?:\/\//i.test(v)) return v;
@@ -284,12 +288,26 @@ export default function App() {
   const [updateProbe, setUpdateProbe] = useState("not run");
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeName, setComposeName] = useState("");
+  const [nameHistory, setNameHistory] = useState<string[]>([]);
   const [composeMail, setComposeMail] = useState("");
   const [composeSage, setComposeSage] = useState(false);
   const [composeBody, setComposeBody] = useState("");
   const [composePreview, setComposePreview] = useState(false);
   const [composeEnterSubmit, setComposeEnterSubmit] = useState(false);
   const [composeResult, setComposeResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [composeSubmitting, setComposeSubmitting] = useState(false);
+  const [showNewThreadDialog, setShowNewThreadDialog] = useState(false);
+  const [newThreadSubject, setNewThreadSubject] = useState("");
+  const [newThreadName, setNewThreadName] = useState("");
+  const [newThreadMail, setNewThreadMail] = useState("");
+  const [newThreadBody, setNewThreadBody] = useState("");
+  const [newThreadResult, setNewThreadResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [newThreadSubmitting, setNewThreadSubmitting] = useState(false);
+  const [newThreadDialogSize, setNewThreadDialogSize] = useState<{ w: number; h: number }>(() => {
+    try { const v = localStorage.getItem(NEW_THREAD_SIZE_KEY); if (v) return JSON.parse(v); } catch { /* ignore */ }
+    return { w: 520, h: 420 };
+  });
+  const newThreadPanelRef = useRef<HTMLDivElement>(null);
   const [postHistory, setPostHistory] = useState<{ time: string; threadUrl: string; body: string; ok: boolean }[]>([]);
   const [postHistoryOpen, setPostHistoryOpen] = useState(false);
   const [postFlowTraceProbe, setPostFlowTraceProbe] = useState("not run");
@@ -300,9 +318,13 @@ export default function App() {
   const [boardCategories, setBoardCategories] = useState<BoardCategory[]>([]);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [favorites, setFavorites] = useState<FavoritesData>({ boards: [], threads: [] });
-  const [ngFilters, setNgFilters] = useState<NgFilters>({ words: [], ids: [], names: [] });
+  const [ngFilters, setNgFilters] = useState<NgFilters>({ words: [], ids: [], names: [], thread_words: [] });
+  const [threadNgOpen, setThreadNgOpen] = useState(false);
+  const [threadNgInput, setThreadNgInput] = useState("");
   const [ngPanelOpen, setNgPanelOpen] = useState(false);
   const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">("boards");
+  const [showCachedOnly, setShowCachedOnly] = useState(false);
+  const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string }[]>([]);
   const [boardSearchQuery, setBoardSearchQuery] = useState("");
   const [responsesLoading, setResponsesLoading] = useState(false);
   const [ngInput, setNgInput] = useState("");
@@ -314,7 +336,7 @@ export default function App() {
   const [threadSortAsc, setThreadSortAsc] = useState(true);
   const [threadTabs, setThreadTabs] = useState<ThreadTab[]>([]);
   const [activeTabIndex, setActiveTabIndex] = useState(-1);
-  const tabCacheRef = useRef<Map<string, { responses: ThreadResponseItem[]; selectedResponse: number }>>(new Map());
+  const tabCacheRef = useRef<Map<string, { responses: ThreadResponseItem[]; selectedResponse: number; scrollResponseNo?: number; newResponseStart?: number | null }>>(new Map());
   const [selectedBoard, setSelectedBoard] = useState("Favorite");
   const [selectedThread, setSelectedThread] = useState<number | null>(1);
   const [closedThreadIds, setClosedThreadIds] = useState<number[]>([]);
@@ -336,6 +358,7 @@ export default function App() {
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tabIndex: number } | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fontSize, setFontSize] = useState(12);
   const [darkMode, setDarkMode] = useState(false);
@@ -350,11 +373,15 @@ export default function App() {
   const [threadPanePx, setThreadPanePx] = useState(DEFAULT_THREAD_PANE_PX);
   const [responseTopRatio, setResponseTopRatio] = useState(DEFAULT_RESPONSE_TOP_RATIO);
   const resizeDragRef = useRef<ResizeDragState | null>(null);
+  const layoutPrefsLoadedRef = useRef(false);
+  const threadScrollPositions = useRef<Record<string, number>>({});
   const boardTreeRef = useRef<HTMLDivElement | null>(null);
   const boardTreeScrollRestoreRef = useRef<number | null>(null);
   const responseLayoutRef = useRef<HTMLDivElement | null>(null);
   const threadTbodyRef = useRef<HTMLTableSectionElement | null>(null);
   const responseScrollRef = useRef<HTMLDivElement | null>(null);
+  const tabBarRef = useRef<HTMLDivElement | null>(null);
+  const threadListScrollRef = useRef<HTMLDivElement | null>(null);
   const [lastFetchTime, setLastFetchTime] = useState<string | null>(null);
   const [newResponseStart, setNewResponseStart] = useState<number | null>(null);
   const [responseSearchQuery, setResponseSearchQuery] = useState("");
@@ -468,7 +495,7 @@ export default function App() {
     if (!isTauriRuntime()) return;
     try {
       const data = await invoke<NgFilters>("load_ng_filters");
-      setNgFilters(data);
+      setNgFilters({ ...data, thread_words: data.thread_words ?? [] });
     } catch {
       // no saved NG filters yet
     }
@@ -484,7 +511,7 @@ export default function App() {
     }
   };
 
-  const addNgEntry = (type: "words" | "ids" | "names", value: string) => {
+  const addNgEntry = (type: "words" | "ids" | "names" | "thread_words", value: string) => {
     const trimmed = value.trim();
     if (!trimmed) return;
     if (ngFilters[type].includes(trimmed)) {
@@ -495,7 +522,7 @@ export default function App() {
     setStatus(`added NG ${type}: ${trimmed}`);
   };
 
-  const removeNgEntry = (type: "words" | "ids" | "names", value: string) => {
+  const removeNgEntry = (type: "words" | "ids" | "names" | "thread_words", value: string) => {
     void persistNgFilters({ ...ngFilters, [type]: ngFilters[type].filter((v) => v !== value) });
     setStatus(`removed NG ${type}: ${value}`);
   };
@@ -549,6 +576,47 @@ export default function App() {
     } catch { return null; }
   };
 
+  const getVisibleResponseNo = (): number => {
+    const container = responseScrollRef.current;
+    if (!container) return 0;
+    const els = container.querySelectorAll<HTMLElement>("[data-response-no]");
+    const containerTop = container.getBoundingClientRect().top;
+    for (const el of els) {
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom > containerTop) {
+        return Number(el.dataset.responseNo) || 0;
+      }
+    }
+    return 0;
+  };
+  const saveScrollPos = (url: string, responseNo?: number) => {
+    const no = responseNo ?? getVisibleResponseNo();
+    if (no <= 1) return;
+    threadScrollPositions.current[url] = no;
+    try {
+      localStorage.setItem(SCROLL_POS_KEY, JSON.stringify(threadScrollPositions.current));
+    } catch { /* ignore */ }
+  };
+  const loadScrollPos = (url: string): number => {
+    if (threadScrollPositions.current[url] != null) return threadScrollPositions.current[url];
+    try {
+      const raw = localStorage.getItem(SCROLL_POS_KEY);
+      if (raw) {
+        const data: Record<string, number> = JSON.parse(raw);
+        Object.assign(threadScrollPositions.current, data);
+        return data[url] ?? 0;
+      }
+    } catch { /* ignore */ }
+    return 0;
+  };
+  const scrollToResponseNo = (no: number) => {
+    if (no <= 1) return;
+    setTimeout(() => {
+      const el = responseScrollRef.current?.querySelector(`[data-response-no="${no}"]`);
+      if (el) el.scrollIntoView({ block: "start" });
+    }, 50);
+  };
+
   const toggleCategory = (name: string) => {
     setExpandedCategories((prev) => {
       const next = new Set(prev);
@@ -562,11 +630,19 @@ export default function App() {
     setResponseSearchQuery("");
     const existingIndex = threadTabs.findIndex((t) => t.threadUrl === url);
     if (existingIndex >= 0) {
-      if (existingIndex === activeTabIndex) return;
+      if (existingIndex === activeTabIndex) {
+        void fetchResponsesFromCurrent(url, { keepSelection: true });
+        return;
+      }
       if (activeTabIndex >= 0 && activeTabIndex < threadTabs.length) {
         const curUrl = threadTabs[activeTabIndex].threadUrl;
         const cached = tabCacheRef.current.get(curUrl);
-        if (cached) cached.selectedResponse = selectedResponse;
+        if (cached) {
+          cached.selectedResponse = selectedResponse;
+          cached.scrollResponseNo = getVisibleResponseNo();
+          cached.newResponseStart = newResponseStart;
+          saveScrollPos(curUrl);
+        }
         saveBookmark(curUrl, selectedResponse);
       }
       setActiveTabIndex(existingIndex);
@@ -575,6 +651,20 @@ export default function App() {
         setFetchedResponses(cached.responses);
         const bm = loadBookmark(url);
         setSelectedResponse(bm ?? cached.selectedResponse);
+        setNewResponseStart(cached.newResponseStart ?? null);
+        scrollToResponseNo(cached.scrollResponseNo ?? loadScrollPos(url));
+      } else if (isTauriRuntime()) {
+        invoke<string | null>("load_thread_cache", { threadUrl: url }).then((json) => {
+          if (json) {
+            try {
+              const rows = JSON.parse(json) as ThreadResponseItem[];
+              if (rows.length > 0) {
+                setFetchedResponses(rows);
+                tabCacheRef.current.set(url, { responses: rows, selectedResponse: 1 });
+              }
+            } catch { /* ignore */ }
+          }
+        }).catch(() => {});
       }
       setThreadUrl(url);
       setLocationInput(url);
@@ -583,9 +673,15 @@ export default function App() {
     if (activeTabIndex >= 0 && activeTabIndex < threadTabs.length) {
       const curUrl = threadTabs[activeTabIndex].threadUrl;
       const cached = tabCacheRef.current.get(curUrl);
-      if (cached) cached.selectedResponse = selectedResponse;
+      if (cached) {
+        cached.selectedResponse = selectedResponse;
+        cached.scrollResponseNo = getVisibleResponseNo();
+        cached.newResponseStart = newResponseStart;
+        saveScrollPos(curUrl);
+      }
       saveBookmark(curUrl, selectedResponse);
     }
+    setNewResponseStart(null);
     const newTabs = [...threadTabs, { threadUrl: url, title }];
     setThreadTabs(newTabs);
     setActiveTabIndex(newTabs.length - 1);
@@ -594,12 +690,38 @@ export default function App() {
     setSelectedResponse(bm ?? 1);
     setThreadUrl(url);
     setLocationInput(url);
-    void fetchResponsesFromCurrent(url);
+    // Try loading from SQLite cache first, then fetch from network
+    if (isTauriRuntime()) {
+      invoke<string | null>("load_thread_cache", { threadUrl: url }).then((json) => {
+        if (json) {
+          try {
+            const cached = JSON.parse(json) as ThreadResponseItem[];
+            if (cached.length > 0) {
+              setFetchedResponses(cached);
+              tabCacheRef.current.set(url, { responses: cached, selectedResponse: bm ?? 1 });
+              if (bm && bm < cached.length) {
+                setNewResponseStart(bm + 1);
+              }
+              const savedNo = loadScrollPos(url);
+              if (savedNo > 1) scrollToResponseNo(savedNo);
+            }
+          } catch { /* ignore */ }
+        }
+        void fetchResponsesFromCurrent(url);
+      }).catch(() => {
+        void fetchResponsesFromCurrent(url);
+      });
+    } else {
+      void fetchResponsesFromCurrent(url);
+    }
   };
 
   const closeTab = (index: number) => {
     if (index < 0 || index >= threadTabs.length) return;
-    if (index === activeTabIndex) saveBookmark(threadTabs[index].threadUrl, selectedResponse);
+    if (index === activeTabIndex) {
+      saveBookmark(threadTabs[index].threadUrl, selectedResponse);
+      saveScrollPos(threadTabs[index].threadUrl);
+    }
     tabCacheRef.current.delete(threadTabs[index].threadUrl);
     const nextTabs = threadTabs.filter((_, i) => i !== index);
     setThreadTabs(nextTabs);
@@ -623,6 +745,7 @@ export default function App() {
     if (cached) {
       setFetchedResponses(cached.responses);
       setSelectedResponse(cached.selectedResponse);
+      scrollToResponseNo(cached.scrollResponseNo ?? 0);
     }
     setThreadUrl(tab.threadUrl);
     setLocationInput(tab.threadUrl);
@@ -633,7 +756,11 @@ export default function App() {
     if (activeTabIndex >= 0 && activeTabIndex < threadTabs.length) {
       const curUrl = threadTabs[activeTabIndex].threadUrl;
       const cached = tabCacheRef.current.get(curUrl);
-      if (cached) cached.selectedResponse = selectedResponse;
+      if (cached) {
+        cached.selectedResponse = selectedResponse;
+        cached.scrollResponseNo = getVisibleResponseNo();
+        saveScrollPos(curUrl);
+      }
     }
     setActiveTabIndex(index);
     const tab = threadTabs[index];
@@ -641,6 +768,7 @@ export default function App() {
     if (cached) {
       setFetchedResponses(cached.responses);
       setSelectedResponse(cached.selectedResponse);
+      scrollToResponseNo(cached.scrollResponseNo ?? 0);
     } else {
       setFetchedResponses([]);
       setSelectedResponse(1);
@@ -680,7 +808,7 @@ export default function App() {
       setThreadSortAsc((prev) => !prev);
     } else {
       setThreadSortKey(key);
-      setThreadSortAsc(key === "id" || key === "title");
+      setThreadSortAsc(key === "id" || key === "title" || key === "fetched");
     }
   };
 
@@ -797,7 +925,9 @@ export default function App() {
       return;
     }
     setThreadListProbe("running...");
+    setShowCachedOnly(false);
     setStatus(`loading threads from: ${url}`);
+    setLocationInput(url);
     try {
       const rows = await invoke<ThreadListItem[]>("fetch_thread_list", {
         threadUrl: url,
@@ -805,6 +935,10 @@ export default function App() {
       });
       setFetchedThreads(rows);
       setClosedThreadIds([]);
+      setThreadSortKey("id");
+      setThreadSortAsc(true);
+      setThreadSearchQuery("");
+      if (threadListScrollRef.current) threadListScrollRef.current.scrollTop = 0;
       setThreadListProbe(`ok rows=${rows.length}`);
       setStatus(`threads loaded: ${rows.length}`);
       void loadReadStatusForBoard(url, rows);
@@ -860,9 +994,17 @@ export default function App() {
           }, 50);
         }
       } else {
-        setSelectedResponse(rows.length > 0 ? rows[0].responseNo : 1);
+        const savedNo = loadScrollPos(url);
+        const bm = loadBookmark(url);
+        setSelectedResponse(bm ?? (rows.length > 0 ? rows[0].responseNo : 1));
+        if (savedNo > 1) {
+          scrollToResponseNo(savedNo);
+        }
       }
       tabCacheRef.current.set(url, { responses: rows, selectedResponse: rows.length > 0 ? rows[0].responseNo : 1 });
+      // persist to SQLite
+      const tabTitle = threadTabs.find((t) => t.threadUrl === url)?.title ?? "";
+      invoke("save_thread_cache", { threadUrl: url, title: tabTitle, responsesJson: JSON.stringify(rows) }).catch(() => {});
       setLastFetchTime(new Date().toLocaleTimeString());
       if (prevCount > 0 && rows.length > prevCount) {
         setNewResponseStart(prevCount + 1);
@@ -978,6 +1120,8 @@ export default function App() {
   };
 
   const probePostFlowTraceFromCompose = async () => {
+    if (composeSubmitting) return;
+    setComposeSubmitting(true);
     setPostFlowTraceProbe("running...");
     setComposeResult(null);
     try {
@@ -986,11 +1130,11 @@ export default function App() {
         from: composeName || null,
         mail: composeMailValue || null,
         message: composeBody || null,
-        allowRealSubmit,
+        allowRealSubmit: true,
       });
       setPostFlowTraceProbe(
         [
-          `blocked=${r.blocked} allowRealSubmit=${r.allowRealSubmit}`,
+          `blocked=${r.blocked}`,
           `token=${r.tokenSummary ?? "-"}`,
           `confirm=${r.confirmSummary ?? "-"}`,
           `finalize=${r.finalizeSummary ?? "-"}`,
@@ -998,19 +1142,104 @@ export default function App() {
         ].join("\n")
       );
       if (r.blocked) {
-        setComposeResult({ ok: false, message: "Flow blocked (real submit disabled)" });
+        setComposeResult({ ok: false, message: "Flow blocked" });
       } else if (r.submitSummary?.includes("error=true")) {
         setComposeResult({ ok: false, message: `Post failed: ${r.submitSummary}` });
         setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
       } else if (r.submitSummary) {
         setComposeResult({ ok: true, message: `Post submitted: ${r.submitSummary}` });
         setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl, body: composeBody.slice(0, 100), ok: true }, ...prev].slice(0, 50));
-        void fetchResponsesFromCurrent();
+        setComposeBody("");
+        if (composeName.trim()) {
+          setNameHistory((prev) => {
+            const next = [composeName.trim(), ...prev.filter((n) => n !== composeName.trim())].slice(0, 20);
+            try { localStorage.setItem(NAME_HISTORY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+            return next;
+          });
+        }
+        setComposeOpen(false);
+        const rows = await invoke<ThreadResponseItem[]>("fetch_thread_responses_command", {
+          threadUrl: threadUrl.trim(),
+          limit: null,
+        }).catch(() => null);
+        if (rows) {
+          setFetchedResponses(rows);
+          tabCacheRef.current.set(threadUrl.trim(), { responses: rows, selectedResponse: rows.length > 0 ? rows[rows.length - 1].responseNo : 1 });
+          setSelectedResponse(rows.length > 0 ? rows[rows.length - 1].responseNo : 1);
+          setTimeout(() => {
+            if (responseScrollRef.current) {
+              responseScrollRef.current.scrollTop = responseScrollRef.current.scrollHeight;
+            }
+          }, 50);
+        }
       }
     } catch (error) {
       setPostFlowTraceProbe(`error: ${String(error)}`);
       setComposeResult({ ok: false, message: `Error: ${String(error)}` });
       setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
+    } finally {
+      setComposeSubmitting(false);
+    }
+  };
+
+  const getBoardUrlFromThreadUrl = (url: string): string => {
+    try {
+      const u = new URL(url);
+      const parts = u.pathname.split("/").filter(Boolean);
+      if (parts.length >= 3 && parts[0] === "test" && parts[1] === "read.cgi") {
+        return `${u.origin}/${parts[2]}/`;
+      }
+      return `${u.origin}/${parts[0] || ""}/`;
+    } catch {
+      return url;
+    }
+  };
+
+  const submitNewThread = async () => {
+    if (!newThreadSubject.trim() || !newThreadBody.trim()) {
+      setNewThreadResult({ ok: false, message: "スレタイと本文は必須です" });
+      return;
+    }
+    setNewThreadSubmitting(true);
+    setNewThreadResult(null);
+    const boardUrl = getBoardUrlFromThreadUrl(threadUrl);
+    try {
+      const r = await invoke<{ status: number; containsError: boolean; bodyPreview: string; threadUrl: string | null }>("create_thread_command", {
+        boardUrl,
+        subject: newThreadSubject,
+        from: newThreadName || null,
+        mail: newThreadMail || null,
+        message: newThreadBody,
+      });
+      if (r.containsError) {
+        setNewThreadResult({ ok: false, message: `エラー: ${r.bodyPreview}` });
+      } else {
+        setNewThreadResult({ ok: true, message: `スレ立て成功 (status=${r.status})` });
+        if (newThreadName.trim()) {
+          setNameHistory((prev) => {
+            const next = [newThreadName.trim(), ...prev.filter((n) => n !== newThreadName.trim())].slice(0, 20);
+            try { localStorage.setItem(NAME_HISTORY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+            return next;
+          });
+        }
+        const newUrl = r.threadUrl;
+        setNewThreadSubject("");
+        setNewThreadBody("");
+        setTimeout(() => {
+          setShowNewThreadDialog(false);
+          setNewThreadResult(null);
+          if (newUrl) {
+            openThreadInTab(newUrl, newThreadSubject);
+            void fetchThreadListFromCurrent(boardUrl);
+          } else {
+            void fetchThreadListFromCurrent(boardUrl);
+          }
+        }, 1500);
+      }
+    } catch (error) {
+      setNewThreadResult({ ok: false, message: `Error: ${String(error)}` });
+    } finally {
+      setNewThreadSubmitting(false);
     }
   };
 
@@ -1058,7 +1287,18 @@ export default function App() {
     { id: 1, title: "プローブスレッド", res: 999, got: 24, speed: 2.5, lastLoad: "14:42", lastPost: "14:44", threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1/"},
     { id: 2, title: "認証テスト", res: 120, got: 8, speed: 0.8, lastLoad: "13:08", lastPost: "13:09", threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/2/" },
   ];
-  const threadItems = (
+  const threadItems = showCachedOnly
+    ? cachedThreadList.map((ct, i) => ({
+        id: i + 1,
+        title: ct.title || ct.threadUrl,
+        res: 0,
+        got: 0,
+        speed: 0,
+        lastLoad: "-",
+        lastPost: "-",
+        threadUrl: ct.threadUrl,
+      }))
+    : (
     fetchedThreads.length > 0
       ? fetchedThreads.map((t, i) => {
           const created = Number(t.threadKey) * 1000;
@@ -1082,6 +1322,7 @@ export default function App() {
     .filter((t) => {
       if (closedThreadIds.includes(t.id)) return false;
       if (ngFilters.words.some((w) => ngMatch(w, t.title))) return false;
+      if (ngFilters.thread_words.some((w) => ngMatch(w, t.title))) return false;
       if (threadSearchQuery.trim()) {
         return t.title.toLowerCase().includes(threadSearchQuery.trim().toLowerCase());
       }
@@ -1089,7 +1330,7 @@ export default function App() {
     })
     .sort((a, b) => {
       let cmp = 0;
-      if (threadSortKey === "fetched") cmp = (threadReadMap[b.id] ? 1 : 0) - (threadReadMap[a.id] ? 1 : 0);
+      if (threadSortKey === "fetched") cmp = (threadReadMap[a.id] ? 0 : 1) - (threadReadMap[b.id] ? 0 : 1);
       else if (threadSortKey === "id") cmp = a.id - b.id;
       else if (threadSortKey === "title") cmp = a.title.localeCompare(b.title);
       else if (threadSortKey === "res") cmp = a.res - b.res;
@@ -1273,6 +1514,22 @@ export default function App() {
     }
   };
 
+  const purgeThreadCache = (url: string) => {
+    invoke("delete_thread_cache", { threadUrl: url }).catch(() => {});
+    // close tab
+    const tabIdx = threadTabs.findIndex((t) => t.threadUrl === url);
+    if (tabIdx >= 0) closeTab(tabIdx);
+    // clear memory cache
+    tabCacheRef.current.delete(url);
+    // clear read status for this thread in the thread list
+    const threadId = threadItems.find((t) => "threadUrl" in t && t.threadUrl === url)?.id;
+    if (threadId != null) {
+      setThreadReadMap((prev) => { const next = { ...prev }; delete next[threadId]; return next; });
+      setThreadLastReadCount((prev) => { const next = { ...prev }; delete next[threadId]; return next; });
+    }
+    setStatus("キャッシュから削除しました");
+  };
+
   const buildResponseUrl = (responseId: number) => `${threadUrl.endsWith("/") ? threadUrl : `${threadUrl}/`}${responseId}`;
 
   const appendComposeQuote = (line: string) => {
@@ -1386,6 +1643,14 @@ export default function App() {
     const top = event.currentTarget.scrollTop;
     try { localStorage.setItem(BOARD_TREE_SCROLL_KEY, String(top)); } catch { /* ignore */ }
   };
+  const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onResponseScroll: UIEventHandler<HTMLDivElement> = () => {
+    if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
+    scrollSaveTimerRef.current = setTimeout(() => {
+      const url = threadUrl.trim();
+      if (url) saveScrollPos(url);
+    }, 500);
+  };
 
   const beginResponseRowResize = (event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -1404,6 +1669,7 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (lightboxUrl) { setLightboxUrl(null); return; }
+        if (aboutOpen) { setAboutOpen(false); return; }
         if (shortcutsOpen) { setShortcutsOpen(false); return; }
         if (openMenu) { setOpenMenu(null); return; }
       }
@@ -1534,7 +1800,10 @@ export default function App() {
     if (isTauriRuntime()) {
       invoke<string>("load_layout_prefs").then((raw) => {
         if (raw) applyPrefs(raw);
-      }).catch(() => {});
+        layoutPrefsLoadedRef.current = true;
+      }).catch(() => { layoutPrefsLoadedRef.current = true; });
+    } else {
+      layoutPrefsLoadedRef.current = true;
     }
     try {
       const composeRaw = localStorage.getItem(COMPOSE_PREFS_KEY);
@@ -1543,6 +1812,10 @@ export default function App() {
         if (typeof cp.name === "string") setComposeName(cp.name);
         if (typeof cp.mail === "string") setComposeMail(cp.mail);
         if (typeof cp.sage === "boolean") setComposeSage(cp.sage);
+        try {
+          const nh = localStorage.getItem(NAME_HISTORY_KEY);
+          if (nh) setNameHistory(JSON.parse(nh));
+        } catch { /* ignore */ }
       }
     } catch {
       // ignore
@@ -1714,6 +1987,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!layoutPrefsLoadedRef.current) return;
     const payload = JSON.stringify({
       boardPanePx,
       threadPanePx,
@@ -1726,6 +2000,12 @@ export default function App() {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
   }, [boardPanePx, threadPanePx, responseTopRatio, fontSize, darkMode]);
+
+  useEffect(() => {
+    if (isTauriRuntime()) {
+      invoke("set_window_theme", { dark: darkMode }).catch(() => {});
+    }
+  }, [darkMode]);
 
   useEffect(() => {
     localStorage.setItem(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeName, mail: composeMail, sage: composeSage }));
@@ -1742,6 +2022,12 @@ export default function App() {
     const block = responseScrollRef.current.querySelector<HTMLDivElement>(".response-block.selected");
     block?.scrollIntoView({ block: "nearest" });
   }, [selectedResponse]);
+
+  useEffect(() => {
+    if (activeTabIndex < 0 || !tabBarRef.current) return;
+    const tab = tabBarRef.current.children[activeTabIndex] as HTMLElement | undefined;
+    tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeTabIndex]);
 
   useEffect(() => {
     if (!autoRefreshEnabled || !isTauriRuntime()) return;
@@ -1815,7 +2101,7 @@ export default function App() {
           { label: "ヘルプ", items: [
             { text: "ショートカット一覧", action: () => setShortcutsOpen(true) },
             { text: "sep" },
-            { text: "バージョン情報", action: () => setStatus(`5ch Browser v${currentVersion} (Runtime: ${runtimeState})`) },
+            { text: "バージョン情報", action: () => requestAnimationFrame(() => setAboutOpen(true)) },
           ]},
         ].map(({ label, items }) => (
           <div key={label} className="menu-item-wrap" onClick={(e) => e.stopPropagation()}>
@@ -2028,8 +2314,62 @@ export default function App() {
               placeholder="検索..."
               style={{ flex: 1 }}
             />
+            {threadSearchQuery && <button className="title-action-btn" onClick={() => setThreadSearchQuery("")} title="検索クリア">✕</button>}
+            <button className="title-action-btn" onClick={() => fetchThreadListFromCurrent()} title="スレ一覧を更新">🔄</button>
+            <button className="title-action-btn" onClick={() => setShowNewThreadDialog(true)} title="スレ立て">📝</button>
+            <button
+              className={`title-action-btn ${showCachedOnly ? "active-toggle" : ""}`}
+              onClick={() => {
+                if (showCachedOnly) {
+                  setShowCachedOnly(false);
+                  setCachedThreadList([]);
+                } else {
+                  if (isTauriRuntime()) {
+                    invoke<[string, string][]>("load_all_cached_threads").then((list) => {
+                      setCachedThreadList(list.map(([threadUrl, title]) => ({ threadUrl, title })));
+                      setShowCachedOnly(true);
+                    }).catch(() => {});
+                  }
+                }
+              }}
+              title="dat落ちキャッシュ表示"
+            >💾</button>
+            <button
+              className={`title-action-btn ${threadNgOpen ? "active-toggle" : ""}`}
+              onClick={() => setThreadNgOpen(!threadNgOpen)}
+              title="スレ一覧NGワード"
+            >🚫{ngFilters.thread_words.length > 0 ? ngFilters.thread_words.length : ""}</button>
           </div>
-          <div className="threads-table-wrap">
+          {threadNgOpen && (
+            <div className="thread-ng-popup">
+              <div className="thread-ng-add">
+                <input
+                  value={threadNgInput}
+                  onChange={(e) => setThreadNgInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && threadNgInput.trim()) {
+                      addNgEntry("thread_words", threadNgInput);
+                      setThreadNgInput("");
+                    }
+                  }}
+                  placeholder="NGワード (例: BE:12345)"
+                  style={{ flex: 1 }}
+                />
+                <button onClick={() => { addNgEntry("thread_words", threadNgInput); setThreadNgInput(""); }}>追加</button>
+              </div>
+              {ngFilters.thread_words.length > 0 && (
+                <ul className="thread-ng-list">
+                  {ngFilters.thread_words.map((w) => (
+                    <li key={w}>
+                      <span>{w}</span>
+                      <button className="ng-remove" onClick={() => removeNgEntry("thread_words", w)}>×</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          <div className="threads-table-wrap" ref={threadListScrollRef}>
           <table>
             <thead>
               <tr>
@@ -2069,7 +2409,11 @@ export default function App() {
                       setThreadReadMap((prev) => ({ ...prev, [t.id]: true }));
                       setThreadLastReadCount((prev) => ({ ...prev, [t.id]: t.res }));
                       if ("threadUrl" in t && typeof t.threadUrl === "string") {
+                        const alreadyOpen = threadTabs.some((tab) => tab.threadUrl === t.threadUrl);
                         openThreadInTab(t.threadUrl, t.title);
+                        if (alreadyOpen) {
+                          void fetchResponsesFromCurrent(t.threadUrl, { keepSelection: true });
+                        }
                         // persist read status
                         const ft = fetchedThreads[t.id - 1];
                         if (ft) void persistReadStatus(threadUrl, ft.threadKey, ft.responseCount);
@@ -2141,7 +2485,8 @@ export default function App() {
               </span>
             </div>
           )}
-          <div className="thread-tab-bar">
+          <div className="thread-tab-bar-wrap">
+          <div className="thread-tab-bar" ref={tabBarRef}>
             {threadTabs.length === 0 && (
               <div className="thread-tab placeholder active">
                 <span className="thread-tab-title">未取得</span>
@@ -2190,19 +2535,28 @@ export default function App() {
               </div>
             ))}
           </div>
+          <button className="tab-scroll-btn" onClick={() => { if (tabBarRef.current) tabBarRef.current.scrollLeft -= 150; }} title="左スクロール">◀</button>
+          <button className="tab-scroll-btn" onClick={() => { if (tabBarRef.current) tabBarRef.current.scrollLeft += 150; }} title="右スクロール">▶</button>
+          </div>
           <div
             className="response-layout"
           >
             <div
               className="response-scroll"
               ref={responseScrollRef}
+              onScroll={onResponseScroll}
               onClick={(e) => {
                 const target = e.target as HTMLElement;
-                // body-link: open in external browser
+                // body-link: open 5ch thread URLs in tab, others in external browser
                 const bodyLink = target.closest<HTMLAnchorElement>("a.body-link");
                 if (bodyLink) {
                   e.preventDefault();
                   const url = bodyLink.getAttribute("href");
+                  if (url && /^https?:\/\/[^/]*\.5ch\.(net|io)\/test\/read\.cgi\//.test(url)) {
+                    const title = url.split("/").pop() || url;
+                    openThreadInTab(url, title);
+                    return;
+                  }
                   if (url && isTauriRuntime()) {
                     void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
                   } else if (url) {
@@ -2289,9 +2643,15 @@ export default function App() {
                 const id = extractId(r.time);
                 const count = id ? (idCountMap.get(id) ?? 0) : 0;
                 const isNew = newResponseStart !== null && r.id >= newResponseStart;
+                const isFirstNew = isNew && r.id === newResponseStart;
                 return (
+                  <Fragment key={r.id}>
+                  {isFirstNew && (
+                    <div className="new-response-separator">
+                      <span>ここから新着</span>
+                    </div>
+                  )}
                   <div
-                    key={r.id}
                     data-response-no={r.id}
                     className={`response-block ${selectedResponse === r.id ? "selected" : ""}`}
                     onClick={() => setSelectedResponse(r.id)}
@@ -2313,7 +2673,7 @@ export default function App() {
                             setBackRefPopup({ x: rect.left, y: rect.top - 4, responseIds: backRefMap.get(r.id)! });
                           }}
                         >
-                          ▼
+                          ▼{backRefMap.get(r.id)!.length}
                         </span>
                       )}
                       <span className="response-header-right">
@@ -2360,6 +2720,7 @@ export default function App() {
                     </div>
                     <div className="response-body" dangerouslySetInnerHTML={renderResponseBodyHighlighted(r.text, responseSearchQuery)} />
                   </div>
+                  </Fragment>
                 );
               })}
             </div>
@@ -2376,6 +2737,7 @@ export default function App() {
                 onChange={(e) => setResponseSearchQuery(e.target.value)}
                 placeholder="レス検索..."
               />
+              {responseSearchQuery && <button className="title-action-btn" onClick={() => setResponseSearchQuery("")} title="検索クリア">✕</button>}
               <span className="nav-buttons">
                 <button onClick={() => { if (visibleResponseItems.length > 0) setSelectedResponse(visibleResponseItems[0].id); }}>Top</button>
                 {newResponseStart !== null && (
@@ -2468,7 +2830,10 @@ export default function App() {
           <div className="compose-grid">
             <label>
               名前
-              <input value={composeName} onChange={(e) => setComposeName(e.target.value)} />
+              <input value={composeName} onChange={(e) => setComposeName(e.target.value)} list="name-history-list" />
+              <datalist id="name-history-list">
+                {nameHistory.map((n) => <option key={n} value={n} />)}
+              </datalist>
             </label>
             <label>
               メール
@@ -2495,7 +2860,16 @@ export default function App() {
             <div className="compose-preview" dangerouslySetInnerHTML={renderResponseBody(composeBody || "(空)")} />
           )}
           <div className="compose-actions">
-            <button onClick={probePostFlowTraceFromCompose}>送信 (Shift+Enter)</button>
+            <button onClick={probePostFlowTraceFromCompose} disabled={composeSubmitting}>{composeSubmitting ? "送信中..." : "送信 (Shift+Enter)"}</button>
+            <button onClick={async () => {
+              setComposeResult({ ok: false, message: "診断中..." });
+              try {
+                const r = await invoke<string>("debug_post_connectivity", { threadUrl });
+                setComposeResult({ ok: true, message: r });
+              } catch (e) {
+                setComposeResult({ ok: false, message: `診断エラー: ${String(e)}` });
+              }
+            }} style={{ marginLeft: 8, fontSize: "0.85em" }}>接続診断</button>
           </div>
           {composeResult && (
             <div className={`compose-result ${composeResult.ok ? "compose-result-ok" : "compose-result-err"}`}>
@@ -2568,6 +2942,18 @@ export default function App() {
           <button onClick={() => void copyThreadUrl(threadMenu.threadId)}>スレURLをコピー</button>
           <button onClick={() => {
             const t = threadItems.find((item) => item.id === threadMenu.threadId);
+            if (t) { void navigator.clipboard.writeText(t.title); setStatus("スレタイをコピーしました"); }
+            setThreadMenu(null);
+          }}>スレタイをコピー</button>
+          <button onClick={() => {
+            const t = threadItems.find((item) => item.id === threadMenu.threadId);
+            if (t && "threadUrl" in t && typeof t.threadUrl === "string") {
+              void navigator.clipboard.writeText(`${t.title}\n${t.threadUrl}`); setStatus("スレタイとURLをコピーしました");
+            }
+            setThreadMenu(null);
+          }}>スレタイとURLをコピー</button>
+          <button onClick={() => {
+            const t = threadItems.find((item) => item.id === threadMenu.threadId);
             if (t && "threadUrl" in t && typeof t.threadUrl === "string") {
               window.open(t.threadUrl, "_blank");
             }
@@ -2593,6 +2979,11 @@ export default function App() {
               return isFav ? "お気に入り解除" : "お気に入りに追加";
             })()}
           </button>
+          <button onClick={() => {
+            const t = threadItems.find((item) => item.id === threadMenu.threadId);
+            if (t && "threadUrl" in t && typeof t.threadUrl === "string") purgeThreadCache(t.threadUrl);
+            setThreadMenu(null);
+          }}>キャッシュから削除</button>
         </div>
       )}
       {responseMenu && (
@@ -2613,6 +3004,26 @@ export default function App() {
             他のタブを閉じる
           </button>
           <button onClick={() => { closeAllTabs(); setTabMenu(null); }}>すべてのタブを閉じる</button>
+          <button onClick={() => {
+            const tab = threadTabs[tabMenu.tabIndex];
+            if (tab) { void navigator.clipboard.writeText(tab.title); setStatus("スレタイをコピーしました"); }
+            setTabMenu(null);
+          }}>スレタイをコピー</button>
+          <button onClick={() => {
+            const tab = threadTabs[tabMenu.tabIndex];
+            if (tab) { void navigator.clipboard.writeText(tab.threadUrl); setStatus("スレURLをコピーしました"); }
+            setTabMenu(null);
+          }}>スレURLをコピー</button>
+          <button onClick={() => {
+            const tab = threadTabs[tabMenu.tabIndex];
+            if (tab) { void navigator.clipboard.writeText(`${tab.title}\n${tab.threadUrl}`); setStatus("スレタイとURLをコピーしました"); }
+            setTabMenu(null);
+          }}>スレタイとURLをコピー</button>
+          <button onClick={() => {
+            const tab = threadTabs[tabMenu.tabIndex];
+            if (tab) purgeThreadCache(tab.threadUrl);
+            setTabMenu(null);
+          }}>キャッシュから削除</button>
         </div>
       )}
       {anchorPopup && (() => {
@@ -2745,6 +3156,26 @@ export default function App() {
           </div>
         );
       })()}
+      {aboutOpen && (
+        <div className="lightbox-overlay" onClick={() => setAboutOpen(false)}>
+          <div className="settings-panel" onClick={(e) => e.stopPropagation()} style={{ width: 360, textAlign: "center" }}>
+            <header className="settings-header">
+              <strong>バージョン情報</strong>
+              <button onClick={() => setAboutOpen(false)}>閉じる</button>
+            </header>
+            <div style={{ padding: "24px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+              <img src="/icon.png" alt="Ember" style={{ width: 64, height: 64 }} />
+              <div style={{ fontSize: "1.3em", fontWeight: "bold" }}>Ember</div>
+              <div style={{ color: "var(--sub)" }}>v{currentVersion}</div>
+              <div style={{ fontSize: "0.85em", color: "var(--sub)", lineHeight: 1.6 }}>
+                5ch専用ブラウザ<br />
+                Runtime: {runtimeState}<br />
+                BE: {beState} / UPLIFT: {roninState}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {shortcutsOpen && (
         <div className="lightbox-overlay" onClick={() => setShortcutsOpen(false)}>
           <div className="shortcuts-panel" onClick={(e) => e.stopPropagation()}>
@@ -2884,6 +3315,79 @@ export default function App() {
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
                 <div className="settings-row"><span>スモークテスト</span><span>67項目</span></div>
               </fieldset>
+            </div>
+          </div>
+        </div>
+      )}
+      {showNewThreadDialog && (
+        <div className="lightbox-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) setShowNewThreadDialog(false); }}>
+          <div ref={newThreadPanelRef} className="settings-panel" style={{ width: newThreadDialogSize.w, height: newThreadDialogSize.h, minWidth: 320, minHeight: 300, resize: "both", overflow: "auto", display: "flex", flexDirection: "column" }} onMouseUp={() => {
+            const el = newThreadPanelRef.current;
+            if (!el) return;
+            const w = el.offsetWidth, h = el.offsetHeight;
+            if (w !== newThreadDialogSize.w || h !== newThreadDialogSize.h) {
+              setNewThreadDialogSize({ w, h });
+              try { localStorage.setItem(NEW_THREAD_SIZE_KEY, JSON.stringify({ w, h })); } catch { /* ignore */ }
+            }
+          }}>
+            <header className="settings-header">
+              <strong>スレ立て</strong>
+              <button onClick={() => { setShowNewThreadDialog(false); setNewThreadResult(null); }}>閉じる</button>
+            </header>
+            <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: 8, flex: 1, overflow: "hidden" }}>
+              <label>
+                スレタイ
+                <input
+                  value={newThreadSubject}
+                  onChange={(e) => setNewThreadSubject(e.target.value)}
+                  placeholder="スレッドタイトル"
+                  style={{ width: "100%", boxSizing: "border-box" }}
+                />
+              </label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <label style={{ flex: 1 }}>
+                  名前
+                  <input
+                    value={newThreadName}
+                    onChange={(e) => setNewThreadName(e.target.value)}
+                    list="name-history-list-newthread"
+                    style={{ width: "100%", boxSizing: "border-box" }}
+                  />
+                  <datalist id="name-history-list-newthread">
+                    {nameHistory.map((n) => <option key={n} value={n} />)}
+                  </datalist>
+                </label>
+                <label style={{ flex: 1 }}>
+                  メール
+                  <input
+                    value={newThreadMail}
+                    onChange={(e) => setNewThreadMail(e.target.value)}
+                    style={{ width: "100%", boxSizing: "border-box" }}
+                  />
+                </label>
+              </div>
+              <label style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                本文
+                <textarea
+                  value={newThreadBody}
+                  onChange={(e) => setNewThreadBody(e.target.value)}
+                  placeholder="本文を入力"
+                  style={{ width: "100%", boxSizing: "border-box", flex: 1, minHeight: 100 }}
+                />
+              </label>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button onClick={submitNewThread} disabled={newThreadSubmitting}>
+                  {newThreadSubmitting ? "送信中..." : "スレ立て"}
+                </button>
+                <span style={{ fontSize: "0.85em", color: "var(--sub)" }}>
+                  板: {getBoardUrlFromThreadUrl(threadUrl)}
+                </span>
+              </div>
+              {newThreadResult && (
+                <div style={{ padding: 8, background: newThreadResult.ok ? "var(--ok-bg, #e6ffe6)" : "var(--err-bg, #ffe6e6)", borderRadius: 4, fontSize: "0.9em", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                  {newThreadResult.message}
+                </div>
+              )}
             </div>
           </div>
         </div>

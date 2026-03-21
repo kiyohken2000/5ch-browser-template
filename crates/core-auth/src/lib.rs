@@ -5,7 +5,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use url::Url;
 
-const UA: &str = "Mozilla/5.0 (compatible; 5ch-browser-template-auth/0.1)";
+const UA: &str = "Mozilla/5.0 (compatible; Ember/0.1)";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AuthProvider {
@@ -28,6 +28,7 @@ pub struct LoginOutcome {
     pub status: u16,
     pub location: Option<String>,
     pub cookie_names: Vec<String>,
+    pub cookie_values: Vec<(String, String)>,
     pub note: String,
 }
 
@@ -71,6 +72,22 @@ fn cookie_names_for(jar: &Jar, url: &str) -> Result<Vec<String>, AuthError> {
     names.sort();
     names.dedup();
     Ok(names)
+}
+
+fn cookie_pairs_for(jar: &Jar, url: &str) -> Vec<(String, String)> {
+    let Ok(parsed) = Url::parse(url) else { return vec![] };
+    let raw = jar
+        .cookies(&parsed)
+        .and_then(|v| v.to_str().ok().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let mut pairs = Vec::new();
+    for part in raw.split(';') {
+        let seg = part.trim();
+        if let Some((name, value)) = seg.split_once('=') {
+            pairs.push((name.trim().to_string(), value.trim().to_string()));
+        }
+    }
+    pairs
 }
 
 fn find_attr_value(fragment: &str, attr: &str) -> Option<String> {
@@ -183,12 +200,16 @@ pub async fn login_be_front(email: &str, password: &str) -> Result<LoginOutcome,
         body_snippet.replace('\n', " ").replace('\r', "")
     });
 
+    let mut cookie_values = cookie_pairs_for(&jar, "https://be.5ch.io/");
+    cookie_values.extend(cookie_pairs_for(&jar, "https://5ch.io/"));
+
     Ok(LoginOutcome {
         provider: AuthProvider::Be,
         success,
         status,
         location: Some(final_url.clone()),
         cookie_names,
+        cookie_values,
         note: format!(
             "be login(action={}, final={}, err={}, form={}, be_cookie={}, status_page={}): {}",
             action,
@@ -219,6 +240,7 @@ pub async fn login_uplift(email: &str, password: &str) -> Result<LoginOutcome, A
         .map(|s| s.to_string());
 
     let cookie_names = cookie_names_for(&jar, "https://uplift.5ch.io/")?;
+    let cookie_values = cookie_pairs_for(&jar, "https://uplift.5ch.io/");
     let success = cookie_names.iter().any(|n| n == "sid");
 
     Ok(LoginOutcome {
@@ -227,6 +249,7 @@ pub async fn login_uplift(email: &str, password: &str) -> Result<LoginOutcome, A
         status,
         location,
         cookie_names,
+        cookie_values,
         note: "uplift login".to_string(),
     })
 }
@@ -248,6 +271,7 @@ pub async fn login_donguri(email: &str, password: &str) -> Result<LoginOutcome, 
         .map(|s| s.to_string());
 
     let cookie_names = cookie_names_for(&jar, "https://donguri.5ch.io/")?;
+    let cookie_values = cookie_pairs_for(&jar, "https://donguri.5ch.io/");
     let success = cookie_names.iter().any(|n| n == "acorn");
 
     Ok(LoginOutcome {
@@ -256,6 +280,7 @@ pub async fn login_donguri(email: &str, password: &str) -> Result<LoginOutcome, 
         status,
         location,
         cookie_names,
+        cookie_values,
         note: "donguri login".to_string(),
     })
 }

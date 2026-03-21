@@ -1,6 +1,6 @@
 # 開発者ガイド
 
-5ch Browser Template の技術仕様・アーキテクチャ・開発手順をまとめたドキュメント。
+Ember の技術仕様・アーキテクチャ・開発手順をまとめたドキュメント。
 
 ---
 
@@ -95,8 +95,12 @@
 - **Tauri IPC 通信**: `@tauri-apps/api/core` の `invoke()` でRustバックエンドを呼び出し
 - **WEB/Tauri 二重動作**: `isTauriRuntime()` でランタイム判定し、WEB表示時はフェッチ系を抑止
 - **永続化**:
-  - `localStorage`: レイアウト設定、フォントサイズ、ダークモード、書き込み設定、栞
-  - `core-store` (Tauri IPC): お気に入り、NGフィルタ、既読状態
+  - `localStorage`: レイアウト設定、フォントサイズ、ダークモード、書き込み設定、栞、名前履歴
+  - `core-store` (Tauri IPC): お気に入り、NGフィルタ、既読状態、認証設定
+  - `SQLite` (core-store): スレ本文キャッシュ（dat落ちスレの保持）
+- **ダークモード**: タイトルバー連動（Tauri `set_window_theme`）、全UI要素対応
+- **スレ一覧NGワード**: スレタイに含まれるワード（BE番号等）でフィルタリング
+- **新着マーカー**: 「ここから新着」セパレーターで新着レスの開始位置を表示
 
 ### バックエンド (Rust Crates)
 
@@ -105,7 +109,7 @@
 | `core-auth` | BE / UPLIFT / どんぐり ログイン | reqwest (cookies, rustls-tls) |
 | `core-fetch` | bbsmenu取得、スレ一覧、レス取得、投稿フロー | reqwest, encoding_rs, core-parse |
 | `core-parse` | dat行パーサ、subject.txt パーサ | なし（純粋パーサ） |
-| `core-store` | JSON ファイル読み書き | serde_json |
+| `core-store` | JSON ファイル読み書き、SQLite キャッシュ | serde_json, rusqlite |
 
 ### Tauri IPC コマンド一覧
 
@@ -136,14 +140,31 @@
 | コマンド | 引数 | 説明 |
 |---------|------|------|
 | `load_favorites` / `save_favorites` | `favorites` | お気に入り読み書き |
-| `load_ng_filters` / `save_ng_filters` | `filters` | NGフィルタ読み書き |
+| `load_ng_filters` / `save_ng_filters` | `filters` | NGフィルタ読み書き（スレ一覧NG含む） |
 | `load_read_status` / `save_read_status` | `status` | 既読状態読み書き |
+| `load_auth_config` / `save_auth_config` | `config` | 認証設定読み書き |
+| `save_layout_prefs` / `load_layout_prefs` | `prefs` | レイアウト設定読み書き |
+
+**スレッドキャッシュ (SQLite):**
+| コマンド | 引数 | 説明 |
+|---------|------|------|
+| `save_thread_cache` | `thread_url`, `title`, `responses_json` | スレ本文をSQLiteに保存 |
+| `load_thread_cache` | `thread_url` | キャッシュからスレ本文を読み込み |
+| `load_all_cached_threads` | — | キャッシュ済み全スレ一覧 |
+| `delete_thread_cache` | `thread_url` | キャッシュからスレを削除 |
+
+**スレ立て:**
+| コマンド | 引数 | 説明 |
+|---------|------|------|
+| `create_thread_command` | `board_url`, `subject`, `from?`, `mail?`, `message` | 新規スレッド作成 |
 
 **ユーティリティ:**
 | コマンド | 引数 | 説明 |
 |---------|------|------|
 | `check_for_updates` | `metadata_url?`, `current_version?` | 更新チェック |
 | `open_external_url` | `url` | OS既定ブラウザで開く |
+| `set_window_theme` | `dark` | ウィンドウテーマ切り替え（タイトルバー連動） |
+| `login_with_config` | `config` | 認証設定でログイン実行 |
 
 ---
 
@@ -413,14 +434,24 @@ npm run check:latest:strict  # 厳密検証（SHA256チェックなど）
 | `desktop.layoutPrefs.v1` | ペインサイズ、フォントサイズ、ダークモード |
 | `desktop.composePrefs.v1` | 書き込み名前、メール、sage |
 | `desktop.bookmarks.v1` | 栞（スレURL → レス番号） |
+| `desktop.nameHistory.v1` | 過去使用した名前履歴（最大20件） |
+| `desktop.scrollPos.v1` | スレ表示位置（スレURL → レス番号） |
+| `desktop.newThreadDialogSize` | スレ立てダイアログサイズ |
 
 ### core-store（Tauri IPC 経由 JSON ファイル）
 
 | ファイル | 内容 |
 |---------|------|
 | `favorites.json` | お気に入り板・スレ |
-| `ng_filters.json` | NGワード・ID・名前 |
+| `ng_filters.json` | NGワード・ID・名前・スレ一覧NGワード |
 | `read_status.json` | 板URL → スレキー → 最終既読レス番号 |
+| `auth_config.json` | Ronin / BE 認証設定 |
+
+### SQLite（core-store 経由）
+
+| ファイル | テーブル | 内容 |
+|---------|---------|------|
+| `cache.db` | `thread_cache` | スレ本文キャッシュ (thread_url, title, responses_json, updated_at) |
 
 ---
 
@@ -430,7 +461,7 @@ npm run check:latest:strict  # 厳密検証（SHA256チェックなど）
 
 | 項目 | 値 |
 |-----|---|
-| アプリ識別子 | `io.template.fivechbrowser` |
+| アプリ識別子 | `io.ember.browser` |
 | ウィンドウサイズ | 1400 x 900（リサイズ可能） |
 | 開発サーバー | `http://localhost:1420` |
 | フロントエンド出力 | `../dist` |

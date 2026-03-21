@@ -2,6 +2,7 @@ use reqwest::cookie::{CookieStore, Jar};
 use reqwest::{redirect::Policy, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::process::Command;
 use std::sync::Arc;
 use thiserror::Error;
 use url::Url;
@@ -185,8 +186,13 @@ pub fn build_cookie_client(user_agent: &str) -> Result<(Client, Arc<Jar>), Fetch
 
 pub fn normalize_5ch_url(input: &str) -> String {
     if let Ok(mut parsed) = Url::parse(input) {
-        if parsed.host_str().is_some_and(|host| host.ends_with("5ch.net")) {
-            let _ = parsed.set_host(Some("5ch.io"));
+        if let Some(host) = parsed.host_str().map(|h| h.to_string()) {
+            if host.ends_with(".5ch.net") {
+                let new_host = format!("{}.5ch.io", &host[..host.len() - ".5ch.net".len()]);
+                let _ = parsed.set_host(Some(&new_host));
+            } else if host == "5ch.net" {
+                let _ = parsed.set_host(Some("5ch.io"));
+            }
         }
         return parsed.to_string();
     }
@@ -388,58 +394,391 @@ pub async fn fetch_post_form_tokens(client: &Client, thread_url: &str) -> Result
     parse_post_form_tokens(&normalized, &html)
 }
 
+fn url_encode_sjis_bytes(bytes: &[u8]) -> String {
+    let mut out = String::new();
+    for &b in bytes {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'*' => {
+                out.push(b as char);
+            }
+            b' ' => out.push('+'),
+            _ => {
+                out.push('%');
+                out.push(char::from(b"0123456789ABCDEF"[(b >> 4) as usize]));
+                out.push(char::from(b"0123456789ABCDEF"[(b & 0xf) as usize]));
+            }
+        }
+    }
+    out
+}
+
+/// Execute a curl request with a shared cookie jar. Returns (status, content_type, redirect_url, body).
+fn curl_exec(
+    method: &str,
+    url: &str,
+    referer: Option<&str>,
+    form_body: Option<&str>,
+    cookie_jar: &std::path::Path,
+    extra_cookies: Option<&str>,
+) -> Result<(u16, Option<String>, Option<String>, String), FetchError> {
+    let separator = "---CURL_5CH_META---";
+    let write_fmt = format!(
+        "\n{}\n%{{http_code}}\n%{{content_type}}\n%{{redirect_url}}",
+        separator
+    );
+    let jar_str = cookie_jar.to_str().unwrap_or("");
+
+    let mut args: Vec<String> = vec![
+        "-s".into(),
+        "--max-time".into(), "30".into(),
+        "--connect-timeout".into(), "10".into(),
+        "-b".into(), jar_str.into(),
+        "-c".into(), jar_str.into(),
+        "-X".into(), method.into(),
+        "-H".into(), "User-Agent: Monazilla/1.00 Ember/0.1".into(),
+    ];
+    if let Some(cookies) = extra_cookies {
+        if !cookies.is_empty() {
+            args.push("-H".into());
+            args.push(format!("Cookie: {}", cookies));
+        }
+    }
+    if let Some(r) = referer {
+        args.push("-H".into());
+        args.push(format!("Referer: {}", r));
+    }
+    if let Some(body) = form_body {
+        args.push("-H".into());
+        args.push("Content-Type: application/x-www-form-urlencoded".into());
+        args.push("--data-raw".into());
+        args.push(body.into());
+    }
+    args.push("-w".into());
+    args.push(write_fmt);
+    args.push(url.into());
+
+    let output = Command::new("curl")
+        .args(&args)
+        .output()
+        .map_err(|e| FetchError::Parse(format!("curl: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(FetchError::Parse(format!(
+            "curl {} exit {}: {}",
+            method,
+            output.status,
+            stderr.chars().take(200).collect::<String>()
+        )));
+    }
+
+    let raw = &output.stdout;
+    let sep_bytes = format!("\n{}\n", separator).into_bytes();
+    let (body_bytes, meta_str) = if let Some(pos) = raw
+        .windows(sep_bytes.len())
+        .rposition(|w| w == sep_bytes.as_slice())
+    {
+        let meta = String::from_utf8_lossy(&raw[pos + sep_bytes.len()..]);
+        (&raw[..pos], meta.into_owned())
+    } else {
+        (raw.as_slice(), String::new())
+    };
+
+    let meta_lines: Vec<&str> = meta_str.lines().collect();
+    let status: u16 = meta_lines.first().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let content_type = meta_lines.get(1).map(|s| s.to_string()).filter(|s| !s.is_empty());
+    let redirect_url = meta_lines.get(2).map(|s| s.to_string()).filter(|s| !s.is_empty());
+
+    let (decoded, _, _) = SHIFT_JIS.decode(body_bytes);
+    Ok((status, content_type, redirect_url, decoded.into_owned()))
+}
+
+fn build_sjis_form_body(fields: &[(&str, &str)]) -> String {
+    fields
+        .iter()
+        .map(|(k, v)| {
+            let (sjis, _, _) = SHIFT_JIS.encode(v);
+            format!("{}={}", k, url_encode_sjis_bytes(&sjis))
+        })
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+/// POST to 5ch with cookie jar, handling redirects manually (normalizing .5ch.net → .5ch.io).
+/// Steps: 1) GET thread page for cookies, 2) POST, 3) follow redirects, 4) retry POST if needed.
+pub fn curl_post_5ch(
+    thread_url: &str,
+    post_url: &str,
+    fields: &[(&str, &str)],
+    extra_cookies: Option<&str>,
+) -> Result<(u16, Option<String>, String), FetchError> {
+    let cookie_file = std::env::temp_dir().join(format!("ember_post_{}.txt", std::process::id()));
+    let result = curl_post_5ch_inner(thread_url, post_url, fields, &cookie_file, extra_cookies);
+    let _ = std::fs::remove_file(&cookie_file);
+    result
+}
+
+fn curl_post_5ch_inner(
+    thread_url: &str,
+    post_url: &str,
+    fields: &[(&str, &str)],
+    cookie_file: &std::path::Path,
+    extra_cookies: Option<&str>,
+) -> Result<(u16, Option<String>, String), FetchError> {
+    // Step 1: GET thread page to collect cookies
+    let _ = curl_exec("GET", thread_url, None, None, cookie_file, None);
+
+    let body = build_sjis_form_body(fields);
+
+    // Step 2: POST to bbs.cgi with cookies
+    let (mut status, mut ct, mut redir, mut resp_body) =
+        curl_exec("POST", post_url, Some(thread_url), Some(&body), cookie_file, extra_cookies)?;
+
+    // Step 3: Follow redirects manually (up to 5), normalizing URLs
+    for _ in 0..5 {
+        if (status == 301 || status == 302) && redir.is_some() {
+            let next_url = normalize_5ch_url(&redir.unwrap());
+            let r = curl_exec("GET", &next_url, Some(post_url), None, cookie_file, None)?;
+            status = r.0;
+            ct = r.1;
+            redir = r.2;
+            resp_body = r.3;
+        } else {
+            break;
+        }
+    }
+
+    // Step 4: If we got the cookie check/confirm page, auto-submit the confirm form
+    // within the same cookie session to avoid double-posting
+    let has_confirm = resp_body.contains("name=\"bbs\"") || resp_body.contains("name=bbs ");
+    if has_confirm && status == 200 {
+        if let Ok(form) = parse_confirm_submit_form_internal(&resp_body, post_url) {
+            let confirm_body = build_sjis_form_body(
+                &form.fields.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect::<Vec<_>>(),
+            );
+            let (s2, c2, r2, mut b2) =
+                curl_exec("POST", &form.action_url, Some(post_url), Some(&confirm_body), cookie_file, extra_cookies)?;
+            status = s2;
+            ct = c2;
+            resp_body = b2;
+            let mut redir2 = r2;
+            for _ in 0..5 {
+                if (status == 301 || status == 302) && redir2.is_some() {
+                    let next_url = normalize_5ch_url(&redir2.unwrap());
+                    let r = curl_exec("GET", &next_url, Some(post_url), None, cookie_file, None)?;
+                    status = r.0;
+                    ct = r.1;
+                    redir2 = r.2;
+                    resp_body = r.3;
+                } else {
+                    break;
+                }
+            }
+        }
+    } else if !has_confirm && status == 200 {
+        // uplift/consent page — submit consent form and retry original POST
+        if let Some(consent_form) = find_first_generic_form(&resp_body) {
+            let consent_url = if consent_form.action.starts_with("http") {
+                normalize_5ch_url(&consent_form.action)
+            } else {
+                consent_form.action.clone()
+            };
+            let consent_body = consent_form
+                .fields
+                .iter()
+                .map(|(k, v)| {
+                    let (sjis, _, _) = SHIFT_JIS.encode(v);
+                    format!("{}={}", k, url_encode_sjis_bytes(&sjis))
+                })
+                .collect::<Vec<_>>()
+                .join("&");
+            let _ = curl_exec("POST", &consent_url, Some(post_url), Some(&consent_body), cookie_file, None);
+        }
+
+        let (s2, c2, r2, b2) =
+            curl_exec("POST", post_url, Some(thread_url), Some(&body), cookie_file, extra_cookies)?;
+        status = s2;
+        ct = c2;
+        resp_body = b2;
+        let mut redir2 = r2;
+        for _ in 0..5 {
+            if (status == 301 || status == 302) && redir2.is_some() {
+                let next_url = normalize_5ch_url(&redir2.unwrap());
+                let r = curl_exec("GET", &next_url, Some(post_url), None, cookie_file, None)?;
+                status = r.0;
+                ct = r.1;
+                redir2 = r.2;
+                resp_body = r.3;
+            } else {
+                break;
+            }
+        }
+    }
+
+    Ok((status, ct, resp_body))
+}
+
+struct GenericForm {
+    action: String,
+    fields: Vec<(String, String)>,
+}
+
+fn find_first_generic_form(html: &str) -> Option<GenericForm> {
+    let form_start = html.find("<form")?;
+    let tail = &html[form_start..];
+    let form_end = tail.find("</form>")?;
+    let form_html = &tail[..form_end + "</form>".len()];
+
+    let action = extract_attr(form_html, "action").unwrap_or_default();
+    let fields = parse_input_fields(form_html);
+    if fields.is_empty() {
+        return None;
+    }
+    Some(GenericForm { action, fields })
+}
+
 pub async fn submit_post_confirm(
     client: &Client,
     tokens: &PostFormTokens,
     from: &str,
     mail: &str,
     message: &str,
+    extra_cookies: Option<&str>,
 ) -> Result<PostConfirmResult, FetchError> {
-    let (result, _) = submit_post_confirm_with_html(client, tokens, from, mail, message).await?;
+    let (result, _) = submit_post_confirm_with_html(client, tokens, from, mail, message, extra_cookies).await?;
     Ok(result)
 }
 
 pub async fn submit_post_confirm_with_html(
-    client: &Client,
+    _client: &Client,
     tokens: &PostFormTokens,
     from: &str,
     mail: &str,
     message: &str,
+    extra_cookies: Option<&str>,
 ) -> Result<(PostConfirmResult, String), FetchError> {
-    let mut fields: Vec<(&str, String)> = vec![
-        ("FROM", from.to_string()),
-        ("mail", mail.to_string()),
-        ("bbs", tokens.bbs.clone()),
-        ("key", tokens.key.clone()),
-        ("time", tokens.time.clone()),
-        ("submit", "write".to_string()),
-        ("MESSAGE", message.to_string()),
+    let mut fields: Vec<(&str, &str)> = vec![
+        ("FROM", from),
+        ("mail", mail),
+        ("MESSAGE", message),
+        ("bbs", &tokens.bbs),
+        ("time", &tokens.time),
+        ("key", &tokens.key),
+        ("submit", "\u{66F8}\u{304D}\u{8FBC}\u{3080}"),  // "書き込む"
     ];
     if let Some(v) = &tokens.oekaki_thread1 {
-        fields.push(("oekaki_thread1", v.clone()));
+        fields.push(("oekaki_thread1", v));
     }
 
-    let response = client.post(&tokens.post_url).form(&fields).send().await?;
-    let status = response.status().as_u16();
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-    let body = response.text().await?;
-    let contains_confirm = body.contains("confirm");
-    let contains_error = body.contains("error");
-    let body_preview: String = body.chars().take(240).collect();
+    let (final_status, final_ct, final_body) =
+        curl_post_5ch(&tokens.thread_url, &tokens.post_url, &fields, extra_cookies)?;
+
+    let contains_confirm = final_body.contains("confirm");
+    let contains_error = final_body.contains("error");
+    let body_preview: String = final_body.chars().take(240).collect();
     let result = PostConfirmResult {
         post_url: tokens.post_url.clone(),
-        status,
-        content_type,
+        status: final_status,
+        content_type: final_ct,
         contains_confirm,
         contains_error,
         body_preview,
     };
 
-    Ok((result, body))
+    Ok((result, final_body))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateThreadResult {
+    pub status: u16,
+    pub content_type: Option<String>,
+    pub contains_error: bool,
+    pub body_preview: String,
+    pub thread_url: Option<String>,
+}
+
+/// Create a new thread on a 5ch board.
+/// `board_url` should be like "https://greta.5ch.io/poverty/" or "https://greta.5ch.io/test/read.cgi/poverty/..."
+pub fn create_thread(
+    board_url: &str,
+    subject: &str,
+    from: &str,
+    mail: &str,
+    message: &str,
+    extra_cookies: Option<&str>,
+) -> Result<CreateThreadResult, FetchError> {
+    let normalized = normalize_5ch_url(board_url);
+    let parsed = Url::parse(&normalized)?;
+    let host = parsed.host_str().ok_or_else(|| FetchError::Parse("no host".into()))?;
+
+    // Extract board name (BBSID) from URL
+    let parts: Vec<&str> = parsed.path_segments()
+        .ok_or_else(|| FetchError::Parse("no path".into()))?
+        .filter(|s| !s.is_empty())
+        .collect();
+    let bbs = if parts.len() >= 3 && parts[0] == "test" && parts[1] == "read.cgi" {
+        parts[2]  // thread URL like /test/read.cgi/poverty/123/
+    } else {
+        parts.first().ok_or_else(|| FetchError::Parse("no board in url".into()))?
+    };
+
+    let post_url = format!("{}://{}/test/bbs.cgi", parsed.scheme(), host);
+    let referer = format!("{}://{}/{}/", parsed.scheme(), host, bbs);
+    let time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string();
+
+    // "新規スレッド作成" submit value (書き込む for thread creation)
+    let fields: Vec<(&str, &str)> = vec![
+        ("FROM", from),
+        ("mail", mail),
+        ("MESSAGE", message),
+        ("bbs", bbs),
+        ("time", &time),
+        ("subject", subject),
+        ("submit", "\u{65B0}\u{898F}\u{30B9}\u{30EC}\u{30C3}\u{30C9}\u{4F5C}\u{6210}"),  // "新規スレッド作成"
+    ];
+
+    let (status, ct, body) = curl_post_5ch(&referer, &post_url, &fields, extra_cookies)?;
+    let contains_error = body.contains("ＥＲＲＯＲ")
+        || body.contains("ERROR!")
+        || (body.contains("error") && !body.contains("error.css") && !body.contains("error.js"));
+    let body_preview: String = body.chars().take(1000).collect();
+    eprintln!(
+        "create_thread: bbs={} status={} contains_error={} body_len={} body_preview={}",
+        bbs, status, contains_error, body.len(), body_preview.chars().take(300).collect::<String>()
+    );
+
+    // Try to extract the new thread URL from the response body
+    // 5ch returns links like /test/read.cgi/boardname/1234567890/
+    let thread_url = {
+        let pattern = format!("/test/read.cgi/{}/", bbs);
+        body.find(&pattern).and_then(|idx| {
+            let rest = &body[idx..];
+            // find the end of the URL (quote, space, angle bracket, etc.)
+            let end = rest.find(|c: char| c == '"' || c == '\'' || c == '<' || c == ' ' || c == '\n')
+                .unwrap_or(rest.len());
+            let path = &rest[..end];
+            // Verify it looks like a valid thread path (has a numeric ID)
+            let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+            if parts.len() >= 4 && parts[3].chars().all(|c| c.is_ascii_digit()) {
+                Some(format!("{}://{}{}", parsed.scheme(), host, path))
+            } else {
+                None
+            }
+        })
+    };
+
+    Ok(CreateThreadResult {
+        status,
+        content_type: ct,
+        contains_error,
+        body_preview,
+        thread_url,
+    })
 }
 
 fn find_first_confirm_form(html: &str) -> Option<&str> {
@@ -452,8 +791,9 @@ fn find_first_confirm_form(html: &str) -> Option<&str> {
         let form = &html[open..close];
         let has_bbs = form.contains("name=\"bbs\"") || form.contains("name='bbs'") || form.contains("name=bbs ");
         let has_key = form.contains("name=\"key\"") || form.contains("name='key'") || form.contains("name=key ");
+        let has_subject = form.contains("name=\"subject\"") || form.contains("name='subject'") || form.contains("name=subject ");
         let has_time = form.contains("name=\"time\"") || form.contains("name='time'") || form.contains("name=time ");
-        if has_bbs && has_key && has_time {
+        if has_bbs && (has_key || has_subject) && has_time {
             return Some(form);
         }
         start = close;
@@ -522,25 +862,28 @@ fn parse_confirm_submit_form_internal(
 }
 
 pub async fn submit_post_finalize_from_confirm(
-    client: &Client,
+    _client: &Client,
     confirm_html: &str,
     fallback_post_url: &str,
+    extra_cookies: Option<&str>,
 ) -> Result<PostSubmitResult, FetchError> {
     let form = parse_confirm_submit_form_internal(confirm_html, fallback_post_url)?;
-    let response = client.post(&form.action_url).form(&form.fields).send().await?;
-    let status = response.status().as_u16();
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
-    let body = response.text().await?;
-    let contains_error = body.contains("error");
-    let body_preview: String = body.chars().take(240).collect();
+    let fields: Vec<(&str, &str)> = form
+        .fields
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let thread_url = fallback_post_url
+        .replace("/test/bbs.cgi", "/test/read.cgi/");
+    let (final_status, final_ct, final_body) =
+        curl_post_5ch(&thread_url, &form.action_url, &fields, extra_cookies)?;
+
+    let contains_error = final_body.contains("error");
+    let body_preview: String = final_body.chars().take(240).collect();
     Ok(PostSubmitResult {
         action_url: form.action_url,
-        status,
-        content_type,
+        status: final_status,
+        content_type: final_ct,
         contains_error,
         body_preview,
     })
@@ -560,8 +903,22 @@ mod tests {
         let normalized = normalize_5ch_url(url);
         assert_eq!(
             normalized,
-            "https://5ch.io/test/read.cgi/news4vip/1234567890/"
+            "https://example.5ch.io/test/read.cgi/news4vip/1234567890/"
         );
+    }
+
+    #[test]
+    fn normalize_uplift_preserves_subdomain() {
+        let url = "https://uplift.5ch.net/some/path";
+        let normalized = normalize_5ch_url(url);
+        assert_eq!(normalized, "https://uplift.5ch.io/some/path");
+    }
+
+    #[test]
+    fn normalize_bare_5ch_net() {
+        let url = "https://5ch.net/test";
+        let normalized = normalize_5ch_url(url);
+        assert_eq!(normalized, "https://5ch.io/test");
     }
 
     #[test]
@@ -674,7 +1031,7 @@ mod tests {
     fn resolve_subject_url_from_thread_url_works() {
         let u = resolve_subject_url_from_thread_url("https://mao.5ch.net/test/read.cgi/ngt/1234567890/")
             .expect("subject url");
-        assert_eq!(u, "https://5ch.io/ngt/subject.txt");
+        assert_eq!(u, "https://mao.5ch.io/ngt/subject.txt");
     }
 
     #[test]
@@ -699,6 +1056,171 @@ mod tests {
     fn resolve_dat_url_from_thread_url_works() {
         let u = resolve_dat_url_from_thread_url("https://mao.5ch.net/test/read.cgi/ngt/9240230711/")
             .expect("dat url");
-        assert_eq!(u, "https://5ch.io/ngt/dat/9240230711.dat");
+        assert_eq!(u, "https://mao.5ch.io/ngt/dat/9240230711.dat");
+    }
+}
+
+/// Integration tests that hit the real 5ch servers.
+/// Run with: cargo test -p core-fetch -- --ignored --nocapture
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+
+    /// Debug the full curl-based posting flow step by step.
+    /// This test prints detailed output at each step so we can see
+    /// exactly what's happening with redirects, cookies, and response bodies.
+    #[test]
+    #[ignore]
+    fn debug_curl_post_flow() {
+        let thread_url = "https://greta.5ch.io/test/read.cgi/poverty/1742473225/";
+        let post_url = "https://greta.5ch.io/test/bbs.cgi";
+
+        let cookie_file = std::env::temp_dir().join("ember_e2e_post_debug.txt");
+        let _ = std::fs::remove_file(&cookie_file);
+
+        // Step 1: GET thread page to collect cookies
+        println!("=== STEP 1: GET thread page ===");
+        match curl_exec("GET", thread_url, None, None, &cookie_file, None) {
+            Ok((status, ct, redir, body)) => {
+                println!("  status={}", status);
+                println!("  content_type={:?}", ct);
+                println!("  redirect={:?}", redir);
+                println!("  body_len={}", body.len());
+                println!("  body_preview={}", &body.chars().take(200).collect::<String>());
+            }
+            Err(e) => println!("  ERROR: {:?}", e),
+        }
+
+        // Show cookies
+        println!("\n=== COOKIES AFTER STEP 1 ===");
+        match std::fs::read_to_string(&cookie_file) {
+            Ok(c) => println!("{}", c),
+            Err(e) => println!("  (no cookie file: {})", e),
+        }
+
+        // Step 2: POST to bbs.cgi
+        let fields: Vec<(&str, &str)> = vec![
+            ("FROM", ""),
+            ("mail", "sage"),
+            ("MESSAGE", "テスト書き込み from Ember E2E"),
+            ("bbs", "poverty"),
+            ("time", "1742480000"),
+            ("key", "1742473225"),
+            ("submit", "\u{66F8}\u{304D}\u{8FBC}\u{3080}"),  // "書き込む"
+        ];
+        let body = build_sjis_form_body(&fields);
+
+        println!("\n=== STEP 2: POST to bbs.cgi ===");
+        println!("  url={}", post_url);
+        println!("  body={}", &body.chars().take(200).collect::<String>());
+        match curl_exec("POST", post_url, Some(thread_url), Some(&body), &cookie_file, None) {
+            Ok((status, ct, redir, resp_body)) => {
+                println!("  status={}", status);
+                println!("  content_type={:?}", ct);
+                println!("  redirect={:?}", redir);
+                println!("  body_len={}", resp_body.len());
+                println!("  body_preview={}", &resp_body.chars().take(500).collect::<String>());
+
+                // Step 3: Follow redirect if any
+                if (status == 301 || status == 302) && redir.is_some() {
+                    let raw_redir = redir.unwrap();
+                    let next_url = normalize_5ch_url(&raw_redir);
+                    println!("\n=== STEP 3: Follow redirect ===");
+                    println!("  raw_redirect={}", raw_redir);
+                    println!("  normalized={}", next_url);
+
+                    match curl_exec("GET", &next_url, Some(post_url), None, &cookie_file, None) {
+                        Ok((s3, c3, r3, b3)) => {
+                            println!("  status={}", s3);
+                            println!("  content_type={:?}", c3);
+                            println!("  redirect={:?}", r3);
+                            println!("  body_len={}", b3.len());
+                            println!("  body_preview={}", &b3.chars().take(500).collect::<String>());
+
+                            // Check for forms
+                            let has_confirm = b3.contains("name=\"bbs\"") || b3.contains("name=bbs ");
+                            println!("  has_confirm_form={}", has_confirm);
+
+                            if let Some(form) = find_first_generic_form(&b3) {
+                                println!("\n=== FOUND FORM ===");
+                                println!("  action={}", form.action);
+                                for (k, v) in &form.fields {
+                                    println!("  field: {}={}", k, &v.chars().take(50).collect::<String>());
+                                }
+
+                                // Step 4: Submit found form
+                                let consent_url = if form.action.starts_with("http") {
+                                    normalize_5ch_url(&form.action)
+                                } else {
+                                    format!("https://uplift.5ch.io{}", form.action)
+                                };
+                                let consent_body = form.fields.iter()
+                                    .map(|(k, v)| format!("{}={}", k, url_encode_sjis_bytes(&SHIFT_JIS.encode(v).0)))
+                                    .collect::<Vec<_>>().join("&");
+                                println!("\n=== STEP 4: Submit consent form ===");
+                                println!("  url={}", consent_url);
+                                println!("  body={}", consent_body);
+                                match curl_exec("POST", &consent_url, Some(&next_url), Some(&consent_body), &cookie_file, None) {
+                                    Ok((s4, c4, r4, b4)) => {
+                                        println!("  status={}", s4);
+                                        println!("  content_type={:?}", c4);
+                                        println!("  redirect={:?}", r4);
+                                        println!("  body_len={}", b4.len());
+                                        println!("  body_preview={}", &b4.chars().take(500).collect::<String>());
+                                    }
+                                    Err(e) => println!("  ERROR: {:?}", e),
+                                }
+
+                                // Show cookies after consent
+                                println!("\n=== COOKIES AFTER CONSENT ===");
+                                match std::fs::read_to_string(&cookie_file) {
+                                    Ok(c) => println!("{}", c),
+                                    Err(e) => println!("  (no cookie file: {})", e),
+                                }
+
+                                // Step 5: Retry original POST
+                                println!("\n=== STEP 5: Retry POST to bbs.cgi ===");
+                                match curl_exec("POST", post_url, Some(thread_url), Some(&body), &cookie_file, None) {
+                                    Ok((s5, c5, r5, b5)) => {
+                                        println!("  status={}", s5);
+                                        println!("  content_type={:?}", c5);
+                                        println!("  redirect={:?}", r5);
+                                        println!("  body_len={}", b5.len());
+                                        println!("  body_preview={}", &b5.chars().take(500).collect::<String>());
+                                        let has_confirm2 = b5.contains("name=\"bbs\"") || b5.contains("name=bbs ");
+                                        println!("  has_confirm_form={}", has_confirm2);
+
+                                        // Follow redirect from retry
+                                        if (s5 == 301 || s5 == 302) && r5.is_some() {
+                                            let retry_redir = normalize_5ch_url(&r5.unwrap());
+                                            println!("\n=== STEP 6: Follow retry redirect ===");
+                                            println!("  url={}", retry_redir);
+                                            match curl_exec("GET", &retry_redir, Some(post_url), None, &cookie_file, None) {
+                                                Ok((s6, _c6, _r6, b6)) => {
+                                                    println!("  status={}", s6);
+                                                    println!("  body_preview={}", &b6.chars().take(500).collect::<String>());
+                                                    let has_confirm3 = b6.contains("name=\"bbs\"") || b6.contains("name=bbs ");
+                                                    println!("  has_confirm_form={}", has_confirm3);
+                                                }
+                                                Err(e) => println!("  ERROR: {:?}", e),
+                                            }
+                                        }
+                                    }
+                                    Err(e) => println!("  ERROR: {:?}", e),
+                                }
+                            }
+                        }
+                        Err(e) => println!("  ERROR: {:?}", e),
+                    }
+                } else if status == 200 {
+                    // No redirect — check body directly
+                    let has_confirm = resp_body.contains("name=\"bbs\"") || resp_body.contains("name=bbs ");
+                    println!("  has_confirm_form={}", has_confirm);
+                }
+            }
+            Err(e) => println!("  ERROR: {:?}", e),
+        }
+
+        let _ = std::fs::remove_file(&cookie_file);
     }
 }

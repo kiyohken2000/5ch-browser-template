@@ -1,10 +1,10 @@
 [package]
-name = "desktop"
+name = "ember"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "desktop_lib"
+name = "ember_lib"
 crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]

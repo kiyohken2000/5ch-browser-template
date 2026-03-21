@@ -47,7 +47,7 @@ export default function App() {
   return (
     <main className="page">
       <section className="hero">
-        <p className="kicker">5ch Browser</p>
+        <p className="kicker">Ember</p>
         <h1>Download (ZIP)</h1>
         <p className="lead">
           Windows/macOS binaries are distributed via GitHub Releases.

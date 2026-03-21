@@ -6,12 +6,12 @@
     "windows-x64": {
       "sha256": "",
       "size": 0,
-      "filename": "5ch-browser-win-x64.zip"
+      "filename": "ember-win-x64.zip"
     },
     "macos-arm64": {
       "sha256": "",
       "size": 0,
-      "filename": "5ch-browser-mac-arm64.zip"
+      "filename": "ember-mac-arm64.zip"
     }
   }
 }

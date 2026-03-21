@@ -10,8 +10,8 @@
 - メタデータファイル: `apps/landing/public/latest.json`
 
 ## 2. リリース成果物
-- Windows: `5ch-browser-win-x64.zip`
-- macOS: `5ch-browser-mac-arm64.zip`
+- Windows: `ember-win-x64.zip`
+- macOS: `ember-mac-arm64.zip`
 
 自動化しやすいようファイル名は固定とする。
 
@@ -32,8 +32,8 @@ python scripts/prepare_release_metadata.py `
   --version 0.2.0 `
   --released-at 2026-03-07T15:30:00+09:00 `
   --download-page-url "https://github.com/kiyohken2000/5ch-browser-template/releases/tag/v0.2.0" `
-  --windows-zip "C:\path\to\5ch-browser-win-x64.zip" `
-  --mac-zip "C:\path\to\5ch-browser-mac-arm64.zip"
+  --windows-zip "C:\path\to\ember-win-x64.zip" `
+  --mac-zip "C:\path\to\ember-mac-arm64.zip"
 ```
 
 このコマンドは以下を実行する:
@@ -92,12 +92,12 @@ npm run check:latest:strict
     "windows-x64": {
       "sha256": "...",
       "size": 12345678,
-      "filename": "5ch-browser-win-x64.zip"
+      "filename": "ember-win-x64.zip"
     },
     "macos-arm64": {
       "sha256": "...",
       "size": 23456789,
-      "filename": "5ch-browser-mac-arm64.zip"
+      "filename": "ember-mac-arm64.zip"
     }
   }
 }

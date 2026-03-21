@@ -1,13 +1,29 @@
 use core_auth::{login_be_front, login_donguri, login_uplift, LoginOutcome};
 use core_fetch::{
-    build_cookie_client, fetch_bbsmenu_json, fetch_post_form_tokens, fetch_subject_threads,
+    build_cookie_client, create_thread, fetch_bbsmenu_json, fetch_post_form_tokens, fetch_subject_threads,
     fetch_thread_responses, normalize_5ch_url, parse_confirm_submit_form, probe_post_cookie_scope, seed_cookie, submit_post_confirm,
-    submit_post_confirm_with_html, submit_post_finalize_from_confirm, PostConfirmResult, PostCookieReport,
+    submit_post_confirm_with_html, submit_post_finalize_from_confirm, CreateThreadResult, PostConfirmResult, PostCookieReport,
     PostFinalizePreview, PostFormTokens, PostSubmitResult,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::Mutex;
+
+static LOGIN_COOKIES: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+fn get_login_cookie_header() -> Option<String> {
+    let cookies = LOGIN_COOKIES.lock().ok()?;
+    if cookies.is_empty() {
+        return None;
+    }
+    let header = cookies
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join("; ");
+    Some(header)
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -112,7 +128,7 @@ async fn fetch_bbsmenu_summary() -> Result<MenuSummary, String> {
     core_store::init_portable_layout().map_err(|e| e.to_string())?;
 
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -166,7 +182,7 @@ async fn probe_auth_logins() -> Result<Vec<LoginOutcome>, String> {
 
 #[tauri::command]
 fn probe_post_cookie_scope_simulation() -> Result<PostCookieReport, String> {
-    let (_, jar) = build_cookie_client("5ch-browser-template/0.1").map_err(|e| e.to_string())?;
+    let (_, jar) = build_cookie_client("Ember/0.1").map_err(|e| e.to_string())?;
 
     seed_cookie(&jar, "https://5ch.io/", "Be3M=dummy-be3m; Domain=.5ch.io; Path=/")
         .map_err(|e| e.to_string())?;
@@ -191,7 +207,7 @@ fn probe_post_cookie_scope_simulation() -> Result<PostCookieReport, String> {
 #[tauri::command]
 async fn probe_thread_post_form(thread_url: String) -> Result<PostFormTokens, String> {
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     fetch_post_form_tokens(&client, &thread_url).await.map_err(|e| e.to_string())
@@ -201,7 +217,7 @@ async fn probe_thread_post_form(thread_url: String) -> Result<PostFormTokens, St
 async fn fetch_thread_list(thread_url: String, limit: Option<usize>) -> Result<Vec<ThreadListItem>, String> {
     let _ = core_store::append_log(&format!("fetch_thread_list: {}", thread_url));
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     let limit = limit.unwrap_or(usize::MAX);
@@ -230,7 +246,7 @@ async fn fetch_thread_responses_command(
 ) -> Result<Vec<ThreadResponseItem>, String> {
     let _ = core_store::append_log(&format!("fetch_responses: {}", thread_url));
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     let limit = limit.unwrap_or(usize::MAX);
@@ -254,15 +270,94 @@ async fn fetch_thread_responses_command(
 }
 
 #[tauri::command]
+async fn debug_post_connectivity(thread_url: String) -> Result<String, String> {
+    let mut report = String::new();
+
+    let c = reqwest::Client::builder()
+        .user_agent("Monazilla/1.00 Ember/0.1")
+        .build()
+        .map_err(|e| format!("{:?}", e))?;
+    let tokens = fetch_post_form_tokens(&c, &thread_url)
+        .await
+        .map_err(|e| format!("tokens: {:?}", e))?;
+    report.push_str(&format!("post_url={}\n", tokens.post_url));
+
+    // Test 1: curl.exe to bbs.cgi (uses Windows Schannel/WinHTTP)
+    {
+        let output = Command::new("curl")
+            .args(["-s", "-o", "/dev/null", "-w", "%{http_code} %{ssl_verify_result}", "-X", "POST", &tokens.post_url])
+            .output();
+        match output {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                let stderr = String::from_utf8_lossy(&o.stderr);
+                report.push_str(&format!("curl POST bbs.cgi: out={} err={}\n", stdout.trim(), stderr.chars().take(120).collect::<String>()));
+            }
+            Err(e) => report.push_str(&format!("curl failed to run: {}\n", e)),
+        }
+    }
+
+    // Test 2: curl.exe GET to bbs.cgi
+    {
+        let output = Command::new("curl")
+            .args(["-s", "-o", "/dev/null", "-w", "%{http_code} %{ssl_verify_result}", &tokens.post_url])
+            .output();
+        match output {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                report.push_str(&format!("curl GET bbs.cgi: {}\n", stdout.trim()));
+            }
+            Err(e) => report.push_str(&format!("curl GET failed: {}\n", e)),
+        }
+    }
+
+    // Test 3: reqwest GET to bbs.cgi (same client that fetched tokens)
+    match c.get(&tokens.post_url).send().await {
+        Ok(r) => report.push_str(&format!("reqwest GET bbs.cgi (reuse): status={}\n", r.status())),
+        Err(e) => report.push_str(&format!("reqwest GET bbs.cgi (reuse) FAILED: {:?}\n", e)),
+    }
+
+    // Test 4: reqwest with danger_accept_invalid_certs
+    {
+        let c2 = reqwest::Client::builder()
+            .user_agent("Monazilla/1.00 Ember/0.1")
+            .danger_accept_invalid_certs(true)
+            .build()
+            .map_err(|e| format!("{:?}", e))?;
+        match c2.get(&tokens.post_url).send().await {
+            Ok(r) => report.push_str(&format!("reqwest GET accept_invalid_certs: status={}\n", r.status())),
+            Err(e) => report.push_str(&format!("reqwest GET accept_invalid_certs FAILED: {:?}\n", e)),
+        }
+    }
+
+    // Test 5: reqwest with TLS 1.2 only
+    {
+        let c3 = reqwest::Client::builder()
+            .user_agent("Monazilla/1.00 Ember/0.1")
+            .min_tls_version(reqwest::tls::Version::TLS_1_2)
+            .max_tls_version(reqwest::tls::Version::TLS_1_2)
+            .build()
+            .map_err(|e| format!("{:?}", e))?;
+        match c3.get(&tokens.post_url).send().await {
+            Ok(r) => report.push_str(&format!("reqwest GET TLS1.2 only: status={}\n", r.status())),
+            Err(e) => report.push_str(&format!("reqwest GET TLS1.2 only FAILED: {:?}\n", e)),
+        }
+    }
+
+    Ok(report)
+}
+
+#[tauri::command]
 async fn probe_post_confirm_empty(thread_url: String) -> Result<PostConfirmResult, String> {
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
-    submit_post_confirm(&client, &tokens, "", "", "")
+    let ch = get_login_cookie_header();
+    submit_post_confirm(&client, &tokens, "", "", "", ch.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -275,18 +370,20 @@ async fn probe_post_confirm(
     message: Option<String>,
 ) -> Result<PostConfirmResult, String> {
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
+    let ch = get_login_cookie_header();
     submit_post_confirm(
         &client,
         &tokens,
         from.as_deref().unwrap_or(""),
         mail.as_deref().unwrap_or(""),
         message.as_deref().unwrap_or(""),
+        ch.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())
@@ -295,13 +392,14 @@ async fn probe_post_confirm(
 #[tauri::command]
 async fn probe_post_finalize_preview(thread_url: String) -> Result<PostFinalizePreview, String> {
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
-    let (_, confirm_html) = submit_post_confirm_with_html(&client, &tokens, "", "", "")
+    let ch = get_login_cookie_header();
+    let (_, confirm_html) = submit_post_confirm_with_html(&client, &tokens, "", "", "", ch.as_deref())
         .await
         .map_err(|e| e.to_string())?;
     parse_confirm_submit_form(&confirm_html, &tokens.post_url).map_err(|e| e.to_string())
@@ -315,18 +413,20 @@ async fn probe_post_finalize_preview_from_input(
     message: Option<String>,
 ) -> Result<PostFinalizePreview, String> {
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
+    let ch = get_login_cookie_header();
     let (_, confirm_html) = submit_post_confirm_with_html(
         &client,
         &tokens,
         from.as_deref().unwrap_or(""),
         mail.as_deref().unwrap_or(""),
         message.as_deref().unwrap_or(""),
+        ch.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -342,16 +442,17 @@ async fn probe_post_finalize_submit_empty(
         return Err("blocked: set allow_real_submit=true to execute final submit".to_string());
     }
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
-    let (_, confirm_html) = submit_post_confirm_with_html(&client, &tokens, "", "", "")
+    let ch = get_login_cookie_header();
+    let (_, confirm_html) = submit_post_confirm_with_html(&client, &tokens, "", "", "", ch.as_deref())
         .await
         .map_err(|e| e.to_string())?;
-    submit_post_finalize_from_confirm(&client, &confirm_html, &tokens.post_url)
+    submit_post_finalize_from_confirm(&client, &confirm_html, &tokens.post_url, ch.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -368,24 +469,50 @@ async fn probe_post_finalize_submit_from_input(
         return Err("blocked: set allow_real_submit=true to execute final submit".to_string());
     }
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
+    let ch = get_login_cookie_header();
     let (_, confirm_html) = submit_post_confirm_with_html(
         &client,
         &tokens,
         from.as_deref().unwrap_or(""),
         mail.as_deref().unwrap_or(""),
         message.as_deref().unwrap_or(""),
+        ch.as_deref(),
     )
     .await
     .map_err(|e| e.to_string())?;
-    submit_post_finalize_from_confirm(&client, &confirm_html, &tokens.post_url)
+    submit_post_finalize_from_confirm(&client, &confirm_html, &tokens.post_url, ch.as_deref())
         .await
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn create_thread_command(
+    board_url: String,
+    subject: String,
+    from: Option<String>,
+    mail: Option<String>,
+    message: String,
+) -> Result<CreateThreadResult, String> {
+    let cookie_header = get_login_cookie_header();
+    tauri::async_runtime::spawn_blocking(move || {
+        create_thread(
+            &board_url,
+            &subject,
+            from.as_deref().unwrap_or(""),
+            mail.as_deref().unwrap_or(""),
+            &message,
+            cookie_header.as_deref(),
+        )
+        .map_err(|e| format!("{:?}", e))
+    })
+    .await
+    .map_err(|e| format!("task join: {}", e))?
 }
 
 #[tauri::command]
@@ -397,7 +524,7 @@ async fn probe_post_flow_trace(
     allow_real_submit: bool,
 ) -> Result<PostFlowTrace, String> {
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -409,54 +536,34 @@ async fn probe_post_flow_trace(
         tokens.post_url, tokens.bbs, tokens.key, tokens.time
     ));
 
-    let (confirm, confirm_html) = submit_post_confirm_with_html(
+    let cookie_header = get_login_cookie_header();
+    let (confirm, _confirm_html) = submit_post_confirm_with_html(
         &client,
         &tokens,
         from.as_deref().unwrap_or(""),
         mail.as_deref().unwrap_or(""),
         message.as_deref().unwrap_or(""),
+        cookie_header.as_deref(),
     )
     .await
-    .map_err(|e| e.to_string())?;
-    let confirm_summary = Some(format!(
-        "status={} confirm={} error={}",
-        confirm.status, confirm.contains_confirm, confirm.contains_error
-    ));
+    .map_err(|e| format!("{:?}", e))?;
 
-    let finalize = parse_confirm_submit_form(&confirm_html, &tokens.post_url).map_err(|e| e.to_string())?;
-    let finalize_summary = Some(format!(
-        "action={} fields={}",
-        finalize.action_url, finalize.field_count
-    ));
-
-    if !allow_real_submit {
-        return Ok(PostFlowTrace {
-            thread_url,
-            allow_real_submit,
-            token_summary,
-            confirm_summary,
-            finalize_summary,
-            submit_summary: None,
-            blocked: true,
-        });
-    }
-
-    let submitted = submit_post_finalize_from_confirm(&client, &confirm_html, &tokens.post_url)
-        .await
-        .map_err(|e| e.to_string())?;
+    let contains_ok = confirm.body_preview.contains("書きこみが終わりました")
+        || confirm.body_preview.contains("投稿が完了")
+        || (!confirm.contains_error && confirm.status == 200);
     let submit_summary = Some(format!(
         "status={} error={} type={}",
-        submitted.status,
-        submitted.contains_error,
-        submitted.content_type.unwrap_or_else(|| "-".to_string())
+        confirm.status,
+        confirm.contains_error,
+        confirm.content_type.unwrap_or_else(|| "-".to_string())
     ));
 
     Ok(PostFlowTrace {
         thread_url,
         allow_real_submit,
         token_summary,
-        confirm_summary,
-        finalize_summary,
+        confirm_summary: submit_summary.clone(),
+        finalize_summary: None,
         submit_summary,
         blocked: false,
     })
@@ -513,7 +620,7 @@ async fn check_for_updates(
     let current_version = current_version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
 
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -592,7 +699,7 @@ fn open_external_url(url: String) -> Result<(), String> {
 #[tauri::command]
 async fn fetch_board_categories() -> Result<Vec<BoardCategory>, String> {
     let client = reqwest::Client::builder()
-        .user_agent("5ch-browser-template/0.1")
+        .user_agent("Monazilla/1.00 Ember/0.1")
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -689,6 +796,8 @@ struct NgFilters {
     words: Vec<String>,
     ids: Vec<String>,
     names: Vec<String>,
+    #[serde(default)]
+    thread_words: Vec<String>,
 }
 
 #[tauri::command]
@@ -779,6 +888,14 @@ async fn login_with_config(target: String, be_email: String, be_password: String
         match login_be_front(&config.be_email, &config.be_password).await {
             Ok(r) => {
                 let _ = core_store::append_log(&format!("BE login result: success={} status={} note={}", r.success, r.status, r.note));
+                if r.success {
+                    if let Ok(mut cookies) = LOGIN_COOKIES.lock() {
+                        for (k, v) in &r.cookie_values {
+                            cookies.retain(|(ek, _)| ek != k);
+                            cookies.push((k.clone(), v.clone()));
+                        }
+                    }
+                }
                 out.push(r);
             }
             Err(e) => {
@@ -789,6 +906,7 @@ async fn login_with_config(target: String, be_email: String, be_password: String
                     status: 0,
                     location: None,
                     cookie_names: vec![],
+                    cookie_values: vec![],
                     note: format!("error: {}", e),
                 });
             }
@@ -800,12 +918,23 @@ async fn login_with_config(target: String, be_email: String, be_password: String
             status: 0,
             location: None,
             cookie_names: vec![],
+            cookie_values: vec![],
             note: "BE email/password is empty".to_string(),
         });
     }
     if do_uplift && !config.uplift_email.is_empty() && !config.uplift_password.is_empty() {
         match login_uplift(&config.uplift_email, &config.uplift_password).await {
-            Ok(r) => out.push(r),
+            Ok(r) => {
+                if r.success {
+                    if let Ok(mut cookies) = LOGIN_COOKIES.lock() {
+                        for (k, v) in &r.cookie_values {
+                            cookies.retain(|(ek, _)| ek != k);
+                            cookies.push((k.clone(), v.clone()));
+                        }
+                    }
+                }
+                out.push(r);
+            }
             Err(e) => {
                 let _ = core_store::append_log(&format!("Uplift login error: {}", e));
                 out.push(LoginOutcome {
@@ -814,6 +943,7 @@ async fn login_with_config(target: String, be_email: String, be_password: String
                     status: 0,
                     location: None,
                     cookie_names: vec![],
+                    cookie_values: vec![],
                     note: format!("error: {}", e),
                 });
             }
@@ -831,10 +961,42 @@ async fn login_with_config(target: String, be_email: String, be_password: String
             status: 0,
             location: None,
             cookie_names: vec![],
+            cookie_values: vec![],
             note: "Uplift email/password is empty".to_string(),
         });
     }
     Ok(out)
+}
+
+#[tauri::command]
+fn save_thread_cache(thread_url: String, title: String, responses_json: String) -> Result<(), String> {
+    core_store::save_thread_cache(&thread_url, &title, &responses_json)
+        .map_err(|e| format!("{}", e))
+}
+
+#[tauri::command]
+fn load_thread_cache(thread_url: String) -> Result<Option<String>, String> {
+    core_store::load_thread_cache(&thread_url)
+        .map_err(|e| format!("{}", e))
+}
+
+#[tauri::command]
+fn load_all_cached_threads() -> Result<Vec<(String, String)>, String> {
+    core_store::load_all_cached_threads()
+        .map_err(|e| format!("{}", e))
+}
+
+#[tauri::command]
+fn delete_thread_cache(thread_url: String) -> Result<(), String> {
+    core_store::delete_thread_cache(&thread_url)
+        .map_err(|e| format!("{}", e))
+}
+
+#[tauri::command]
+fn set_window_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
+    use tauri::Theme;
+    window.set_theme(if dark { Some(Theme::Dark) } else { Some(Theme::Light) })
+        .map_err(|e| format!("{}", e))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -851,6 +1013,7 @@ pub fn run() {
             probe_thread_post_form,
             fetch_thread_list,
             fetch_thread_responses_command,
+            debug_post_connectivity,
             probe_post_confirm_empty,
             probe_post_confirm,
             probe_post_finalize_preview,
@@ -870,7 +1033,13 @@ pub fn run() {
             save_auth_config,
             login_with_config,
             save_layout_prefs,
-            load_layout_prefs
+            load_layout_prefs,
+            create_thread_command,
+            save_thread_cache,
+            load_thread_cache,
+            load_all_cached_threads,
+            delete_thread_cache,
+            set_window_theme
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

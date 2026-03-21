@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "5ch Browser",
+  "productName": "Ember",
   "version": "0.1.0",
-  "identifier": "io.template.fivechbrowser",
+  "identifier": "io.ember.browser",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -15,7 +15,7 @@
     },
     "windows": [
       {
-        "title": "5ch Browser",
+        "title": "Ember",
         "width": 1400,
         "height": 900,
         "resizable": true
@@ -25,6 +25,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
     "macOS": {
       "minimumSystemVersion": "13.0"
     }
