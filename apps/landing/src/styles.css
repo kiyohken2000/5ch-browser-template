@@ -1,11 +1,12 @@
 :root {
   color-scheme: light;
-  --bg: #f4f0e7;
-  --ink: #141619;
-  --ink-sub: #3a3f45;
-  --line: #d3c8b8;
-  --brand: #e36f2d;
-  --brand-ink: #ffffff;
+  --bg: #f7f6f2;
+  --ink: #132029;
+  --ink-sub: #42505d;
+  --line: #c7d0d4;
+  --brand: #d84c2f;
+  --brand-ink: #fffef8;
+  --panel: #ffffff;
 }
 
 * {
@@ -14,45 +15,48 @@
 
 body {
   margin: 0;
-  font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", sans-serif;
+  font-family: "BIZ UDPGothic", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
   color: var(--ink);
-  background: radial-gradient(circle at 5% 0%, #fff6ea 0%, var(--bg) 55%);
+  background:
+    radial-gradient(circle at 12% 10%, #fff8dc 0%, transparent 44%),
+    radial-gradient(circle at 84% 6%, #dcebf6 0%, transparent 46%),
+    var(--bg);
 }
 
 .page {
-  max-width: 920px;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 48px 20px 80px;
+  padding: 44px 20px 90px;
 }
 
-.hero {
-  margin-bottom: 28px;
+.hero-block {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 26px;
+  align-items: center;
+  margin-bottom: 30px;
 }
 
 .kicker {
   margin: 0 0 10px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: var(--ink-sub);
+  color: #4a5c69;
   font-weight: 700;
+  font-size: 0.92rem;
 }
 
 h1 {
   margin: 0 0 12px;
-  font-size: clamp(2rem, 6vw, 3.25rem);
-  line-height: 1.05;
+  font-size: clamp(2rem, 5vw, 3.4rem);
+  line-height: 1.15;
 }
 
 .lead {
   margin: 0;
-  max-width: 70ch;
+  max-width: 48ch;
   line-height: 1.6;
   color: var(--ink-sub);
-}
-
-.lead code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.95em;
 }
 
 .actions {
@@ -65,12 +69,18 @@ h1 {
 .btn {
   display: inline-block;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 16px;
+  border-radius: 12px;
+  padding: 11px 18px;
   color: var(--ink);
   text-decoration: none;
-  background: #fffaf2;
+  background: var(--panel);
   font-weight: 600;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 7px 16px rgba(18, 38, 49, 0.1);
 }
 
 .btn.primary {
@@ -79,29 +89,127 @@ h1 {
   color: var(--brand-ink);
 }
 
+.hero-visual {
+  position: relative;
+}
+
+.hero-shot {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid #bfcad0;
+  box-shadow: 0 14px 28px rgba(20, 34, 40, 0.14);
+}
+
+.app-icon {
+  position: absolute;
+  top: -14px;
+  right: -14px;
+  width: 78px;
+  height: 78px;
+  border-radius: 18px;
+  border: 1px solid #becad1;
+  background: #fff;
+  box-shadow: 0 10px 18px rgba(14, 24, 30, 0.15);
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
 .card {
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 15px;
   padding: 20px;
-  background: #fffaf2;
+  background: var(--panel);
+  box-shadow: 0 6px 16px rgba(25, 40, 53, 0.06);
+}
+
+.feature img {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border: 1px solid #d6dee2;
 }
 
 .card h2 {
-  margin: 0 0 8px;
+  margin: 0 0 7px;
+  font-size: 1.25rem;
 }
 
-.card ul {
+.card p {
   margin: 0;
-  padding-left: 20px;
+  color: var(--ink-sub);
+  line-height: 1.6;
 }
 
-.card li {
-  margin: 6px 0;
+.download-panel {
+  margin-top: 8px;
+}
+
+.asset-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.asset-list li {
+  display: grid;
+  grid-template-columns: 160px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #e0e7ea;
+}
+
+.asset-list li:last-child {
+  border-bottom: 0;
+}
+
+.asset-list span {
+  font-weight: 700;
+}
+
+.asset-list strong {
   color: var(--ink-sub);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.93rem;
+}
+
+.asset-list em {
+  font-style: normal;
+  font-weight: 700;
+  color: #3b4f5a;
 }
 
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  margin: 6px 0;
+  margin: 6px 0 0;
   color: var(--ink-sub);
+}
+
+@media (max-width: 900px) {
+  .hero-block {
+    grid-template-columns: 1fr;
+  }
+
+  .app-icon {
+    width: 64px;
+    height: 64px;
+    top: -10px;
+    right: -10px;
+  }
+
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .asset-list li {
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 12px 0;
+  }
 }
