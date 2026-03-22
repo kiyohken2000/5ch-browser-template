@@ -983,7 +983,7 @@ fn load_thread_cache(thread_url: String) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-fn load_all_cached_threads() -> Result<Vec<(String, String)>, String> {
+fn load_all_cached_threads() -> Result<Vec<(String, String, i64)>, String> {
     core_store::load_all_cached_threads()
         .map_err(|e| format!("{}", e))
 }

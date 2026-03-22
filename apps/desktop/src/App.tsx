@@ -295,7 +295,7 @@ export default function App() {
   const [postFinalizeSubmitProbe, setPostFinalizeSubmitProbe] = useState("not run");
   const [allowRealSubmit, setAllowRealSubmit] = useState(false);
   const [metadataUrl, setMetadataUrl] = useState("https://ember-5ch.pages.dev/latest.json");
-  const [currentVersion, setCurrentVersion] = useState("0.0.2");
+  const [currentVersion, setCurrentVersion] = useState("0.0.3");
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
   const [updateProbe, setUpdateProbe] = useState("not run");
   const [composeOpen, setComposeOpen] = useState(false);
@@ -336,7 +336,7 @@ export default function App() {
   const [ngPanelOpen, setNgPanelOpen] = useState(false);
   const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">("boards");
   const [showCachedOnly, setShowCachedOnly] = useState(false);
-  const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string }[]>([]);
+  const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string; resCount: number }[]>([]);
   const [boardSearchQuery, setBoardSearchQuery] = useState("");
   const [responsesLoading, setResponsesLoading] = useState(false);
   const [ngInput, setNgInput] = useState("");
@@ -1005,6 +1005,12 @@ export default function App() {
       });
       const cachedEntry = tabCacheRef.current.get(url);
       const prevCount = cachedEntry ? cachedEntry.responses.length : fetchedResponses.length;
+      // If server returned empty but we have cached data, keep cache
+      if (rows.length === 0 && prevCount > 0) {
+        setResponseListProbe(`ok rows=0 (kept cached ${prevCount})`);
+        setStatus(`レス取得: 0件 (キャッシュ ${prevCount}件を維持)`);
+        return;
+      }
       if (!opts?.keepSelection) idColorMap.clear();
       setFetchedResponses(rows);
       if (opts?.keepSelection) {
@@ -1031,7 +1037,9 @@ export default function App() {
       }
       tabCacheRef.current.set(url, { responses: rows, selectedResponse: rows.length > 0 ? rows[0].responseNo : 1 });
       // persist to SQLite
-      const tabTitle = threadTabs.find((t) => t.threadUrl === url)?.title ?? "";
+      const tabTitle = threadTabs.find((t) => t.threadUrl === url)?.title
+        ?? fetchedThreads.find((t) => t.threadUrl === url)?.title
+        ?? "";
       invoke("save_thread_cache", { threadUrl: url, title: tabTitle, responsesJson: JSON.stringify(rows) }).catch(() => {});
       const timeStr = new Date().toLocaleTimeString();
       setLastFetchTime(timeStr);
@@ -1057,7 +1065,7 @@ export default function App() {
       setResponseListProbe(`ok rows=${rows.length}`);
     } catch (error) {
       const msg = String(error);
-      setFetchedResponses([]);
+      // Keep existing responses on error instead of clearing
       setResponseListProbe(`error: ${msg}`);
       setStatus(`response load error: ${msg}`);
     } finally {
@@ -1338,8 +1346,8 @@ export default function App() {
     ? cachedThreadList.map((ct, i) => ({
         id: i + 1,
         title: ct.title || "(タイトルなし)",
-        res: -1,
-        got: -1,
+        res: ct.resCount,
+        got: ct.resCount,
         speed: 0,
         lastLoad: "-",
         lastPost: "-",
@@ -1958,6 +1966,55 @@ export default function App() {
     boardTreeRef.current.scrollTop = saved;
   }, [boardPaneTab, boardCategories]);
 
+  const handlePopupImageClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const bodyLink = target.closest<HTMLAnchorElement>("a.body-link");
+    if (bodyLink) {
+      e.preventDefault();
+      const url = bodyLink.getAttribute("href");
+      if (url && isTauriRuntime()) {
+        void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
+      } else if (url) {
+        window.open(url, "_blank");
+      }
+      return;
+    }
+    if (target.classList.contains("response-thumb")) {
+      e.preventDefault();
+      const thumbLink = target.closest<HTMLElement>("[data-lightbox-src]");
+      const url = thumbLink?.dataset.lightboxSrc ?? "";
+      if (url && isTauriRuntime()) {
+        void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
+      } else if (url) {
+        window.open(url, "_blank");
+      }
+    }
+  };
+
+  const handlePopupImageHover = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const thumb = target.closest<HTMLImageElement>("img.response-thumb");
+    if (!e.ctrlKey || !thumb) return;
+    const src = thumb.getAttribute("src");
+    if (!src) return;
+    if (hoverPreviewHideTimerRef.current) {
+      clearTimeout(hoverPreviewHideTimerRef.current);
+      hoverPreviewHideTimerRef.current = null;
+    }
+    if (src !== hoverPreviewSrcRef.current) {
+      hoverPreviewSrcRef.current = src;
+      hoverPreviewZoomRef.current = 100;
+      if (hoverPreviewImgRef.current) {
+        hoverPreviewImgRef.current.src = src;
+        hoverPreviewImgRef.current.style.width = "auto";
+        hoverPreviewImgRef.current.style.transform = "scale(1)";
+      }
+    }
+    if (hoverPreviewRef.current) {
+      hoverPreviewRef.current.style.display = "block";
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (anchorPopupCloseTimer.current) {
@@ -2409,8 +2466,13 @@ export default function App() {
                   setCachedThreadList([]);
                 } else {
                   if (isTauriRuntime()) {
-                    invoke<[string, string][]>("load_all_cached_threads").then((list) => {
-                      setCachedThreadList(list.map(([threadUrl, title]) => ({ threadUrl, title })));
+                    invoke<[string, string, number][]>("load_all_cached_threads").then((list) => {
+                      // Only show threads not in the current thread list (dat落ち)
+                      const activeUrls = new Set(fetchedThreads.map((t) => t.threadUrl));
+                      const datOchiList = list
+                        .filter(([url]) => !activeUrls.has(url))
+                        .filter(([, title]) => title && title.trim() !== "");
+                      setCachedThreadList(datOchiList.map(([threadUrl, title, count]) => ({ threadUrl, title, resCount: count })));
                       setShowCachedOnly(true);
                     }).catch(() => {});
                   }
@@ -2556,23 +2618,21 @@ export default function App() {
           onClick={(e) => e.stopPropagation()}
         />
         <section className="pane responses">
-          {selectedThreadItem && activeTabIndex >= 0 && (
+          {activeTabIndex >= 0 && activeTabIndex < threadTabs.length && (
             <div className="thread-title-bar">
-              <span className="thread-title-text" title={selectedThreadItem.title}>
-                {selectedThreadItem.title}
-                {" "}[{selectedThreadItem.res}]
+              <span className="thread-title-text" title={threadTabs[activeTabIndex].title}>
+                {threadTabs[activeTabIndex].title}
+                {" "}[{fetchedResponses.length}]
               </span>
               <span className="thread-title-actions">
                 <button className="title-action-btn" onClick={() => fetchResponsesFromCurrent(undefined, { resetScroll: true })} title="再読み込み">🔄</button>
                 <button className="title-action-btn" onClick={() => fetchResponsesFromCurrent(undefined, { keepSelection: true })} title="新着取得">📥</button>
                 <button className="title-action-btn" onClick={() => { setComposeOpen(true); setComposePos(null); setComposeBody(""); setComposeResult(null); }} title="書き込み">✏️</button>
                 <button className="title-action-btn" onClick={() => {
-                  const t = threadItems.find((item) => item.id === selectedThread);
-                  if (t && "threadUrl" in t && typeof t.threadUrl === "string") {
-                    toggleFavoriteThread({ threadUrl: t.threadUrl, title: t.title });
-                  }
+                  const tab = threadTabs[activeTabIndex];
+                  if (tab) toggleFavoriteThread({ threadUrl: tab.threadUrl, title: tab.title });
                 }} title="お気に入り">
-                  {selectedThreadItem && favorites.threads.some((f) => f.threadUrl === (selectedThreadItem as any).threadUrl) ? "★" : "☆"}
+                  {favorites.threads.some((f) => f.threadUrl === threadTabs[activeTabIndex].threadUrl) ? "★" : "☆"}
                 </button>
               </span>
             </div>
@@ -3180,6 +3240,8 @@ export default function App() {
               const t = ev.target as HTMLElement;
               if (t.closest(".anchor-ref")) setNestedPopups([]);
             }}
+            onClick={handlePopupImageClick}
+            onMouseMove={handlePopupImageHover}
           >
             <div className="anchor-popup-header">
               <span className="response-viewer-no">{popupResp.id}</span> {popupResp.name}
@@ -3213,6 +3275,8 @@ export default function App() {
               const t = ev.target as HTMLElement;
               if (t.closest(".anchor-ref")) setNestedPopups([]);
             }}
+            onClick={handlePopupImageClick}
+            onMouseMove={handlePopupImageHover}
           >
             {refs.map((refNo) => {
               const refResp = responseItems.find((r) => r.id === refNo);
@@ -3240,7 +3304,7 @@ export default function App() {
           ? { left: np.x + i * 8, bottom: window.innerHeight - np.anchorTop + 4 + i * 8 }
           : { left: np.x + i * 8, top: np.y + i * 8 };
         return (
-          <div key={`${np.responseId}-${i}`} className="anchor-popup nested-popup" style={nPosStyle}>
+          <div key={`${np.responseId}-${i}`} className="anchor-popup nested-popup" style={nPosStyle} onClick={handlePopupImageClick} onMouseMove={handlePopupImageHover}>
             <div className="anchor-popup-header">
               <span className="response-viewer-no">{nestedResp.id}</span> {nestedResp.name}
               <time>{nestedResp.time}</time>
@@ -3265,6 +3329,8 @@ export default function App() {
             onMouseLeave={() => {
               idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 300);
             }}
+            onClick={handlePopupImageClick}
+            onMouseMove={handlePopupImageHover}
           >
             <div className="id-popup-header">
               ID:{idPopup.id} ({idResponses.length}件)

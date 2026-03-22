@@ -130,12 +130,16 @@ pub fn load_thread_cache(thread_url: &str) -> Result<Option<String>, StoreError>
     }
 }
 
-pub fn load_all_cached_threads() -> Result<Vec<(String, String)>, StoreError> {
+pub fn load_all_cached_threads() -> Result<Vec<(String, String, i64)>, StoreError> {
     let guard = get_db()?;
     let conn = guard.as_ref().ok_or_else(|| StoreError::Other("no db".into()))?;
-    let mut stmt = conn.prepare("SELECT thread_url, title FROM thread_cache ORDER BY updated_at DESC")?;
+    let mut stmt = conn.prepare(
+        "SELECT thread_url, title,
+                (length(responses_json) - length(replace(responses_json, '\"responseNo\"', ''))) / length('\"responseNo\"')
+         FROM thread_cache ORDER BY updated_at DESC"
+    )?;
     let rows = stmt.query_map([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2).unwrap_or(0)))
     })?;
     let mut result = Vec::new();
     for r in rows {
