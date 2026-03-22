@@ -403,7 +403,8 @@ body {
 .threads th:nth-child(4) { width: 42px; }
 .threads th:nth-child(5) { width: 36px; }
 .threads th:nth-child(6) { width: 36px; }
-.threads th:nth-child(7) { width: 54px; }
+.threads th:nth-child(7) { width: 64px; }
+.threads th:nth-child(8) { width: 54px; }
 
 .thread-fetched-cell {
   text-align: center;
@@ -546,6 +547,23 @@ body {
   color: #008800;
   font-weight: 700;
 }
+.response-watchoi {
+  color: #666;
+  font-size: 11px;
+  cursor: pointer;
+  margin-left: 2px;
+}
+.response-watchoi:hover {
+  text-decoration: underline;
+  color: #0066cc;
+}
+.dark .response-watchoi {
+  color: #888;
+}
+.dark .response-watchoi:hover {
+  color: #6cb6ff;
+}
+
 .response-be-link {
   color: #cc6600;
   cursor: pointer;
@@ -894,6 +912,20 @@ body {
 
 .unread-row td {
   font-weight: normal;
+}
+
+.has-unread-row td {
+  font-weight: 700;
+}
+
+.has-unread-row .thread-title-cell {
+  color: #cc3300;
+}
+
+.last-fetch-cell {
+  font-size: 10px;
+  color: var(--sub);
+  white-space: nowrap;
 }
 
 .thread-title-cell {
@@ -1829,6 +1861,9 @@ pre {
 }
 .dark .unread-row td {
   font-weight: normal;
+}
+.dark .has-unread-row .thread-title-cell {
+  color: #ff6644;
 }
 .dark .response-viewer {
   background: #1e1e1e;

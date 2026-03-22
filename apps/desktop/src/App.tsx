@@ -123,6 +123,7 @@ const BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/votepurchase";
 const BOARD_TREE_SCROLL_KEY = "desktop.boardTreeScrollTop.v1";
 const SCROLL_POS_KEY = "desktop.scrollPositions.v1";
 const NEW_THREAD_SIZE_KEY = "desktop.newThreadDialogSize.v1";
+const THREAD_FETCH_TIMES_KEY = "desktop.threadFetchTimes.v1";
 const MENU_EDGE_PADDING = 8;
 
 type ResizeDragState =
@@ -254,6 +255,15 @@ const renderResponseBodyHighlighted = (html: string, query: string): { __html: s
   return { __html: highlightHtmlPreservingTags(rendered, query) };
 };
 
+const extractWatchoi = (name: string): string | null => {
+  const m = name.match(/[(（]([^)）]+)[)）]\s*$/);
+  if (!m) return null;
+  const inner = m[1].trim();
+  // Name suffix in parens with provider + space + code (e.g. "ﾜｯﾁｮｲW 0b6b-v/9N", "JP 0H7f-p4YP")
+  if (/\S+\s+\S+/.test(inner)) return inner;
+  return null;
+};
+
 const extractBeNumber = (...sources: string[]): string | null => {
   const patterns = [
     /BE[:：]\s*(\d+)/i,
@@ -284,8 +294,8 @@ export default function App() {
   const [postFinalizePreviewProbe, setPostFinalizePreviewProbe] = useState("not run");
   const [postFinalizeSubmitProbe, setPostFinalizeSubmitProbe] = useState("not run");
   const [allowRealSubmit, setAllowRealSubmit] = useState(false);
-  const [metadataUrl, setMetadataUrl] = useState("");
-  const [currentVersion, setCurrentVersion] = useState("0.0.1");
+  const [metadataUrl, setMetadataUrl] = useState("https://ember-5ch.pages.dev/latest.json");
+  const [currentVersion, setCurrentVersion] = useState("0.0.2");
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
   const [updateProbe, setUpdateProbe] = useState("not run");
   const [composeOpen, setComposeOpen] = useState(false);
@@ -348,8 +358,8 @@ export default function App() {
   const [threadLastReadCount, setThreadLastReadCount] = useState<Record<number, number>>({});
   const [threadMenu, setThreadMenu] = useState<{ x: number; y: number; threadId: number } | null>(null);
   const [responseMenu, setResponseMenu] = useState<{ x: number; y: number; responseId: number } | null>(null);
-  const [anchorPopup, setAnchorPopup] = useState<{ x: number; y: number; responseId: number } | null>(null);
-  const [nestedPopups, setNestedPopups] = useState<{ x: number; y: number; responseId: number }[]>([]);
+  const [anchorPopup, setAnchorPopup] = useState<{ x: number; y: number; anchorTop: number; responseId: number } | null>(null);
+  const [nestedPopups, setNestedPopups] = useState<{ x: number; y: number; anchorTop: number; responseId: number }[]>([]);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const hoverPreviewRef = useRef<HTMLDivElement | null>(null);
   const hoverPreviewImgRef = useRef<HTMLImageElement | null>(null);
@@ -363,12 +373,14 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fontSize, setFontSize] = useState(12);
+  const [fontFamily, setFontFamily] = useState("");
   const [darkMode, setDarkMode] = useState(false);
   const [composeFontSize, setComposeFontSize] = useState(13);
-  const [idPopup, setIdPopup] = useState<{ right: number; y: number; id: string } | null>(null);
+  const [idPopup, setIdPopup] = useState<{ right: number; y: number; anchorTop: number; id: string } | null>(null);
   const idPopupCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const anchorPopupCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [backRefPopup, setBackRefPopup] = useState<{ x: number; y: number; responseIds: number[] } | null>(null);
+  const [backRefPopup, setBackRefPopup] = useState<{ x: number; y: number; anchorTop: number; responseIds: number[] } | null>(null);
+  const [watchoiMenu, setWatchoiMenu] = useState<{ x: number; y: number; watchoi: string } | null>(null);
   const [composePos, setComposePos] = useState<{ x: number; y: number } | null>(null);
   const composeDragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
   const [boardPanePx, setBoardPanePx] = useState(DEFAULT_BOARD_PANE_PX);
@@ -384,8 +396,10 @@ export default function App() {
   const responseScrollRef = useRef<HTMLDivElement | null>(null);
   const tabBarRef = useRef<HTMLDivElement | null>(null);
   const threadListScrollRef = useRef<HTMLDivElement | null>(null);
+  const suppressThreadScrollRef = useRef(false);
   const [lastFetchTime, setLastFetchTime] = useState<string | null>(null);
   const [newResponseStart, setNewResponseStart] = useState<number | null>(null);
+  const threadFetchTimesRef = useRef<Record<string, string>>({});
   const [responseSearchQuery, setResponseSearchQuery] = useState("");
   const threadSearchRef = useRef<HTMLInputElement | null>(null);
   const responseSearchRef = useRef<HTMLInputElement | null>(null);
@@ -940,13 +954,19 @@ export default function App() {
       setThreadSortKey("id");
       setThreadSortAsc(true);
       setThreadSearchQuery("");
+      // Keep selection on the currently open tab's thread, or clear
+      suppressThreadScrollRef.current = true;
+      if (activeTabIndex >= 0 && activeTabIndex < threadTabs.length) {
+        const activeUrl = threadTabs[activeTabIndex].threadUrl;
+        const matchIdx = rows.findIndex((r) => r.threadUrl === activeUrl);
+        setSelectedThread(matchIdx >= 0 ? matchIdx + 1 : null);
+      } else {
+        setSelectedThread(null);
+      }
       if (threadListScrollRef.current) threadListScrollRef.current.scrollTop = 0;
       setThreadListProbe(`ok rows=${rows.length}`);
       setStatus(`threads loaded: ${rows.length}`);
       void loadReadStatusForBoard(url, rows);
-      if (rows.length > 0) {
-        setSelectedThread(1);
-      }
     } catch (error) {
       const msg = String(error);
       setThreadListProbe(`error: ${msg}`);
@@ -969,7 +989,7 @@ export default function App() {
     }
   };
 
-  const fetchResponsesFromCurrent = async (targetThreadUrl?: string, opts?: { keepSelection?: boolean }) => {
+  const fetchResponsesFromCurrent = async (targetThreadUrl?: string, opts?: { keepSelection?: boolean; resetScroll?: boolean }) => {
     const url = (targetThreadUrl ?? threadUrl).trim();
     if (!url) return;
     if (!isTauriRuntime()) {
@@ -983,7 +1003,8 @@ export default function App() {
         threadUrl: url,
         limit: null,
       });
-      const prevCount = fetchedResponses.length;
+      const cachedEntry = tabCacheRef.current.get(url);
+      const prevCount = cachedEntry ? cachedEntry.responses.length : fetchedResponses.length;
       if (!opts?.keepSelection) idColorMap.clear();
       setFetchedResponses(rows);
       if (opts?.keepSelection) {
@@ -995,6 +1016,11 @@ export default function App() {
             if (newEl) newEl.scrollIntoView({ block: "start", behavior: "smooth" });
           }, 50);
         }
+      } else if (opts?.resetScroll) {
+        setSelectedResponse(rows.length > 0 ? rows[0].responseNo : 1);
+        setTimeout(() => {
+          if (responseScrollRef.current) responseScrollRef.current.scrollTop = 0;
+        }, 50);
       } else {
         const savedNo = loadScrollPos(url);
         const bm = loadBookmark(url);
@@ -1007,7 +1033,20 @@ export default function App() {
       // persist to SQLite
       const tabTitle = threadTabs.find((t) => t.threadUrl === url)?.title ?? "";
       invoke("save_thread_cache", { threadUrl: url, title: tabTitle, responsesJson: JSON.stringify(rows) }).catch(() => {});
-      setLastFetchTime(new Date().toLocaleTimeString());
+      const timeStr = new Date().toLocaleTimeString();
+      setLastFetchTime(timeStr);
+      threadFetchTimesRef.current[url] = timeStr;
+      try { localStorage.setItem(THREAD_FETCH_TIMES_KEY, JSON.stringify(threadFetchTimesRef.current)); } catch { /* ignore */ }
+      // Update thread list read counts
+      const threadListIndex = fetchedThreads.findIndex((ft) => ft.threadUrl === url);
+      if (threadListIndex >= 0) {
+        const tid = threadListIndex + 1;
+        setThreadReadMap((prev) => ({ ...prev, [tid]: true }));
+        setThreadLastReadCount((prev) => ({ ...prev, [tid]: rows.length }));
+        const ft = fetchedThreads[threadListIndex];
+        const boardUrl = getBoardUrlFromThreadUrl(url);
+        void persistReadStatus(boardUrl, ft.threadKey, rows.length);
+      }
       if (prevCount > 0 && rows.length > prevCount) {
         setNewResponseStart(prevCount + 1);
         setStatus(`新着 ${rows.length - prevCount} レス (${rows.length})`);
@@ -1257,8 +1296,14 @@ export default function App() {
       setUpdateProbe(
         `current=${r.currentVersion} latest=${r.latestVersion} hasUpdate=${r.hasUpdate} platform=${r.currentPlatformKey} asset=${r.currentPlatformAsset?.filename ?? "(none)"}`
       );
+      if (r.hasUpdate) {
+        setStatus(`新しいバージョンがあります: v${r.latestVersion}`);
+      } else {
+        setStatus(`最新版です (v${r.currentVersion})`);
+      }
     } catch (error) {
       setUpdateProbe(`error: ${String(error)}`);
+      setStatus(`更新確認に失敗しました: ${String(error)}`);
     }
   };
 
@@ -1292,9 +1337,9 @@ export default function App() {
   const threadItems = showCachedOnly
     ? cachedThreadList.map((ct, i) => ({
         id: i + 1,
-        title: ct.title || ct.threadUrl,
-        res: 0,
-        got: 0,
+        title: ct.title || "(タイトルなし)",
+        res: -1,
+        got: -1,
         speed: 0,
         lastLoad: "-",
         lastPost: "-",
@@ -1348,19 +1393,23 @@ export default function App() {
           const rawName = r.name || "Anonymous";
           // Real dat examples include BE:123456789-2BP(...) and javascript:be(123456789)
           const beNum = extractBeNumber(r.dateAndId || "", rawName, r.body || "");
+          const plainName = rawName.replace(/<[^>]+>/g, "");
+          const watchoi = extractWatchoi(plainName);
           return {
             id: r.responseNo,
-            name: rawName.replace(/<[^>]+>/g, ""),
+            name: plainName,
+            nameWithoutWatchoi: watchoi ? plainName.replace(/\s*[(（][^)）]+[)）]\s*$/, "") : plainName,
             time: r.dateAndId || "-",
             text: r.body || "",
             beNumber: beNum,
+            watchoi,
           };
         })
       : [
-          { id: 1, name: "名無しさん", time: "2026/03/07 10:00", text: "投稿フロートレース準備完了", beNumber: null },
-          { id: 2, name: "名無しさん", time: "2026/03/07 10:02", text: "BE/UPLIFT/どんぐりログイン確認済み", beNumber: null },
-          { id: 3, name: "名無しさん", time: "2026/03/07 10:04", text: "次: subject/dat取得連携", beNumber: null },
-          { id: 4, name: "名無しさん", time: "2026/03/07 10:06", text: "参考 https://example.com/page を参照", beNumber: null },
+          { id: 1, name: "名無しさん", nameWithoutWatchoi: "名無しさん", time: "2026/03/07 10:00", text: "投稿フロートレース準備完了", beNumber: null, watchoi: null },
+          { id: 2, name: "名無しさん", nameWithoutWatchoi: "名無しさん", time: "2026/03/07 10:02", text: "BE/UPLIFT/どんぐりログイン確認済み", beNumber: null, watchoi: null },
+          { id: 3, name: "名無しさん", nameWithoutWatchoi: "名無しさん", time: "2026/03/07 10:04", text: "次: subject/dat取得連携", beNumber: null, watchoi: null },
+          { id: 4, name: "名無しさん", nameWithoutWatchoi: "名無しさん", time: "2026/03/07 10:06", text: "参考 https://example.com/page を参照", beNumber: null, watchoi: null },
         ]),
   ];
   const extractId = (time: string) => {
@@ -1379,6 +1428,14 @@ export default function App() {
     for (const r of responseItems) {
       const id = extractId(r.time);
       if (id) map.set(id, (map.get(id) ?? 0) + 1);
+    }
+    return map;
+  })();
+
+  const watchoiCountMap = (() => {
+    const map = new Map<string, number>();
+    for (const r of responseItems) {
+      if (r.watchoi) map.set(r.watchoi, (map.get(r.watchoi) ?? 0) + 1);
     }
     return map;
   })();
@@ -1414,6 +1471,13 @@ export default function App() {
   const goFromLocationInput = () => {
     const next = locationInput.trim();
     if (!next) return;
+    // Detect 5ch thread URL and open in tab
+    if (/^https?:\/\/[^/]*\.5ch\.(net|io)\/test\/read\.cgi\//.test(next)) {
+      const parts = next.replace(/\/+$/, "").split("/");
+      const title = parts[parts.length - 1] || next;
+      openThreadInTab(next, title);
+      return;
+    }
     applyLocationToThread();
     void fetchThreadListFromCurrent(next);
   };
@@ -1650,8 +1714,12 @@ export default function App() {
     if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
     scrollSaveTimerRef.current = setTimeout(() => {
       const url = threadUrl.trim();
-      if (url) saveScrollPos(url);
-    }, 500);
+      if (url) {
+        saveScrollPos(url);
+        const visibleNo = getVisibleResponseNo();
+        if (visibleNo > 0) saveBookmark(url, visibleNo);
+      }
+    }, 300);
   };
 
   const beginResponseRowResize = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -1703,15 +1771,17 @@ export default function App() {
         setSelectedThread(next);
         return;
       }
-      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.key === "ArrowLeft") {
-        e.preventDefault();
-        setThreadPanePx((prev) => Math.max(prev - 24, MIN_THREAD_PANE_PX));
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.key === "ArrowRight") {
-        e.preventDefault();
-        setThreadPanePx((prev) => prev + 24);
-        return;
+      // Tab switching: Windows Ctrl+←/→, Mac Cmd+Option+←/→
+      if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && threadTabs.length > 1) {
+        const isWinTabSwitch = e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+        const isMacTabSwitch = !e.ctrlKey && e.metaKey && e.altKey && !e.shiftKey;
+        if (isWinTabSwitch || isMacTabSwitch) {
+          e.preventDefault();
+          const dir = e.key === "ArrowRight" ? 1 : -1;
+          const next = (activeTabIndex + dir + threadTabs.length) % threadTabs.length;
+          onTabClick(next);
+          return;
+        }
       }
       if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.key === "ArrowUp") {
         e.preventDefault();
@@ -1783,6 +1853,7 @@ export default function App() {
           responseTopRatio?: number;
           fontSize?: number;
           darkMode?: boolean;
+          fontFamily?: string;
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
         if (typeof parsed.threadPanePx === "number") {
@@ -1795,6 +1866,7 @@ export default function App() {
         }
         if (typeof parsed.fontSize === "number") setFontSize(parsed.fontSize);
         if (typeof parsed.darkMode === "boolean") setDarkMode(parsed.darkMode);
+        if (typeof parsed.fontFamily === "string") setFontFamily(parsed.fontFamily);
       } catch { /* ignore */ }
     };
     // Try localStorage first, then file-based persistence
@@ -1844,6 +1916,11 @@ export default function App() {
         const n = Number(saved);
         if (Number.isFinite(n) && n >= 0) boardTreeScrollRestoreRef.current = n;
       }
+    } catch { /* ignore */ }
+    // Load thread fetch times
+    try {
+      const ftRaw = localStorage.getItem(THREAD_FETCH_TIMES_KEY);
+      if (ftRaw) threadFetchTimesRef.current = JSON.parse(ftRaw);
     } catch { /* ignore */ }
     // Silently refresh board list from server
     void fetchBoardCategories();
@@ -1996,12 +2073,13 @@ export default function App() {
       responseTopRatio,
       fontSize,
       darkMode,
+      fontFamily,
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, fontSize, darkMode]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, fontSize, darkMode, fontFamily]);
 
   useEffect(() => {
     if (isTauriRuntime()) {
@@ -2014,6 +2092,10 @@ export default function App() {
   }, [composeName, composeMail, composeSage]);
 
   useEffect(() => {
+    if (suppressThreadScrollRef.current) {
+      suppressThreadScrollRef.current = false;
+      return;
+    }
     if (selectedThread == null || !threadTbodyRef.current) return;
     const row = threadTbodyRef.current.querySelector<HTMLTableRowElement>(".selected-row");
     row?.scrollIntoView({ block: "nearest" });
@@ -2043,7 +2125,7 @@ export default function App() {
   return (
     <div
       className={`shell${darkMode ? " dark" : ""}`}
-      style={{ fontSize: `${fontSize}px` }}
+      style={{ fontSize: `${fontSize}px`, fontFamily: fontFamily || undefined }}
       onClick={() => {
         setThreadMenu(null);
         setResponseMenu(null);
@@ -2052,6 +2134,7 @@ export default function App() {
         setIdPopup(null);
         setBackRefPopup(null);
         setNestedPopups([]);
+        setWatchoiMenu(null);
       }}
     >
       <header className="menu-bar">
@@ -2060,7 +2143,7 @@ export default function App() {
             { text: "スレ取得", action: () => fetchThreadListFromCurrent() },
             { text: "レス取得", action: () => fetchResponsesFromCurrent() },
             { text: "sep" },
-            { text: "書き込み", action: () => { setComposeOpen(true); setComposePos(null); } },
+            { text: "書き込み", action: () => { setComposeOpen(true); setComposePos(null); setComposeBody(""); setComposeResult(null); } },
             { text: "書き込み履歴", action: () => setPostHistoryOpen(true) },
             { text: "sep" },
             { text: "設定", action: () => setSettingsOpen(true) },
@@ -2134,10 +2217,9 @@ export default function App() {
         ))}
       </header>
       <div className="tool-bar">
-        <button onClick={() => fetchResponsesFromCurrent()} title="再読み込み">🔄</button>
         <button onClick={() => { void fetchMenu(); void fetchBoardCategories(); }} title="板更新">📋</button>
         <span className="tool-sep" />
-        <input className="address-input" value={locationInput} onChange={(e) => setLocationInput(e.target.value)} onKeyDown={onLocationInputKeyDown} />
+        <input className="address-input" value={locationInput} onChange={(e) => setLocationInput(e.target.value)} onKeyDown={onLocationInputKeyDown} onFocus={(e) => e.target.select()} />
         <button onClick={goFromLocationInput}>移動</button>
         <span className="tool-sep" />
         <button onClick={reopenLastClosedThread} disabled={!hasReopenableClosedThread} title="閉じたスレを戻す">↩</button>
@@ -2376,7 +2458,7 @@ export default function App() {
             <thead>
               <tr>
                 <th className="sortable-th" onClick={() => toggleThreadSort("fetched")} title="取得済みスレを上にソート">
-                  {threadSortKey === "fetched" ? (threadSortAsc ? "\u25B2" : "\u25BC") : ""}
+                  !{threadSortKey === "fetched" ? (threadSortAsc ? "\u25B2" : "\u25BC") : ""}
                 </th>
                 <th className="sortable-th" onClick={() => toggleThreadSort("id")}>
                   番号{threadSortKey === "id" ? (threadSortAsc ? " \u25B2" : " \u25BC") : ""}
@@ -2393,6 +2475,9 @@ export default function App() {
                 <th>
                   新着
                 </th>
+                <th>
+                  最終取得
+                </th>
                 <th className="sortable-th" onClick={() => toggleThreadSort("speed")}>
                   勢い{threadSortKey === "speed" ? (threadSortAsc ? " \u25B2" : " \u25BC") : ""}
                 </th>
@@ -2401,10 +2486,11 @@ export default function App() {
             <tbody ref={threadTbodyRef}>
               {visibleThreadItems.map((t) => {
                 const isUnread = !threadReadMap[t.id];
+                const hasUnread = t.got > 0 && t.res - t.got > 0;
                 return (
                   <tr
                     key={t.id}
-                    className={`${selectedThread === t.id ? "selected-row" : ""} ${isUnread ? "unread-row" : ""}`}
+                    className={`${selectedThread === t.id ? "selected-row" : ""} ${isUnread ? "unread-row" : ""} ${hasUnread ? "has-unread-row" : ""}`}
                     onClick={() => {
                       setSelectedThread(t.id);
                       setSelectedResponse(1);
@@ -2418,7 +2504,10 @@ export default function App() {
                         }
                         // persist read status
                         const ft = fetchedThreads[t.id - 1];
-                        if (ft) void persistReadStatus(threadUrl, ft.threadKey, ft.responseCount);
+                        if (ft) {
+                          const boardUrl = getBoardUrlFromThreadUrl(t.threadUrl);
+                          void persistReadStatus(boardUrl, ft.threadKey, ft.responseCount);
+                        }
                       }
                     }}
                     onDoubleClick={() => {
@@ -2438,11 +2527,12 @@ export default function App() {
                       className="thread-title-cell"
                       dangerouslySetInnerHTML={renderHighlightedPlainText(t.title, threadSearchQuery)}
                     />
-                    <td>{t.res}</td>
+                    <td>{t.res >= 0 ? t.res : "-"}</td>
                     <td>{t.got > 0 ? t.got : "-"}</td>
-                    <td className={`new-count ${t.got > 0 && t.res - t.got > 0 ? "has-new" : ""}`}>
-                      {t.got > 0 ? Math.max(0, t.res - t.got) : "-"}
+                    <td className={`new-count ${t.got > 0 && t.res > 0 && t.res - t.got > 0 ? "has-new" : ""}`}>
+                      {t.got > 0 && t.res > 0 ? Math.max(0, t.res - t.got) : "-"}
                     </td>
+                    <td className="last-fetch-cell">{threadFetchTimesRef.current[t.threadUrl] ?? "-"}</td>
                     <td className="speed-cell">
                       <span className="speed-bar" style={{
                         width: `${Math.min(100, t.speed * 2)}%`,
@@ -2466,16 +2556,16 @@ export default function App() {
           onClick={(e) => e.stopPropagation()}
         />
         <section className="pane responses">
-          {selectedThreadItem && (
+          {selectedThreadItem && activeTabIndex >= 0 && (
             <div className="thread-title-bar">
               <span className="thread-title-text" title={selectedThreadItem.title}>
                 {selectedThreadItem.title}
                 {" "}[{selectedThreadItem.res}]
               </span>
               <span className="thread-title-actions">
-                <button className="title-action-btn" onClick={() => fetchResponsesFromCurrent()} title="再読み込み">🔄</button>
+                <button className="title-action-btn" onClick={() => fetchResponsesFromCurrent(undefined, { resetScroll: true })} title="再読み込み">🔄</button>
                 <button className="title-action-btn" onClick={() => fetchResponsesFromCurrent(undefined, { keepSelection: true })} title="新着取得">📥</button>
-                <button className="title-action-btn" onClick={() => { setComposeOpen(true); setComposePos(null); }} title="書き込み">✏️</button>
+                <button className="title-action-btn" onClick={() => { setComposeOpen(true); setComposePos(null); setComposeBody(""); setComposeResult(null); }} title="書き込み">✏️</button>
                 <button className="title-action-btn" onClick={() => {
                   const t = threadItems.find((item) => item.id === selectedThread);
                   if (t && "threadUrl" in t && typeof t.threadUrl === "string") {
@@ -2623,7 +2713,7 @@ export default function App() {
                   const rect = anchor.getBoundingClientRect();
                   const popupWidth = Math.min(620, window.innerWidth - 24);
                   const x = Math.max(8, Math.min(rect.left, window.innerWidth - popupWidth - 8));
-                  setAnchorPopup({ x, y: rect.bottom + 4, responseId: no });
+                  setAnchorPopup({ x, y: rect.bottom + 4, anchorTop: rect.top, responseId: no });
                 }
               }}
               onMouseOut={(e) => {
@@ -2665,14 +2755,26 @@ export default function App() {
                       </span>
                       <span
                         className="response-name"
-                        dangerouslySetInnerHTML={renderHighlightedPlainText(r.name, responseSearchQuery)}
+                        dangerouslySetInnerHTML={renderHighlightedPlainText(r.nameWithoutWatchoi, responseSearchQuery)}
                       />
+                      {r.watchoi && (
+                        <span
+                          className="response-watchoi"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const p = clampMenuPosition(e.clientX, e.clientY, 180, 80);
+                            setWatchoiMenu({ x: p.x, y: p.y, watchoi: r.watchoi! });
+                          }}
+                        >
+                          ({r.watchoi})
+                        </span>
+                      )}
                       {backRefMap.has(r.id) && (
                         <span
                           className="back-ref-trigger"
                           onMouseEnter={(e) => {
                             const rect = (e.target as HTMLElement).getBoundingClientRect();
-                            setBackRefPopup({ x: rect.left, y: rect.top - 4, responseIds: backRefMap.get(r.id)! });
+                            setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, responseIds: backRefMap.get(r.id)! });
                           }}
                         >
                           ▼{backRefMap.get(r.id)!.length}
@@ -2692,7 +2794,7 @@ export default function App() {
                               if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; }
                               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                               const right = Math.max(8, window.innerWidth - rect.right);
-                              setIdPopup({ right, y: rect.bottom + 2, id });
+                              setIdPopup({ right, y: rect.bottom + 2, anchorTop: rect.top, id });
                             }}
                             onMouseLeave={() => {
                               idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 300);
@@ -2827,7 +2929,7 @@ export default function App() {
             <span className="compose-target" title={threadUrl}>
               {selectedThreadItem ? selectedThreadItem.title : threadUrl}
             </span>
-            <button onClick={() => setComposeOpen(false)}>閉じる</button>
+            <button onClick={() => { setComposeOpen(false); setComposeResult(null); }}>閉じる</button>
           </header>
           <div className="compose-grid">
             <label>
@@ -3028,13 +3130,25 @@ export default function App() {
           }}>キャッシュから削除</button>
         </div>
       )}
+      {watchoiMenu && (
+        <div className="thread-menu" style={{ left: watchoiMenu.x, top: watchoiMenu.y }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => { addNgEntry("names", watchoiMenu.watchoi); setWatchoiMenu(null); }}>ワッチョイをNG</button>
+          <button onClick={() => { void navigator.clipboard.writeText(watchoiMenu.watchoi); setStatus("ワッチョイをコピーしました"); setWatchoiMenu(null); }}>ワッチョイをコピー</button>
+        </div>
+      )}
       {anchorPopup && (() => {
         const popupResp = responseItems.find((r) => r.id === anchorPopup.responseId);
         if (!popupResp) return null;
+        const maxH = 300;
+        const spaceBelow = window.innerHeight - anchorPopup.y;
+        const flipUp = spaceBelow < maxH && anchorPopup.anchorTop > spaceBelow;
+        const posStyle = flipUp
+          ? { left: anchorPopup.x, bottom: window.innerHeight - anchorPopup.anchorTop + 4 }
+          : { left: anchorPopup.x, top: anchorPopup.y };
         return (
           <div
             className="anchor-popup"
-            style={{ left: anchorPopup.x, top: anchorPopup.y }}
+            style={posStyle}
             onMouseEnter={() => {
               if (anchorPopupCloseTimer.current) {
                 clearTimeout(anchorPopupCloseTimer.current);
@@ -3058,7 +3172,7 @@ export default function App() {
                 const rect = a.getBoundingClientRect();
                 setNestedPopups((prev) => {
                   if (prev.some((p) => p.responseId === no)) return prev;
-                  return [...prev, { x: rect.left, y: rect.bottom + 4, responseId: no }];
+                  return [...prev, { x: rect.left, y: rect.bottom + 4, anchorTop: rect.top, responseId: no }];
                 });
               }
             }}
@@ -3091,7 +3205,7 @@ export default function App() {
                 const rect = a.getBoundingClientRect();
                 setNestedPopups((prev) => {
                   if (prev.some((p) => p.responseId === no)) return prev;
-                  return [...prev, { x: rect.left, y: rect.bottom + 4, responseId: no }];
+                  return [...prev, { x: rect.left, y: rect.bottom + 4, anchorTop: rect.top, responseId: no }];
                 });
               }
             }}
@@ -3119,8 +3233,14 @@ export default function App() {
       {nestedPopups.map((np, i) => {
         const nestedResp = responseItems.find((r) => r.id === np.responseId);
         if (!nestedResp) return null;
+        const nMaxH = 300;
+        const nSpaceBelow = window.innerHeight - np.y;
+        const nFlipUp = nSpaceBelow < nMaxH && np.anchorTop > nSpaceBelow;
+        const nPosStyle = nFlipUp
+          ? { left: np.x + i * 8, bottom: window.innerHeight - np.anchorTop + 4 + i * 8 }
+          : { left: np.x + i * 8, top: np.y + i * 8 };
         return (
-          <div key={`${np.responseId}-${i}`} className="anchor-popup nested-popup" style={{ left: np.x + i * 8, top: np.y + i * 8 }}>
+          <div key={`${np.responseId}-${i}`} className="anchor-popup nested-popup" style={nPosStyle}>
             <div className="anchor-popup-header">
               <span className="response-viewer-no">{nestedResp.id}</span> {nestedResp.name}
               <time>{nestedResp.time}</time>
@@ -3131,10 +3251,16 @@ export default function App() {
       })}
       {idPopup && (() => {
         const idResponses = responseItems.filter((r) => extractId(r.time) === idPopup.id);
+        const idMaxH = 360;
+        const idSpaceBelow = window.innerHeight - idPopup.y;
+        const idFlipUp = idSpaceBelow < idMaxH && idPopup.anchorTop > idSpaceBelow;
+        const idPosStyle = idFlipUp
+          ? { right: idPopup.right, bottom: window.innerHeight - idPopup.anchorTop + 2 }
+          : { right: idPopup.right, top: idPopup.y };
         return (
           <div
             className="id-popup"
-            style={{ right: idPopup.right, top: idPopup.y }}
+            style={idPosStyle}
             onMouseEnter={() => { if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; } }}
             onMouseLeave={() => {
               idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 300);
@@ -3219,6 +3345,7 @@ export default function App() {
                 ["Ctrl+Alt+/", "次のスレへ切替"],
                 ["Ctrl+Tab", "次のタブ"],
                 ["Ctrl+Shift+Tab", "前のタブ"],
+                ["Ctrl+←/→", "左右のタブへ切替"],
                 ["Ctrl+↑/↓", "スレ選択の上下移動"],
                 ["Ctrl+Shift+↑/↓", "レス選択の上下移動"],
                 ["Ctrl+Alt+←/→", "スレペイン幅の調整"],
@@ -3252,6 +3379,19 @@ export default function App() {
                   <select value={darkMode ? "dark" : "light"} onChange={(e) => setDarkMode(e.target.value === "dark")}>
                     <option value="light">ライト</option>
                     <option value="dark">ダーク</option>
+                  </select>
+                </label>
+                <label className="settings-row">
+                  <span>フォント</span>
+                  <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
+                    <option value="">デフォルト</option>
+                    <option value="'MS Gothic', monospace">MS ゴシック</option>
+                    <option value="'MS PGothic', sans-serif">MS Pゴシック</option>
+                    <option value="'Meiryo', sans-serif">メイリオ</option>
+                    <option value="'Yu Gothic UI', sans-serif">Yu Gothic UI</option>
+                    <option value="'BIZ UDGothic', sans-serif">BIZ UDゴシック</option>
+                    <option value="'Noto Sans JP', sans-serif">Noto Sans JP</option>
+                    <option value="monospace">等幅</option>
                   </select>
                 </label>
                 <label className="settings-row">
