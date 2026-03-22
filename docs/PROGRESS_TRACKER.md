@@ -143,6 +143,13 @@
   - 新フィールド発見: `feature` (confirmed:<hash>), `sid` (UPLIFT有効時のみ)
   - action URL: `../test/bbs.cgi?guid=ON`
 
+## 未実装（将来対応予定）
+- [ ] ウィンドウ位置・サイズの記憶と復元
+  - v0.0.5で実装（localStorage + Tauri window API）したがmacOSで起動直後クラッシュが発生しv0.0.6で撤去
+  - Windows版では正常動作を確認済み
+  - 原因候補: capabilities (core:window:allow-set-position/set-size) またはウィンドウ初期化タイミング
+  - macOS環境でのデバッグが必要
+
 ## 直近タスク（優先順）
 1. `core-fetch`: 実送信検証（real submit = confirm form → finalize POST）
    - real submit時は `-AllowRealSubmit -RealSubmitToken I_UNDERSTAND_REAL_POST -Message "<non-empty>"` を必須化
