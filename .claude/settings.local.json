@@ -45,7 +45,10 @@
       "Bash(gh release:*)",
       "Bash(powershell -NoProfile -Command \"Compress-Archive -Path target/release/ember.exe -DestinationPath out/ember-win-x64.zip -Force; \\(Get-FileHash ''out/ember-win-x64.zip'' -Algorithm SHA256\\).Hash; \\(Get-Item ''out/ember-win-x64.zip''\\).Length\")",
       "Bash(gh pr:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(node -e \"require.resolve\\(''@tauri-apps/api/window''\\)\")",
+      "Bash(node -e \"require.resolve\\(''@tauri-apps/api/dpi''\\)\")",
+      "Bash(taskkill //IM ember.exe //F)"
     ]
   }
 }
