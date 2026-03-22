@@ -46,6 +46,12 @@ cd apps/desktop
 npm run tauri:build
 ```
 
+ワンコマンド実行（macOS ARM64）は以下でも実行できます。
+
+```bash
+bash scripts/build_mac_release.sh
+```
+
 生成物から配布用ZIPを作成し、以下の命名で統一します。
 
 - `ember-win-x64.zip`
@@ -123,4 +129,3 @@ cmd /c git push origin main
 1. Cloudflare Pages に直前の正常ビルドを再デプロイ
 2. 必要なら `latest.json` を前バージョンへ戻して再デプロイ
 3. GitHub Release の注記に障害情報を追記
-
