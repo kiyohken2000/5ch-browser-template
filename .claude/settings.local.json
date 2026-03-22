@@ -43,7 +43,9 @@
       "Bash(npm install:*)",
       "Bash(powershell -NoProfile -Command \"Compress-Archive -Path ember.exe -DestinationPath ''../../out/ember-win-x64.zip'' -Force\")",
       "Bash(gh release:*)",
-      "Bash(powershell -NoProfile -Command \"Compress-Archive -Path target/release/ember.exe -DestinationPath out/ember-win-x64.zip -Force; \\(Get-FileHash ''out/ember-win-x64.zip'' -Algorithm SHA256\\).Hash; \\(Get-Item ''out/ember-win-x64.zip''\\).Length\")"
+      "Bash(powershell -NoProfile -Command \"Compress-Archive -Path target/release/ember.exe -DestinationPath out/ember-win-x64.zip -Force; \\(Get-FileHash ''out/ember-win-x64.zip'' -Algorithm SHA256\\).Hash; \\(Get-Item ''out/ember-win-x64.zip''\\).Length\")",
+      "Bash(gh pr:*)",
+      "Bash(git pull:*)"
     ]
   }
 }
