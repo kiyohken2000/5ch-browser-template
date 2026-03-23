@@ -803,11 +803,21 @@ fn save_favorites(favorites: FavoritesData) -> Result<(), String> {
 
 // --- NG filter persistence ---
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum NgEntry {
+    Simple(String),
+    WithMode { value: String, mode: String },
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct NgFilters {
-    words: Vec<String>,
-    ids: Vec<String>,
-    names: Vec<String>,
+    #[serde(default)]
+    words: Vec<NgEntry>,
+    #[serde(default)]
+    ids: Vec<NgEntry>,
+    #[serde(default)]
+    names: Vec<NgEntry>,
     #[serde(default)]
     thread_words: Vec<String>,
 }
