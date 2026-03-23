@@ -51,7 +51,11 @@
       "Bash(taskkill //IM ember.exe //F)",
       "WebFetch(domain:greta.5ch.io)",
       "Bash(curl:*)",
-      "Bash(powershell -Command \"[System.Text.Encoding]::GetEncoding\\(''''shift_jis''''\\).GetString\\([System.IO.File]::ReadAllBytes\\(''''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\out\\\\test_readcgi.html''''\\)\\)\")"
+      "Bash(powershell -Command \"[System.Text.Encoding]::GetEncoding\\(''''shift_jis''''\\).GetString\\([System.IO.File]::ReadAllBytes\\(''''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\out\\\\test_readcgi.html''''\\)\\)\")",
+      "Bash(powershell -Command \"\\(Get-Item \\(Join-Path \\(New-Object -ComObject Shell.Application\\).Namespace\\(\\(Resolve-Path ember-win-x64.zip\\).Path\\).Items\\(\\)[0].Path\\) -ErrorAction SilentlyContinue\\).VersionInfo.FileVersion\")",
+      "Bash(powershell -Command \"[System.Diagnostics.FileVersionInfo]::GetVersionInfo\\(''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe''\\).FileVersion\")",
+      "Bash(powershell -Command \"[System.Diagnostics.FileVersionInfo]::GetVersionInfo\\('C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe'\\) | Select-Object FileVersion,ProductVersion\")",
+      "Bash(taskkill //F //IM ember.exe)"
     ]
   }
 }
