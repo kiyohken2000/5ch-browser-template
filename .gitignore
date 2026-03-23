@@ -34,3 +34,6 @@ _temp_*
 
 # Claude Code
 .claude/settings.local.json
+
+# Lock file
+apps/desktop/pnpm-lock.yaml

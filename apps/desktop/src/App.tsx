@@ -2221,7 +2221,7 @@ export default function App() {
   return (
     <div
       className={`shell${darkMode ? " dark" : ""}`}
-      style={{ fontSize: `${fontSize}px`, fontFamily: fontFamily || undefined }}
+      style={{ fontFamily: fontFamily || undefined }}
       onClick={() => {
         setThreadMenu(null);
         setResponseMenu(null);
@@ -2328,7 +2328,8 @@ export default function App() {
         className="layout"
         style={{
           gridTemplateColumns: `${boardPanePx}px ${SPLITTER_PX}px 1fr`,
-        }}
+          '--fs-delta': `${fontSize - 12}px`,
+        } as React.CSSProperties}
       >
         <section className="pane boards">
           <div className="boards-header">

@@ -519,16 +519,18 @@ try {
   assert(fontSizeBtn, "view menu should have font size increase");
   await fontSizeBtn.click();
   await new Promise((r) => setTimeout(r, 100));
-  const shellFontSize = await page.$eval(".shell", (el) => window.getComputedStyle(el).fontSize);
-  assert(shellFontSize === "13px", `font size should be 13px after increase, got ${shellFontSize}`);
+  const paneFontSize = await page.$eval(".response-body", (el) => window.getComputedStyle(el).fontSize);
+  assert(paneFontSize === "13px", `pane font size should be 13px after increase, got ${paneFontSize}`);
+  const menuFontSize = await page.$eval(".menu-bar", (el) => window.getComputedStyle(el).fontSize);
+  assert(menuFontSize === "12px", `menu bar font size should stay 12px, got ${menuFontSize}`);
   // reset font size
   await viewMenuItem.click();
   await new Promise((r) => setTimeout(r, 100));
   const resetBtn = await page.$('.menu-dropdown button:has-text("文字サイズリセット")');
   await resetBtn.click();
   await new Promise((r) => setTimeout(r, 100));
-  const shellFontReset = await page.$eval(".shell", (el) => window.getComputedStyle(el).fontSize);
-  assert(shellFontReset === "12px", `font size should be 12px after reset, got ${shellFontReset}`);
+  const paneFontReset = await page.$eval(".response-body", (el) => window.getComputedStyle(el).fontSize);
+  assert(paneFontReset === "12px", `pane font size should be 12px after reset, got ${paneFontReset}`);
   console.log("smoke-ui: font size setting ok");
 
   // --- body link rendering ---
