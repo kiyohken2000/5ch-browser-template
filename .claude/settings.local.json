@@ -55,7 +55,12 @@
       "Bash(powershell -Command \"\\(Get-Item \\(Join-Path \\(New-Object -ComObject Shell.Application\\).Namespace\\(\\(Resolve-Path ember-win-x64.zip\\).Path\\).Items\\(\\)[0].Path\\) -ErrorAction SilentlyContinue\\).VersionInfo.FileVersion\")",
       "Bash(powershell -Command \"[System.Diagnostics.FileVersionInfo]::GetVersionInfo\\(''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe''\\).FileVersion\")",
       "Bash(powershell -Command \"[System.Diagnostics.FileVersionInfo]::GetVersionInfo\\('C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe'\\) | Select-Object FileVersion,ProductVersion\")",
-      "Bash(taskkill //F //IM ember.exe)"
+      "Bash(taskkill //F //IM ember.exe)",
+      "Bash(mkdir -p out)",
+      "Bash(cp /c/Users/all/develop/python/5ch-browser-template/target/release/ember.exe out/)",
+      "Bash(rm -f ember-win-x64.zip)",
+      "Bash(powershell Compress-Archive -Path ember.exe -DestinationPath ember-win-x64.zip)",
+      "Bash(gh api:*)"
     ]
   }
 }
