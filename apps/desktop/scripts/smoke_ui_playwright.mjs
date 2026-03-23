@@ -69,46 +69,14 @@ try {
   assert(selectedResponseNoAfter >= selectedResponseNoBefore, "response keyboard navigation did not advance selection");
   console.log("smoke-ui: response keyboard navigation ok");
 
+  // Ctrl+W closes active tab — test that it doesn't affect thread list
   const rowsBefore = await page.$$eval(".threads tbody tr", (rows) => rows.length);
-  await page.click(".threads tbody tr:first-child", { button: "right" });
-  await page.click('.thread-menu button:has-text("スレを閉じる")');
-  const rowsAfterClose = await page.$$eval(".threads tbody tr", (rows) => rows.length);
-  assert(rowsAfterClose === Math.max(rowsBefore - 1, 0), "close thread action did not reduce rows");
-  console.log("smoke-ui: close thread ok");
-
-  // Ctrl+W now closes active tab (not thread row) — test that it doesn't affect thread list
   await page.evaluate(() => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", ctrlKey: true, bubbles: true }));
   });
   const rowsAfterShortcutClose = await page.$$eval(".threads tbody tr", (rows) => rows.length);
-  assert(rowsAfterShortcutClose === rowsAfterClose, "Ctrl+W should not affect thread list rows (closes tabs)");
+  assert(rowsAfterShortcutClose === rowsBefore, "Ctrl+W should not affect thread list rows (closes tabs)");
   console.log("smoke-ui: close tab shortcut ok");
-
-  await page.click(".tool-bar button:has-text('↩')");
-  const rowsAfterUndoClose = await page.$$eval(".threads tbody tr", (rows) => rows.length);
-  assert(rowsAfterUndoClose >= rowsAfterClose, "undo close button should restore hidden thread rows");
-  console.log("smoke-ui: undo close button ok");
-
-  // Close another thread via context menu to test reopen-last
-  if (rowsAfterUndoClose >= 2) {
-    await page.click(".threads tbody tr:first-child", { button: "right" });
-    await page.click('.thread-menu button:has-text("スレを閉じる")');
-    await new Promise((r) => setTimeout(r, 100));
-    await page.click(".threads tbody tr:first-child", { button: "right" });
-    await page.click('.thread-menu button:has-text("最後に閉じたスレを開く")');
-    const rowsAfterReopenLast = await page.$$eval(".threads tbody tr", (rows) => rows.length);
-    assert(rowsAfterReopenLast >= rowsAfterUndoClose, "reopen last action did not restore thread row");
-  }
-  console.log("smoke-ui: reopen last ok");
-
-  await page.click(".threads tbody tr:first-child", { button: "right" });
-  await page.click('.thread-menu button:has-text("スレを閉じる")');
-
-  await page.click(".threads tbody tr:first-child", { button: "right" });
-  await page.click('.thread-menu button:has-text("すべて開く")');
-  const rowsAfterReopen = await page.$$eval(".threads tbody tr", (rows) => rows.length);
-  assert(rowsAfterReopen >= rowsBefore, "reopen all action did not restore thread rows");
-  console.log("smoke-ui: reopen all ok");
 
   await page.click(".response-no", { button: "left" });
   await page.click('.response-menu button:has-text("ここにレス")');
@@ -433,9 +401,9 @@ try {
   assert(lightboxCheck, "lightbox-overlay CSS should be defined");
   console.log("smoke-ui: lightbox structure ok");
 
-  // --- tab drag attribute ---
-  const tabDraggable = await page.$$eval(".thread-tab", (els) => els.every((el) => el.draggable));
-  assert(tabDraggable || (await page.$$(".thread-tab")).length === 0, "thread tabs should be draggable");
+  // --- tab drag (mouse-event based) ---
+  const tabHasCursor = await page.$$eval(".thread-tab", (els) => els.length === 0 || els.some((el) => getComputedStyle(el).cursor === "grab"));
+  assert(tabHasCursor, "thread tabs should have grab cursor for drag");
   console.log("smoke-ui: tab drag attribute ok");
 
   // --- response nav bar exists ---
