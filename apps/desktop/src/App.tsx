@@ -1027,6 +1027,10 @@ export default function App() {
   const fetchResponsesFromCurrent = async (targetThreadUrl?: string, opts?: { keepSelection?: boolean; resetScroll?: boolean }) => {
     const url = (targetThreadUrl ?? threadUrl).trim();
     if (!url) return;
+    if (!/\/test\/read\.cgi\/[^/]+\/[^/]+/.test(new URL(url, "https://dummy").pathname)) {
+      setResponseListProbe("スレッドを選択してください");
+      return;
+    }
     if (!isTauriRuntime()) {
       setResponseListProbe("web preview mode: response fetch requires tauri runtime");
       return;
@@ -1591,6 +1595,9 @@ export default function App() {
     if (tabIdx >= 0) closeTab(tabIdx);
     // clear memory cache
     tabCacheRef.current.delete(url);
+    // clear fetch timestamp
+    delete threadFetchTimesRef.current[url];
+    try { localStorage.setItem(THREAD_FETCH_TIMES_KEY, JSON.stringify(threadFetchTimesRef.current)); } catch { /* ignore */ }
     // clear read status for this thread in the thread list
     const threadId = threadItems.find((t) => "threadUrl" in t && t.threadUrl === url)?.id;
     if (threadId != null) {
