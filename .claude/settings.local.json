@@ -60,7 +60,10 @@
       "Bash(cp /c/Users/all/develop/python/5ch-browser-template/target/release/ember.exe out/)",
       "Bash(rm -f ember-win-x64.zip)",
       "Bash(powershell Compress-Archive -Path ember.exe -DestinationPath ember-win-x64.zip)",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "Bash(grep '\"\"version\"\"' apps/desktop/package.json apps/desktop/src-tauri/tauri.conf.json)",
+      "Bash(cp ../target/release/ember.exe .)",
+      "Bash(powershell -Command \"Compress-Archive -Force -Path ember.exe -DestinationPath ember-win-x64.zip\")"
     ]
   }
 }
