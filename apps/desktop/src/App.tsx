@@ -1604,6 +1604,20 @@ export default function App() {
       setThreadReadMap((prev) => { const next = { ...prev }; delete next[threadId]; return next; });
       setThreadLastReadCount((prev) => { const next = { ...prev }; delete next[threadId]; return next; });
     }
+    // clear persisted read status
+    const bUrl = getBoardUrlFromThreadUrl(url);
+    try {
+      const parts = new URL(url).pathname.split("/").filter(Boolean);
+      const tKey = parts.length >= 4 ? parts[3] : "";
+      if (tKey) {
+        invoke<Record<string, Record<string, number>>>("load_read_status").then((current) => {
+          if (current[bUrl] && current[bUrl][tKey] != null) {
+            delete current[bUrl][tKey];
+            invoke("save_read_status", { status: current }).catch((e) => console.warn("save_read_status error", e));
+          }
+        }).catch((e) => console.warn("load_read_status error", e));
+      }
+    } catch { /* invalid url — skip */ }
     setStatus("キャッシュから削除しました");
   };
 
