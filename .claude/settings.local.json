@@ -65,7 +65,8 @@
       "Bash(cp ../target/release/ember.exe .)",
       "Bash(powershell -Command \"Compress-Archive -Force -Path ember.exe -DestinationPath ember-win-x64.zip\")",
       "Bash(powershell -Command \"Compress-Archive -Path ''target/release/ember.exe'' -DestinationPath ''ember-win-x64.zip'' -Force\")",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "mcp__ide__getDiagnostics"
     ]
   }
 }
