@@ -1071,6 +1071,22 @@ fn delete_thread_cache(thread_url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn clear_login_cookies(provider: String) -> Result<(), String> {
+    let mut cookies = LOGIN_COOKIES.lock().unwrap_or_else(|e| e.into_inner());
+    if provider == "all" {
+        cookies.clear();
+    } else if provider == "ronin" {
+        cookies.retain(|(k, _)| k != "sid" && k != "acorn");
+    } else if provider == "be" {
+        cookies.retain(|(k, _)| {
+            !k.eq_ignore_ascii_case("be3m") && !k.eq_ignore_ascii_case("be3d")
+        });
+    }
+    let _ = core_store::append_log(&format!("clear_login_cookies: provider={} remaining={}", provider, cookies.len()));
+    Ok(())
+}
+
+#[tauri::command]
 fn set_window_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
     use tauri::Theme;
     window.set_theme(if dark { Some(Theme::Dark) } else { Some(Theme::Light) })
@@ -1117,7 +1133,8 @@ pub fn run() {
             load_thread_cache,
             load_all_cached_threads,
             delete_thread_cache,
-            set_window_theme
+            set_window_theme,
+            clear_login_cookies
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

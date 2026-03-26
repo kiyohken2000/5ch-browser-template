@@ -961,6 +961,9 @@ export default function App() {
       setBeLoggedIn(false);
       setStatus("BE: ログアウト");
     }
+    if (isTauriRuntime()) {
+      invoke("clear_login_cookies", { provider }).catch((e) => console.warn("clear_login_cookies:", e));
+    }
   };
 
   const applyLocationToThread = () => {
