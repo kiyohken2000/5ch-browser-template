@@ -395,7 +395,11 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [fontSize, setFontSize] = useState(12);
+  const [boardsFontSize, setBoardsFontSize] = useState(12);
+  const [threadsFontSize, setThreadsFontSize] = useState(12);
+  const [responsesFontSize, setResponsesFontSize] = useState(12);
+  type PaneName = "boards" | "threads" | "responses";
+  const [focusedPane, setFocusedPane] = useState<PaneName>("responses");
   const [fontFamily, setFontFamily] = useState("");
   const [darkMode, setDarkMode] = useState(false);
   const [composeFontSize, setComposeFontSize] = useState(13);
@@ -965,6 +969,15 @@ export default function App() {
       invoke("clear_login_cookies", { provider }).catch((e) => console.warn("clear_login_cookies:", e));
     }
   };
+
+  const paneFontSize = (pane: PaneName): [number, React.Dispatch<React.SetStateAction<number>>] => {
+    switch (pane) {
+      case "boards": return [boardsFontSize, setBoardsFontSize];
+      case "threads": return [threadsFontSize, setThreadsFontSize];
+      case "responses": return [responsesFontSize, setResponsesFontSize];
+    }
+  };
+  const paneLabel = (pane: PaneName) => pane === "boards" ? "板" : pane === "threads" ? "スレ" : "レス";
 
   const applyLocationToThread = () => {
     const next = locationInput.trim();
@@ -1728,6 +1741,9 @@ export default function App() {
     setThreadPanePx(DEFAULT_THREAD_PANE_PX);
     setResponseTopRatio(DEFAULT_RESPONSE_TOP_RATIO);
     setThreadColWidths({ ...DEFAULT_COL_WIDTHS });
+    setBoardsFontSize(12);
+    setThreadsFontSize(12);
+    setResponsesFontSize(12);
     localStorage.removeItem(LAYOUT_PREFS_KEY);
     setStatus("layout reset");
   };
@@ -1919,6 +1935,9 @@ export default function App() {
           threadPanePx?: number;
           responseTopRatio?: number;
           fontSize?: number;
+          boardsFontSize?: number;
+          threadsFontSize?: number;
+          responsesFontSize?: number;
           darkMode?: boolean;
           fontFamily?: string;
           threadColWidths?: Record<string, number>;
@@ -1932,7 +1951,10 @@ export default function App() {
           setThreadPanePx(nextThread);
           setResponseTopRatio(parsed.responseTopRatio);
         }
-        if (typeof parsed.fontSize === "number") setFontSize(parsed.fontSize);
+        const fallbackFs = typeof parsed.fontSize === "number" ? parsed.fontSize : 12;
+        setBoardsFontSize(typeof parsed.boardsFontSize === "number" ? parsed.boardsFontSize : fallbackFs);
+        setThreadsFontSize(typeof parsed.threadsFontSize === "number" ? parsed.threadsFontSize : fallbackFs);
+        setResponsesFontSize(typeof parsed.responsesFontSize === "number" ? parsed.responsesFontSize : fallbackFs);
         if (typeof parsed.darkMode === "boolean") setDarkMode(parsed.darkMode);
         if (typeof parsed.fontFamily === "string") setFontFamily(parsed.fontFamily);
         if (parsed.threadColWidths && typeof parsed.threadColWidths === "object") {
@@ -2199,7 +2221,9 @@ export default function App() {
       boardPanePx,
       threadPanePx,
       responseTopRatio,
-      fontSize,
+      boardsFontSize,
+      threadsFontSize,
+      responsesFontSize,
       darkMode,
       fontFamily,
       threadColWidths,
@@ -2208,7 +2232,7 @@ export default function App() {
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, fontSize, darkMode, fontFamily, threadColWidths]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths]);
 
   useEffect(() => {
     if (isTauriRuntime()) {
@@ -2285,10 +2309,11 @@ export default function App() {
             { text: "NGフィルタ", action: () => setNgPanelOpen((v) => !v) },
           ]},
           { label: "表示", items: [
-            { text: `文字サイズ: ${fontSize}px`, action: () => {} },
-            { text: "文字サイズ拡大", action: () => setFontSize((v) => Math.min(v + 1, 20)) },
-            { text: "文字サイズ縮小", action: () => setFontSize((v) => Math.max(v - 1, 8)) },
-            { text: "文字サイズリセット", action: () => setFontSize(12) },
+            { text: `文字サイズ (${paneLabel(focusedPane)}): ${paneFontSize(focusedPane)[0]}px`, action: () => {} },
+            { text: "文字サイズ拡大", action: () => paneFontSize(focusedPane)[1]((v) => Math.min(v + 1, 20)) },
+            { text: "文字サイズ縮小", action: () => paneFontSize(focusedPane)[1]((v) => Math.max(v - 1, 8)) },
+            { text: "文字サイズリセット", action: () => paneFontSize(focusedPane)[1](12) },
+            { text: "全ペインリセット", action: () => { setBoardsFontSize(12); setThreadsFontSize(12); setResponsesFontSize(12); } },
             { text: "sep" },
             { text: "レイアウトリセット", action: () => resetLayout() },
             { text: "sep" },
@@ -2361,10 +2386,9 @@ export default function App() {
         className="layout"
         style={{
           gridTemplateColumns: `${boardPanePx}px ${SPLITTER_PX}px 1fr`,
-          '--fs-delta': `${fontSize - 12}px`,
-        } as React.CSSProperties}
+        }}
       >
-        <section className="pane boards">
+        <section className="pane boards" onMouseDown={() => setFocusedPane("boards")} style={{ '--fs-delta': `${boardsFontSize - 12}px` } as React.CSSProperties}>
           <div className="boards-header">
             <div className="board-tabs">
               <button
@@ -2513,7 +2537,7 @@ export default function App() {
           className="right-pane"
           style={{ gridTemplateRows: `${threadPanePx}px ${SPLITTER_PX}px 1fr` }}
         >
-        <section className="pane threads">
+        <section className="pane threads" onMouseDown={() => setFocusedPane("threads")} style={{ '--fs-delta': `${threadsFontSize - 12}px` } as React.CSSProperties}>
           <div className="threads-toolbar">
             <input
               ref={threadSearchRef}
@@ -2702,7 +2726,7 @@ export default function App() {
           onMouseDown={beginResponseRowResize}
           onClick={(e) => e.stopPropagation()}
         />
-        <section className="pane responses">
+        <section className="pane responses" onMouseDown={() => setFocusedPane("responses")} style={{ '--fs-delta': `${responsesFontSize - 12}px` } as React.CSSProperties}>
           {activeTabIndex >= 0 && activeTabIndex < threadTabs.length && (
             <div className="thread-title-bar">
               <span className="thread-title-text" title={threadTabs[activeTabIndex].title}>
@@ -3586,8 +3610,16 @@ export default function App() {
                   </select>
                 </label>
                 <label className="settings-row">
-                  <span>文字サイズ</span>
-                  <input type="number" value={fontSize} min={8} max={20} onChange={(e) => setFontSize(Number(e.target.value))} />
+                  <span>文字サイズ (板)</span>
+                  <input type="number" value={boardsFontSize} min={8} max={20} onChange={(e) => setBoardsFontSize(Number(e.target.value))} />
+                </label>
+                <label className="settings-row">
+                  <span>文字サイズ (スレ)</span>
+                  <input type="number" value={threadsFontSize} min={8} max={20} onChange={(e) => setThreadsFontSize(Number(e.target.value))} />
+                </label>
+                <label className="settings-row">
+                  <span>文字サイズ (レス)</span>
+                  <input type="number" value={responsesFontSize} min={8} max={20} onChange={(e) => setResponsesFontSize(Number(e.target.value))} />
                 </label>
                 <label className="settings-row">
                   <span>自動更新間隔 (秒)</span>
