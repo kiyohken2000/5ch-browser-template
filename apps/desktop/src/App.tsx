@@ -1245,7 +1245,7 @@ export default function App() {
       if (r.blocked) {
         setComposeResult({ ok: false, message: "Flow blocked" });
       } else if (r.submitSummary?.includes("error=true")) {
-        setComposeResult({ ok: false, message: `Post failed: ${r.submitSummary}` });
+        setComposeResult({ ok: false, message: `Post failed: ${r.submitSummary}\nconfirm: ${r.confirmSummary ?? "-"}\nretry: ${r.finalizeSummary ?? "-"}` });
         setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
       } else if (r.submitSummary) {
         setComposeResult({ ok: true, message: `Post submitted: ${r.submitSummary}` });
