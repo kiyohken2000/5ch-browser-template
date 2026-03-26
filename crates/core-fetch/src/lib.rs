@@ -552,7 +552,16 @@ pub fn curl_post_5ch(
     fields: &[(&str, &str)],
     extra_cookies: Option<&str>,
 ) -> Result<(u16, Option<String>, String), FetchError> {
-    let cookie_file = std::env::temp_dir().join(format!("ember_post_{}.txt", std::process::id()));
+    let cookie_file = std::env::temp_dir().join(format!(
+        "ember_post_{}_{}.txt",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    // Ensure no stale cookie jar exists
+    let _ = std::fs::remove_file(&cookie_file);
     let result = curl_post_5ch_inner(thread_url, post_url, fields, &cookie_file, extra_cookies);
     let _ = std::fs::remove_file(&cookie_file);
     result

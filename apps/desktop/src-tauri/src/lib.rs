@@ -547,7 +547,10 @@ async fn probe_post_flow_trace(
         "post_url={} bbs={} key={} time={}",
         tokens.post_url, tokens.bbs, tokens.key, tokens.time
     ));
-    let _ = core_store::append_log(&format!("post_flow: tokens ok post_url={}", tokens.post_url));
+    let _ = core_store::append_log(&format!(
+        "post_flow: tokens post_url={} bbs={} key={} time={}",
+        tokens.post_url, tokens.bbs, tokens.key, tokens.time
+    ));
 
     let cookie_header = get_login_cookie_header();
     let (confirm, confirm_html) = submit_post_confirm_with_html(
