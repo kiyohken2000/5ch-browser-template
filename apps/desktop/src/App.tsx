@@ -10,7 +10,7 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  ClipboardList, RefreshCw, ArrowDownToLine, Pencil, FilePlus, Save,
+  ClipboardList, RefreshCw, ArrowDownToLine, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, Ban,
 } from "lucide-react";
 
@@ -2562,7 +2562,7 @@ export default function App() {
             />
             {threadSearchQuery && <button className="title-action-btn" onClick={() => setThreadSearchQuery("")} title="検索クリア"><X size={14} /></button>}
             <button className="title-action-btn" onClick={() => fetchThreadListFromCurrent()} title="スレ一覧を更新"><RefreshCw size={14} /></button>
-            <button className="title-action-btn" onClick={() => setShowNewThreadDialog(true)} title="スレ立て"><FilePlus size={14} /></button>
+            <button className="title-action-btn" onClick={() => setShowNewThreadDialog(true)} title="スレ立て"><FilePenLine size={14} /></button>
             <button
               className={`title-action-btn ${showCachedOnly ? "active-toggle" : ""}`}
               onClick={() => {
