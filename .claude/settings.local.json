@@ -78,7 +78,8 @@
       "WebFetch(domain:www.balstokyo.com)",
       "Bash(node -p \"require\\(''./apps/desktop/package.json''\\).version\")",
       "Bash(cp target/release/ember.exe out/ember.exe)",
-      "Bash(powershell -Command \"Compress-Archive -Path ember.exe -DestinationPath ember-win-x64.zip -Force\")"
+      "Bash(powershell -Command \"Compress-Archive -Path ember.exe -DestinationPath ember-win-x64.zip -Force\")",
+      "Bash(echo \"EXIT: $?\")"
     ]
   }
 }
