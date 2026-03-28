@@ -62,17 +62,23 @@ jobs:
           cp /usr/lib/x86_64-linux-gnu/libfreetype.so.6* squashfs-root/usr/lib/
 
           # Bundle Fcitx5 client library (required by im-fcitx5.so for daemon communication)
-          cp /usr/lib/x86_64-linux-gnu/libFcitx5GClient.so.2* squashfs-root/usr/lib/ 2>/dev/null || true
+          cp /usr/lib/x86_64-linux-gnu/libFcitx5GClient.so.2* squashfs-root/usr/lib/ 2>/dev/null \
+            || echo "WARNING: libFcitx5GClient not found, Fcitx5 IM will not work"
 
           # Bundle GTK3 IM modules for Fcitx5/IBus input method support
           IMMODULES_DIR=squashfs-root/usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules
           mkdir -p "$IMMODULES_DIR"
-          cp /usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/im-fcitx5.so "$IMMODULES_DIR/" 2>/dev/null || true
-          cp /usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/im-ibus.so "$IMMODULES_DIR/" 2>/dev/null || true
+          cp /usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/im-fcitx5.so "$IMMODULES_DIR/" 2>/dev/null \
+            || echo "WARNING: im-fcitx5.so not found"
+          cp /usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/im-ibus.so "$IMMODULES_DIR/" 2>/dev/null \
+            || echo "WARNING: im-ibus.so not found"
 
           # Regenerate immodules.cache from ALL bundled modules (do not overwrite on failure)
           CACHE_FILE=squashfs-root/usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules.cache
-          gtk-query-immodules-3.0 "$IMMODULES_DIR"/*.so > "${CACHE_FILE}.new" 2>/dev/null && mv "${CACHE_FILE}.new" "$CACHE_FILE" || rm -f "${CACHE_FILE}.new"
+          if ls "$IMMODULES_DIR"/*.so >/dev/null 2>&1; then
+            gtk-query-immodules-3.0 "$IMMODULES_DIR"/*.so > "${CACHE_FILE}.new" 2>/dev/null \
+              && mv "${CACHE_FILE}.new" "$CACHE_FILE" || rm -f "${CACHE_FILE}.new"
+          fi
 
           # Download appimagetool and repackage
           wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
@@ -148,17 +154,23 @@ jobs:
           cp /usr/lib/aarch64-linux-gnu/libfreetype.so.6* squashfs-root/usr/lib/
 
           # Bundle Fcitx5 client library (required by im-fcitx5.so for daemon communication)
-          cp /usr/lib/aarch64-linux-gnu/libFcitx5GClient.so.2* squashfs-root/usr/lib/ 2>/dev/null || true
+          cp /usr/lib/aarch64-linux-gnu/libFcitx5GClient.so.2* squashfs-root/usr/lib/ 2>/dev/null \
+            || echo "WARNING: libFcitx5GClient not found, Fcitx5 IM will not work"
 
           # Bundle GTK3 IM modules for Fcitx5/IBus input method support
           IMMODULES_DIR=squashfs-root/usr/lib/aarch64-linux-gnu/gtk-3.0/3.0.0/immodules
           mkdir -p "$IMMODULES_DIR"
-          cp /usr/lib/aarch64-linux-gnu/gtk-3.0/3.0.0/immodules/im-fcitx5.so "$IMMODULES_DIR/" 2>/dev/null || true
-          cp /usr/lib/aarch64-linux-gnu/gtk-3.0/3.0.0/immodules/im-ibus.so "$IMMODULES_DIR/" 2>/dev/null || true
+          cp /usr/lib/aarch64-linux-gnu/gtk-3.0/3.0.0/immodules/im-fcitx5.so "$IMMODULES_DIR/" 2>/dev/null \
+            || echo "WARNING: im-fcitx5.so not found"
+          cp /usr/lib/aarch64-linux-gnu/gtk-3.0/3.0.0/immodules/im-ibus.so "$IMMODULES_DIR/" 2>/dev/null \
+            || echo "WARNING: im-ibus.so not found"
 
           # Regenerate immodules.cache from ALL bundled modules (do not overwrite on failure)
           CACHE_FILE=squashfs-root/usr/lib/aarch64-linux-gnu/gtk-3.0/3.0.0/immodules.cache
-          gtk-query-immodules-3.0 "$IMMODULES_DIR"/*.so > "${CACHE_FILE}.new" 2>/dev/null && mv "${CACHE_FILE}.new" "$CACHE_FILE" || rm -f "${CACHE_FILE}.new"
+          if ls "$IMMODULES_DIR"/*.so >/dev/null 2>&1; then
+            gtk-query-immodules-3.0 "$IMMODULES_DIR"/*.so > "${CACHE_FILE}.new" 2>/dev/null \
+              && mv "${CACHE_FILE}.new" "$CACHE_FILE" || rm -f "${CACHE_FILE}.new"
+          fi
 
           # Download appimagetool and repackage
           wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-aarch64.AppImage" -O appimagetool
