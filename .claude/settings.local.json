@@ -73,7 +73,12 @@
       "Bash(code:*)",
       "Bash(git checkout:*)",
       "Bash(git merge:*)",
-      "Bash(gh run:*)"
+      "Bash(gh run:*)",
+      "Bash(git branch:*)",
+      "WebFetch(domain:www.balstokyo.com)",
+      "Bash(node -p \"require\\(''./apps/desktop/package.json''\\).version\")",
+      "Bash(cp target/release/ember.exe out/ember.exe)",
+      "Bash(powershell -Command \"Compress-Archive -Path ember.exe -DestinationPath ember-win-x64.zip -Force\")"
     ]
   }
 }
