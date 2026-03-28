@@ -2226,11 +2226,28 @@ export default function App() {
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     window.addEventListener("wheel", onWheel, { passive: false });
+
+    // Save window size on resize (debounced)
+    let resizeTimer: ReturnType<typeof setTimeout>;
+    const onResize = () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        const size = JSON.stringify({ width: window.outerWidth, height: window.outerHeight });
+        localStorage.setItem(WINDOW_STATE_KEY, size);
+        if (isTauriRuntime()) {
+          void invoke("save_window_size", { size }).catch((e: unknown) => console.warn("save_window_size failed", e));
+        }
+      }, 300);
+    };
+    window.addEventListener("resize", onResize);
+
     return () => {
       closeHoverPreview();
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("wheel", onWheel as EventListener);
+      window.removeEventListener("resize", onResize);
+      clearTimeout(resizeTimer);
     };
   }, []);
 

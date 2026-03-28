@@ -8,6 +8,7 @@ use core_fetch::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Command;
+use tauri::Manager;
 use std::sync::Mutex;
 
 /// (cookie_name, cookie_value, provider)
@@ -1103,6 +1104,19 @@ fn clear_login_cookies(provider: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn save_window_size(size: String) -> Result<(), String> {
+    core_store::save_json("window_size.json", &size).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn load_window_size() -> Result<String, String> {
+    match core_store::load_json::<String>("window_size.json") {
+        Ok(data) => Ok(data),
+        Err(_) => Ok(String::new()),
+    }
+}
+
+#[tauri::command]
 fn set_window_theme(window: tauri::WebviewWindow, dark: bool) -> Result<(), String> {
     use tauri::Theme;
     window.set_theme(if dark { Some(Theme::Dark) } else { Some(Theme::Light) })
@@ -1114,6 +1128,18 @@ pub fn run() {
     let _ = core_store::init_portable_layout();
     let _ = core_store::append_log("app started");
     tauri::Builder::default()
+        .setup(|app| {
+            if let Ok(raw) = core_store::load_json::<String>("window_size.json") {
+                if let Ok(size) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if let (Some(w), Some(h)) = (size["width"].as_f64(), size["height"].as_f64()) {
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.set_size(tauri::LogicalSize::new(w, h));
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             fetch_bbsmenu_summary,
             fetch_board_categories,
@@ -1150,6 +1176,8 @@ pub fn run() {
             load_all_cached_threads,
             delete_thread_cache,
             set_window_theme,
+            save_window_size,
+            load_window_size,
             clear_login_cookies
         ])
         .run(tauri::generate_context!())
