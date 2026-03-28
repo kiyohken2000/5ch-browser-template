@@ -141,6 +141,36 @@ body {
   margin: 0;
 }
 
+.board-button-bar {
+  border-bottom: 1px solid var(--line);
+  background: #e8e8e8;
+  padding: 2px 4px;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  overflow: hidden;
+  height: 28px;
+  box-sizing: border-box;
+}
+.board-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.board-btn:hover {
+  border-color: #999;
+  background: #d4d4d4;
+}
+.board-btn.selected {
+  border-color: #888;
+  background: #cde;
+  font-weight: bold;
+}
+
 .layout {
   display: grid;
   grid-template-columns: 20% 6px 1fr;
@@ -1887,6 +1917,18 @@ pre {
 }
 .dark .thread-menu button:hover {
   background: #3c3c3c;
+}
+.dark .board-button-bar {
+  background: #2d2d30;
+  border-color: var(--line);
+}
+.dark .board-btn:hover {
+  border-color: #555;
+  background: #3c3c3c;
+}
+.dark .board-btn.selected {
+  border-color: #666;
+  background: #3a4a5a;
 }
 .dark .tool-bar {
   background: #2d2d30;

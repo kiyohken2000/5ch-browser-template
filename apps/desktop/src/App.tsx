@@ -369,6 +369,7 @@ export default function App() {
   const [threadNgOpen, setThreadNgOpen] = useState(false);
   const [threadNgInput, setThreadNgInput] = useState("");
   const [ngPanelOpen, setNgPanelOpen] = useState(false);
+  const [showBoardButtons, setShowBoardButtons] = useState(false);
   const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">("boards");
   const [showCachedOnly, setShowCachedOnly] = useState(false);
   const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string; resCount: number }[]>([]);
@@ -1955,6 +1956,7 @@ export default function App() {
           darkMode?: boolean;
           fontFamily?: string;
           threadColWidths?: Record<string, number>;
+          showBoardButtons?: boolean;
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
         if (typeof parsed.threadPanePx === "number") {
@@ -1974,6 +1976,7 @@ export default function App() {
         if (parsed.threadColWidths && typeof parsed.threadColWidths === "object") {
           setThreadColWidths((prev) => ({ ...prev, ...parsed.threadColWidths }));
         }
+        if (typeof parsed.showBoardButtons === "boolean") setShowBoardButtons(parsed.showBoardButtons);
       } catch { /* ignore */ }
     };
     // Try localStorage first, then file-based persistence
@@ -2243,12 +2246,13 @@ export default function App() {
       darkMode,
       fontFamily,
       threadColWidths,
+      showBoardButtons,
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons]);
 
   useEffect(() => {
     if (isTauriRuntime()) {
@@ -2294,7 +2298,7 @@ export default function App() {
   return (
     <div
       className={`shell${darkMode ? " dark" : ""}`}
-      style={{ fontFamily: fontFamily || undefined }}
+      style={{ fontFamily: fontFamily || undefined, gridTemplateRows: showBoardButtons && favorites.boards.length > 0 ? "26px 32px 28px 1fr 22px" : undefined }}
       onClick={() => {
         setThreadMenu(null);
         setResponseMenu(null);
@@ -2334,6 +2338,8 @@ export default function App() {
             { text: "レイアウトリセット", action: () => resetLayout() },
             { text: "sep" },
             { text: darkMode ? "ライトテーマ" : "ダークテーマ", action: () => setDarkMode((v) => !v) },
+            { text: "sep" },
+            { text: showBoardButtons ? "板ボタンを非表示" : "板ボタンを表示", action: () => setShowBoardButtons((v) => !v) },
           ]},
           { label: "板", items: [
             { text: "板一覧を取得", action: () => fetchBoardCategories() },
@@ -2398,6 +2404,20 @@ export default function App() {
         </label>
         <button onClick={() => setNgPanelOpen((v) => !v)}>NG</button>
       </div>
+      {showBoardButtons && favorites.boards.length > 0 && (
+        <div className="board-button-bar">
+          {favorites.boards.map((b) => (
+            <button
+              key={b.url}
+              className={`board-btn${selectedBoard === b.boardName ? " selected" : ""}`}
+              onClick={() => selectBoard(b)}
+              title={b.boardName}
+            >
+              {b.boardName.length > 8 ? b.boardName.slice(0, 8) + "…" : b.boardName}
+            </button>
+          ))}
+        </div>
+      )}
       <main
         className="layout"
         style={{
@@ -3642,6 +3662,10 @@ export default function App() {
                 <label className="settings-row">
                   <span>自動更新間隔 (秒)</span>
                   <input type="number" value={autoRefreshInterval} min={10} max={600} onChange={(e) => setAutoRefreshInterval(Number(e.target.value))} />
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={showBoardButtons} onChange={(e) => setShowBoardButtons(e.target.checked)} />
+                  <span>板ボタンバー</span>
                 </label>
               </fieldset>
               <fieldset>
