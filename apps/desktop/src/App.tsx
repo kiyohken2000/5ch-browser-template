@@ -219,6 +219,80 @@ const normalizeExternalUrl = (raw: string): string | null => {
   return result ? rewrite5chNet(result) : null;
 };
 
+const isTextLikeInput = (el: HTMLInputElement | HTMLTextAreaElement): boolean => {
+  if (el instanceof HTMLTextAreaElement) return true;
+  const t = (el.type || "text").toLowerCase();
+  return t === "text" || t === "search" || t === "url" || t === "email" || t === "tel" || t === "password";
+};
+
+const getCaretClientPoint = (el: HTMLInputElement | HTMLTextAreaElement): { x: number; y: number } | null => {
+  if (!isTextLikeInput(el)) return null;
+  const selectionStart = el.selectionStart;
+  if (selectionStart == null) return null;
+  const rect = el.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+  const style = window.getComputedStyle(el);
+  const mirror = document.createElement("div");
+  mirror.style.position = "fixed";
+  mirror.style.left = `${rect.left}px`;
+  mirror.style.top = `${rect.top}px`;
+  mirror.style.width = `${rect.width}px`;
+  mirror.style.height = `${rect.height}px`;
+  mirror.style.visibility = "hidden";
+  mirror.style.pointerEvents = "none";
+  mirror.style.whiteSpace = el instanceof HTMLTextAreaElement ? "pre-wrap" : "pre";
+  mirror.style.overflow = "hidden";
+  mirror.style.boxSizing = style.boxSizing;
+  mirror.style.fontFamily = style.fontFamily;
+  mirror.style.fontSize = style.fontSize;
+  mirror.style.fontWeight = style.fontWeight;
+  mirror.style.fontStyle = style.fontStyle;
+  mirror.style.letterSpacing = style.letterSpacing;
+  mirror.style.lineHeight = style.lineHeight;
+  mirror.style.textTransform = style.textTransform;
+  mirror.style.textAlign = style.textAlign as "left" | "right" | "center" | "justify";
+  mirror.style.textIndent = style.textIndent;
+  mirror.style.padding = style.padding;
+  mirror.style.border = style.border;
+  mirror.style.tabSize = style.tabSize;
+
+  const before = el.value.slice(0, selectionStart);
+  mirror.textContent = before;
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  mirror.appendChild(marker);
+  document.body.appendChild(mirror);
+  mirror.scrollTop = el.scrollTop;
+  mirror.scrollLeft = el.scrollLeft;
+  const markerRect = marker.getBoundingClientRect();
+  mirror.remove();
+  return {
+    x: clamp(markerRect.left, rect.left + 4, rect.right - 4),
+    y: clamp(markerRect.top, rect.top + 4, rect.bottom - 4),
+  };
+};
+
+const emitTypingConfetti = (x: number, y: number, count = 6) => {
+  for (let i = 0; i < count; i += 1) {
+    const piece = document.createElement("span");
+    piece.className = "typing-confetti-piece";
+    const tx = (Math.random() - 0.5) * 42;
+    const ty = -(18 + Math.random() * 30);
+    const rot = `${Math.round((Math.random() - 0.5) * 240)}deg`;
+    const hue = String(Math.floor(360 * Math.random()));
+    const dur = `${420 + Math.floor(Math.random() * 220)}ms`;
+    piece.style.setProperty("--x", `${x}px`);
+    piece.style.setProperty("--y", `${y}px`);
+    piece.style.setProperty("--tx", `${tx.toFixed(1)}px`);
+    piece.style.setProperty("--ty", `${ty.toFixed(1)}px`);
+    piece.style.setProperty("--rot", rot);
+    piece.style.setProperty("--h", hue);
+    piece.style.setProperty("--dur", dur);
+    document.body.appendChild(piece);
+    piece.addEventListener("animationend", () => piece.remove(), { once: true });
+  }
+};
+
 const ID_COLORS = [
   "#c41a1a", "#1a8fc4", "#1aaa3e", "#b06d15", "#8c1ac4",
   "#c41a8a", "#0d8a7a", "#6b6b00", "#2d5faa", "#aa2d5f",
@@ -378,6 +452,7 @@ export default function App() {
   const keepSortOnRefreshRef = useRef(keepSortOnRefresh);
   keepSortOnRefreshRef.current = keepSortOnRefresh;
   const [composeSubmitKey, setComposeSubmitKey] = useState<"shift" | "ctrl">("shift");
+  const [typingConfettiEnabled, setTypingConfettiEnabled] = useState(false);
   const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">("boards");
   const [showCachedOnly, setShowCachedOnly] = useState(false);
   const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string; resCount: number }[]>([]);
@@ -460,6 +535,7 @@ export default function App() {
   const responseSearchRef = useRef<HTMLInputElement | null>(null);
   const [threadSearchHistory, setThreadSearchHistory] = useState<string[]>([]);
   const [responseSearchHistory, setResponseSearchHistory] = useState<string[]>([]);
+  const lastTypingConfettiTsRef = useRef(0);
   const [searchHistoryDropdown, setSearchHistoryDropdown] = useState<{ type: "thread" | "response" } | null>(null);
   const [searchHistoryMenu, setSearchHistoryMenu] = useState<{ x: number; y: number; type: "thread" | "response"; word: string } | null>(null);
   const [authConfig, setAuthConfig] = useState<AuthConfig>({
@@ -2072,6 +2148,7 @@ export default function App() {
           showBoardButtons?: boolean;
           keepSortOnRefresh?: boolean;
           composeSubmitKey?: "shift" | "ctrl";
+          typingConfettiEnabled?: boolean;
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
         if (typeof parsed.threadPanePx === "number") {
@@ -2094,6 +2171,7 @@ export default function App() {
         if (typeof parsed.showBoardButtons === "boolean") setShowBoardButtons(parsed.showBoardButtons);
         if (typeof parsed.keepSortOnRefresh === "boolean") setKeepSortOnRefresh(parsed.keepSortOnRefresh);
         if (parsed.composeSubmitKey === "shift" || parsed.composeSubmitKey === "ctrl") setComposeSubmitKey(parsed.composeSubmitKey);
+        if (typeof parsed.typingConfettiEnabled === "boolean") setTypingConfettiEnabled(parsed.typingConfettiEnabled);
       } catch { /* ignore */ }
     };
     // Try localStorage first, then file-based persistence
@@ -2393,12 +2471,33 @@ export default function App() {
       showBoardButtons,
       keepSortOnRefresh,
       composeSubmitKey,
+      typingConfettiEnabled,
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled]);
+
+  useEffect(() => {
+    if (!typingConfettiEnabled) return;
+    const onInput = (ev: Event) => {
+      const target = ev.target;
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+      if (target.readOnly || target.disabled) return;
+      if (!isTextLikeInput(target)) return;
+      const inputEv = ev as InputEvent;
+      if (inputEv.inputType && !inputEv.inputType.startsWith("insert")) return;
+      const now = performance.now();
+      if (now - lastTypingConfettiTsRef.current < 28) return;
+      const point = getCaretClientPoint(target);
+      if (!point) return;
+      lastTypingConfettiTsRef.current = now;
+      emitTypingConfetti(point.x, point.y);
+    };
+    window.addEventListener("input", onInput, true);
+    return () => window.removeEventListener("input", onInput, true);
+  }, [typingConfettiEnabled]);
 
   useEffect(() => {
     if (isTauriRuntime()) {
@@ -3951,6 +4050,10 @@ export default function App() {
                 <label className="settings-row">
                   <span>書き込み文字サイズ</span>
                   <input type="number" value={composeFontSize} min={10} max={24} onChange={(e) => setComposeFontSize(Number(e.target.value))} />
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={typingConfettiEnabled} onChange={(e) => setTypingConfettiEnabled(e.target.checked)} />
+                  <span>入力時コンフェティ</span>
                 </label>
               </fieldset>
               <fieldset>

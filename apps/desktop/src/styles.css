@@ -2471,3 +2471,37 @@ button.search-history-btn:hover {
 .dark .tab-res-count {
   color: #888;
 }
+
+.typing-confetti-piece {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 4px;
+  height: 7px;
+  border-radius: 1px;
+  pointer-events: none;
+  z-index: 220;
+  background: hsl(var(--h), 88%, 62%);
+  transform: translate3d(var(--x), var(--y), 0) rotate(0deg) scale(0.8);
+  animation: typing-confetti-burst var(--dur) ease-out forwards;
+}
+
+@keyframes typing-confetti-burst {
+  0% {
+    opacity: 0;
+    transform: translate3d(var(--x), var(--y), 0) rotate(0deg) scale(0.8);
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(calc(var(--x) + var(--tx)), calc(var(--y) + var(--ty)), 0) rotate(var(--rot)) scale(0.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-confetti-piece {
+    animation-duration: 1ms;
+  }
+}
