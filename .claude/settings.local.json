@@ -82,7 +82,8 @@
       "Bash(echo \"EXIT: $?\")",
       "Bash(cp /c/Users/all/develop/python/5ch-browser-template/target/release/ember.exe /c/Users/all/develop/python/5ch-browser-template/out/)",
       "Bash(powershell -NoProfile -Command \"Compress-Archive -Path ember.exe -DestinationPath ember-win-x64.zip -Force\")",
-      "Bash(rm ember.exe)"
+      "Bash(rm ember.exe)",
+      "Bash(taskkill //F //IM \"cargo-tauri.exe\")"
     ]
   }
 }
