@@ -2305,8 +2305,9 @@ export default function App() {
     try {
       const composeRaw = localStorage.getItem(COMPOSE_PREFS_KEY);
       if (composeRaw) {
-        const cp = JSON.parse(composeRaw) as { name?: string; mail?: string; sage?: boolean };
+        const cp = JSON.parse(composeRaw) as { name?: string; mail?: string; sage?: boolean; fontSize?: number };
         if (typeof cp.name === "string") setComposeName(cp.name);
+        if (typeof cp.fontSize === "number") setComposeFontSize(cp.fontSize);
         if (typeof cp.mail === "string") setComposeMail(cp.mail);
         if (typeof cp.sage === "boolean") setComposeSage(cp.sage);
         try {
@@ -2624,8 +2625,8 @@ export default function App() {
   }, [darkMode]);
 
   useEffect(() => {
-    localStorage.setItem(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeName, mail: composeMail, sage: composeSage }));
-  }, [composeName, composeMail, composeSage]);
+    localStorage.setItem(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeName, mail: composeMail, sage: composeSage, fontSize: composeFontSize }));
+  }, [composeName, composeMail, composeSage, composeFontSize]);
 
   useEffect(() => {
     if (suppressThreadScrollRef.current) {
