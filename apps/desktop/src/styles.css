@@ -903,7 +903,7 @@ li.fav-drag-over {
   max-width: 680px;
 }
 .nested-popup {
-  pointer-events: none;
+  pointer-events: auto;
   z-index: 62;
 }
 .hover-preview {

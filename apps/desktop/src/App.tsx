@@ -3265,7 +3265,7 @@ export default function App() {
                   window.addEventListener("mousemove", onMove);
                   window.addEventListener("mouseup", onUp);
                 }}
-                title={tab.threadUrl}
+                title={tab.title || tab.threadUrl}
               >
                 <span className="thread-tab-title">{tab.title}</span>
                 {tabCacheRef.current.has(tab.threadUrl) && (
@@ -3368,19 +3368,20 @@ export default function App() {
                   const rect = anchor.getBoundingClientRect();
                   const popupWidth = Math.min(620, window.innerWidth - 24);
                   const x = Math.max(8, Math.min(rect.left, window.innerWidth - popupWidth - 8));
-                  setAnchorPopup({ x, y: rect.bottom + 4, anchorTop: rect.top, responseId: no });
+                  setAnchorPopup({ x, y: rect.bottom + 1, anchorTop: rect.top, responseId: no });
                 }
               }}
               onMouseOut={(e) => {
                 const target = e.target as HTMLElement;
-                if (target.closest(".anchor-ref")) {
-                  if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
-                  anchorPopupCloseTimer.current = setTimeout(() => {
-                    setAnchorPopup(null);
-                    setNestedPopups([]);
-                    anchorPopupCloseTimer.current = null;
-                  }, 220);
-                }
+                if (!target.closest(".anchor-ref")) return;
+                const next = e.relatedTarget as HTMLElement | null;
+                if (next?.closest(".anchor-popup")) return;
+                if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
+                anchorPopupCloseTimer.current = setTimeout(() => {
+                  setAnchorPopup(null);
+                  setNestedPopups([]);
+                  anchorPopupCloseTimer.current = null;
+                }, 420);
               }}
             >
               {responsesLoading && (
@@ -3838,7 +3839,7 @@ export default function App() {
         const spaceBelow = window.innerHeight - anchorPopup.y;
         const flipUp = spaceBelow < maxH && anchorPopup.anchorTop > spaceBelow;
         const posStyle = flipUp
-          ? { left: anchorPopup.x, bottom: window.innerHeight - anchorPopup.anchorTop + 4 }
+          ? { left: anchorPopup.x, bottom: window.innerHeight - anchorPopup.anchorTop + 1 }
           : { left: anchorPopup.x, top: anchorPopup.y };
         return (
           <div
@@ -3850,13 +3851,15 @@ export default function App() {
                 anchorPopupCloseTimer.current = null;
               }
             }}
-            onMouseLeave={() => {
+            onMouseLeave={(ev) => {
+              const next = ev.relatedTarget as HTMLElement | null;
+              if (next?.closest(".anchor-popup")) return;
               if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
               anchorPopupCloseTimer.current = setTimeout(() => {
                 setAnchorPopup(null);
                 setNestedPopups([]);
                 anchorPopupCloseTimer.current = null;
-              }, 220);
+              }, 420);
             }}
             onMouseOver={(ev) => {
               const t = ev.target as HTMLElement;
@@ -3865,15 +3868,15 @@ export default function App() {
               const no = Number(a.dataset.anchor);
               if (no > 0 && responseItems.some((r) => r.id === no)) {
                 const rect = a.getBoundingClientRect();
-                setNestedPopups((prev) => {
-                  if (prev.some((p) => p.responseId === no)) return prev;
-                  return [...prev, { x: rect.left, y: rect.bottom + 4, anchorTop: rect.top, responseId: no }];
-                });
+                setNestedPopups([{ x: rect.left, y: rect.bottom + 1, anchorTop: rect.top, responseId: no }]);
               }
             }}
             onMouseOut={(ev) => {
               const t = ev.target as HTMLElement;
-              if (t.closest(".anchor-ref")) setNestedPopups([]);
+              if (!t.closest(".anchor-ref")) return;
+              const next = ev.relatedTarget as HTMLElement | null;
+              if (next?.closest(".anchor-popup")) return;
+              setNestedPopups([]);
             }}
             onClick={handlePopupImageClick}
             onMouseMove={handlePopupImageHover}
@@ -3892,7 +3895,11 @@ export default function App() {
           <div
             className="anchor-popup back-ref-popup"
             style={{ left: backRefPopup.x, bottom: window.innerHeight - backRefPopup.y }}
-            onMouseLeave={() => setBackRefPopup(null)}
+            onMouseLeave={(ev) => {
+              const next = ev.relatedTarget as HTMLElement | null;
+              if (next?.closest(".anchor-popup")) return;
+              setBackRefPopup(null);
+            }}
             onMouseOver={(ev) => {
               const t = ev.target as HTMLElement;
               const a = t.closest<HTMLElement>(".anchor-ref");
@@ -3900,15 +3907,15 @@ export default function App() {
               const no = Number(a.dataset.anchor);
               if (no > 0 && responseItems.some((r) => r.id === no)) {
                 const rect = a.getBoundingClientRect();
-                setNestedPopups((prev) => {
-                  if (prev.some((p) => p.responseId === no)) return prev;
-                  return [...prev, { x: rect.left, y: rect.bottom + 4, anchorTop: rect.top, responseId: no }];
-                });
+                setNestedPopups([{ x: rect.left, y: rect.bottom + 1, anchorTop: rect.top, responseId: no }]);
               }
             }}
             onMouseOut={(ev) => {
               const t = ev.target as HTMLElement;
-              if (t.closest(".anchor-ref")) setNestedPopups([]);
+              if (!t.closest(".anchor-ref")) return;
+              const next = ev.relatedTarget as HTMLElement | null;
+              if (next?.closest(".anchor-popup")) return;
+              setNestedPopups([]);
             }}
             onClick={handlePopupImageClick}
             onMouseMove={handlePopupImageHover}
@@ -3936,10 +3943,53 @@ export default function App() {
         const nSpaceBelow = window.innerHeight - np.y;
         const nFlipUp = nSpaceBelow < nMaxH && np.anchorTop > nSpaceBelow;
         const nPosStyle = nFlipUp
-          ? { left: np.x + i * 8, bottom: window.innerHeight - np.anchorTop + 4 + i * 8 }
+          ? { left: np.x + i * 8, bottom: window.innerHeight - np.anchorTop + 1 + i * 8 }
           : { left: np.x + i * 8, top: np.y + i * 8 };
         return (
-          <div key={`${np.responseId}-${i}`} className="anchor-popup nested-popup" style={nPosStyle} onClick={handlePopupImageClick} onMouseMove={handlePopupImageHover}>
+          <div
+            key={`${np.responseId}-${i}`}
+            className="anchor-popup nested-popup"
+            style={nPosStyle}
+            onMouseEnter={() => {
+              if (anchorPopupCloseTimer.current) {
+                clearTimeout(anchorPopupCloseTimer.current);
+                anchorPopupCloseTimer.current = null;
+              }
+            }}
+            onMouseLeave={(ev) => {
+              const next = ev.relatedTarget as HTMLElement | null;
+              if (next?.closest(".anchor-popup")) return;
+              if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
+              anchorPopupCloseTimer.current = setTimeout(() => {
+                setAnchorPopup(null);
+                setBackRefPopup(null);
+                setNestedPopups([]);
+                anchorPopupCloseTimer.current = null;
+              }, 420);
+            }}
+            onMouseOver={(ev) => {
+              const t = ev.target as HTMLElement;
+              const a = t.closest<HTMLElement>(".anchor-ref");
+              if (!a) return;
+              const no = Number(a.dataset.anchor);
+              if (no <= 0 || !responseItems.some((r) => r.id === no)) return;
+              const rect = a.getBoundingClientRect();
+              setNestedPopups((prev) => {
+                const head = prev.slice(0, i + 1);
+                if (head[head.length - 1]?.responseId === no) return head;
+                return [...head, { x: rect.left, y: rect.bottom + 1, anchorTop: rect.top, responseId: no }];
+              });
+            }}
+            onMouseOut={(ev) => {
+              const t = ev.target as HTMLElement;
+              if (!t.closest(".anchor-ref")) return;
+              const next = ev.relatedTarget as HTMLElement | null;
+              if (next?.closest(".anchor-popup")) return;
+              setNestedPopups((prev) => prev.slice(0, i + 1));
+            }}
+            onClick={handlePopupImageClick}
+            onMouseMove={handlePopupImageHover}
+          >
             <div className="anchor-popup-header">
               <span className="response-viewer-no">{nestedResp.id}</span> {nestedResp.name}
               <time>{nestedResp.time}</time>
