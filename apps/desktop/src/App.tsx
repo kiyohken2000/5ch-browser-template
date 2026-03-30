@@ -463,7 +463,7 @@ export default function App() {
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(60);
-  const [threadSortKey, setThreadSortKey] = useState<"fetched" | "id" | "title" | "res" | "speed">("id");
+  const [threadSortKey, setThreadSortKey] = useState<"fetched" | "id" | "title" | "res" | "lastFetch" | "speed">("id");
   const [threadSortAsc, setThreadSortAsc] = useState(true);
   const [threadTabs, setThreadTabs] = useState<ThreadTab[]>([]);
   const [activeTabIndex, setActiveTabIndex] = useState(-1);
@@ -1024,7 +1024,7 @@ export default function App() {
     setSelectedResponse(1);
   };
 
-  const toggleThreadSort = (key: "fetched" | "id" | "title" | "res" | "speed") => {
+  const toggleThreadSort = (key: "fetched" | "id" | "title" | "res" | "lastFetch" | "speed") => {
     if (threadSortKey === key) {
       setThreadSortAsc((prev) => !prev);
     } else {
@@ -1621,6 +1621,11 @@ export default function App() {
       else if (threadSortKey === "id") cmp = a.id - b.id;
       else if (threadSortKey === "title") cmp = a.title.localeCompare(b.title);
       else if (threadSortKey === "res") cmp = a.res - b.res;
+      else if (threadSortKey === "lastFetch") {
+        const la = threadFetchTimesRef.current[a.threadUrl] ?? "";
+        const lb = threadFetchTimesRef.current[b.threadUrl] ?? "";
+        cmp = la.localeCompare(lb);
+      }
       else if (threadSortKey === "speed") cmp = a.speed - b.speed;
       return threadSortAsc ? cmp : -cmp;
     });
@@ -3081,8 +3086,8 @@ export default function App() {
                 <th className="col-resizable-left" style={{ width: threadColWidths.unread + "px" }} onMouseDown={(e) => beginColResize("unread", "left", e)} onDoubleClick={(e) => resetColWidth("unread", "left", e)} onMouseMove={(e) => colResizeCursor("left", e)}>
                   新着
                 </th>
-                <th className="col-resizable-left" style={{ width: threadColWidths.lastFetch + "px" }} onMouseDown={(e) => beginColResize("lastFetch", "left", e)} onDoubleClick={(e) => resetColWidth("lastFetch", "left", e)} onMouseMove={(e) => colResizeCursor("left", e)}>
-                  最終取得
+                <th className="sortable-th col-resizable-left" style={{ width: threadColWidths.lastFetch + "px" }} onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); if (e.clientX <= r.left + COL_RESIZE_HANDLE_PX) return; toggleThreadSort("lastFetch"); }} onMouseDown={(e) => beginColResize("lastFetch", "left", e)} onDoubleClick={(e) => resetColWidth("lastFetch", "left", e)} onMouseMove={(e) => colResizeCursor("left", e)}>
+                  最終取得{threadSortKey === "lastFetch" ? (threadSortAsc ? " ▲" : " ▼") : ""}
                 </th>
                 <th className="sortable-th col-resizable-left" style={{ width: threadColWidths.speed + "px" }} onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); if (e.clientX <= r.left + COL_RESIZE_HANDLE_PX) return; toggleThreadSort("speed"); }} onMouseDown={(e) => beginColResize("speed", "left", e)} onDoubleClick={(e) => resetColWidth("speed", "left", e)} onMouseMove={(e) => colResizeCursor("left", e)}>
                   勢い{threadSortKey === "speed" ? (threadSortAsc ? " \u25B2" : " \u25BC") : ""}
