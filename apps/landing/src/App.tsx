@@ -254,6 +254,23 @@ export default function App() {
             </li>
           </ul>
         </section>
+
+        <section className="card system-req-panel">
+          <h2>動作環境</h2>
+          <div className="system-req-grid">
+            <div className="system-req-item">
+              <h3>Windows</h3>
+              <p>Windows 11 x64 で動作確認しています。</p>
+            </div>
+            <div className="system-req-item">
+              <h3>macOS</h3>
+              <p>macOS 26 (Apple Silicon) で動作確認しています。</p>
+            </div>
+          </div>
+          <p className="system-req-note">
+            Windows 10、32bit版Windows、Intel Mac での動作はサポート対象外であり、対応予定もありません。
+          </p>
+        </section>
       </main>
 
       {zoomedImage ? (

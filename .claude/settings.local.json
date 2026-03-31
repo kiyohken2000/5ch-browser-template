@@ -88,7 +88,14 @@
       "Bash(node -p \"require\\(''./apps/desktop/src-tauri/tauri.conf.json''\\).version\")",
       "Bash(cp ember.exe ember-temp.exe)",
       "Bash(powershell -NoProfile -Command \"Compress-Archive -Path ember-temp.exe -DestinationPath ember-win-x64.zip -Force\")",
-      "Bash(rm ember-temp.exe)"
+      "Bash(rm ember-temp.exe)",
+      "Bash(mkdir -p /c/Users/all/develop/python/5ch-browser-template/out)",
+      "Bash(cp /c/Users/all/develop/python/5ch-browser-template/target/release/ember.exe /tmp/ember.exe)",
+      "Read(//c/tmp/**)",
+      "Bash(rm -f /c/Users/all/develop/python/5ch-browser-template/out/ember-win-x64.zip)",
+      "Bash(powershell.exe -Command \"Compress-Archive -Path ''C:\\\\tmp\\\\ember.exe'' -DestinationPath ''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\out\\\\ember-win-x64.zip''\")",
+      "Bash(cp /c/Users/all/develop/python/5ch-browser-template/target/release/ember.exe /c/Users/all/develop/python/5ch-browser-template/out/ember.exe)",
+      "Bash(powershell.exe -Command \"Compress-Archive -Path ''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\out\\\\ember.exe'' -DestinationPath ''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\out\\\\ember-win-x64.zip''\")"
     ]
   }
 }

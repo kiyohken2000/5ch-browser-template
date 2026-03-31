@@ -302,6 +302,39 @@ h1 {
   background: #45475a;
 }
 
+.system-req-panel {
+  margin-top: 8px;
+}
+
+.system-req-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.system-req-item h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.system-req-item p {
+  margin: 0;
+  color: var(--ink-sub);
+  line-height: 1.6;
+}
+
+.system-req-note {
+  margin: 0;
+  padding: 10px 14px;
+  background: #fff3e0;
+  border-left: 3px solid #e08010;
+  border-radius: 4px;
+  color: #6a4000;
+  font-size: 0.93rem;
+  line-height: 1.6;
+}
+
 @media (max-width: 900px) {
   .hero-block {
     grid-template-columns: 1fr;
@@ -322,6 +355,10 @@ h1 {
     grid-template-columns: 1fr;
     gap: 4px;
     padding: 12px 0;
+  }
+
+  .system-req-grid {
+    grid-template-columns: 1fr;
   }
 }
 
