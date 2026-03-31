@@ -285,6 +285,21 @@ li.fav-drag-over {
   overflow-y: auto;
 }
 
+.fav-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  font-size: calc(11px + var(--fs-delta, 0px));
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  margin-bottom: 2px;
+}
+.dark .fav-search {
+  background: #2a2a2e;
+  color: var(--ink);
+  border-color: #555;
+}
+
 .boards-fetch {
   font-size: calc(10px + var(--fs-delta, 0px));
   padding: 2px 6px;

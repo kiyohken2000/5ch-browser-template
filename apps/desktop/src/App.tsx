@@ -488,8 +488,13 @@ export default function App() {
   const [composeSubmitKey, setComposeSubmitKey] = useState<"shift" | "ctrl">("shift");
   const [typingConfettiEnabled, setTypingConfettiEnabled] = useState(false);
   const [imageSizeLimit, setImageSizeLimit] = useState(0); // KB, 0 = unlimited
+  const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState(false);
+  const hoverPreviewEnabledRef = useRef(hoverPreviewEnabled);
+  hoverPreviewEnabledRef.current = hoverPreviewEnabled;
   const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">("boards");
   const [showCachedOnly, setShowCachedOnly] = useState(false);
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [favSearchQuery, setFavSearchQuery] = useState("");
   const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string; resCount: number }[]>([]);
   const [boardSearchQuery, setBoardSearchQuery] = useState("");
   const [responsesLoading, setResponsesLoading] = useState(false);
@@ -1683,6 +1688,7 @@ export default function App() {
     { id: 1, title: "プローブスレッド", res: 999, got: 24, speed: 2.5, lastLoad: "14:42", lastPost: "14:44", threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1/"},
     { id: 2, title: "認証テスト", res: 120, got: 8, speed: 0.8, lastLoad: "13:08", lastPost: "13:09", threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/2/" },
   ];
+  const favThreadUrls = useMemo(() => new Set(favorites.threads.map((t) => t.threadUrl)), [favorites.threads]);
   const threadItems = showCachedOnly
     ? cachedThreadList.map((ct, i) => ({
         id: i + 1,
@@ -1693,6 +1699,17 @@ export default function App() {
         lastLoad: "-",
         lastPost: "-",
         threadUrl: ct.threadUrl,
+      }))
+    : showFavoritesOnly
+    ? favorites.threads.map((ft, i) => ({
+        id: i + 1,
+        title: ft.title || "(タイトルなし)",
+        res: 0,
+        got: 0,
+        speed: 0,
+        lastLoad: "-",
+        lastPost: "-",
+        threadUrl: ft.threadUrl,
       }))
     : (
     fetchedThreads.length > 0
@@ -2347,6 +2364,7 @@ export default function App() {
           composeSubmitKey?: "shift" | "ctrl";
           typingConfettiEnabled?: boolean;
           imageSizeLimit?: number;
+          hoverPreviewEnabled?: boolean;
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
         if (typeof parsed.threadPanePx === "number") {
@@ -2371,6 +2389,7 @@ export default function App() {
         if (parsed.composeSubmitKey === "shift" || parsed.composeSubmitKey === "ctrl") setComposeSubmitKey(parsed.composeSubmitKey);
         if (typeof parsed.typingConfettiEnabled === "boolean") setTypingConfettiEnabled(parsed.typingConfettiEnabled);
         if (typeof parsed.imageSizeLimit === "number") setImageSizeLimit(parsed.imageSizeLimit);
+        if (typeof parsed.hoverPreviewEnabled === "boolean") setHoverPreviewEnabled(parsed.hoverPreviewEnabled);
       } catch { /* ignore */ }
     };
     // Try localStorage first, then file-based persistence
@@ -2501,7 +2520,7 @@ export default function App() {
   const handlePopupImageHover = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     const thumb = target.closest<HTMLImageElement>("img.response-thumb");
-    if (!e.ctrlKey || !thumb) return;
+    if ((!e.ctrlKey && !hoverPreviewEnabled) || !thumb) return;
     const src = thumb.getAttribute("src");
     if (!src) return;
     if (hoverPreviewHideTimerRef.current) {
@@ -2673,12 +2692,13 @@ export default function App() {
       composeSubmitKey,
       typingConfettiEnabled,
       imageSizeLimit,
+      hoverPreviewEnabled,
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -3040,11 +3060,17 @@ export default function App() {
             )
           ) : (
             <div className="fav-threads-list">
+              <input
+                className="fav-search"
+                value={favSearchQuery}
+                onChange={(e) => setFavSearchQuery(e.target.value)}
+                placeholder="お気に入り検索"
+              />
               {favorites.threads.length === 0 ? (
                 <span className="ng-empty">(お気に入りスレッドなし)</span>
               ) : (
                 <ul className="category-boards fav-thread-list">
-                  {favorites.threads.map((ft, i) => (
+                  {favorites.threads.filter((ft) => !favSearchQuery.trim() || ft.title.toLowerCase().includes(favSearchQuery.trim().toLowerCase())).map((ft, i) => (
                     <li key={ft.threadUrl} className={favDragState?.type === "thread" && favDragState.overIndex === i ? "fav-drag-over" : ""}>
                       <button
                         className="board-item"
@@ -3128,6 +3154,7 @@ export default function App() {
                 if (showCachedOnly) {
                   setShowCachedOnly(false);
                   setCachedThreadList([]);
+                  return;
                 } else {
                   if (isTauriRuntime()) {
                     invoke<[string, string, number][]>("load_all_cached_threads").then((list) => {
@@ -3155,12 +3182,18 @@ export default function App() {
                         return { threadUrl, title: displayTitle, resCount: count };
                       }));
                       setShowCachedOnly(true);
+                      setShowFavoritesOnly(false);
                     }).catch(() => {});
                   }
                 }
               }}
               title="dat落ちキャッシュ表示"
             ><Save size={14} /></button>
+            <button
+              className={`title-action-btn ${showFavoritesOnly ? "active-toggle" : ""}`}
+              onClick={() => { setShowFavoritesOnly((v) => !v); if (!showFavoritesOnly) setShowCachedOnly(false); }}
+              title="お気に入りスレのみ表示"
+            ><Star size={14} /></button>
             <button
               className={`title-action-btn ${threadNgOpen ? "active-toggle" : ""}`}
               onClick={() => setThreadNgOpen(!threadNgOpen)}
@@ -3485,7 +3518,7 @@ export default function App() {
               onMouseMove={(e) => {
                 const target = e.target as HTMLElement;
                 const thumb = target.closest<HTMLImageElement>("img.response-thumb");
-                if (!e.ctrlKey || !thumb) return;
+                if ((!e.ctrlKey && !hoverPreviewEnabled) || !thumb) return;
                 const src = thumb.getAttribute("src");
                 if (!src) return;
                 if (hoverPreviewHideTimerRef.current) {
@@ -3525,6 +3558,18 @@ export default function App() {
               }}
               onMouseOut={(e) => {
                 const target = e.target as HTMLElement;
+                // Hide hover preview when mouse leaves thumb (hover mode)
+                if (hoverPreviewEnabled && target.closest("img.response-thumb")) {
+                  const next = e.relatedTarget as HTMLElement | null;
+                  if (!next?.closest(".hover-preview")) {
+                    if (hoverPreviewHideTimerRef.current) clearTimeout(hoverPreviewHideTimerRef.current);
+                    hoverPreviewHideTimerRef.current = setTimeout(() => {
+                      hoverPreviewSrcRef.current = null;
+                      hoverPreviewHideTimerRef.current = null;
+                      if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
+                    }, 300);
+                  }
+                }
                 if (!target.closest(".anchor-ref")) return;
                 const next = e.relatedTarget as HTMLElement | null;
                 if (next?.closest(".anchor-popup")) return;
@@ -4366,6 +4411,10 @@ export default function App() {
                   <span>画像サイズ制限 (KB)</span>
                   <input type="number" value={imageSizeLimit} min={0} max={99999} onChange={(e) => setImageSizeLimit(Number(e.target.value))} />
                   <span className="settings-hint">0 = 無制限</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={hoverPreviewEnabled} onChange={(e) => setHoverPreviewEnabled(e.target.checked)} />
+                  <span>画像ホバープレビュー</span>
                 </label>
               </fieldset>
               <fieldset>
