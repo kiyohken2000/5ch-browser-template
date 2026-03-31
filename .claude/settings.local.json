@@ -95,7 +95,10 @@
       "Bash(rm -f /c/Users/all/develop/python/5ch-browser-template/out/ember-win-x64.zip)",
       "Bash(powershell.exe -Command \"Compress-Archive -Path ''C:\\\\tmp\\\\ember.exe'' -DestinationPath ''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\out\\\\ember-win-x64.zip''\")",
       "Bash(cp /c/Users/all/develop/python/5ch-browser-template/target/release/ember.exe /c/Users/all/develop/python/5ch-browser-template/out/ember.exe)",
-      "Bash(powershell.exe -Command \"Compress-Archive -Path ''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\out\\\\ember.exe'' -DestinationPath ''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\out\\\\ember-win-x64.zip''\")"
+      "Bash(powershell.exe -Command \"Compress-Archive -Path ''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\out\\\\ember.exe'' -DestinationPath ''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\out\\\\ember-win-x64.zip''\")",
+      "Bash(powershell.exe -Command \"\\(Get-Item 'C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe'\\).VersionInfo | Select-Object ProductVersion,FileVersion\")",
+      "Bash(grep -o '0\\\\.0\\\\.[0-9]*' /c/Users/all/develop/python/5ch-browser-template/apps/desktop/dist/assets/index-*.js)",
+      "Bash(powershell.exe -Command \"\\(Get-Item 'C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe'\\).VersionInfo.ProductVersion\")"
     ]
   }
 }
