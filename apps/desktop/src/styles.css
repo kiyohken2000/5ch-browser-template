@@ -698,7 +698,7 @@ li.fav-drag-over {
 
 .response-no {
   cursor: pointer;
-  color: #008800;
+  color: #226688;
   font-weight: 700;
 }
 
@@ -2246,7 +2246,7 @@ button.search-history-btn:hover {
   border-left: 4px solid #2090d0;
 }
 .dark .response-name {
-  color: #4ec94e;
+  color: #3a9a3a;
 }
 .dark .response-date {
   color: var(--sub);
@@ -2564,7 +2564,7 @@ button.search-history-btn:hover {
   color: #ff6644;
 }
 .dark .response-no {
-  color: #4ec94e;
+  color: #5eb8e0;
 }
 .dark .response-jump {
   background: #1e1e1e;
