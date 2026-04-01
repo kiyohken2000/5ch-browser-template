@@ -1818,7 +1818,8 @@ export default function App() {
     return { idCountMap: countMap, idSeqMap: seqMap };
   })();
 
-  const myPostNos = useMemo(() => new Set(myPosts[threadUrl.trim()] ?? []), [myPosts, threadUrl]);
+  const activeThreadUrl = activeTabIndex >= 0 && activeTabIndex < threadTabs.length ? threadTabs[activeTabIndex].threadUrl : threadUrl.trim();
+  const myPostNos = useMemo(() => new Set(myPosts[activeThreadUrl] ?? []), [myPosts, activeThreadUrl]);
   const replyToMeNos = useMemo(() => {
     if (myPostNos.size === 0) return new Set<number>();
     const set = new Set<number>();
