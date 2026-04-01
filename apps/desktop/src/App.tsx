@@ -221,6 +221,7 @@ const normalizeExternalUrl = (raw: string): string | null => {
   else if (/^ttp:\/\//i.test(v)) result = `h${v}`;
   else if (/^ps:\/\//i.test(v)) result = `htt${v}`;
   else if (/^s:\/\//i.test(v)) result = `http${v}`;
+  else if (/^:\/\//i.test(v)) result = `https${v}`;
   // Bare domain with path (https:// 抜き)
   else if (/^[a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)*\.[a-zA-Z]{2,}[/]/.test(v)) result = `https://${v}`;
   return result ? rewrite5chNet(result) : null;
@@ -349,14 +350,14 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
     .replace(/"/g, "&quot;");
   if (opts?.hideImages) {
     // Remove image URL lines entirely
-    safe = safe.split("\n").filter((line) => !/(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/)[^\s]+\.(?:jpg|jpeg|png|gif|webp)/i.test(line)).join("\n");
+    safe = safe.split("\n").filter((line) => !/(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/)[^\s]+\.(?:jpg|jpeg|png|gif|webp)/i.test(line)).join("\n");
   }
   safe = safe.replace(/\n/g, "<br>");
   const collectedThumbs: string[] = [];
   const sizeGated = opts?.imageSizeLimitKb && opts.imageSizeLimitKb > 0;
   if (!opts?.hideImages) {
     safe = safe.replace(
-      /((?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/)[^\s<>&"]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*(?:&amp;[^\s<>&"]*)*)?|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]*\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*(?:&amp;[^\s<>&"]*)*)?)/gi,
+      /((?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*(?:&amp;[^\s<>&"]*)*)?|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]*\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*(?:&amp;[^\s<>&"]*)*)?)/gi,
       (match) => {
         const href = normalizeExternalUrl(match);
         if (!href) return match;
@@ -371,7 +372,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   }
   // Linkify non-image URLs (must run after image thumb replacement)
   safe = safe.replace(
-    /((?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/)[^\s<>&"]+(?:&amp;[^\s<>&"]*)*|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]+(?:&amp;[^\s<>&"]*)*)/gi,
+    /((?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"]+(?:&amp;[^\s<>&"]*)*|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]+(?:&amp;[^\s<>&"]*)*)/gi,
     (match) => {
       // Skip if already inside a thumb-link or img tag
       if (match.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i)) return match;
@@ -387,7 +388,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   // Convert sssp:// BE icons to https:// img preview
   safe = safe.replace(
     /sssp:\/\/(img\.5ch\.net\/[^\s<>&]+|img\.5ch\.io\/[^\s<>&]+)/gi,
-    (_match, path) => `<img class="be-icon" src="https://${path}" loading="lazy" alt="BE" />`
+    (_match, path) => `<img class="be-icon" src="https://${(path as string).replace("img.5ch.net", "img.5ch.io")}" loading="lazy" alt="BE" />`
   );
   if (collectedThumbs.length > 0) {
     safe += `<div class="response-thumbs-row">${collectedThumbs.join("")}</div>`;
@@ -491,6 +492,13 @@ export default function App() {
   const [typingConfettiEnabled, setTypingConfettiEnabled] = useState(false);
   const [imageSizeLimit, setImageSizeLimit] = useState(0); // KB, 0 = unlimited
   const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState(false);
+  const [hoverPreviewDelay, setHoverPreviewDelay] = useState(0);
+  const hoverPreviewDelayRef = useRef(0);
+  hoverPreviewDelayRef.current = hoverPreviewDelay;
+  const hoverPreviewShowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [thumbSize, setThumbSize] = useState(200);
+  const [restoreSession, setRestoreSession] = useState(false);
+  const restoreSessionRef = useRef(false);
   const hoverPreviewEnabledRef = useRef(hoverPreviewEnabled);
   hoverPreviewEnabledRef.current = hoverPreviewEnabled;
   const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">("boards");
@@ -1862,7 +1870,7 @@ export default function App() {
     }
     if (responseLinkFilter) {
       const plain = r.text.replace(/<[^>]+>/g, "");
-      const urlRe = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/)[^\s<>&"]+|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]+/gi;
+      const urlRe = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"]+|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]+/gi;
       const imageRe = /\.(?:jpg|jpeg|png|gif|webp)(?:\?|$)/i;
       const videoRe = /\.(?:mp4|webm|mov)(?:\?|$)|youtu\.?be|nicovideo|nico\.ms/i;
       const urls = plain.match(urlRe) || [];
@@ -2395,6 +2403,9 @@ export default function App() {
           imageSizeLimit?: number;
           hoverPreviewEnabled?: boolean;
           lastBoard?: { boardName: string; url: string };
+          hoverPreviewDelay?: number;
+          thumbSize?: number;
+          restoreSession?: boolean;
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
         if (typeof parsed.threadPanePx === "number") {
@@ -2423,6 +2434,9 @@ export default function App() {
         if (parsed.lastBoard && typeof parsed.lastBoard.boardName === "string" && typeof parsed.lastBoard.url === "string") {
           pendingLastBoardRef.current = parsed.lastBoard;
         }
+        if (typeof parsed.hoverPreviewDelay === "number") setHoverPreviewDelay(parsed.hoverPreviewDelay);
+        if (typeof parsed.thumbSize === "number") setThumbSize(parsed.thumbSize);
+        if (typeof parsed.restoreSession === "boolean") { setRestoreSession(parsed.restoreSession); restoreSessionRef.current = parsed.restoreSession; }
       } catch { /* ignore */ }
     };
     // Try localStorage first, then file-based persistence
@@ -2489,7 +2503,7 @@ export default function App() {
       if (ftRaw) threadFetchTimesRef.current = JSON.parse(ftRaw);
     } catch { /* ignore */ }
     // Restore last selected board
-    if (pendingLastBoardRef.current) {
+    if (restoreSessionRef.current && pendingLastBoardRef.current) {
       const lb = pendingLastBoardRef.current;
       setSelectedBoard(lb.boardName);
       setLocationInput(lb.url);
@@ -2499,7 +2513,7 @@ export default function App() {
       pendingLastBoardRef.current = null;
     }
     // Restore thread tabs
-    try {
+    if (restoreSessionRef.current) try {
       const tabsRaw = localStorage.getItem(THREAD_TABS_KEY);
       if (tabsRaw) {
         const parsed = JSON.parse(tabsRaw) as { tabs: ThreadTab[]; activeIndex: number };
@@ -2602,30 +2616,46 @@ export default function App() {
     }
   };
 
+  const showHoverPreview = (src: string) => {
+    if (hoverPreviewHideTimerRef.current) {
+      clearTimeout(hoverPreviewHideTimerRef.current);
+      hoverPreviewHideTimerRef.current = null;
+    }
+    const show = () => {
+      if (src !== hoverPreviewSrcRef.current) {
+        hoverPreviewSrcRef.current = src;
+        hoverPreviewZoomRef.current = 100;
+        if (hoverPreviewImgRef.current) {
+          hoverPreviewImgRef.current.src = src;
+          hoverPreviewImgRef.current.style.width = "auto";
+          hoverPreviewImgRef.current.style.transform = "scale(1)";
+        }
+      }
+      if (hoverPreviewRef.current) {
+        hoverPreviewRef.current.style.display = "block";
+        hoverPreviewRef.current.scrollTop = 0;
+        hoverPreviewRef.current.scrollLeft = 0;
+      }
+    };
+    if (hoverPreviewShowTimerRef.current) {
+      clearTimeout(hoverPreviewShowTimerRef.current);
+      hoverPreviewShowTimerRef.current = null;
+    }
+    const delay = hoverPreviewDelayRef.current;
+    if (delay > 0 && src !== hoverPreviewSrcRef.current) {
+      hoverPreviewShowTimerRef.current = setTimeout(show, delay);
+    } else {
+      show();
+    }
+  };
+
   const handlePopupImageHover = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     const thumb = target.closest<HTMLImageElement>("img.response-thumb");
     if ((!e.ctrlKey && !hoverPreviewEnabled) || !thumb) return;
     const src = thumb.getAttribute("src");
     if (!src) return;
-    if (hoverPreviewHideTimerRef.current) {
-      clearTimeout(hoverPreviewHideTimerRef.current);
-      hoverPreviewHideTimerRef.current = null;
-    }
-    if (src !== hoverPreviewSrcRef.current) {
-      hoverPreviewSrcRef.current = src;
-      hoverPreviewZoomRef.current = 100;
-      if (hoverPreviewImgRef.current) {
-        hoverPreviewImgRef.current.src = src;
-        hoverPreviewImgRef.current.style.width = "auto";
-        hoverPreviewImgRef.current.style.transform = "scale(1)";
-      }
-    }
-    if (hoverPreviewRef.current) {
-      hoverPreviewRef.current.style.display = "block";
-      hoverPreviewRef.current.scrollTop = 0;
-      hoverPreviewRef.current.scrollLeft = 0;
-    }
+    showHoverPreview(src);
   };
 
   useEffect(() => {
@@ -2663,6 +2693,10 @@ export default function App() {
   useEffect(() => {
     const closeHoverPreview = () => {
       hoverPreviewSrcRef.current = null;
+      if (hoverPreviewShowTimerRef.current) {
+        clearTimeout(hoverPreviewShowTimerRef.current);
+        hoverPreviewShowTimerRef.current = null;
+      }
       if (hoverPreviewHideTimerRef.current) {
         clearTimeout(hoverPreviewHideTimerRef.current);
         hoverPreviewHideTimerRef.current = null;
@@ -2779,12 +2813,15 @@ export default function App() {
       imageSizeLimit,
       hoverPreviewEnabled,
       lastBoard: lastBoardUrlRef.current ? { boardName: selectedBoard, url: lastBoardUrlRef.current } : undefined,
+      hoverPreviewDelay,
+      thumbSize,
+      restoreSession,
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, restoreSession]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -2856,7 +2893,7 @@ export default function App() {
   return (
     <div
       className={`shell${darkMode ? " dark" : ""}`}
-      style={{ fontFamily: fontFamily || undefined, gridTemplateRows: showBoardButtons && favorites.boards.length > 0 ? "26px 32px auto 1fr 22px" : undefined }}
+      style={{ fontFamily: fontFamily || undefined, gridTemplateRows: showBoardButtons && favorites.boards.length > 0 ? "26px 32px auto 1fr 22px" : undefined, "--thumb-size": `${thumbSize}px` } as React.CSSProperties}
       onClick={() => {
         setThreadMenu(null);
         setResponseMenu(null);
@@ -3608,24 +3645,7 @@ export default function App() {
                 if ((!e.ctrlKey && !hoverPreviewEnabled) || !thumb) return;
                 const src = thumb.getAttribute("src");
                 if (!src) return;
-                if (hoverPreviewHideTimerRef.current) {
-                  clearTimeout(hoverPreviewHideTimerRef.current);
-                  hoverPreviewHideTimerRef.current = null;
-                }
-                if (src !== hoverPreviewSrcRef.current) {
-                  hoverPreviewSrcRef.current = src;
-                  hoverPreviewZoomRef.current = 100;
-                  if (hoverPreviewImgRef.current) {
-                    hoverPreviewImgRef.current.src = src;
-                    hoverPreviewImgRef.current.style.width = "auto";
-                    hoverPreviewImgRef.current.style.transform = "scale(1)";
-                  }
-                }
-                if (hoverPreviewRef.current) {
-                  hoverPreviewRef.current.style.display = "block";
-                  hoverPreviewRef.current.scrollTop = 0;
-                  hoverPreviewRef.current.scrollLeft = 0;
-                }
+                showHoverPreview(src);
               }}
               onMouseOver={(e) => {
                 const target = e.target as HTMLElement;
@@ -3649,6 +3669,7 @@ export default function App() {
                 if (hoverPreviewEnabled && target.closest("img.response-thumb")) {
                   const next = e.relatedTarget as HTMLElement | null;
                   if (!next?.closest(".hover-preview")) {
+                    if (hoverPreviewShowTimerRef.current) { clearTimeout(hoverPreviewShowTimerRef.current); hoverPreviewShowTimerRef.current = null; }
                     if (hoverPreviewHideTimerRef.current) clearTimeout(hoverPreviewHideTimerRef.current);
                     hoverPreviewHideTimerRef.current = setTimeout(() => {
                       hoverPreviewSrcRef.current = null;
@@ -4509,13 +4530,26 @@ export default function App() {
                   <span>スレ一覧の更新時にソートを維持</span>
                 </label>
                 <label className="settings-row">
+                  <input type="checkbox" checked={restoreSession} onChange={(e) => setRestoreSession(e.target.checked)} />
+                  <span>起動時に前回のタブと板を復元</span>
+                </label>
+                <label className="settings-row">
                   <span>画像サイズ制限 (KB)</span>
                   <input type="number" value={imageSizeLimit} min={0} max={99999} onChange={(e) => setImageSizeLimit(Number(e.target.value))} />
                   <span className="settings-hint">0 = 無制限</span>
                 </label>
                 <label className="settings-row">
+                  <span>サムネイルサイズ (px)</span>
+                  <input type="number" value={thumbSize} min={50} max={600} step={10} onChange={(e) => setThumbSize(Number(e.target.value))} />
+                </label>
+                <label className="settings-row">
                   <input type="checkbox" checked={hoverPreviewEnabled} onChange={(e) => setHoverPreviewEnabled(e.target.checked)} />
                   <span>画像ホバープレビュー</span>
+                </label>
+                <label className="settings-row">
+                  <span>ホバープレビュー遅延 (ms)</span>
+                  <input type="number" value={hoverPreviewDelay} min={0} max={2000} step={50} onChange={(e) => setHoverPreviewDelay(Number(e.target.value))} />
+                  <span className="settings-hint">0 = 即時</span>
                 </label>
               </fieldset>
               <fieldset>

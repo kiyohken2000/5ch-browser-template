@@ -99,7 +99,9 @@
       "Bash(powershell.exe -Command \"\\(Get-Item 'C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe'\\).VersionInfo | Select-Object ProductVersion,FileVersion\")",
       "Bash(grep -o '0\\\\.0\\\\.[0-9]*' /c/Users/all/develop/python/5ch-browser-template/apps/desktop/dist/assets/index-*.js)",
       "Bash(powershell.exe -Command \"\\(Get-Item 'C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe'\\).VersionInfo.ProductVersion\")",
-      "Bash(powershell.exe -Command \"\\(Get-Item ''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe''\\).VersionInfo.ProductVersion\")"
+      "Bash(powershell.exe -Command \"\\(Get-Item ''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe''\\).VersionInfo.ProductVersion\")",
+      "Bash(cp:*)",
+      "Bash(git stash:*)"
     ]
   }
 }
