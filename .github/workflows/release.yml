@@ -91,6 +91,16 @@ jobs:
             || echo "WARNING: libgiognutls.so not found, HTTPS image loading may fail"
           gio-querymodules "$GIO_MODULES_DIR" 2>/dev/null || true
 
+          # Remove TLS dependency libs auto-bundled by linuxdeploy — the host
+          # system's versions must be used so GnuTLS can find the distro's CA
+          # trust store (bundling Ubuntu's causes "Unacceptable TLS certificate").
+          rm -f squashfs-root/usr/lib/libgnutls.so.* \
+               squashfs-root/usr/lib/libnettle.so.* \
+               squashfs-root/usr/lib/libhogweed.so.* \
+               squashfs-root/usr/lib/libp11-kit.so.* \
+               squashfs-root/usr/lib/libtasn1.so.* \
+               squashfs-root/usr/lib/libidn2.so.*
+
           # Download appimagetool and repackage
           wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool
           chmod +x appimagetool
@@ -193,6 +203,16 @@ jobs:
           cp /usr/lib/aarch64-linux-gnu/gio/modules/libgiognutls.so "$GIO_MODULES_DIR/" 2>/dev/null \
             || echo "WARNING: libgiognutls.so not found, HTTPS image loading may fail"
           gio-querymodules "$GIO_MODULES_DIR" 2>/dev/null || true
+
+          # Remove TLS dependency libs auto-bundled by linuxdeploy — the host
+          # system's versions must be used so GnuTLS can find the distro's CA
+          # trust store (bundling Ubuntu's causes "Unacceptable TLS certificate").
+          rm -f squashfs-root/usr/lib/libgnutls.so.* \
+               squashfs-root/usr/lib/libnettle.so.* \
+               squashfs-root/usr/lib/libhogweed.so.* \
+               squashfs-root/usr/lib/libp11-kit.so.* \
+               squashfs-root/usr/lib/libtasn1.so.* \
+               squashfs-root/usr/lib/libidn2.so.*
 
           # Download appimagetool and repackage
           wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-aarch64.AppImage" -O appimagetool
