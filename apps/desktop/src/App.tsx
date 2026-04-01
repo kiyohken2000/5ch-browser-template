@@ -13,6 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
+  Image, Film, ExternalLink,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -574,6 +575,7 @@ export default function App() {
   const [newResponseStart, setNewResponseStart] = useState<number | null>(null);
   const threadFetchTimesRef = useRef<Record<string, string>>({});
   const [responseSearchQuery, setResponseSearchQuery] = useState("");
+  const [responseLinkFilter, setResponseLinkFilter] = useState<"" | "image" | "video" | "link">("");
   const threadSearchRef = useRef<HTMLInputElement | null>(null);
   const responseSearchRef = useRef<HTMLInputElement | null>(null);
   const [threadSearchHistory, setThreadSearchHistory] = useState<string[]>([]);
@@ -1850,7 +1852,21 @@ export default function App() {
       const q = responseSearchQuery.toLowerCase();
       const plainText = r.text.replace(/<[^>]+>/g, "").toLowerCase();
       const nameText = r.name.toLowerCase();
-      return plainText.includes(q) || nameText.includes(q) || r.time.toLowerCase().includes(q);
+      if (!(plainText.includes(q) || nameText.includes(q) || r.time.toLowerCase().includes(q))) return false;
+    }
+    if (responseLinkFilter) {
+      const plain = r.text.replace(/<[^>]+>/g, "");
+      const urlRe = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/)[^\s<>&"]+|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]+/gi;
+      const imageRe = /\.(?:jpg|jpeg|png|gif|webp)(?:\?|$)/i;
+      const videoRe = /\.(?:mp4|webm|mov)(?:\?|$)|youtu\.?be|nicovideo|nico\.ms/i;
+      const urls = plain.match(urlRe) || [];
+      if (responseLinkFilter === "image") {
+        if (!urls.some((u) => imageRe.test(u))) return false;
+      } else if (responseLinkFilter === "video") {
+        if (!urls.some((u) => videoRe.test(u))) return false;
+      } else if (responseLinkFilter === "link") {
+        if (!urls.some((u) => !imageRe.test(u) && !videoRe.test(u))) return false;
+      }
     }
     return true;
   });
@@ -3392,6 +3408,7 @@ export default function App() {
                 key={tab.threadUrl}
                 className={`thread-tab ${i === activeTabIndex ? "active" : ""} ${tabDragIndex !== null && tabDragIndex !== i ? "drag-target" : ""}`}
                 onClick={() => { if (tabDragRef.current) return; onTabClick(i); }}
+                onDoubleClick={() => { void fetchResponsesFromCurrent(tab.threadUrl, { keepSelection: true }); }}
                 onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); closeTab(i); } }}
                 onContextMenu={(e) => {
                   e.preventDefault();
@@ -3737,6 +3754,11 @@ export default function App() {
                 )}
               </div>
               {responseSearchQuery && <button className="title-action-btn" onClick={() => setResponseSearchQuery("")} title="検索クリア"><X size={14} /></button>}
+              <span className="link-filter-buttons">
+                <button className={`link-filter-btn ${responseLinkFilter === "image" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "image" ? "" : "image")} title="画像リンク"><Image size={13} /></button>
+                <button className={`link-filter-btn ${responseLinkFilter === "video" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "video" ? "" : "video")} title="動画リンク"><Film size={13} /></button>
+                <button className={`link-filter-btn ${responseLinkFilter === "link" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "link" ? "" : "link")} title="外部リンク"><ExternalLink size={13} /></button>
+              </span>
               <span className="nav-buttons">
                 <button onClick={() => { if (visibleResponseItems.length > 0) setSelectedResponse(visibleResponseItems[0].id); }}>Top</button>
                 {newResponseStart !== null && (

@@ -2683,6 +2683,42 @@ button.search-history-btn:hover {
   }
 }
 
+.link-filter-buttons {
+  display: flex;
+  gap: 1px;
+  margin: 0 4px;
+}
+.link-filter-btn {
+  background: transparent;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  padding: 1px 4px;
+  cursor: pointer;
+  color: #666;
+  display: flex;
+  align-items: center;
+}
+.link-filter-btn:hover {
+  background: #e8e8e8;
+}
+.link-filter-btn.active {
+  background: #4a90d9;
+  color: #fff;
+  border-color: #4a90d9;
+}
+.dark .link-filter-btn {
+  border-color: #555;
+  color: #999;
+}
+.dark .link-filter-btn:hover {
+  background: #444;
+}
+.dark .link-filter-btn.active {
+  background: #4a90d9;
+  color: #fff;
+  border-color: #4a90d9;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .typing-confetti-piece,
   .delete-explosion-piece {
