@@ -102,7 +102,10 @@
       "Bash(powershell.exe -Command \"\\(Get-Item ''C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe''\\).VersionInfo.ProductVersion\")",
       "Bash(cp:*)",
       "Bash(git stash:*)",
-      "Bash(chmod +x:*)"
+      "Bash(chmod +x:*)",
+      "Bash(mkdir -p Ember_win_x64)",
+      "Bash(cp ember.exe Ember_win_x64/)",
+      "Bash(powershell -Command \"Compress-Archive -Force -Path 'Ember_win_x64' -DestinationPath 'Ember_0.0.50_win_x64.zip'\")"
     ]
   }
 }
