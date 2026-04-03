@@ -3423,7 +3423,20 @@ export default function App() {
             ><Save size={14} /></button>
             <button
               className={`title-action-btn ${showFavoritesOnly ? "active-toggle" : ""}`}
-              onClick={() => { setShowFavoritesOnly((v) => !v); if (!showFavoritesOnly) { setShowCachedOnly(false); void fetchFavNewCounts(); } }}
+              onClick={() => {
+                const willEnable = !showFavoritesOnly;
+                setShowFavoritesOnly((v) => !v);
+                if (willEnable) {
+                  setShowCachedOnly(false);
+                  void fetchFavNewCounts();
+                } else {
+                  // Restore read status for normal thread list
+                  const url = threadUrl.trim();
+                  if (url && fetchedThreads.length > 0) {
+                    void loadReadStatusForBoard(url, fetchedThreads);
+                  }
+                }
+              }}
               title="お気に入りスレのみ表示"
             ><Star size={14} /></button>
             <button
