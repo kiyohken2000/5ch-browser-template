@@ -1104,6 +1104,10 @@ li.fav-drag-over {
   color: #cc3300;
 }
 
+.dat-ochi-row td {
+  opacity: 0.4;
+}
+
 .last-fetch-cell {
   font-size: calc(10px + var(--fs-delta, 0px));
   color: var(--sub);

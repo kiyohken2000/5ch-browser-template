@@ -529,6 +529,7 @@ export default function App() {
   const [showCachedOnly, setShowCachedOnly] = useState(false);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [favNewCounts, setFavNewCounts] = useState<Map<string, number>>(new Map());
+  const [favNewCountsFetched, setFavNewCountsFetched] = useState(false);
   const [favSearchQuery, setFavSearchQuery] = useState("");
   const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string; resCount: number }[]>([]);
   const [boardSearchQuery, setBoardSearchQuery] = useState("");
@@ -1357,6 +1358,7 @@ export default function App() {
 
   const fetchFavNewCounts = async () => {
     if (!isTauriRuntime()) return;
+    setFavNewCountsFetched(false);
     // Group favorite threads by board URL (always derive from threadUrl)
     const boardMap = new Map<string, FavoriteThread[]>();
     for (const ft of favorites.threads) {
@@ -1409,6 +1411,7 @@ export default function App() {
     setThreadReadMap(readMap);
     setThreadLastReadCount(lastReadMap);
     setFavNewCounts(counts);
+    setFavNewCountsFetched(true);
     setStatus(`お気に入り新着確認完了 (${counts.size}/${favorites.threads.length}スレ)`);
   };
 
@@ -1809,6 +1812,7 @@ export default function App() {
         const res = serverCount ?? (fetched ? fetched.responseCount : (cachedCount > 0 ? cachedCount : -1));
         const lastRead = threadLastReadCount[id] ?? 0;
         const got = lastRead > 0 ? lastRead : (cachedCount > 0 ? cachedCount : 0);
+        const datOchi = favNewCountsFetched && serverCount === undefined;
         return {
           id,
           title: ft.title || "(タイトルなし)",
@@ -1818,6 +1822,7 @@ export default function App() {
           lastLoad: "-",
           lastPost: "-",
           threadUrl: ft.threadUrl,
+          datOchi,
         };
       })
     : (
@@ -3493,7 +3498,7 @@ export default function App() {
                 return (
                   <tr
                     key={t.id}
-                    className={`${selectedThread === t.id ? "selected-row" : ""} ${isUnread ? "unread-row" : ""} ${hasUnread ? "has-unread-row" : ""}`}
+                    className={`${selectedThread === t.id ? "selected-row" : ""} ${isUnread ? "unread-row" : ""} ${hasUnread ? "has-unread-row" : ""} ${"datOchi" in t && t.datOchi ? "dat-ochi-row" : ""}`}
                     onClick={() => {
                       setSelectedThread(t.id);
                       setSelectedResponse(1);
@@ -3524,7 +3529,7 @@ export default function App() {
                     }}
                     onContextMenu={(e) => onThreadContextMenu(e, t.id)}
                   >
-                    <td className="thread-fetched-cell">{hasUnread ? "\u25CF" : ""}</td>
+                    <td className="thread-fetched-cell">{hasUnread || threadReadMap[t.id] ? "\u25CF" : ""}</td>
                     <td>{t.id}</td>
                     <td
                       className="thread-title-cell"
