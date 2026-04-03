@@ -528,6 +528,7 @@ export default function App() {
   const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">("boards");
   const [showCachedOnly, setShowCachedOnly] = useState(false);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [favNewCounts, setFavNewCounts] = useState<Map<string, number>>(new Map());
   const [favSearchQuery, setFavSearchQuery] = useState("");
   const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string; resCount: number }[]>([]);
   const [boardSearchQuery, setBoardSearchQuery] = useState("");
@@ -1354,6 +1355,63 @@ export default function App() {
     }
   };
 
+  const fetchFavNewCounts = async () => {
+    if (!isTauriRuntime()) return;
+    // Group favorite threads by board URL (always derive from threadUrl)
+    const boardMap = new Map<string, FavoriteThread[]>();
+    for (const ft of favorites.threads) {
+      const bUrl = getBoardUrlFromThreadUrl(ft.threadUrl);
+      const arr = boardMap.get(bUrl) ?? [];
+      arr.push(ft);
+      boardMap.set(bUrl, arr);
+    }
+    const counts = new Map<string, number>();
+    setStatus("お気に入りスレの新着を確認中...");
+    // Load read status for all boards
+    let allReadStatus: Record<string, Record<string, number>> = {};
+    try {
+      allReadStatus = await invoke<Record<string, Record<string, number>>>("load_read_status");
+    } catch {
+      console.warn("load_read_status failed for fav new counts");
+    }
+    await Promise.all(
+      Array.from(boardMap.entries()).map(async ([boardUrl, threads]) => {
+        try {
+          const rows = await invoke<ThreadListItem[]>("fetch_thread_list", {
+            threadUrl: boardUrl,
+            limit: null,
+          });
+          for (const ft of threads) {
+            const matched = rows.find((r) => r.threadUrl === ft.threadUrl);
+            if (matched) {
+              counts.set(ft.threadUrl, matched.responseCount);
+            }
+          }
+        } catch {
+          console.warn(`fav new count fetch failed for board: ${boardUrl}`);
+        }
+      })
+    );
+    // Build readMap and lastReadMap for favorites
+    const readMap: Record<number, boolean> = {};
+    const lastReadMap: Record<number, number> = {};
+    favorites.threads.forEach((ft, i) => {
+      const id = i + 1;
+      const bUrl = getBoardUrlFromThreadUrl(ft.threadUrl);
+      const boardStatus = allReadStatus[bUrl] ?? {};
+      // Extract thread key from URL
+      const parts = ft.threadUrl.replace(/\/$/, "").split("/");
+      const threadKey = parts[parts.length - 1] ?? "";
+      const lastRead = boardStatus[threadKey] ?? 0;
+      readMap[id] = lastRead > 0;
+      lastReadMap[id] = lastRead;
+    });
+    setThreadReadMap(readMap);
+    setThreadLastReadCount(lastReadMap);
+    setFavNewCounts(counts);
+    setStatus(`お気に入り新着確認完了 (${counts.size}/${favorites.threads.length}スレ)`);
+  };
+
   const fetchResponsesFromCurrent = async (targetThreadUrl?: string, opts?: { keepSelection?: boolean; resetScroll?: boolean }) => {
     const url = (targetThreadUrl ?? threadUrl).trim();
     if (!url) return;
@@ -1743,15 +1801,19 @@ export default function App() {
       }))
     : showFavoritesOnly
     ? favorites.threads.map((ft, i) => {
+        const id = i + 1;
+        const serverCount = favNewCounts.get(ft.threadUrl);
+        const fetched = fetchedThreads.find((t) => t.threadUrl === ft.threadUrl);
         const cached = tabCacheRef.current.get(ft.threadUrl);
         const cachedCount = cached ? cached.responses.length : 0;
-        const fetched = fetchedThreads.find((t) => t.threadUrl === ft.threadUrl);
-        const res = fetched ? fetched.responseCount : (cachedCount > 0 ? cachedCount : -1);
+        const res = serverCount ?? (fetched ? fetched.responseCount : (cachedCount > 0 ? cachedCount : -1));
+        const lastRead = threadLastReadCount[id] ?? 0;
+        const got = lastRead > 0 ? lastRead : (cachedCount > 0 ? cachedCount : 0);
         return {
-          id: i + 1,
+          id,
           title: ft.title || "(タイトルなし)",
           res,
-          got: cachedCount > 0 ? cachedCount : -1,
+          got,
           speed: 0,
           lastLoad: "-",
           lastPost: "-",
@@ -3356,7 +3418,7 @@ export default function App() {
             ><Save size={14} /></button>
             <button
               className={`title-action-btn ${showFavoritesOnly ? "active-toggle" : ""}`}
-              onClick={() => { setShowFavoritesOnly((v) => !v); if (!showFavoritesOnly) setShowCachedOnly(false); }}
+              onClick={() => { setShowFavoritesOnly((v) => !v); if (!showFavoritesOnly) { setShowCachedOnly(false); void fetchFavNewCounts(); } }}
               title="お気に入りスレのみ表示"
             ><Star size={14} /></button>
             <button
@@ -3462,7 +3524,7 @@ export default function App() {
                     }}
                     onContextMenu={(e) => onThreadContextMenu(e, t.id)}
                   >
-                    <td className="thread-fetched-cell">{!showFavoritesOnly && threadReadMap[t.id] ? "\u25CF" : ""}</td>
+                    <td className="thread-fetched-cell">{hasUnread ? "\u25CF" : ""}</td>
                     <td>{t.id}</td>
                     <td
                       className="thread-title-cell"
@@ -3470,8 +3532,8 @@ export default function App() {
                     />
                     <td>{t.res >= 0 ? t.res : "-"}</td>
                     <td>{t.got > 0 ? t.got : "-"}</td>
-                    <td className={`new-count ${!showFavoritesOnly && t.got > 0 && t.res > 0 && t.res - t.got > 0 ? "has-new" : ""}`}>
-                      {!showFavoritesOnly && t.got > 0 && t.res > 0 ? Math.max(0, t.res - t.got) : "-"}
+                    <td className={`new-count ${t.got > 0 && t.res > 0 && t.res - t.got > 0 ? "has-new" : ""}`}>
+                      {t.got > 0 && t.res > 0 ? Math.max(0, t.res - t.got) : "-"}
                     </td>
                     <td className="last-fetch-cell">{threadFetchTimesRef.current[t.threadUrl] ?? "-"}</td>
                     <td className="speed-cell">
