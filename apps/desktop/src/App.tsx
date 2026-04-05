@@ -2395,6 +2395,19 @@ export default function App() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (hoverPreviewSrcRef.current) {
+          hoverPreviewSrcRef.current = null;
+          if (hoverPreviewShowTimerRef.current) {
+            clearTimeout(hoverPreviewShowTimerRef.current);
+            hoverPreviewShowTimerRef.current = null;
+          }
+          if (hoverPreviewHideTimerRef.current) {
+            clearTimeout(hoverPreviewHideTimerRef.current);
+            hoverPreviewHideTimerRef.current = null;
+          }
+          if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
+          return;
+        }
         if (lightboxUrl) { setLightboxUrl(null); return; }
         if (aboutOpen) { setAboutOpen(false); return; }
         if (shortcutsOpen) { setShortcutsOpen(false); return; }
