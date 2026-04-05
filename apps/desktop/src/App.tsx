@@ -1438,9 +1438,10 @@ export default function App() {
         limit: null,
       });
       const rows = result.responses;
+      const fetchedTitle = result.title ? decodeHtmlEntities(result.title) : null;
       // Update tab title if server returned a real title (e.g. from read.cgi HTML)
-      if (result.title) {
-        setThreadTabs((prev) => prev.map((t) => t.threadUrl === url ? { ...t, title: result.title! } : t));
+      if (fetchedTitle) {
+        setThreadTabs((prev) => prev.map((t) => t.threadUrl === url ? { ...t, title: fetchedTitle } : t));
       }
       const cachedEntry = tabCacheRef.current.get(url);
       const prevCount = cachedEntry ? cachedEntry.responses.length : 0;
@@ -1476,9 +1477,9 @@ export default function App() {
       }
       tabCacheRef.current.set(url, { responses: rows, selectedResponse: rows.length > 0 ? rows[0].responseNo : 1 });
       // persist to SQLite
-      const tabTitle = threadTabs.find((t) => t.threadUrl === url)?.title
+      const tabTitle = fetchedTitle
+        ?? threadTabs.find((t) => t.threadUrl === url)?.title
         ?? fetchedThreads.find((t) => t.threadUrl === url)?.title
-        ?? result.title
         ?? "";
       invoke("save_thread_cache", { threadUrl: url, title: tabTitle, responsesJson: JSON.stringify(rows) }).catch(() => {});
       const now = new Date();

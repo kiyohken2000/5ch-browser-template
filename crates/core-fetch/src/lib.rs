@@ -90,6 +90,20 @@ pub struct ThreadResponse {
     pub body: String,
 }
 
+fn parse_dat_title(line: &str) -> Option<String> {
+    let mut it = line.split("<>");
+    let _name = it.next()?;
+    let _mail = it.next()?;
+    let _date_and_id = it.next()?;
+    let _body = it.next()?;
+    let title = it.next()?.trim();
+    if title.is_empty() {
+        None
+    } else {
+        Some(title.to_string())
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ConfirmSubmitForm {
     action_url: String,
@@ -346,7 +360,11 @@ pub async fn fetch_thread_responses(
         let body = decoded.into_owned();
 
         let mut out = Vec::new();
+        let mut dat_title: Option<String> = None;
         for (idx, line) in body.lines().enumerate() {
+            if idx == 0 {
+                dat_title = parse_dat_title(line);
+            }
             if let Some(row) = parse_dat_line(line) {
                 out.push(ThreadResponse {
                     response_no: (idx + 1) as u32,
@@ -361,7 +379,7 @@ pub async fn fetch_thread_responses(
             }
         }
         if !out.is_empty() {
-            return Ok((out, None));
+            return Ok((out, dat_title));
         }
     }
 
