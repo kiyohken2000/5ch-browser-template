@@ -997,7 +997,7 @@ li.fav-drag-over {
 
 .id-popup {
   position: fixed;
-  z-index: 65;
+  z-index: 59;
   width: min(520px, calc(100vw - 16px));
   max-width: 520px;
   max-height: 360px;

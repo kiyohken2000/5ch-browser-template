@@ -3871,7 +3871,7 @@ export default function App() {
                   setAnchorPopup(null);
                   setNestedPopups([]);
                   anchorPopupCloseTimer.current = null;
-                }, 420);
+                }, 150);
               }}
             >
               {responsesLoading && (
@@ -3951,7 +3951,7 @@ export default function App() {
                               setIdPopup({ right, y: rect.bottom + 2, anchorTop: rect.top, id });
                             }}
                             onMouseLeave={() => {
-                              idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 300);
+                              idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 150);
                             }}
                           >
                             ID:{id}({idSeqMap.get(r.id) ?? 1}/{count})
@@ -4401,13 +4401,13 @@ export default function App() {
             }}
             onMouseLeave={(ev) => {
               const next = ev.relatedTarget as HTMLElement | null;
-              if (next?.closest(".anchor-popup")) return;
+              if (next?.closest(".anchor-popup") || next?.closest(".id-popup")) return;
               if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
               anchorPopupCloseTimer.current = setTimeout(() => {
                 setAnchorPopup(null);
                 setNestedPopups([]);
                 anchorPopupCloseTimer.current = null;
-              }, 420);
+              }, 150);
             }}
             onMouseOver={(ev) => {
               const t = ev.target as HTMLElement;
@@ -4506,14 +4506,14 @@ export default function App() {
             }}
             onMouseLeave={(ev) => {
               const next = ev.relatedTarget as HTMLElement | null;
-              if (next?.closest(".anchor-popup")) return;
+              if (next?.closest(".anchor-popup") || next?.closest(".id-popup")) return;
               if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
               anchorPopupCloseTimer.current = setTimeout(() => {
                 setAnchorPopup(null);
                 setBackRefPopup(null);
                 setNestedPopups([]);
                 anchorPopupCloseTimer.current = null;
-              }, 420);
+              }, 150);
             }}
             onMouseOver={(ev) => {
               const t = ev.target as HTMLElement;
@@ -4559,8 +4559,35 @@ export default function App() {
             className="id-popup"
             style={idPosStyle}
             onMouseEnter={() => { if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; } }}
-            onMouseLeave={() => {
-              idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 300);
+            onMouseLeave={(ev) => {
+              const next = ev.relatedTarget as HTMLElement | null;
+              if (next?.closest(".anchor-popup")) return;
+              idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 150);
+            }}
+            onMouseOver={(ev) => {
+              const t = ev.target as HTMLElement;
+              const a = t.closest<HTMLElement>(".anchor-ref");
+              if (!a) return;
+              const no = Number(a.dataset.anchor);
+              if (no > 0 && responseItems.some((r) => r.id === no)) {
+                if (anchorPopupCloseTimer.current) { clearTimeout(anchorPopupCloseTimer.current); anchorPopupCloseTimer.current = null; }
+                const rect = a.getBoundingClientRect();
+                const popupWidth = Math.min(620, window.innerWidth - 24);
+                const x = Math.max(8, Math.min(rect.left, window.innerWidth - popupWidth - 8));
+                setAnchorPopup({ x, y: rect.bottom + 1, anchorTop: rect.top, responseId: no });
+              }
+            }}
+            onMouseOut={(ev) => {
+              const t = ev.target as HTMLElement;
+              if (!t.closest(".anchor-ref")) return;
+              const next = ev.relatedTarget as HTMLElement | null;
+              if (next?.closest(".anchor-popup") || next?.closest(".id-popup")) return;
+              if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
+              anchorPopupCloseTimer.current = setTimeout(() => {
+                setAnchorPopup(null);
+                setNestedPopups([]);
+                anchorPopupCloseTimer.current = null;
+              }, 150);
             }}
             onClick={handlePopupImageClick}
             onMouseMove={handlePopupImageHover}
