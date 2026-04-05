@@ -541,6 +541,8 @@ export default function App() {
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(60);
   const [threadSortKey, setThreadSortKey] = useState<"fetched" | "id" | "title" | "res" | "got" | "new" | "lastFetch" | "speed">("id");
   const [threadSortAsc, setThreadSortAsc] = useState(true);
+  const cachedSortOrderRef = useRef<string[]>([]);
+  const prevSortSnapshotRef = useRef({ key: "", asc: true, urls: "", favFetched: false });
   const [threadTabs, setThreadTabs] = useState<ThreadTab[]>([]);
   const [activeTabIndex, setActiveTabIndex] = useState(-1);
   const tabCacheRef = useRef<Map<string, { responses: ThreadResponseItem[]; selectedResponse: number; scrollResponseNo?: number; newResponseStart?: number | null }>>(new Map());
@@ -1850,7 +1852,7 @@ export default function App() {
         })
       : fallbackThreadItems
   );
-  const visibleThreadItems = threadItems
+  const filteredThreadItems = threadItems
     .filter((t) => {
       if (ngFilters.words.some((w) => ngMatch(ngVal(w), t.title))) return false;
       if (ngFilters.thread_words.some((w) => ngMatch(ngVal(w), t.title))) return false;
@@ -1858,8 +1860,17 @@ export default function App() {
         return t.title.toLowerCase().includes(threadSearchQuery.trim().toLowerCase());
       }
       return true;
-    })
-    .sort((a, b) => {
+    });
+  const currentFilteredUrls = filteredThreadItems.map((t) => t.threadUrl).join("\n");
+  const sortSnapshot = prevSortSnapshotRef.current;
+  const needsResort =
+    sortSnapshot.key !== threadSortKey ||
+    sortSnapshot.asc !== threadSortAsc ||
+    sortSnapshot.urls !== currentFilteredUrls ||
+    sortSnapshot.favFetched !== favNewCountsFetched;
+  let visibleThreadItems: typeof filteredThreadItems;
+  if (needsResort || cachedSortOrderRef.current.length === 0) {
+    visibleThreadItems = [...filteredThreadItems].sort((a, b) => {
       let cmp = 0;
       if (threadSortKey === "fetched") cmp = (threadReadMap[a.id] ? 0 : 1) - (threadReadMap[b.id] ? 0 : 1);
       else if (threadSortKey === "id") cmp = a.id - b.id;
@@ -1875,6 +1886,15 @@ export default function App() {
       else if (threadSortKey === "speed") cmp = a.speed - b.speed;
       return threadSortAsc ? cmp : -cmp;
     });
+    cachedSortOrderRef.current = visibleThreadItems.map((t) => t.threadUrl);
+    prevSortSnapshotRef.current = { key: threadSortKey, asc: threadSortAsc, urls: currentFilteredUrls, favFetched: favNewCountsFetched };
+  } else {
+    const orderMap = new Map<string, number>();
+    cachedSortOrderRef.current.forEach((url, i) => orderMap.set(url, i));
+    visibleThreadItems = [...filteredThreadItems].sort((a, b) => {
+      return (orderMap.get(a.threadUrl) ?? 999999) - (orderMap.get(b.threadUrl) ?? 999999);
+    });
+  }
   const selectedThreadItem = visibleThreadItems.find((t) => t.id === selectedThread) ?? null;
   const unreadThreadCount = visibleThreadItems.filter((t) => !threadReadMap[t.id]).length;
   const selectedThreadLabel = selectedThreadItem ? `#${selectedThreadItem.id}` : "-";
