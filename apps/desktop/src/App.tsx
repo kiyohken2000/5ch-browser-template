@@ -3083,8 +3083,10 @@ export default function App() {
             { text: "書き込み履歴", action: () => setPostHistoryOpen(true) },
             { text: "sep" },
             { text: "設定", action: () => setSettingsOpen(true) },
-            { text: "sep" },
-            { text: "終了", action: () => { if (isTauriRuntime()) { void invoke("quit_app"); } else { window.close(); } } },
+            ...(navigator.userAgent.includes("Windows") ? [
+              { text: "sep" },
+              { text: "終了", action: () => { if (isTauriRuntime()) { void invoke("quit_app"); } } },
+            ] : []),
           ]},
           { label: "編集", items: [
             { text: "スレURLをコピー", action: () => { void navigator.clipboard.writeText(threadUrl); setStatus("copied thread url"); } },
