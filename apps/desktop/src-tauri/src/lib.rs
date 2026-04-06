@@ -1090,6 +1090,11 @@ fn delete_thread_cache(thread_url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn quit_app() {
+    std::process::exit(0);
+}
+
+#[tauri::command]
 fn clear_login_cookies(provider: String) -> Result<(), String> {
     let mut cookies = LOGIN_COOKIES.lock().unwrap_or_else(|e| e.into_inner());
     if provider == "all" {
@@ -1203,7 +1208,8 @@ pub fn run() {
             set_window_theme,
             save_window_size,
             load_window_size,
-            clear_login_cookies
+            clear_login_cookies,
+            quit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
