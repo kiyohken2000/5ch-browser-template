@@ -100,7 +100,7 @@ chmod +x ember-linux-{amd64|aarch64}.AppImage
 >
 > - **AppImageでWebKitクラッシュが発生する場合がある**  
 >   一部の環境でAppImage起動時にWebKitGTKがクラッシュします。  
->   rpm/debパッケージの使用 または 自身でソースからビルドしたもの (`/<プロジェクトルート>/target/release/embar`) を使用することを推奨します。  
+>   rpm/debパッケージの使用 または 自身でソースからビルドしたもの (`/<プロジェクトルート>/target/release/ember`) を使用することを推奨します。  
 >   詳細: [tauri-apps/tauri#11988](https://github.com/tauri-apps/tauri/issues/11988)  
 
 #### ビルド向け
