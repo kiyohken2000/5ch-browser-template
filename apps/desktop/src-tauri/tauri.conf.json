@@ -29,12 +29,13 @@
       "icons/icon.png",
       "icons/icon.ico"
     ],
+    "homepage": "https://ember-5ch.pages.dev",
+    "shortDescription": "5ちゃんねる専用ブラウザ",
+    "longDescription": "Live5chライクな専ブラを現代技術で作り直す。Tauri v2 + Reactで構築されたPC向け5ch.io専用ブラウザです。",
     "linux": {
       "deb": {
         "depends": [
-          "libwebkit2gtk-4.1-0",
           "libjavascriptcoregtk-4.1-0",
-          "libgtk-3-0",
           "libsoup-3.0-0",
           "libglib2.0-0",
           "libpango-1.0-0",
@@ -46,9 +47,7 @@
       },
       "rpm": {
         "depends": [
-          "libwebkit2gtk-4.1.so.0()(64bit)",
           "libjavascriptcoregtk-4.1.so.0()(64bit)",
-          "libgtk-3.so.0()(64bit)",
           "libsoup-3.0.so.0()(64bit)",
           "libglib-2.0.so.0()(64bit)",
           "libgio-2.0.so.0()(64bit)",
