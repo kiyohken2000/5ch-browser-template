@@ -11,7 +11,7 @@ Ember の指定バージョンでリリース準備を行う。
 1. 現在のバージョンを以下のファイルから読み取る:
    - `apps/desktop/package.json`
    - `apps/desktop/src-tauri/tauri.conf.json`
-   - `Cargo.toml` (ワークスペース)
+   - `apps/desktop/src-tauri/Cargo.toml`
 2. バージョン差分を表示し、変更前にユーザーの確認を得る
 3. 3ファイルのバージョンを更新
 4. `cargo check --workspace` で検証
