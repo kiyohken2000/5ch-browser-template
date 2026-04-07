@@ -406,8 +406,18 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
     }
   );
   safe = safe.replace(
-    /&gt;&gt;(\d+)/g,
-    '<span class="anchor-ref" data-anchor="$1" role="link" tabindex="0">&gt;&gt;$1</span>'
+    /&gt;&gt;(\d+(?:[\s,、]+\d+)*)/g,
+    (_m, nums: string) => {
+      const ids = nums.split(/[\s,、]+/).filter(Boolean);
+      return ids.map((id) => `<span class="anchor-ref" data-anchor="${id}" role="link" tabindex="0">&gt;&gt;${id}</span>`).join(",");
+    }
+  );
+  safe = safe.replace(
+    /&gt;(\d+(?:[\s,、]+\d+)*)/g,
+    (_m, nums: string) => {
+      const ids = nums.split(/[\s,、]+/).filter(Boolean);
+      return ids.map((id) => `<span class="anchor-ref" data-anchor="${id}" role="link" tabindex="0">&gt;${id}</span>`).join(",");
+    }
   );
   // Convert sssp:// BE icons to https:// img preview
   safe = safe.replace(
