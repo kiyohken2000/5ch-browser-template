@@ -3231,7 +3231,6 @@ export default function App() {
             { text: "レス取得", action: () => fetchResponsesFromCurrent() },
             { text: "sep" },
             { text: "書き込み", action: () => { setComposeOpen(true); setComposePos(null); setComposeBody(""); setComposeResult(null); } },
-            { text: "書き込み履歴", action: () => setPostHistoryOpen(true) },
             { text: "sep" },
             { text: "設定", action: () => setSettingsOpen(true) },
             ...(navigator.userAgent.includes("Windows") ? [

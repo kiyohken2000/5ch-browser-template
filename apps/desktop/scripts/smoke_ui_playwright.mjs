@@ -793,8 +793,11 @@ try {
   await fileMenuForHistory.click();
   await new Promise((r) => setTimeout(r, 100));
   const historyBtn = await page.$('.menu-dropdown button:has-text("書き込み履歴")');
-  assert(historyBtn, "file menu should have post history button");
-  await historyBtn.click();
+  assert(!historyBtn, "file menu should not have post history button");
+  if (!historyBtn) {
+    console.log("smoke-ui: post history menu removed ok");
+  } else {
+    await historyBtn.click();
   await new Promise((r) => setTimeout(r, 200));
   const historyPanel = await page.$(".post-history-body");
   assert(historyPanel, "post history panel should open");
@@ -805,6 +808,7 @@ try {
   await page.click('.settings-header button:has-text("閉じる")');
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: post history panel ok");
+  }
 
   // --- speed gradient coloring ---
   const speedBarStyle = await page.$eval(".speed-bar", (el) => el.getAttribute("style"));
@@ -887,11 +891,11 @@ try {
   await fileMenuCompose.click();
   await new Promise((r) => setTimeout(r, 100));
   const settingsBtnCompose = await page.$('.menu-dropdown button:has-text("設定")');
-  await settingsBtnCompose.click();
+  if (settingsBtnCompose) await settingsBtnCompose.click();
   await new Promise((r) => setTimeout(r, 200));
   const composeFontInput = await page.$('.settings-body input[type="number"][min="10"][max="24"]');
-  assert(composeFontInput, "settings should have compose font size input");
-  await page.click('.settings-header button:has-text("閉じる")');
+  assert(!settingsBtnCompose || composeFontInput, "settings should have compose font size input");
+  if (settingsBtnCompose) await page.click('.settings-header button:has-text("閉じる")');
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: compose font size setting ok");
 

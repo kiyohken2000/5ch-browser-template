@@ -1550,6 +1550,19 @@ pre {
   background: #3a3a3a;
 }
 
+.dark .upload-select-btn,
+.dark .upload-history-actions button {
+  background: #2f3238;
+  border-color: #5b616b;
+  color: var(--ink);
+}
+
+.dark .upload-select-btn:hover,
+.dark .upload-history-actions button:hover {
+  background: #3a3f46;
+  border-color: #7a828f;
+}
+
 .search-with-history {
   position: relative;
   display: flex;
