@@ -674,6 +674,7 @@ export default function App() {
   });
   const [roninLoggedIn, setRoninLoggedIn] = useState(false);
   const [beLoggedIn, setBeLoggedIn] = useState(false);
+  const [authSaveMsg, setAuthSaveMsg] = useState("");
 
   // Detect own post after re-fetch
   useEffect(() => {
@@ -2387,20 +2388,16 @@ export default function App() {
     const tab = activeTabIndex >= 0 && activeTabIndex < threadTabs.length ? threadTabs[activeTabIndex] : null;
     const header = tab ? `${tab.title}\n${tab.threadUrl}\n\n` : "";
     const body = responseItems.map((r) => {
-      const plain = r.text
-        .replace(/<br\s*\/?>/gi, "\n")
-        .replace(/<[^>]+>/g, "")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
+      const plain = decodeHtmlEntities(
+        r.text.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")
+      );
       return `${r.id} ${r.name} ${r.time}\n${plain}`;
     }).join("\n\n");
     try {
       await navigator.clipboard.writeText(header + body);
       setStatus(`スレ全体をコピーしました (${responseItems.length}レス)`);
-    } catch {
+    } catch (e) {
+      console.warn("copyWholeThread: clipboard write failed", e);
       setStatus("コピーに失敗しました");
     }
     setResponseMenu(null);
@@ -4953,11 +4950,13 @@ export default function App() {
                     if (!isTauriRuntime()) return;
                     void invoke("save_auth_config", { config: authConfig }).then(() => {
                       setStatus("認証設定を保存しました");
-                    }).catch((e: unknown) => setStatus(`save error: ${String(e)}`));
+                      setAuthSaveMsg("保存しました");
+                    }).catch((e: unknown) => { setStatus(`save error: ${String(e)}`); setAuthSaveMsg(`保存失敗: ${String(e)}`); });
                   }}>保存</button>
                   <button onClick={() => void doLogin("uplift")}>Ronin ログイン</button>
                   <button onClick={() => void doLogin("be")}>BE ログイン</button>
                 </div>
+                {authSaveMsg && <div className="settings-row"><span>{authSaveMsg}</span></div>}
                 <div className="settings-row"><span>Ronin: {roninState}</span><span>BE: {beState}</span></div>
               </fieldset>
               <fieldset>
