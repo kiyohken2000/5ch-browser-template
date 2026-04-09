@@ -2088,7 +2088,7 @@ export default function App() {
     if (ngResult === "hide") return false;
     if (responseSearchQuery) {
       const q = responseSearchQuery.toLowerCase();
-      const plainText = r.text.replace(/<[^>]+>/g, "").toLowerCase();
+      const plainText = decodeHtmlEntities(r.text.replace(/<[^>]+>/g, "")).toLowerCase();
       const nameText = r.name.toLowerCase();
       if (!(plainText.includes(q) || nameText.includes(q) || r.time.toLowerCase().includes(q))) return false;
     }
