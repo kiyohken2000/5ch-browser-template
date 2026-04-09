@@ -2120,7 +2120,7 @@ export default function App() {
       if (!arr.includes(from)) arr.push(from);
     };
     for (const r of responseItems) {
-      const plain = r.text.replace(/<[^>]+>/g, "");
+      const plain = decodeHtmlEntities(r.text.replace(/<[^>]+>/g, ""));
       // comma-separated >>N,M,... or >N,M,...
       for (const m of plain.matchAll(/>>?(\d+(?:[,、]\d+)+)/g)) {
         for (const n of m[1].split(/[,、]/)) addRef(Number(n), r.id);

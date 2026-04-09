@@ -35,8 +35,6 @@ fn sanitize_dat_body(raw: &str) -> String {
     raw.replace("<br>", "\n")
         .replace("<br/>", "\n")
         .replace("<br />", "\n")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
         .replace("&amp;", "&")
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
