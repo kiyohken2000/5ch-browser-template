@@ -2972,3 +2972,14 @@ button.search-history-btn:hover {
     /* コンフェティはアプリ内設定で制御するため、OS設定を無視 */
   }
 }
+
+/* Mouse gesture trail */
+.gesture-trail {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 99999;
+}

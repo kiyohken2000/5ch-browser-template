@@ -584,6 +584,18 @@ export default function App() {
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(60);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
+  const [mouseGestureEnabled, setMouseGestureEnabled] = useState(false);
+  const gestureRef = useRef<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    dirs: string[];
+    lastX: number;
+    lastY: number;
+    points: { x: number; y: number }[];
+  } | null>(null);
+  const gestureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const gestureBlockContextRef = useRef(false);
   const [threadSortKey, setThreadSortKey] = useState<"fetched" | "id" | "title" | "res" | "got" | "new" | "lastFetch" | "speed">("id");
   const [threadSortAsc, setThreadSortAsc] = useState(true);
   const cachedSortOrderRef = useRef<string[]>([]);
@@ -624,6 +636,7 @@ export default function App() {
   const [responseReloadMenuOpen, setResponseReloadMenuOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [gestureListOpen, setGestureListOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [boardsFontSize, setBoardsFontSize] = useState(12);
@@ -2579,6 +2592,7 @@ export default function App() {
         if (lightboxUrl) { setLightboxUrl(null); return; }
         if (aboutOpen) { setAboutOpen(false); return; }
         if (shortcutsOpen) { setShortcutsOpen(false); return; }
+        if (gestureListOpen) { setGestureListOpen(false); return; }
         if (responseReloadMenuOpen) { setResponseReloadMenuOpen(false); return; }
         if (openMenu) { setOpenMenu(null); return; }
       }
@@ -2719,6 +2733,7 @@ export default function App() {
           restoreSession?: boolean;
           autoRefreshInterval?: number;
           alwaysOnTop?: boolean;
+          mouseGestureEnabled?: boolean;
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
         if (typeof parsed.threadPanePx === "number") {
@@ -2752,6 +2767,7 @@ export default function App() {
         if (typeof parsed.restoreSession === "boolean") { setRestoreSession(parsed.restoreSession); restoreSessionRef.current = parsed.restoreSession; }
         if (typeof parsed.autoRefreshInterval === "number") setAutoRefreshInterval(parsed.autoRefreshInterval);
         if (typeof parsed.alwaysOnTop === "boolean") setAlwaysOnTop(parsed.alwaysOnTop);
+        if (typeof parsed.mouseGestureEnabled === "boolean") setMouseGestureEnabled(parsed.mouseGestureEnabled);
       } catch { /* ignore */ }
     };
     // Try localStorage first, then file-based persistence
@@ -3125,6 +3141,146 @@ export default function App() {
     };
   }, []);
 
+  // Mouse gesture detection
+  useEffect(() => {
+    if (!mouseGestureEnabled) return;
+
+    const THRESHOLD = 30;
+    const detectDir = (dx: number, dy: number): "up" | "down" | "left" | "right" | null => {
+      const ax = Math.abs(dx);
+      const ay = Math.abs(dy);
+      if (ax < THRESHOLD && ay < THRESHOLD) return null;
+      if (ax > ay) return dx > 0 ? "right" : "left";
+      return dy > 0 ? "down" : "up";
+    };
+
+    const drawTrail = (pts: { x: number; y: number }[]) => {
+      const cv = gestureCanvasRef.current;
+      if (!cv) return;
+      const ctx = cv.getContext("2d");
+      if (!ctx) return;
+      cv.width = window.innerWidth;
+      cv.height = window.innerHeight;
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      if (pts.length < 2) return;
+      ctx.strokeStyle = "rgba(255, 80, 80, 0.7)";
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+    };
+
+    const clearTrail = () => {
+      const cv = gestureCanvasRef.current;
+      if (!cv) return;
+      const ctx = cv.getContext("2d");
+      if (ctx) ctx.clearRect(0, 0, cv.width, cv.height);
+    };
+
+    const executeGesture = (dirs: string[]) => {
+      const key = dirs.join(",");
+      switch (key) {
+        case "left": {
+          const len = threadTabs.length;
+          if (len > 1) onTabClick((activeTabIndex - 1 + len) % len);
+          break;
+        }
+        case "right": {
+          const len = threadTabs.length;
+          if (len > 1) onTabClick((activeTabIndex + 1) % len);
+          break;
+        }
+        case "down":
+          void fetchResponsesFromCurrent();
+          break;
+        case "up":
+          if (responseScrollRef.current) responseScrollRef.current.scrollTop = 0;
+          break;
+        case "up,down":
+          if (responseScrollRef.current) responseScrollRef.current.scrollTop = responseScrollRef.current.scrollHeight;
+          break;
+        case "down,right":
+          if (activeTabIndex >= 0) closeTab(activeTabIndex);
+          break;
+        case "down,left":
+          void fetchThreadListFromCurrent();
+          break;
+        default:
+          break;
+      }
+    };
+
+    const onGestureMouseDown = (e: MouseEvent) => {
+      if (e.button !== 2) return;
+      gestureRef.current = {
+        active: false,
+        startX: e.clientX,
+        startY: e.clientY,
+        dirs: [],
+        lastX: e.clientX,
+        lastY: e.clientY,
+        points: [{ x: e.clientX, y: e.clientY }],
+      };
+      gestureBlockContextRef.current = false;
+    };
+
+    const onGestureMouseMove = (e: MouseEvent) => {
+      const g = gestureRef.current;
+      if (!g) return;
+      const dx = e.clientX - g.lastX;
+      const dy = e.clientY - g.lastY;
+      const dir = detectDir(dx, dy);
+      if (dir) {
+        if (g.dirs.length === 0 || g.dirs[g.dirs.length - 1] !== dir) {
+          g.dirs.push(dir);
+        }
+        g.lastX = e.clientX;
+        g.lastY = e.clientY;
+        g.active = true;
+      }
+      if (g.active) {
+        g.points.push({ x: e.clientX, y: e.clientY });
+        drawTrail(g.points);
+      }
+    };
+
+    const onGestureMouseUp = (e: MouseEvent) => {
+      const g = gestureRef.current;
+      if (!g) return;
+      if (g.active && g.dirs.length > 0) {
+        executeGesture(g.dirs);
+        gestureBlockContextRef.current = true;
+      }
+      gestureRef.current = null;
+      clearTrail();
+    };
+
+    const onGestureContextMenu = (e: MouseEvent) => {
+      if (gestureBlockContextRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        gestureBlockContextRef.current = false;
+      }
+    };
+
+    window.addEventListener("mousedown", onGestureMouseDown);
+    window.addEventListener("mousemove", onGestureMouseMove);
+    window.addEventListener("mouseup", onGestureMouseUp);
+    window.addEventListener("contextmenu", onGestureContextMenu, true);
+
+    return () => {
+      window.removeEventListener("mousedown", onGestureMouseDown);
+      window.removeEventListener("mousemove", onGestureMouseMove);
+      window.removeEventListener("mouseup", onGestureMouseUp);
+      window.removeEventListener("contextmenu", onGestureContextMenu, true);
+      gestureRef.current = null;
+      clearTrail();
+    };
+  }, [mouseGestureEnabled, activeTabIndex, threadTabs]);
+
   useEffect(() => {
     if (!layoutPrefsLoadedRef.current) return;
     const payload = JSON.stringify({
@@ -3149,12 +3305,13 @@ export default function App() {
       restoreSession,
       autoRefreshInterval,
       alwaysOnTop,
+      mouseGestureEnabled,
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, restoreSession, autoRefreshInterval, alwaysOnTop]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -3249,6 +3406,7 @@ export default function App() {
         setResponseReloadMenuOpen(false);
       }}
     >
+      {mouseGestureEnabled && <canvas ref={gestureCanvasRef} className="gesture-trail" />}
       <header className="menu-bar">
         {[
           { label: "ファイル", items: [
@@ -3282,6 +3440,8 @@ export default function App() {
             { text: showBoardButtons ? "板ボタンを非表示" : "板ボタンを表示", action: () => setShowBoardButtons((v) => !v) },
             { text: "sep" },
             { text: alwaysOnTop ? "最前面表示を解除" : "最前面に固定", action: () => setAlwaysOnTop((v) => !v) },
+            { text: "sep" },
+            { text: mouseGestureEnabled ? "マウスジェスチャを無効化" : "マウスジェスチャを有効化", action: () => setMouseGestureEnabled((v) => !v) },
           ]},
           { label: "板", items: [
             { text: "板一覧を取得", action: () => fetchBoardCategories() },
@@ -3298,6 +3458,7 @@ export default function App() {
           ]},
           { label: "ヘルプ", items: [
             { text: "ショートカット一覧", action: () => setShortcutsOpen(true) },
+            { text: "マウスジェスチャ一覧", action: () => setGestureListOpen(true) },
             { text: "更新確認", action: checkForUpdates },
             { text: "sep" },
             { text: "バージョン情報", action: () => requestAnimationFrame(() => { setAboutOpen(true); void checkForUpdates(); }) },
@@ -4958,6 +5119,33 @@ export default function App() {
           </div>
         </div>
       )}
+      {gestureListOpen && (
+        <div className="lightbox-overlay" onClick={() => setGestureListOpen(false)}>
+          <div className="shortcuts-panel" onClick={(e) => e.stopPropagation()}>
+            <header className="shortcuts-header">
+              <strong>マウスジェスチャ一覧</strong>
+              <button onClick={() => setGestureListOpen(false)}>閉じる</button>
+            </header>
+            <div className="shortcuts-body">
+              <p style={{ margin: "0 0 8px", fontSize: 11, color: "var(--sub)" }}>右クリックを押しながらドラッグで発動{!mouseGestureEnabled && "（現在無効）"}</p>
+              {[
+                ["←", "前のタブ"],
+                ["→", "次のタブ"],
+                ["↓", "スレッド更新"],
+                ["↑", "先頭へスクロール"],
+                ["↑↓", "末尾へスクロール"],
+                ["↓→", "タブを閉じる"],
+                ["↓←", "スレッド一覧を更新"],
+              ].map(([gesture, desc]) => (
+                <div key={gesture} className="shortcut-row">
+                  <kbd>{gesture}</kbd>
+                  <span>{desc}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {settingsOpen && (
         <div className="lightbox-overlay" onClick={() => setSettingsOpen(false)}>
           <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
@@ -5007,6 +5195,10 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={alwaysOnTop} onChange={(e) => setAlwaysOnTop(e.target.checked)} />
                   <span>ウィンドウを最前面に固定</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={mouseGestureEnabled} onChange={(e) => setMouseGestureEnabled(e.target.checked)} />
+                  <span>マウスジェスチャ</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={showBoardButtons} onChange={(e) => setShowBoardButtons(e.target.checked)} />
