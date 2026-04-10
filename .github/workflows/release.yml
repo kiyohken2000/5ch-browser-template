@@ -112,6 +112,20 @@ jobs:
           file target/release/bundle/appimage/*.AppImage
           ls -lh target/release/bundle/appimage/*.AppImage
 
+      - name: Reduce deb dependency requirements for Debian 12+
+        run: |
+          DEB_FILE=$(ls target/release/bundle/deb/*.deb)
+          TEMP_DIR=$(mktemp -d)
+          dpkg-deb -R "$DEB_FILE" "$TEMP_DIR"
+          # Adjust libc6 and libssl3 requirements for Debian 12 (Bookworm) compatibility
+          # Debian 12 has libc6 2.38 and libssl3 3.1, so set requirements slightly lower
+          sed -i 's/libc6 (>= [^)]*)/libc6 (>= 2.38)/g' "$TEMP_DIR/DEBIAN/control"
+          sed -i 's/libssl3 (>= [^)]*)/libssl3 (>= 3.1)/g' "$TEMP_DIR/DEBIAN/control"
+          dpkg-deb -b "$TEMP_DIR" "$DEB_FILE"
+          rm -rf "$TEMP_DIR"
+          echo "Reduced dependency requirements:"
+          dpkg -I "$DEB_FILE" | grep Depends
+
       - name: Collect artifacts
         run: |
           mkdir -p out
@@ -230,6 +244,20 @@ jobs:
         run: |
           file target/release/bundle/appimage/*.AppImage
           ls -lh target/release/bundle/appimage/*.AppImage
+
+      - name: Reduce deb dependency requirements for Debian 12+
+        run: |
+          DEB_FILE=$(ls target/release/bundle/deb/*.deb)
+          TEMP_DIR=$(mktemp -d)
+          dpkg-deb -R "$DEB_FILE" "$TEMP_DIR"
+          # Adjust libc6 and libssl3 requirements for Debian 12 (Bookworm) compatibility
+          # Debian 12 has libc6 2.38 and libssl3 3.1, so set requirements slightly lower
+          sed -i 's/libc6 (>= [^)]*)/libc6 (>= 2.38)/g' "$TEMP_DIR/DEBIAN/control"
+          sed -i 's/libssl3 (>= [^)]*)/libssl3 (>= 3.1)/g' "$TEMP_DIR/DEBIAN/control"
+          dpkg-deb -b "$TEMP_DIR" "$DEB_FILE"
+          rm -rf "$TEMP_DIR"
+          echo "Reduced dependency requirements:"
+          dpkg -I "$DEB_FILE" | grep Depends
 
       - name: Collect artifacts
         run: |
