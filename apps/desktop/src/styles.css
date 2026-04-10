@@ -424,12 +424,16 @@ li.fav-drag-over {
   min-height: 24px;
 }
 
-.active-toggle {
+.active-toggle,
+.tool-bar .active-toggle {
   background: #b0d0ff;
   border-radius: 3px;
+  color: #1a5ab8;
 }
-.dark .active-toggle {
+.dark .active-toggle,
+.dark .tool-bar .active-toggle {
   background: #3a5a8a;
+  color: #8abfff;
 }
 .threads-toolbar-left {
   display: flex;
