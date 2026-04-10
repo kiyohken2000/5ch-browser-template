@@ -235,7 +235,7 @@ try {
 
   // fav-star elements exist in board items (fallback mode may not have them, but CSS class should exist)
   // In WEB mode without categories, there's no board-tree, but the NG panel should work
-  const ngFilterBtn = await page.$(".tool-bar button:has-text('NG')");
+  const ngFilterBtn = await page.$("button[title='NGフィルタ']");
   assert(ngFilterBtn, "toolbar should have NGフィルタ button");
   console.log("smoke-ui: ng filter button ok");
 
