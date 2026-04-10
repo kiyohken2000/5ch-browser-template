@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
-  Image, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download,
+  Image, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -117,7 +117,7 @@ const stripHtmlForMatch = (html: string): string =>
   html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, " ").trim();
 
 const MIN_BOARD_PANE_PX = 160;
-const MIN_THREAD_PANE_PX = 280;
+const MIN_THREAD_PANE_PX = 120;
 const MIN_RESPONSE_PANE_PX = 360;
 const MIN_RESPONSE_BODY_PX = 180;
 const SPLITTER_PX = 6;
@@ -3559,7 +3559,109 @@ export default function App() {
           />
           <span>自動更新</span>
         </label>
-        <button onClick={() => setNgPanelOpen((v) => !v)}>NG</button>
+        <span className="tool-sep" />
+        <div className="search-with-history" style={{ flex: 1 }}>
+          <input
+            ref={threadSearchRef}
+            className="thread-search"
+            value={threadSearchQuery}
+            onChange={(e) => setThreadSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
+              if (e.key === "Enter") { addSearchHistory("thread", threadSearchQuery); setSearchHistoryDropdown(null); }
+              if (e.key === "Escape") setSearchHistoryDropdown(null);
+            }}
+            placeholder="検索 (Enter:保存 / 右クリック:削除)"
+          />
+          <button
+            className="search-history-btn"
+            onClick={(e) => { e.stopPropagation(); setSearchHistoryDropdown((prev) => prev?.type === "thread" ? null : { type: "thread" }); }}
+            title="検索履歴"
+          ><ChevronDown size={10} /></button>
+          {searchHistoryDropdown?.type === "thread" && threadSearchHistory.length > 0 && (
+            <div className="search-history-dropdown" onMouseDown={(e) => e.preventDefault()}>
+              {threadSearchHistory
+                .filter((w) => !threadSearchQuery.trim() || w.toLowerCase().includes(threadSearchQuery.trim().toLowerCase()))
+                .map((w) => (
+                  <div
+                    key={w}
+                    className="search-history-item"
+                    onClick={() => { setThreadSearchQuery(w); setSearchHistoryDropdown(null); }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const p = clampMenuPosition(e.clientX, e.clientY, 120, 30);
+                      setSearchHistoryMenu({ x: p.x, y: p.y, type: "thread", word: w });
+                    }}
+                  >{w}</div>
+                ))}
+            </div>
+          )}
+        </div>
+        {threadSearchQuery && <button className="title-action-btn" onClick={() => setThreadSearchQuery("")} title="検索クリア"><X size={14} /></button>}
+        <button className="title-action-btn" onClick={() => fetchThreadListFromCurrent()} title="スレ一覧を更新"><RefreshCw size={14} /></button>
+        <button className="title-action-btn" onClick={() => setShowNewThreadDialog(true)} title="スレ立て"><FilePenLine size={14} /></button>
+        <button
+          className={`title-action-btn ${showCachedOnly ? "active-toggle" : ""}`}
+          onClick={() => {
+            if (showCachedOnly) {
+              setShowCachedOnly(false);
+              setCachedThreadList([]);
+              return;
+            } else {
+              if (isTauriRuntime()) {
+                invoke<[string, string, number][]>("load_all_cached_threads").then((list) => {
+                  const extractBoardName = (url: string): string => {
+                    try {
+                      const parts = new URL(url).pathname.split("/").filter(Boolean);
+                      if (parts.length >= 3 && parts[0] === "test" && parts[1] === "read.cgi") return parts[2];
+                      return parts[0] || "";
+                    } catch { return ""; }
+                  };
+                  const currentBoard = extractBoardName(threadUrl);
+                  const activeUrls = new Set(fetchedThreads.map((t) => t.threadUrl));
+                  const datOchiList = list
+                    .filter(([url]) => extractBoardName(url) === currentBoard)
+                    .filter(([url]) => !activeUrls.has(url));
+                  setCachedThreadList(datOchiList.map(([threadUrl, title, count]) => {
+                    const displayTitle = title && title.trim() !== "" ? title : (() => {
+                      try {
+                        const parts = new URL(threadUrl).pathname.split("/").filter(Boolean);
+                        return parts[parts.length - 1] || threadUrl;
+                      } catch { return threadUrl; }
+                    })();
+                    return { threadUrl, title: displayTitle, resCount: count };
+                  }));
+                  setShowCachedOnly(true);
+                  setShowFavoritesOnly(false);
+                }).catch(() => {});
+              }
+            }
+          }}
+          title="dat落ちキャッシュ表示"
+        ><Save size={14} /></button>
+        <button
+          className={`title-action-btn ${showFavoritesOnly ? "active-toggle" : ""}`}
+          onClick={() => {
+            const willEnable = !showFavoritesOnly;
+            setShowFavoritesOnly((v) => !v);
+            if (willEnable) {
+              setShowCachedOnly(false);
+              void fetchFavNewCounts();
+            } else {
+              const url = threadUrl.trim();
+              if (url && fetchedThreads.length > 0) {
+                void loadReadStatusForBoard(url, fetchedThreads);
+              }
+            }
+          }}
+          title="お気に入りスレのみ表示"
+        ><Star size={14} /></button>
+        <button
+          className={`title-action-btn ${threadNgOpen ? "active-toggle" : ""}`}
+          onClick={() => setThreadNgOpen(!threadNgOpen)}
+          title="スレ一覧NGワード"
+        ><Ban size={14} />{ngFilters.thread_words.length > 0 ? ngFilters.thread_words.length : ""}</button>
       </div>
       {showBoardButtons && favorites.boards.length > 0 && (
         <div className="board-button-bar" ref={boardBtnBarRef}>
@@ -3786,113 +3888,6 @@ export default function App() {
           style={{ gridTemplateRows: `${threadPanePx}px ${SPLITTER_PX}px 1fr` }}
         >
         <section className="pane threads" onMouseDown={() => setFocusedPane("threads")} style={{ '--fs-delta': `${threadsFontSize - 12}px` } as React.CSSProperties}>
-          <div className="threads-toolbar">
-            <div className="search-with-history" style={{ flex: 1 }}>
-              <input
-                ref={threadSearchRef}
-                className="thread-search"
-                value={threadSearchQuery}
-                onChange={(e) => setThreadSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.nativeEvent.isComposing) return;
-                  if (e.key === "Enter") { addSearchHistory("thread", threadSearchQuery); setSearchHistoryDropdown(null); }
-                  if (e.key === "Escape") setSearchHistoryDropdown(null);
-                }}
-                placeholder="検索 (Enter:保存 / 右クリック:削除)"
-              />
-              <button
-                className="search-history-btn"
-                onClick={(e) => { e.stopPropagation(); setSearchHistoryDropdown((prev) => prev?.type === "thread" ? null : { type: "thread" }); }}
-                title="検索履歴"
-              ><ChevronDown size={10} /></button>
-              {searchHistoryDropdown?.type === "thread" && threadSearchHistory.length > 0 && (
-                <div className="search-history-dropdown" onMouseDown={(e) => e.preventDefault()}>
-                  {threadSearchHistory
-                    .filter((w) => !threadSearchQuery.trim() || w.toLowerCase().includes(threadSearchQuery.trim().toLowerCase()))
-                    .map((w) => (
-                      <div
-                        key={w}
-                        className="search-history-item"
-                        onClick={() => { setThreadSearchQuery(w); setSearchHistoryDropdown(null); }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          const p = clampMenuPosition(e.clientX, e.clientY, 120, 30);
-                          setSearchHistoryMenu({ x: p.x, y: p.y, type: "thread", word: w });
-                        }}
-                      >{w}</div>
-                    ))}
-                </div>
-              )}
-            </div>
-            {threadSearchQuery && <button className="title-action-btn" onClick={() => setThreadSearchQuery("")} title="検索クリア"><X size={14} /></button>}
-            <button className="title-action-btn" onClick={() => fetchThreadListFromCurrent()} title="スレ一覧を更新"><RefreshCw size={14} /></button>
-            <button className="title-action-btn" onClick={() => setShowNewThreadDialog(true)} title="スレ立て"><FilePenLine size={14} /></button>
-            <button
-              className={`title-action-btn ${showCachedOnly ? "active-toggle" : ""}`}
-              onClick={() => {
-                if (showCachedOnly) {
-                  setShowCachedOnly(false);
-                  setCachedThreadList([]);
-                  return;
-                } else {
-                  if (isTauriRuntime()) {
-                    invoke<[string, string, number][]>("load_all_cached_threads").then((list) => {
-                      // Only show threads from the current board that are not in the active thread list (dat落ち)
-                      // Compare by board name only (ignore hostname differences like greta vs mao)
-                      const extractBoardName = (url: string): string => {
-                        try {
-                          const parts = new URL(url).pathname.split("/").filter(Boolean);
-                          if (parts.length >= 3 && parts[0] === "test" && parts[1] === "read.cgi") return parts[2];
-                          return parts[0] || "";
-                        } catch { return ""; }
-                      };
-                      const currentBoard = extractBoardName(threadUrl);
-                      const activeUrls = new Set(fetchedThreads.map((t) => t.threadUrl));
-                      const datOchiList = list
-                        .filter(([url]) => extractBoardName(url) === currentBoard)
-                        .filter(([url]) => !activeUrls.has(url));
-                      setCachedThreadList(datOchiList.map(([threadUrl, title, count]) => {
-                        const displayTitle = title && title.trim() !== "" ? title : (() => {
-                          try {
-                            const parts = new URL(threadUrl).pathname.split("/").filter(Boolean);
-                            return parts[parts.length - 1] || threadUrl;
-                          } catch { return threadUrl; }
-                        })();
-                        return { threadUrl, title: displayTitle, resCount: count };
-                      }));
-                      setShowCachedOnly(true);
-                      setShowFavoritesOnly(false);
-                    }).catch(() => {});
-                  }
-                }
-              }}
-              title="dat落ちキャッシュ表示"
-            ><Save size={14} /></button>
-            <button
-              className={`title-action-btn ${showFavoritesOnly ? "active-toggle" : ""}`}
-              onClick={() => {
-                const willEnable = !showFavoritesOnly;
-                setShowFavoritesOnly((v) => !v);
-                if (willEnable) {
-                  setShowCachedOnly(false);
-                  void fetchFavNewCounts();
-                } else {
-                  // Restore read status for normal thread list
-                  const url = threadUrl.trim();
-                  if (url && fetchedThreads.length > 0) {
-                    void loadReadStatusForBoard(url, fetchedThreads);
-                  }
-                }
-              }}
-              title="お気に入りスレのみ表示"
-            ><Star size={14} /></button>
-            <button
-              className={`title-action-btn ${threadNgOpen ? "active-toggle" : ""}`}
-              onClick={() => setThreadNgOpen(!threadNgOpen)}
-              title="スレ一覧NGワード"
-            ><Ban size={14} />{ngFilters.thread_words.length > 0 ? ngFilters.thread_words.length : ""}</button>
-          </div>
           {threadNgOpen && (
             <div className="thread-ng-popup">
               <div className="thread-ng-add">
@@ -4073,6 +4068,7 @@ export default function App() {
                   <Star size={14} fill={favorites.threads.some((f) => f.threadUrl === threadTabs[activeTabIndex].threadUrl) ? "currentColor" : "none"} />
                 </button>
                 <button className="title-action-btn" onClick={downloadAllThreadImages} title="画像を一括ダウンロード"><Download size={14} /></button>
+                <button className="title-action-btn" onClick={() => setNgPanelOpen((v) => !v)} title="NGフィルタ"><EyeOff size={14} /></button>
               </span>
             </div>
           )}
