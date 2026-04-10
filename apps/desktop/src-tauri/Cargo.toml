@@ -1,6 +1,6 @@
 [package]
 name = "ember"
-version = "0.0.80"
+version = "0.0.81"
 description = "5ちゃんねる専用ブラウザ"
 homepage = "https://ember-5ch.pages.dev"
 repository = "https://github.com/kiyohken2000/5ch-browser-template"
@@ -22,4 +22,5 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 serde = { workspace = true }
 serde_json = { workspace = true }
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"

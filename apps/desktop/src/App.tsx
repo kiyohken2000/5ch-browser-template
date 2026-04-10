@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
-  Image, Film, ExternalLink, Upload, History, Copy, Trash2, Pin,
+  Image, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -466,6 +466,19 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
 const renderResponseBodyHighlighted = (html: string, query: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number }): { __html: string } => {
   const rendered = renderResponseBody(html, opts).__html;
   return { __html: highlightHtmlPreservingTags(rendered, query) };
+};
+
+const IMAGE_URL_RE = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/)[^\s<>&"]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*)?/gi;
+const extractImageUrls = (html: string): string[] => {
+  const plain = html.replace(/<[^>]+>/g, " ");
+  const decoded = decodeHtmlEntities(plain);
+  const matches = decoded.match(IMAGE_URL_RE);
+  if (!matches) return [];
+  // Normalize partial URLs
+  return [...new Set(matches.map((u) => {
+    if (u.startsWith("http")) return u;
+    return "https://" + u.replace(/^[^/]*:\/\//, "");
+  }))];
 };
 
 const extractWatchoi = (name: string): string | null => {
@@ -1736,6 +1749,47 @@ export default function App() {
     }
   };
 
+  const downloadImagesFromUrls = async (urls: string[]) => {
+    if (!isTauriRuntime() || urls.length === 0) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({ directory: true, title: "画像の保存先を選択" });
+      if (!selected) return;
+      const destDir = typeof selected === "string" ? selected : (selected as string[])[0];
+      if (!destDir) return;
+      setStatus(`${urls.length}枚の画像をダウンロード中…`);
+      const result = await invoke<{ successCount: number; failCount: number }>("download_images", { urls, destDir });
+      if (result.failCount > 0) {
+        setStatus(`${result.successCount}枚ダウンロード完了（${result.failCount}枚失敗）`);
+      } else {
+        setStatus(`${result.successCount}枚ダウンロード完了`);
+      }
+    } catch (e) {
+      console.warn("download_images error:", e);
+      setStatus(`画像ダウンロードエラー: ${e}`);
+    }
+  };
+
+  const downloadAllThreadImages = () => {
+    const urls = fetchedResponses.flatMap((r) => extractImageUrls(r.body || ""));
+    if (urls.length === 0) {
+      setStatus("このスレッドに画像はありません");
+      return;
+    }
+    void downloadImagesFromUrls(urls);
+  };
+
+  const downloadResponseImages = (responseId: number) => {
+    const resp = fetchedResponses.find((r) => r.responseNo === responseId);
+    if (!resp) return;
+    const urls = extractImageUrls(resp.body || "");
+    if (urls.length === 0) {
+      setStatus("このレスに画像はありません");
+      return;
+    }
+    void downloadImagesFromUrls(urls);
+  };
+
   const probePostFlowTraceFromCompose = async () => {
     if (composeSubmitting) return;
     setComposeSubmitting(true);
@@ -2250,7 +2304,7 @@ export default function App() {
   const onResponseNoClick = (e: ReactMouseEvent, responseId: number) => {
     e.stopPropagation();
     setSelectedResponse(responseId);
-    const p = clampMenuPosition(e.clientX, e.clientY, 240, 320);
+    const p = clampMenuPosition(e.clientX, e.clientY, 240, 350);
     setResponseMenu({ x: p.x, y: p.y, responseId });
     setThreadMenu(null);
   };
@@ -4018,6 +4072,7 @@ export default function App() {
                 }} title="お気に入り">
                   <Star size={14} fill={favorites.threads.some((f) => f.threadUrl === threadTabs[activeTabIndex].threadUrl) ? "currentColor" : "none"} />
                 </button>
+                <button className="title-action-btn" onClick={downloadAllThreadImages} title="画像を一括ダウンロード"><Download size={14} /></button>
               </span>
             </div>
           )}
@@ -4706,6 +4761,15 @@ export default function App() {
               return active ? "AA表示: ON → OFF" : "AA表示: OFF → ON";
             })()}
           </button>
+          {(() => {
+            const resp = fetchedResponses.find((r) => r.responseNo === responseMenu.responseId);
+            const urls = resp ? extractImageUrls(resp.body || "") : [];
+            return urls.length > 0 ? (
+              <button onClick={() => { downloadResponseImages(responseMenu.responseId); setResponseMenu(null); }}>
+                画像を保存（{urls.length}枚）
+              </button>
+            ) : null;
+          })()}
         </div>
       )}
       {tabMenu && (
