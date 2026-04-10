@@ -4805,6 +4805,19 @@ export default function App() {
       {watchoiMenu && (
         <div className="thread-menu" style={{ left: watchoiMenu.x, top: watchoiMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { addNgEntry("names", watchoiMenu.watchoi); setWatchoiMenu(null); }}>ワッチョイをNG</button>
+          {(() => {
+            const code = watchoiMenu.watchoi.split(/\s+/).pop() || "";
+            const parts = code.split("-");
+            if (parts.length >= 2) {
+              const front = parts[0];
+              const back = parts.slice(1).join("-");
+              return (<>
+                <button onClick={() => { addNgEntry("names", front); setWatchoiMenu(null); }}>ワッチョイ前半をNG（{front}）</button>
+                <button onClick={() => { addNgEntry("names", back); setWatchoiMenu(null); }}>ワッチョイ後半をNG（{back}）</button>
+              </>);
+            }
+            return null;
+          })()}
           <button onClick={() => { void navigator.clipboard.writeText(watchoiMenu.watchoi); setStatus("ワッチョイをコピーしました"); setWatchoiMenu(null); }}>ワッチョイをコピー</button>
           <button onClick={() => { setResponseSearchQuery(watchoiMenu.watchoi); addSearchHistory("response", watchoiMenu.watchoi); setStatus(`ワッチョイでレス抽出: ${watchoiMenu.watchoi}`); setWatchoiMenu(null); }}>このワッチョイでレス抽出</button>
         </div>
