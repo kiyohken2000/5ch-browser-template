@@ -8,7 +8,9 @@
 
 ## リリース手順（自動）
 
-`scripts/release.sh` でバージョン更新からデプロイまでを一括実行できる。
+2つのスクリプトで構成される。Macビルドを挟むため Phase 1 / Phase 2 に分割。
+
+### Phase 1: バージョン更新 → Windowsビルド
 
 ```bash
 scripts/release.sh <version> <release-notes>
@@ -20,18 +22,14 @@ scripts/release.sh 0.0.50 "- サムネサイズ設定を追加
 - ホバープレビュー遅延設定を追加"
 ```
 
-スクリプトの実行フロー:
+実行フロー:
 
 1. バージョン更新（`package.json`, `tauri.conf.json`, `Cargo.toml`）
 2. 検証（`cargo check` + `npm run build` + smoke test）
 3. コミット & プッシュ
 4. Windows版 `npx tauri build` → ZIP作成 → `out/` に配置
-5. **一時停止** — Mac版ビルド待ち
-6. `prepare_release_metadata.py` で `latest.json` 生成・検証 → コミット & プッシュ
-7. `gh release create`（ZIPアップロード + リリースノート）
-8. Cloudflare Pages デプロイ
 
-### Mac版ビルド（手順5の一時停止中に実施）
+### Mac版ビルド（Phase 1 完了後に実施）
 
 Mac環境で:
 ```bash
@@ -39,17 +37,32 @@ bash scripts/build_mac_release.sh
 ```
 
 `git pull` → `npm install` → `npx tauri build` → DMGをZIP化 → `out/ember-mac-arm64.zip` を生成。
-完了したらWindows側でEnterを押すと残りの手順が自動実行される。
+
+### Phase 2: メタデータ生成 → デプロイ
+
+Mac ZIP を `out/` に配置したら:
+
+```bash
+scripts/release_finish.sh <version> <release-notes>
+```
+
+実行フロー:
+
+1. Mac ZIP / Windows ZIP の存在確認
+2. `prepare_release_metadata.py` で `latest.json` 生成 → コミット & プッシュ
+3. `gh release create`（ZIPアップロード + リリースノート）
+4. ランディングページをビルドして Cloudflare Pages デプロイ
 
 ### Claude Code からの使い方
 
-Claude Code セッション内では、リリースノートの作成を含めて以下の流れで実行する:
+Claude Code セッション内では以下の流れで実行する:
 
 1. ユーザーが「リリースして」と依頼
 2. Claude がその会話中の変更内容から日本語のリリースノートを作成
-3. Claude が `scripts/release.sh` を実行
-4. Mac版ビルドの一時停止でユーザーに通知
-5. ユーザーがMacでビルド・配置後、Enterで続行
+3. Claude が `scripts/release.sh` を実行（Phase 1）
+4. 完了後、ユーザーにMacビルドを依頼
+5. ユーザーがMacでビルド・配置後「配置した」と報告
+6. Claude が `scripts/release_finish.sh` を実行（Phase 2）
 
 > **注意**: `npx tauri build` ではなく `cargo build --release -p ember` を直接実行するとフロントエンドがバイナリに埋め込まれず白画面になる。スクリプトは正しく `npx tauri build` を使用している。
 
@@ -123,7 +136,8 @@ gh release create vX.Y.Z \
 
 ```bash
 cd apps/landing
-npx wrangler pages deploy public --project-name ember-5ch
+npm run build
+npx wrangler pages deploy dist --project-name ember-5ch --branch main --commit-dirty=true
 ```
 
 ### 8. リリース後の確認
