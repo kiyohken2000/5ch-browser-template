@@ -141,7 +141,8 @@
       "WebFetch(domain:ember-5ch.pages.dev)",
       "WebFetch(domain:2502b536.ember-5ch.pages.dev)",
       "Bash(git -C \"C:/Users/all/develop/python/5ch-browser-template\" show 7915b50 --stat)",
-      "WebFetch(domain:e7b5c4e2.ember-5ch.pages.dev)"
+      "WebFetch(domain:e7b5c4e2.ember-5ch.pages.dev)",
+      "Bash(cp ember-win-x64.zip /c/Users/all/develop/python/5ch-browser-template/out/ember-win-x64.zip)"
     ]
   }
 }
