@@ -531,6 +531,98 @@ li.fav-drag-over {
   flex: 1;
 }
 
+.response-content-row {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+.response-content-row > .response-scroll {
+  flex: 1;
+  min-width: 0;
+}
+
+/* === Image gallery sub-pane === */
+.image-gallery-pane {
+  width: 180px;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #a0a0a0;
+  background: #f5f5f5;
+}
+.image-gallery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sub);
+  background: #e0e0e0;
+  border-bottom: 1px solid #c0c0c0;
+  flex-shrink: 0;
+}
+.image-gallery-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  padding: 4px;
+}
+.image-gallery-empty {
+  text-align: center;
+  color: var(--sub);
+  font-size: 11px;
+  padding: 16px 4px;
+}
+.image-gallery-item {
+  margin-bottom: 6px;
+  text-align: center;
+}
+.image-gallery-thumb-wrap {
+  cursor: pointer;
+  display: inline-block;
+}
+.image-gallery-thumb {
+  max-width: 100%;
+  max-height: 140px;
+  object-fit: contain;
+  border: 1px solid #ccc;
+  border-radius: 2px;
+  display: block;
+}
+.image-gallery-thumb-wrap:hover .image-gallery-thumb {
+  border-color: #3399ff;
+}
+.image-gallery-resno {
+  display: block;
+  font-size: 11px;
+  color: #0066cc;
+  cursor: pointer;
+  margin-top: 1px;
+}
+.image-gallery-resno:hover {
+  text-decoration: underline;
+}
+
+/* Dark mode overrides for image gallery */
+.dark .image-gallery-pane {
+  background: #252526;
+  border-left-color: #3c3c3c;
+}
+.dark .image-gallery-header {
+  background: #333;
+  border-bottom-color: #3c3c3c;
+}
+.dark .image-gallery-thumb {
+  border-color: #555;
+}
+.dark .image-gallery-thumb-wrap:hover .image-gallery-thumb {
+  border-color: #3399ff;
+}
+.dark .image-gallery-resno {
+  color: #6cb6ff;
+}
+
 .response-nav-bar {
   display: flex;
   align-items: center;
@@ -2055,11 +2147,13 @@ button.search-history-btn:hover {
   border-color: var(--accent);
 }
 
-.thumb-masked .response-thumb {
+.thumb-masked .response-thumb,
+.thumb-masked .image-gallery-thumb {
   filter: blur(16px) brightness(0.8);
   transition: filter 0.2s;
 }
-.thumb-masked .thumb-link:hover .response-thumb {
+.thumb-masked .thumb-link:hover .response-thumb,
+.thumb-masked .image-gallery-thumb-wrap:hover .image-gallery-thumb {
   filter: none;
 }
 

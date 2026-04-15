@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
-  Image, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3,
+  Image, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -642,6 +642,7 @@ export default function App() {
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(60);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const [mouseGestureEnabled, setMouseGestureEnabled] = useState(false);
+  const [imageGalleryOpen, setImageGalleryOpen] = useState(false);
   const gestureRef = useRef<{
     active: boolean;
     startX: number;
@@ -2286,6 +2287,17 @@ export default function App() {
   });
   const activeResponse = visibleResponseItems.find((r) => r.id === selectedResponse) ?? visibleResponseItems[0];
   const selectedResponseLabel = activeResponse ? `#${activeResponse.id}` : "-";
+
+  // Collect images with their response numbers for the image gallery pane
+  const galleryImages = useMemo(() => {
+    const items: { url: string; responseNo: number }[] = [];
+    for (const r of fetchedResponses) {
+      for (const url of extractImageUrls(r.body || "")) {
+        items.push({ url, responseNo: r.responseNo });
+      }
+    }
+    return items;
+  }, [fetchedResponses]);
 
   // Build back-reference map: responseNo → list of responseNos that reference it
   const backRefMap = (() => {
@@ -4343,6 +4355,7 @@ export default function App() {
                   <Star size={14} fill={favorites.threads.some((f) => f.threadUrl === threadTabs[activeTabIndex].threadUrl) ? "currentColor" : "none"} />
                 </button>
                 <button className="title-action-btn" onClick={downloadAllThreadImages} title="画像を一括ダウンロード"><Download size={14} /></button>
+                <button className={`title-action-btn ${imageGalleryOpen ? "active-toggle" : ""}`} onClick={() => setImageGalleryOpen((v) => !v)} title="画像一覧"><Images size={14} /></button>
                 <button className="title-action-btn" onClick={() => setNgPanelOpen((v) => !v)} title="NGフィルタ"><EyeOff size={14} /></button>
               </span>
             </div>
@@ -4433,6 +4446,7 @@ export default function App() {
           <div
             className="response-layout"
           >
+            <div className="response-content-row">
             <div
               className="response-scroll"
               ref={responseScrollRef}
@@ -4644,6 +4658,60 @@ export default function App() {
                   </Fragment>
                 );
               })}
+            </div>
+            {imageGalleryOpen && (
+              <div className="image-gallery-pane">
+                <div className="image-gallery-header">
+                  <span>画像一覧 ({galleryImages.length})</span>
+                  <button className="title-action-btn" onClick={() => setImageGalleryOpen(false)} title="閉じる"><X size={12} /></button>
+                </div>
+                <div className="image-gallery-scroll">
+                  {galleryImages.length === 0 && (
+                    <div className="image-gallery-empty">画像なし</div>
+                  )}
+                  {galleryImages.map((img, i) => (
+                    <div key={`${img.responseNo}-${i}`} className="image-gallery-item">
+                      <div
+                        className="image-gallery-thumb-wrap"
+                        onMouseMove={(e) => {
+                          if (!e.ctrlKey && !hoverPreviewEnabled) return;
+                          showHoverPreview(img.url);
+                        }}
+                        onMouseOut={(e) => {
+                          const next = (e as React.MouseEvent).relatedTarget as HTMLElement | null;
+                          if (next?.closest(".hover-preview")) return;
+                          if (hoverPreviewShowTimerRef.current) { clearTimeout(hoverPreviewShowTimerRef.current); hoverPreviewShowTimerRef.current = null; }
+                          if (hoverPreviewHideTimerRef.current) clearTimeout(hoverPreviewHideTimerRef.current);
+                          hoverPreviewHideTimerRef.current = setTimeout(() => {
+                            hoverPreviewSrcRef.current = null;
+                            hoverPreviewHideTimerRef.current = null;
+                            if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
+                          }, 300);
+                        }}
+                        onClick={() => {
+                          if (isTauriRuntime()) {
+                            void invoke("open_external_url", { url: img.url }).catch(() => window.open(img.url, "_blank"));
+                          } else {
+                            window.open(img.url, "_blank");
+                          }
+                        }}
+                      >
+                        <img className="image-gallery-thumb" src={img.url} loading="lazy" alt="" />
+                      </div>
+                      <span
+                        className="image-gallery-resno"
+                        onClick={() => {
+                          setSelectedResponse(img.responseNo);
+                          setStatus(`>>${img.responseNo}`);
+                        }}
+                      >
+                        &gt;&gt;{img.responseNo}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             </div>
             <div className="response-nav-bar">
               <span className="nav-info">
