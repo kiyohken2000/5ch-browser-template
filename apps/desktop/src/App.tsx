@@ -254,12 +254,9 @@ const getThreadKeyFromThreadUrl = (url: string): string => {
 
 const threadAgeColor = (createdAt: number): string | undefined => {
   const h = (Date.now() - createdAt) / 3600000;
-  if (h < 1) return "#e53935";
-  if (h < 3) return "#f4511e";
-  if (h < 6) return "#fb8c00";
-  if (h < 12) return "#c0ca33";
-  if (h < 24) return "#43a047";
-  if (h < 72) return "#00897b";
+  if (h < 1) return "#e65100";
+  if (h < 6) return "#bf8c00";
+  if (h < 24) return "#a09000";
   return undefined;
 };
 
@@ -2920,6 +2917,14 @@ export default function App() {
         }
         return;
       }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "e") {
+        e.preventDefault();
+        setComposeOpen(true);
+        setComposePos(null);
+        setComposeBody("");
+        setComposeResult(null);
+        return;
+      }
       if (e.key.toLowerCase() === "r" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         const sel = window.getSelection()?.toString().trim();
@@ -5550,6 +5555,7 @@ export default function App() {
                 ["Ctrl+Shift+↑/↓", "レス選択の上下移動"],
                 ["Ctrl+Alt+←/→", "スレペイン幅の調整"],
                 ["Ctrl+Alt+↑/↓", "レス分割比の調整"],
+                ["Ctrl+E", "書き込みウィンドウを開く"],
                 ["R", "選択レスを引用して書き込み"],
                 ["Escape", "ライトボックス/ダイアログを閉じる"],
                 ["ダブルクリック (レス行)", "引用して書き込み"],
