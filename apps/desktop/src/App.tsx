@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
-  Image, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3,
+  Image, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -725,7 +725,9 @@ export default function App() {
   const [backRefPopup, setBackRefPopup] = useState<{ x: number; y: number; anchorTop: number; responseIds: number[] } | null>(null);
   const [watchoiMenu, setWatchoiMenu] = useState<{ x: number; y: number; watchoi: string } | null>(null);
   const [composePos, setComposePos] = useState<{ x: number; y: number } | null>(null);
+  const [composeSize, setComposeSize] = useState<{ w: number; h: number } | null>(null);
   const composeDragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
+  const composeResizeRef = useRef<{ startX: number; startY: number; startW: number; startH: number; startPosX: number; startPosY: number; edge: string } | null>(null);
   const [boardPanePx, setBoardPanePx] = useState(DEFAULT_BOARD_PANE_PX);
   const [threadPanePx, setThreadPanePx] = useState(DEFAULT_THREAD_PANE_PX);
   const [responseTopRatio, setResponseTopRatio] = useState(DEFAULT_RESPONSE_TOP_RATIO);
@@ -2983,6 +2985,7 @@ export default function App() {
           alwaysOnTop?: boolean;
           mouseGestureEnabled?: boolean;
           threadAgeColorEnabled?: boolean;
+          composeSize?: { w: number; h: number };
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
         if (typeof parsed.threadPanePx === "number") {
@@ -3020,6 +3023,7 @@ export default function App() {
         if (typeof parsed.alwaysOnTop === "boolean") setAlwaysOnTop(parsed.alwaysOnTop);
         if (typeof parsed.mouseGestureEnabled === "boolean") setMouseGestureEnabled(parsed.mouseGestureEnabled);
         if (typeof parsed.threadAgeColorEnabled === "boolean") setThreadAgeColorEnabled(parsed.threadAgeColorEnabled);
+        if (parsed.composeSize && typeof parsed.composeSize.w === "number" && typeof parsed.composeSize.h === "number") setComposeSize(parsed.composeSize);
       } catch { /* ignore */ }
     };
     // Try localStorage first, then file-based persistence
@@ -3347,6 +3351,31 @@ export default function App() {
         });
         return;
       }
+      const cresize = composeResizeRef.current;
+      if (cresize) {
+        const dx = event.clientX - cresize.startX;
+        const dy = event.clientY - cresize.startY;
+        const minW = 320;
+        const minH = 200;
+        const e = cresize.edge;
+        let newW = cresize.startW;
+        let newH = cresize.startH;
+        let newX = cresize.startPosX;
+        let newY = cresize.startPosY;
+        if (e.includes("r")) newW = Math.max(minW, cresize.startW + dx);
+        if (e.includes("l")) {
+          newW = Math.max(minW, cresize.startW - dx);
+          newX = cresize.startPosX + (cresize.startW - newW);
+        }
+        if (e.includes("b")) newH = Math.max(minH, cresize.startH + dy);
+        if (e.includes("t")) {
+          newH = Math.max(minH, cresize.startH - dy);
+          newY = cresize.startPosY + (cresize.startH - newH);
+        }
+        setComposeSize({ w: newW, h: newH });
+        setComposePos({ x: newX, y: newY });
+        return;
+      }
       const drag = resizeDragRef.current;
       if (!drag) return;
 
@@ -3396,6 +3425,12 @@ export default function App() {
     const onMouseUp = () => {
       if (composeDragRef.current) {
         composeDragRef.current = null;
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        return;
+      }
+      if (composeResizeRef.current) {
+        composeResizeRef.current = null;
         document.body.style.userSelect = "";
         document.body.style.cursor = "";
         return;
@@ -3617,12 +3652,13 @@ export default function App() {
       alwaysOnTop,
       mouseGestureEnabled,
       threadAgeColorEnabled,
+      composeSize: composeSize ?? undefined,
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled, composeSize]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -4856,7 +4892,10 @@ export default function App() {
           className="compose-window"
           role="dialog"
           aria-label="書き込み"
-          style={composePos ? { right: "auto", bottom: "auto", left: composePos.x, top: composePos.y } : undefined}
+          style={{
+            ...(composePos ? { right: "auto", bottom: "auto", left: composePos.x, top: composePos.y } : {}),
+            ...(composeSize ? { width: composeSize.w, height: composeSize.h } : {}),
+          }}
         >
           <header
             className="compose-header"
@@ -4879,6 +4918,7 @@ export default function App() {
             <span className="compose-target" title={threadUrl}>
               {selectedThreadItem ? selectedThreadItem.title : threadUrl}
             </span>
+            <button className="compose-header-icon" title="サイズをリセット" onClick={() => { setComposeSize(null); setComposePos(null); }}><RotateCcw size={14} /></button>
             <button onClick={() => { setComposeOpen(false); setComposeResult(null); setUploadPanelOpen(false); setUploadResults([]); }}>閉じる</button>
           </header>
           <div className="compose-grid">
@@ -4996,6 +5036,23 @@ export default function App() {
               {composeResult.ok ? "OK" : "NG"}: {composeResult.message}
             </div>
           )}
+          {["r", "b", "rb", "l", "t", "lt", "lb", "rt"].map((edge) => (
+            <div
+              key={edge}
+              className={`compose-resize compose-resize-${edge}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+                composeResizeRef.current = { startX: e.clientX, startY: e.clientY, startW: rect.width, startH: rect.height, startPosX: rect.left, startPosY: rect.top, edge };
+                if (!composePos) setComposePos({ x: rect.left, y: rect.top });
+                if (!composeSize) setComposeSize({ w: rect.width, h: rect.height });
+                document.body.style.userSelect = "none";
+                const cursors: Record<string, string> = { r: "ew-resize", l: "ew-resize", t: "ns-resize", b: "ns-resize", rb: "nwse-resize", lt: "nwse-resize", rt: "nesw-resize", lb: "nesw-resize" };
+                document.body.style.cursor = cursors[edge] ?? "nwse-resize";
+              }}
+            />
+          ))}
         </section>
       )}
       {ngPanelOpen && (
