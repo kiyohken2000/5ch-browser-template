@@ -142,7 +142,16 @@
       "WebFetch(domain:2502b536.ember-5ch.pages.dev)",
       "Bash(git -C \"C:/Users/all/develop/python/5ch-browser-template\" show 7915b50 --stat)",
       "WebFetch(domain:e7b5c4e2.ember-5ch.pages.dev)",
-      "Bash(cp ember-win-x64.zip /c/Users/all/develop/python/5ch-browser-template/out/ember-win-x64.zip)"
+      "Bash(cp ember-win-x64.zip /c/Users/all/develop/python/5ch-browser-template/out/ember-win-x64.zip)",
+      "Bash(grep -o '__APP_VERSION__[^\"]*\"[^\"]*\"' /c/Users/all/develop/python/5ch-browser-template/apps/desktop/dist/assets/index-*.js)",
+      "Bash(grep -o '0\\\\.0\\\\.9[0-9]' /c/Users/all/develop/python/5ch-browser-template/apps/desktop/dist/assets/index-*.js)",
+      "Bash(rm -f out/ember-win-x64.zip)",
+      "Bash(7z a *)",
+      "Bash(powershell -Command \"Compress-Archive -Path 'C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\target\\\\release\\\\ember.exe' -DestinationPath 'C:\\\\Users\\\\all\\\\develop\\\\python\\\\5ch-browser-template\\\\out\\\\ember-win-x64.zip' -Force\")",
+      "Bash(powershell -Command \"Compress-Archive -Path 'target\\\\release\\\\ember.exe' -DestinationPath 'out\\\\ember-win-x64.zip' -Force\")",
+      "Bash(powershell *)",
+      "Bash(sed -i 's/\"version\": \"0.0.97\"/\"version\": \"0.0.98\"/' apps/desktop/package.json apps/desktop/src-tauri/tauri.conf.json)",
+      "Bash(sed -i 's/^version = \"0.0.97\"/version = \"0.0.98\"/' apps/desktop/src-tauri/Cargo.toml)"
     ]
   }
 }
