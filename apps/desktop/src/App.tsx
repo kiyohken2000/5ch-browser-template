@@ -628,6 +628,7 @@ export default function App() {
   const hoverPreviewShowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [thumbSize, setThumbSize] = useState(200);
   const [thumbMaskEnabled, setThumbMaskEnabled] = useState(false);
+  const [responseBodyBottomPad, setResponseBodyBottomPad] = useState(false);
   const [restoreSession, setRestoreSession] = useState(false);
   const restoreSessionRef = useRef(false);
   const hoverPreviewEnabledRef = useRef(hoverPreviewEnabled);
@@ -2997,6 +2998,7 @@ export default function App() {
           threadAgeColorEnabled?: boolean;
           composeSize?: { w: number; h: number };
           threadColVisible?: Record<string, boolean>;
+          responseBodyBottomPad?: boolean;
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
         if (typeof parsed.threadPanePx === "number") {
@@ -3036,6 +3038,7 @@ export default function App() {
         if (typeof parsed.threadAgeColorEnabled === "boolean") setThreadAgeColorEnabled(parsed.threadAgeColorEnabled);
         if (parsed.composeSize && typeof parsed.composeSize.w === "number" && typeof parsed.composeSize.h === "number") setComposeSize(parsed.composeSize);
         if (parsed.threadColVisible && typeof parsed.threadColVisible === "object") setThreadColVisible((prev) => ({ ...prev, ...parsed.threadColVisible }));
+        if (typeof parsed.responseBodyBottomPad === "boolean") setResponseBodyBottomPad(parsed.responseBodyBottomPad);
       } catch { /* ignore */ }
     };
     // Try localStorage first, then file-based persistence
@@ -3666,12 +3669,13 @@ export default function App() {
       threadAgeColorEnabled,
       composeSize: composeSize ?? undefined,
       threadColVisible,
+      responseBodyBottomPad,
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled, composeSize, threadColVisible]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled, composeSize, threadColVisible, responseBodyBottomPad]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -4754,7 +4758,7 @@ export default function App() {
                         )}
                       </span>
                     </div>
-                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}`} dangerouslySetInnerHTML={renderResponseBodyHighlighted(r.text, responseSearchQuery, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit })} />
+                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}`} dangerouslySetInnerHTML={{ __html: renderResponseBodyHighlighted(r.text, responseSearchQuery, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit }).__html + (responseBodyBottomPad ? "<br><br>" : "") }} />
                   </div>
                   </Fragment>
                 );
@@ -5768,6 +5772,10 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={threadAgeColorEnabled} onChange={(e) => setThreadAgeColorEnabled(e.target.checked)} />
                   <span>スレ一覧を経過時間で色分け</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={responseBodyBottomPad} onChange={(e) => setResponseBodyBottomPad(e.target.checked)} />
+                  <span>レス本文の末尾に空行を追加</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={restoreSession} onChange={(e) => setRestoreSession(e.target.checked)} />
