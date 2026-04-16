@@ -4798,6 +4798,19 @@ export default function App() {
                           setSelectedResponse(img.responseNo);
                           setStatus(`>>${img.responseNo}`);
                         }}
+                        onMouseEnter={(e) => {
+                          if (anchorPopupCloseTimer.current) { clearTimeout(anchorPopupCloseTimer.current); anchorPopupCloseTimer.current = null; }
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const popupWidth = Math.min(620, window.innerWidth - 24);
+                          const x = Math.max(8, Math.min(rect.left, window.innerWidth - popupWidth - 8));
+                          setAnchorPopup({ x, y: rect.bottom + 1, anchorTop: rect.top, responseIds: [img.responseNo] });
+                        }}
+                        onMouseLeave={(e) => {
+                          const next = e.relatedTarget as HTMLElement | null;
+                          if (next?.closest(".anchor-popup")) return;
+                          if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
+                          anchorPopupCloseTimer.current = setTimeout(() => { setAnchorPopup(null); setNestedPopups([]); anchorPopupCloseTimer.current = null; }, 150);
+                        }}
                       >
                         &gt;&gt;{img.responseNo}
                       </span>
