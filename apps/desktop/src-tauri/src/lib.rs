@@ -587,26 +587,40 @@ async fn probe_post_flow_trace(
             || html.contains("書き込みが終わりました")
             || html.contains("投稿が完了")
     };
+    let is_error = |html: &str| -> bool {
+        html.contains("ＥＲＲＯＲ")
+            || html.contains("ERROR")
+            || html.contains("お茶でも飲みましょう")
+            || html.contains("もう少し落ち着いて")
+            || html.contains("多重投稿")
+            || html.contains("このスレッドには書き込めません")
+            || html.contains("規制中")
+            || html.contains("Samba")
+            || html.contains("忍法帖")
+    };
     let mut contains_ok = is_ok(&confirm_html);
+    let mut contains_error = is_error(&confirm_html);
 
     let confirm_summary = Some(format!(
-        "status={} ok={} type={} body={}",
+        "status={} ok={} err_detected={} type={} body={}",
         confirm.status,
         contains_ok,
+        contains_error,
         confirm.content_type.unwrap_or_else(|| "-".to_string()),
         confirm.body_preview.chars().take(300).collect::<String>()
     ));
     let _ = core_store::append_log(&format!(
-        "post_flow: confirm status={} ok={} body_len={} body_preview={}",
-        confirm.status, contains_ok, confirm_html.len(),
+        "post_flow: confirm status={} ok={} err_detected={} body_len={} body_preview={}",
+        confirm.status, contains_ok, contains_error, confirm_html.len(),
         confirm_html.chars().take(500).collect::<String>()
     ));
 
     // If not successful, retry once — the first attempt may have been a cookie/consent
     // page that curl_post_5ch handled internally, setting cookies for the next attempt.
+    // But skip retry if an explicit error was detected (no point retrying regulation/samba).
     let mut retry_summary: Option<String> = None;
-    if !contains_ok {
-        let _ = core_store::append_log("post_flow: first attempt failed, retrying...");
+    if !contains_ok && !contains_error {
+        let _ = core_store::append_log("post_flow: first attempt failed (no success/error marker), retrying...");
         let (retry_confirm, retry_html) = submit_post_confirm_with_html(
             &client,
             &tokens,
@@ -619,23 +633,25 @@ async fn probe_post_flow_trace(
         .map_err(|e| format!("{:?}", e))?;
 
         contains_ok = is_ok(&retry_html);
+        contains_error = is_error(&retry_html);
         retry_summary = Some(format!(
-            "retry: status={} ok={} body={}",
+            "retry: status={} ok={} err_detected={} body={}",
             retry_confirm.status,
             contains_ok,
+            contains_error,
             retry_confirm.body_preview.chars().take(300).collect::<String>()
         ));
         let _ = core_store::append_log(&format!(
-            "post_flow: retry status={} ok={} body_len={} body_preview={}",
-            retry_confirm.status, contains_ok, retry_html.len(),
+            "post_flow: retry status={} ok={} err_detected={} body_len={} body_preview={}",
+            retry_confirm.status, contains_ok, contains_error, retry_html.len(),
             retry_html.chars().take(500).collect::<String>()
         ));
     }
 
     let error_flag = !contains_ok;
     let submit_summary = Some(format!(
-        "status={} error={} retried={}",
-        confirm.status, error_flag, retry_summary.is_some()
+        "status={} error={} err_detected={} retried={}",
+        confirm.status, error_flag, contains_error, retry_summary.is_some()
     ));
     let _ = core_store::append_log(&format!(
         "post_flow: done error={} retried={}", error_flag, retry_summary.is_some()

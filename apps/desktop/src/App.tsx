@@ -1868,12 +1868,19 @@ export default function App() {
 
   const probePostFlowTraceFromCompose = async () => {
     if (composeSubmitting) return;
+    // Always post to the active tab's thread URL
+    const activeTab = threadTabs[activeTabIndex];
+    const postTargetUrl = activeTab?.threadUrl?.trim();
+    if (!postTargetUrl || !/\/test\/read\.cgi\//.test(postTargetUrl)) {
+      setComposeResult({ ok: false, message: "投稿先のスレッドが選択されていません" });
+      return;
+    }
     setComposeSubmitting(true);
     setPostFlowTraceProbe("running...");
     setComposeResult(null);
     try {
       const r = await invoke<PostFlowTrace>("probe_post_flow_trace", {
-        threadUrl,
+        threadUrl: postTargetUrl,
         from: composeName || null,
         mail: composeMailValue || null,
         message: composeBody || null,
@@ -1892,14 +1899,14 @@ export default function App() {
       );
       if (r.blocked) {
         setComposeResult({ ok: false, message: "Flow blocked" });
-      } else if (r.submitSummary?.includes("error=true")) {
+      } else if (r.submitSummary?.includes("error=true") || r.submitSummary?.includes("err_detected=true")) {
         setComposeResult({ ok: false, message: `Post failed: ${r.submitSummary}\nconfirm: ${r.confirmSummary ?? "-"}\nretry: ${r.finalizeSummary ?? "-"}` });
-        setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
+        setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl: postTargetUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
       } else if (r.submitSummary) {
         setComposeResult({ ok: true, message: `Post submitted: ${r.submitSummary}` });
-        setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl, body: composeBody.slice(0, 100), ok: true }, ...prev].slice(0, 50));
-        const postedTitle = threadTabs.find((t) => t.threadUrl === threadUrl.trim())?.title ?? threadUrl.trim();
-        pushRecentPostedThread(threadUrl.trim(), postedTitle);
+        setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl: postTargetUrl, body: composeBody.slice(0, 100), ok: true }, ...prev].slice(0, 50));
+        const postedTitle = threadTabs.find((t) => t.threadUrl === postTargetUrl)?.title ?? postTargetUrl;
+        pushRecentPostedThread(postTargetUrl, postedTitle);
         const postedBody = composeBody;
         setComposeBody("");
         if (composeName.trim()) {
@@ -1912,13 +1919,13 @@ export default function App() {
         setComposeOpen(false);
         setUploadPanelOpen(false);
         setUploadResults([]);
-        const prevCount = tabCacheRef.current.get(threadUrl.trim())?.responses.length ?? 0;
-        pendingMyPostRef.current = { threadUrl: threadUrl.trim(), body: postedBody, prevCount };
+        const prevCount = tabCacheRef.current.get(postTargetUrl)?.responses.length ?? 0;
+        pendingMyPostRef.current = { threadUrl: postTargetUrl, body: postedBody, prevCount };
         // Re-fetch responses via standard path to update thread list counts, cache, and timestamps
-        await fetchResponsesFromCurrent(threadUrl.trim());
+        await fetchResponsesFromCurrent(postTargetUrl);
         // Scroll to bottom to show the new post
         setTimeout(() => {
-          const items = tabCacheRef.current.get(threadUrl.trim())?.responses;
+          const items = tabCacheRef.current.get(postTargetUrl)?.responses;
           if (items && items.length > 0) {
             setSelectedResponse(items[items.length - 1].responseNo);
           }
@@ -1930,7 +1937,7 @@ export default function App() {
     } catch (error) {
       setPostFlowTraceProbe(`error: ${String(error)}`);
       setComposeResult({ ok: false, message: `Error: ${String(error)}` });
-      setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
+      setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl: postTargetUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
     } finally {
       setComposeSubmitting(false);
     }
@@ -4957,8 +4964,8 @@ export default function App() {
             }}
           >
             <strong>書き込み</strong>
-            <span className="compose-target" title={threadUrl}>
-              {selectedThreadItem ? selectedThreadItem.title : threadUrl}
+            <span className="compose-target" title={threadTabs[activeTabIndex]?.threadUrl ?? threadUrl}>
+              {threadTabs[activeTabIndex]?.title ?? threadUrl}
             </span>
             <button className="compose-header-icon" title="サイズをリセット" onClick={() => { setComposeSize(null); setComposePos(null); }}><RotateCcw size={14} /></button>
             <button onClick={() => { setComposeOpen(false); setComposeResult(null); setUploadPanelOpen(false); setUploadResults([]); }}>閉じる</button>
@@ -5002,7 +5009,7 @@ export default function App() {
             <button onClick={async () => {
               setComposeResult({ ok: false, message: "診断中..." });
               try {
-                const r = await invoke<string>("debug_post_connectivity", { threadUrl });
+                const r = await invoke<string>("debug_post_connectivity", { threadUrl: threadTabs[activeTabIndex]?.threadUrl ?? threadUrl });
                 setComposeResult({ ok: true, message: r });
               } catch (e) {
                 setComposeResult({ ok: false, message: `診断エラー: ${String(e)}` });
