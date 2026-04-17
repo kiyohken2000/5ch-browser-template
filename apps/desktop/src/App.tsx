@@ -629,6 +629,7 @@ export default function App() {
   const [thumbSize, setThumbSize] = useState(200);
   const [thumbMaskEnabled, setThumbMaskEnabled] = useState(false);
   const [responseBodyBottomPad, setResponseBodyBottomPad] = useState(false);
+  const [titleClickRefresh, setTitleClickRefresh] = useState(false);
   const [restoreSession, setRestoreSession] = useState(false);
   const restoreSessionRef = useRef(false);
   const hoverPreviewEnabledRef = useRef(hoverPreviewEnabled);
@@ -2999,6 +3000,7 @@ export default function App() {
           composeSize?: { w: number; h: number };
           threadColVisible?: Record<string, boolean>;
           responseBodyBottomPad?: boolean;
+          titleClickRefresh?: boolean;
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
         if (typeof parsed.threadPanePx === "number") {
@@ -3039,6 +3041,7 @@ export default function App() {
         if (parsed.composeSize && typeof parsed.composeSize.w === "number" && typeof parsed.composeSize.h === "number") setComposeSize(parsed.composeSize);
         if (parsed.threadColVisible && typeof parsed.threadColVisible === "object") setThreadColVisible((prev) => ({ ...prev, ...parsed.threadColVisible }));
         if (typeof parsed.responseBodyBottomPad === "boolean") setResponseBodyBottomPad(parsed.responseBodyBottomPad);
+        if (typeof parsed.titleClickRefresh === "boolean") setTitleClickRefresh(parsed.titleClickRefresh);
       } catch { /* ignore */ }
     };
     // Try localStorage first, then file-based persistence
@@ -3670,12 +3673,13 @@ export default function App() {
       composeSize: composeSize ?? undefined,
       threadColVisible,
       responseBodyBottomPad,
+      titleClickRefresh,
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled, composeSize, threadColVisible, responseBodyBottomPad]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled, composeSize, threadColVisible, responseBodyBottomPad, titleClickRefresh]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -4424,8 +4428,25 @@ export default function App() {
           {activeTabIndex >= 0 && activeTabIndex < threadTabs.length && (
             <div className="thread-title-bar">
               <span className="thread-title-text" title={threadTabs[activeTabIndex].title}>
-                {threadTabs[activeTabIndex].title}
-                {" "}[{fetchedResponses.length}]
+                {titleClickRefresh ? (
+                  <span
+                    className="thread-title-clickable"
+                    title={`クリックでスレ一覧を更新: ${getBoardUrlFromThreadUrl(threadTabs[activeTabIndex].threadUrl)}`}
+                    onClick={() => {
+                      const boardUrl = getBoardUrlFromThreadUrl(threadTabs[activeTabIndex].threadUrl);
+                      setSelectedBoard(boardUrl.split("/").filter(Boolean).pop() || "");
+                      lastBoardUrlRef.current = boardUrl;
+                      setLocationInput(boardUrl);
+                      setThreadUrl(boardUrl);
+                      void fetchThreadListFromCurrent(boardUrl);
+                    }}
+                  >
+                    {threadTabs[activeTabIndex].title}
+                    {" "}[{fetchedResponses.length}]
+                  </span>
+                ) : (
+                  <>{threadTabs[activeTabIndex].title}{" "}[{fetchedResponses.length}]</>
+                )}
               </span>
               <span className="thread-title-actions">
                 <div className="title-split-wrap" onClick={(e) => e.stopPropagation()}>
@@ -5776,6 +5797,10 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={responseBodyBottomPad} onChange={(e) => setResponseBodyBottomPad(e.target.checked)} />
                   <span>レス本文の末尾に空行を追加</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={titleClickRefresh} onChange={(e) => setTitleClickRefresh(e.target.checked)} />
+                  <span>スレタイクリックでスレ一覧を更新</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={restoreSession} onChange={(e) => setRestoreSession(e.target.checked)} />

@@ -902,6 +902,12 @@ li.fav-drag-over {
   white-space: nowrap;
   font-weight: 600;
 }
+.thread-title-clickable {
+  cursor: pointer;
+}
+.thread-title-clickable:hover {
+  text-decoration: underline;
+}
 
 .thread-title-actions {
   display: flex;
