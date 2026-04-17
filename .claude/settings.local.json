@@ -151,7 +151,9 @@
       "Bash(powershell -Command \"Compress-Archive -Path 'target\\\\release\\\\ember.exe' -DestinationPath 'out\\\\ember-win-x64.zip' -Force\")",
       "Bash(powershell *)",
       "Bash(sed -i 's/\"version\": \"0.0.97\"/\"version\": \"0.0.98\"/' apps/desktop/package.json apps/desktop/src-tauri/tauri.conf.json)",
-      "Bash(sed -i 's/^version = \"0.0.97\"/version = \"0.0.98\"/' apps/desktop/src-tauri/Cargo.toml)"
+      "Bash(sed -i 's/^version = \"0.0.97\"/version = \"0.0.98\"/' apps/desktop/src-tauri/Cargo.toml)",
+      "Bash(sed -i 's/\"version\": \"0.0.98\"/\"version\": \"0.0.99\"/' apps/desktop/package.json apps/desktop/src-tauri/tauri.conf.json)",
+      "Bash(sed -i 's/^version = \"0.0.98\"/version = \"0.0.99\"/' apps/desktop/src-tauri/Cargo.toml)"
     ]
   }
 }
