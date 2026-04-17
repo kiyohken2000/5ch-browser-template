@@ -3252,6 +3252,104 @@ button.search-history-btn:hover {
   }
 }
 
+.next-thread-banner {
+  margin: 12px 8px;
+  padding: 10px 12px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #fff8e1;
+  font-size: calc(12px + var(--fs-delta, 0px));
+}
+.next-thread-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
+.next-thread-banner-title {
+  color: #bf6d00;
+  font-weight: 700;
+}
+.next-thread-search-btn {
+  padding: 3px 10px;
+  border: 1px solid #d59a47;
+  border-radius: 4px;
+  background: #fff;
+  color: #8a4b00;
+  cursor: pointer;
+  font-size: calc(11px + var(--fs-delta, 0px));
+}
+.next-thread-search-btn:hover:not(:disabled) {
+  background: #ffe3a6;
+}
+.next-thread-search-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.next-thread-empty {
+  margin-top: 8px;
+  color: #6a6a6a;
+}
+.next-thread-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.next-thread-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.next-thread-item:hover {
+  background: #fde9a8;
+}
+.next-thread-item-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #0066cc;
+}
+.next-thread-item:hover .next-thread-item-title {
+  text-decoration: underline;
+}
+.next-thread-item-meta {
+  color: #666;
+  font-size: calc(11px + var(--fs-delta, 0px));
+  flex-shrink: 0;
+}
+.dark .next-thread-banner {
+  background: #3a2e18;
+  border-color: #5a4a28;
+}
+.dark .next-thread-banner-title {
+  color: #ffb870;
+}
+.dark .next-thread-search-btn {
+  background: #2a2a2a;
+  border-color: #7a5a2a;
+  color: #ffcf94;
+}
+.dark .next-thread-search-btn:hover:not(:disabled) {
+  background: #4a3820;
+}
+.dark .next-thread-empty {
+  color: #aaa;
+}
+.dark .next-thread-item:hover {
+  background: #4a3820;
+}
+.dark .next-thread-item-title {
+  color: #74b0ff;
+}
+.dark .next-thread-item-meta {
+  color: #aaa;
+}
+
 /* Mouse gesture trail */
 .gesture-trail {
   position: fixed;
