@@ -6,7 +6,7 @@ import emberWindowsDark from "./assets/images/ember-windows-dark.jpg";
 import emberMacLight from "./assets/images/ember-mac-light.jpg";
 import emberMacDark from "./assets/images/ember-mac-dark.jpg";
 import emberImagePane from "./assets/images/ember-image-pane.jpeg";
-import emberRiberLayout1 from "./assets/images/ember-riber-layout-1.jpeg";
+import emberRiberLayout1 from "./assets/images/ember-riber-layout-1.jpg";
 import emberRiberLayout2 from "./assets/images/ember-riber-layout-2.jpeg";
 import emberWindowsImagePane from "./assets/images/ember-windows-image-pane.jpeg";
 
