@@ -671,6 +671,7 @@ export default function App() {
   hoverPreviewEnabledRef.current = hoverPreviewEnabled;
   const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">("boards");
   const [favRecentExpanded, setFavRecentExpanded] = useState(false);
+  const [favRecentPostedExpanded, setFavRecentPostedExpanded] = useState(false);
   const [showCachedOnly, setShowCachedOnly] = useState(false);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [showRecentOpenedOnly, setShowRecentOpenedOnly] = useState(false);
@@ -4443,6 +4444,49 @@ export default function App() {
                   )
                 )}
               </div>
+              <div className="board-category">
+                <button
+                  className="category-toggle"
+                  onClick={() => setFavRecentPostedExpanded((v) => !v)}
+                >
+                  <span className="category-arrow">{favRecentPostedExpanded ? "\u25BC" : "\u25B6"}</span>
+                  最近書き込んだスレ ({recentPostedThreads.length})
+                </button>
+                {favRecentPostedExpanded && (
+                  recentPostedThreads.length === 0 ? (
+                    <span className="ng-empty">(なし)</span>
+                  ) : (
+                    <ul className="category-boards">
+                      {recentPostedThreads.filter((rt) => !favSearchQuery.trim() || rt.title.toLowerCase().includes(favSearchQuery.trim().toLowerCase())).map((rt) => {
+                        const isFav = favorites.threads.some((t) => t.threadUrl === rt.threadUrl);
+                        return (
+                          <li key={rt.threadUrl}>
+                            <button
+                              className="board-item"
+                              onClick={() => {
+                                openThreadInTab(rt.threadUrl, rt.title);
+                                setStatus(`loading recent posted thread: ${rt.title}`);
+                              }}
+                              title={rt.threadUrl}
+                            >
+                              <span
+                                className={`fav-star ${isFav ? "active" : ""}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleFavoriteThread({ threadUrl: rt.threadUrl, title: rt.title });
+                                }}
+                              >
+                                <Star size={12} fill={isFav ? "currentColor" : "none"} />
+                              </span>
+                              {rt.title}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )
+                )}
+              </div>
             </div>
           )}
         </section>
@@ -5911,7 +5955,6 @@ export default function App() {
                 ["A", "オートスクロールのオン/オフ"],
                 ["Escape", "ライトボックス/ダイアログを閉じる"],
                 ["ダブルクリック (レス行)", "引用して書き込み"],
-                ["中クリック (タブ)", "タブを閉じる"],
               ].map(([key, desc]) => (
                 <div key={key} className="shortcut-row">
                   <kbd>{key}</kbd>

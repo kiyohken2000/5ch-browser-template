@@ -2969,13 +2969,15 @@ button.search-history-btn:hover {
   border-color: #555;
 }
 .dark .settings-panel button,
-.dark .settings-header button {
+.dark .settings-header button,
+.dark .shortcuts-header button {
   background: #3a3a3a;
   color: var(--ink);
   border-color: #555;
 }
 .dark .settings-panel button:hover,
-.dark .settings-header button:hover {
+.dark .settings-header button:hover,
+.dark .shortcuts-header button:hover {
   background: #4a4a4a;
 }
 /* --- Dark mode: compose close button --- */
