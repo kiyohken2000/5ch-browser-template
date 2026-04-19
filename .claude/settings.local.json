@@ -165,7 +165,14 @@
       "Bash(pkill -f \"vite preview\")",
       "Bash(netstat -ano)",
       "Bash(taskkill //F //PID 2740)",
-      "Bash(taskkill //F //PID 16904)"
+      "Bash(taskkill //F //PID 16904)",
+      "Bash(scripts/release.sh 0.0.101 '- オートスクロール機能を追加: レス自動スクロール \\(タイトルバーの▶ボタンで開始/停止、設定で速度調整 5-500px/秒\\) *)",
+      "Bash(scripts/release_finish.sh 0.0.101 '- オートスクロール機能を追加: レス自動スクロール \\(タイトルバーの▶ボタンで開始/停止、設定で速度調整 5-500px/秒\\) *)",
+      "Bash(scripts/release.sh 0.0.102 \"- オートスクロールのオン/オフを A キーで切替可能に \\(ショートカット一覧にも追記\\)\")",
+      "Bash(scripts/release_finish.sh 0.0.102 \"- オートスクロールのオン/オフを A キーで切替可能に \\(ショートカット一覧にも追記\\)\")",
+      "Bash(scripts/release.sh 0.0.103 '- 書き込みウィンドウをコンパクト化: 名前/メール/sageを横1行に統合、各セクションのpaddingを圧縮、文字数カウンタをアクション行に統合 *)",
+      "Bash(scripts/release_finish.sh 0.0.103 '- 書き込みウィンドウをコンパクト化: 名前/メール/sageを横1行に統合、各セクションのpaddingを圧縮、文字数カウンタをアクション行に統合 *)",
+      "Bash(git *)"
     ]
   }
 }
