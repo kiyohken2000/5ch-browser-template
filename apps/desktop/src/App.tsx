@@ -208,6 +208,19 @@ const escapeHtml = (s: string) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+const responseHtmlToPlainText = (html: string): string => {
+  return decodeHtmlEntities(
+    html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")
+  )
+    .split("\n")
+    .map((l) => {
+      let s = l;
+      if (s.startsWith(" ")) s = s.slice(1);
+      if (s.endsWith(" ")) s = s.slice(0, -1);
+      return s;
+    })
+    .join("\n");
+};
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const highlightHtmlPreservingTags = (html: string, query: string) => {
   const q = query.trim();
@@ -2582,7 +2595,7 @@ export default function App() {
   const onResponseNoClick = (e: ReactMouseEvent, responseId: number) => {
     e.stopPropagation();
     setSelectedResponse(responseId);
-    const p = clampMenuPosition(e.clientX, e.clientY, 240, 350);
+    const p = clampMenuPosition(e.clientX, e.clientY, 240, 400);
     setResponseMenu({ x: p.x, y: p.y, responseId });
     setThreadMenu(null);
   };
@@ -2687,7 +2700,7 @@ export default function App() {
   };
 
   const runResponseAction = async (
-    action: "quote" | "quote-with-name" | "copy-url" | "add-ng-id" | "copy-id" | "copy-body" | "add-ng-name" | "toggle-aa" | "settings"
+    action: "quote" | "quote-with-name" | "copy-url" | "add-ng-id" | "copy-id" | "copy-body" | "copy-full" | "add-ng-name" | "toggle-aa" | "settings"
   ) => {
     if (!responseMenu) return;
     const id = responseMenu.responseId;
@@ -2737,17 +2750,24 @@ export default function App() {
       return;
     }
     if (action === "copy-body") {
-      const plainText = resp.text
-        .replace(/<br\s*\/?>/gi, "\n")
-        .replace(/<[^>]+>/g, "")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
+      const plainText = responseHtmlToPlainText(resp.text);
       try {
         await navigator.clipboard.writeText(plainText);
         setStatus(`response body copied: #${id}`);
+      } catch {
+        setStatus(`copy failed for #${id}`);
+      }
+      setResponseMenu(null);
+      return;
+    }
+    if (action === "copy-full") {
+      const watchoi = resp.watchoi ? ` (${resp.watchoi})` : "";
+      const headerLine = `${id} ${resp.nameWithoutWatchoi || resp.name}${watchoi} ${resp.time}`.replace(/\s+/g, " ").trim();
+      const bodyText = responseHtmlToPlainText(resp.text);
+      const full = `${headerLine}\n${bodyText}`;
+      try {
+        await navigator.clipboard.writeText(full);
+        setStatus(`response copied: #${id}`);
       } catch {
         setStatus(`copy failed for #${id}`);
       }
@@ -4824,6 +4844,44 @@ export default function App() {
               className="response-scroll"
               ref={responseScrollRef}
               onScroll={onResponseScroll}
+              onCopy={(e) => {
+                const selection = window.getSelection();
+                if (!selection || selection.rangeCount === 0) return;
+                const range = selection.getRangeAt(0);
+                if (range.collapsed) return;
+                const frag = range.cloneContents();
+                const probe = document.createElement("div");
+                probe.appendChild(frag);
+                if (!probe.querySelector(".response-header")) return;
+                const scrollEl = e.currentTarget;
+                const blocks = Array.from(scrollEl.querySelectorAll<HTMLElement>(".response-block"));
+                const parts: string[] = [];
+                for (const block of blocks) {
+                  if (!range.intersectsNode(block)) continue;
+                  const header = block.querySelector<HTMLElement>(".response-header");
+                  const body = block.querySelector<HTMLElement>(".response-body");
+                  if (!header || !body) continue;
+                  const noEl = header.querySelector<HTMLElement>(".response-no");
+                  const nameEl = header.querySelector<HTMLElement>(".response-name");
+                  const watchoiEl = header.querySelector<HTMLElement>(".response-watchoi");
+                  const dateEl = header.querySelector<HTMLElement>(".response-date");
+                  const idEl = header.querySelector<HTMLElement>(".response-id-cell");
+                  const beEl = header.querySelector<HTMLElement>(".response-be-link");
+                  const headerSegs: string[] = [];
+                  if (noEl?.textContent) headerSegs.push(noEl.textContent.trim());
+                  if (nameEl?.textContent) headerSegs.push(nameEl.textContent.trim());
+                  if (watchoiEl?.textContent) headerSegs.push(watchoiEl.textContent.trim());
+                  if (dateEl?.textContent) headerSegs.push(dateEl.textContent.trim());
+                  if (idEl?.textContent) headerSegs.push(idEl.textContent.trim());
+                  if (beEl?.textContent) headerSegs.push(beEl.textContent.trim());
+                  const headerLine = headerSegs.filter(Boolean).join(" ");
+                  const bodyText = responseHtmlToPlainText(body.innerHTML);
+                  parts.push(`${headerLine}\n${bodyText}`);
+                }
+                if (parts.length === 0) return;
+                e.preventDefault();
+                e.clipboardData.setData("text/plain", parts.join("\n\n"));
+              }}
               onClick={(e) => {
                 const target = e.target as HTMLElement;
                 // body-link: open 5ch thread URLs in tab, others in external browser
@@ -5529,6 +5587,7 @@ export default function App() {
           <button onClick={() => void runResponseAction("quote")}>ここにレス</button>
           <button onClick={() => void runResponseAction("quote-with-name")}>名前付き引用</button>
           <button onClick={() => void runResponseAction("copy-body")}>本文をコピー</button>
+          <button onClick={() => void runResponseAction("copy-full")}>レス全体をコピー</button>
           <button onClick={() => void runResponseAction("copy-url")}>レスURLをコピー</button>
           <button onClick={() => void runResponseAction("copy-id")}>IDをコピー</button>
           <button onClick={() => void copyWholeThread()}>スレ全体をコピー</button>
