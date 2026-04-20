@@ -3907,7 +3907,7 @@ export default function App() {
   return (
     <div
       className={`shell${darkMode ? " dark" : ""}${thumbMaskEnabled ? " thumb-masked" : ""}`}
-      style={{ fontFamily: fontFamily || undefined, gridTemplateRows: showBoardButtons && favorites.boards.length > 0 ? "26px 32px auto 1fr 22px" : undefined, "--thumb-size": `${thumbSize}px` } as React.CSSProperties}
+      style={{ fontFamily: fontFamily ? `"Backslash", ${fontFamily}` : undefined, gridTemplateRows: showBoardButtons && favorites.boards.length > 0 ? "26px 32px auto 1fr 22px" : undefined, "--thumb-size": `${thumbSize}px` } as React.CSSProperties}
       onClick={() => {
         setThreadMenu(null);
         setResponseMenu(null);
