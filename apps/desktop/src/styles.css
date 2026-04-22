@@ -553,6 +553,11 @@ li.fav-drag-over {
   font-weight: bold;
 }
 
+.thread-fetched-cell.thread-fetched-new {
+  color: #009933;
+  font-weight: bold;
+}
+
 .response-layout {
   display: grid;
   grid-template-rows: 1fr auto;
@@ -3291,6 +3296,9 @@ button.search-history-btn:hover {
 }
 .dark .thread-fetched-cell.has-new-mark {
   color: #ff6644;
+}
+.dark .thread-fetched-cell.thread-fetched-new {
+  color: #33dd66;
 }
 .dark .nav-new-btn {
   color: #ff6644;

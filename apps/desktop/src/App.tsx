@@ -821,6 +821,8 @@ export default function App() {
   const [threadColVisible, setThreadColVisible] = useState<Record<ToggleableThreadColKey, boolean>>({ ...DEFAULT_COL_VISIBLE });
   const [threadColOrder, setThreadColOrder] = useState<ThreadColKey[]>(() => [...DEFAULT_THREAD_COL_ORDER]);
   const [threadColOrderDraft, setThreadColOrderDraft] = useState<ThreadColKey[]>(() => [...DEFAULT_THREAD_COL_ORDER]);
+  const knownThreadUrlsRef = useRef<Map<string, Set<string>>>(new Map());
+  const [newThreadUrls, setNewThreadUrls] = useState<Set<string>>(new Set());
   const layoutPrefsLoadedRef = useRef(false);
   const threadScrollPositions = useRef<Record<string, number>>({});
   const boardTreeRef = useRef<HTMLDivElement | null>(null);
@@ -1261,6 +1263,7 @@ export default function App() {
 
   const openThreadInTab = (url: string, title: string) => {
     setResponseSearchQuery("");
+    setNewThreadUrls((prev) => { if (!prev.has(url)) return prev; const next = new Set(prev); next.delete(url); return next; });
     pushRecentOpenedThread(url, title);
     const existingIndex = threadTabs.findIndex((t) => t.threadUrl === url);
     if (existingIndex >= 0) {
@@ -1604,6 +1607,14 @@ export default function App() {
       });
       await loadReadStatusForBoard(url, rows);
       setFetchedThreads(rows);
+      const currentUrls = new Set(rows.map((r) => r.threadUrl));
+      const known = knownThreadUrlsRef.current.get(url);
+      if (known && known.size > 0) {
+        setNewThreadUrls(new Set([...currentUrls].filter((u) => !known.has(u))));
+      } else {
+        setNewThreadUrls(new Set());
+      }
+      knownThreadUrlsRef.current.set(url, currentUrls);
       if (!keepSortOnRefreshRef.current) {
         setThreadSortKey("id");
         setThreadSortAsc(true);
@@ -1701,6 +1712,14 @@ export default function App() {
       });
       setFetchedThreads(rows);
       void loadReadStatusForBoard(url, rows);
+      const currentUrls = new Set(rows.map((r) => r.threadUrl));
+      const known = knownThreadUrlsRef.current.get(url);
+      if (known && known.size > 0) {
+        setNewThreadUrls(new Set([...currentUrls].filter((u) => !known.has(u))));
+      } else {
+        setNewThreadUrls(new Set());
+      }
+      knownThreadUrlsRef.current.set(url, currentUrls);
     } catch {
       // silent refresh — ignore errors
     }
@@ -2455,8 +2474,11 @@ export default function App() {
     hasUnread: boolean,
   ) => {
     switch (colKey) {
-      case "fetched":
-        return <td key={colKey} className="thread-fetched-cell">{(showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly) ? (hasUnread ? "\u25CF" : "") : (hasUnread || threadReadMap[t.id] ? "\u25CF" : "")}</td>;
+      case "fetched": {
+        const isNewThread = newThreadUrls.has(t.threadUrl);
+        const unreadMark = (showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly) ? (hasUnread ? "●" : "") : (hasUnread || threadReadMap[t.id] ? "●" : "");
+        return <td key={colKey} className={`thread-fetched-cell${isNewThread ? " thread-fetched-new" : ""}`}>{isNewThread ? "★" : unreadMark}</td>;
+      }
       case "id":
         return <td key={colKey}>{t.id}</td>;
       case "datNumber":
