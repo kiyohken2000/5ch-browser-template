@@ -520,7 +520,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
         if (sizeGated) {
           collectedThumbs.push(`<span class="thumb-link thumb-size-gate" data-lightbox-src="${href}" data-gate-src="${href}" data-size-limit="${opts.imageSizeLimitKb}"><span class="thumb-gate-loading">画像を確認中…</span></span>`);
         } else {
-          collectedThumbs.push(`<span class="thumb-link" data-lightbox-src="${href}"><img class="response-thumb" src="${href}" loading="lazy" alt="" /></span>`);
+          collectedThumbs.push(`<span class="thumb-link" data-lightbox-src="${href}"><img class="response-thumb" src="${href}" loading="lazy" referrerpolicy="no-referrer" alt="" /></span>`);
         }
         return `<a class="body-link" href="${href}" target="_blank" rel="noopener">${match}</a>`;
       }
@@ -749,7 +749,7 @@ export default function App() {
   const [threadSortKey, setThreadSortKey] = useState<"fetched" | "id" | "datNumber" | "title" | "res" | "got" | "new" | "lastFetch" | "speed">("id");
   const [threadSortAsc, setThreadSortAsc] = useState(true);
   const cachedSortOrderRef = useRef<string[]>([]);
-  const prevSortSnapshotRef = useRef({ key: "", asc: true, urls: "", favFetched: false });
+  const prevSortSnapshotRef = useRef({ key: "", asc: true, urls: "", favFetched: false, newUrls: 0 });
   const [threadTabs, setThreadTabs] = useState<ThreadTab[]>([]);
   const [activeTabIndex, setActiveTabIndex] = useState(-1);
   const tabCacheRef = useRef<Map<string, { responses: ThreadResponseItem[]; selectedResponse: number; scrollResponseNo?: number; newResponseStart?: number | null }>>(new Map());
@@ -911,12 +911,12 @@ export default function App() {
             const sizeStr = size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)}MB` : `${Math.round(size / 1024)}KB`;
             gate.innerHTML = `<span class="thumb-gate-blocked" data-reveal-src="${src}">サイズ制限 (${sizeStr}) により非表示 — クリックで表示</span>`;
           } else {
-            gate.innerHTML = `<img class="response-thumb" src="${src}" loading="lazy" alt="" />`;
+            gate.innerHTML = `<img class="response-thumb" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="" />`;
           }
         }).catch(() => {
           if (!gate.dataset.gateSrc) return;
           delete gate.dataset.gateSrc;
-          gate.innerHTML = `<img class="response-thumb" src="${src}" loading="lazy" alt="" />`;
+          gate.innerHTML = `<img class="response-thumb" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="" />`;
         });
       });
     };
@@ -2398,12 +2398,16 @@ export default function App() {
     sortSnapshot.key !== threadSortKey ||
     sortSnapshot.asc !== threadSortAsc ||
     sortSnapshot.urls !== currentFilteredUrls ||
-    sortSnapshot.favFetched !== favNewCountsFetched;
+    sortSnapshot.favFetched !== favNewCountsFetched ||
+    sortSnapshot.newUrls !== newThreadUrls.size;
   let visibleThreadItems: typeof filteredThreadItems;
   if (needsResort || cachedSortOrderRef.current.length === 0) {
     visibleThreadItems = [...filteredThreadItems].sort((a, b) => {
       let cmp = 0;
-      if (threadSortKey === "fetched") cmp = (threadReadMap[a.id] ? 0 : 1) - (threadReadMap[b.id] ? 0 : 1);
+      if (threadSortKey === "fetched") {
+        const score = (t: typeof a) => newThreadUrls.has(t.threadUrl) ? 1 : threadReadMap[t.id] ? 0 : 2;
+        cmp = score(a) - score(b);
+      }
       else if (threadSortKey === "id") cmp = a.id - b.id;
       else if (threadSortKey === "datNumber") cmp = Number(a.datNumber || 0) - Number(b.datNumber || 0);
       else if (threadSortKey === "title") cmp = a.title.localeCompare(b.title);
@@ -2419,7 +2423,7 @@ export default function App() {
       return threadSortAsc ? cmp : -cmp;
     });
     cachedSortOrderRef.current = visibleThreadItems.map((t) => t.threadUrl);
-    prevSortSnapshotRef.current = { key: threadSortKey, asc: threadSortAsc, urls: currentFilteredUrls, favFetched: favNewCountsFetched };
+    prevSortSnapshotRef.current = { key: threadSortKey, asc: threadSortAsc, urls: currentFilteredUrls, favFetched: favNewCountsFetched, newUrls: newThreadUrls.size };
   } else {
     const orderMap = new Map<string, number>();
     cachedSortOrderRef.current.forEach((url, i) => orderMap.set(url, i));
@@ -5091,7 +5095,7 @@ export default function App() {
                   if (src) {
                     const parent = gateBlocked.closest<HTMLElement>(".thumb-size-gate");
                     if (parent) {
-                      parent.innerHTML = `<img class="response-thumb" src="${src}" loading="lazy" alt="" />`;
+                      parent.innerHTML = `<img class="response-thumb" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="" />`;
                     }
                   }
                   return;
