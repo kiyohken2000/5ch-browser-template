@@ -176,7 +176,8 @@
       "Bash(scripts/release.sh *)",
       "Bash(/c/Users/all/develop/python/5ch-browser-template/scripts/release.sh *)",
       "Bash(/c/Users/all/develop/python/5ch-browser-template/scripts/release_finish.sh *)",
-      "Bash(scripts/release_finish.sh *)"
+      "Bash(scripts/release_finish.sh *)",
+      "Bash(cmd *)"
     ]
   }
 }
