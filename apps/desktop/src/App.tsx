@@ -4964,6 +4964,7 @@ export default function App() {
                   setTabMenu({ x: p.x, y: p.y, tabIndex: i });
                 }}
                 onMouseDown={(e) => {
+                  if (e.button === 1) { e.preventDefault(); return; }
                   if (e.button !== 0) return;
                   tabDragRef.current = { srcIndex: i, startX: e.clientX };
                   tabDragOverRef.current = null;
