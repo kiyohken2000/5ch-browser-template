@@ -2657,12 +2657,14 @@ export default function App() {
   const galleryImages = useMemo(() => {
     const items: { url: string; responseNo: number }[] = [];
     for (const r of fetchedResponses) {
+      if (getNgResult({ name: r.name || "", time: r.dateAndId || "", text: r.body || "" })) continue;
       for (const url of extractImageUrls(r.body || "")) {
         items.push({ url, responseNo: r.responseNo });
       }
     }
     return items;
-  }, [fetchedResponses]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchedResponses, ngFilters]);
 
   // Build back-reference map: responseNo → list of responseNos that reference it
   const backRefMap = (() => {
