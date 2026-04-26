@@ -3158,6 +3158,16 @@ export default function App() {
   };
 
   useEffect(() => {
+    const suppressWebViewSearch = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", suppressWebViewSearch, true);
+    return () => window.removeEventListener("keydown", suppressWebViewSearch, true);
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (hoverPreviewSrcRef.current) {
@@ -3271,7 +3281,7 @@ export default function App() {
       }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        if (activeTabIndex >= 0 && threadTabs.length > 0) {
+        if (focusedPane === "responses" && activeTabIndex >= 0 && threadTabs.length > 0) {
           responseSearchRef.current?.focus();
         } else {
           threadSearchRef.current?.focus();
@@ -3303,7 +3313,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedThread, selectedResponse, visibleThreadItems, responseItems, activeTabIndex, threadTabs, responseReloadMenuOpen, threadFilterMenuOpen]);
+  }, [selectedThread, selectedResponse, visibleThreadItems, responseItems, activeTabIndex, threadTabs, responseReloadMenuOpen, threadFilterMenuOpen, focusedPane]);
 
   useEffect(() => {
     if (paneLayoutMode !== "river") setThreadTitlePopup(null);
