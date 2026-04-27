@@ -898,7 +898,14 @@ fn save_favorites(favorites: FavoritesData) -> Result<(), String> {
 #[serde(untagged)]
 enum NgEntry {
     Simple(String),
-    WithMode { value: String, mode: String },
+    WithMode {
+        value: String,
+        mode: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        disabled: bool,
+        #[serde(default, rename = "excludeNo1", skip_serializing_if = "std::ops::Not::not")]
+        exclude_no1: bool,
+    },
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
