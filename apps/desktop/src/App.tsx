@@ -4148,6 +4148,8 @@ export default function App() {
     return () => clearInterval(id);
   }, [autoRefreshEnabled, autoRefreshInterval, threadUrl]);
 
+  const fetchedResponsesCountRef = useRef(0);
+  fetchedResponsesCountRef.current = fetchedResponses.length;
   useEffect(() => {
     if (!autoScrollEnabled) return;
     const container = responseScrollRef.current;
@@ -4157,14 +4159,13 @@ export default function App() {
     const tick = (now: number) => {
       const dt = now - last;
       last = now;
-      const step = (autoScrollSpeed * dt) / 1000;
-      const target = container.scrollTop + step;
-      const max = container.scrollHeight - container.clientHeight;
-      if (target >= max) {
-        container.scrollTop = max;
+      if (fetchedResponsesCountRef.current >= 1000) {
         setAutoScrollEnabled(false);
         return;
       }
+      const step = (autoScrollSpeed * dt) / 1000;
+      const max = container.scrollHeight - container.clientHeight;
+      const target = Math.min(container.scrollTop + step, max);
       container.scrollTop = target;
       rafId = requestAnimationFrame(tick);
     };
