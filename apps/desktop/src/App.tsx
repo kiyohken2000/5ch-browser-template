@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
-  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause,
+  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -4476,6 +4476,20 @@ export default function App() {
           aria-label="レイアウト切替"
         >
           <Columns3 size={14} />
+        </button>
+        <button
+          className={`title-action-btn ${darkMode ? "active-toggle" : ""}`}
+          onClick={() => {
+            setDarkMode((prev) => {
+              const next = !prev;
+              setStatus(next ? "theme: dark" : "theme: light");
+              return next;
+            });
+          }}
+          title={darkMode ? "ライトテーマに切替" : "ダークテーマに切替"}
+          aria-label="テーマ切替"
+        >
+          {darkMode ? <Sun size={14} /> : <Moon size={14} />}
         </button>
         <input className="address-input" value={locationInput} onChange={(e) => setLocationInput(e.target.value)} onKeyDown={onLocationInputKeyDown} onFocus={(e) => e.target.select()} />
         <button onClick={goFromLocationInput}>移動</button>
