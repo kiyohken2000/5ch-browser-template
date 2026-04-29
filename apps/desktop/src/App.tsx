@@ -5007,44 +5007,6 @@ export default function App() {
             : { gridTemplateRows: `${threadPanePx}px ${SPLITTER_PX}px 1fr` }}
         >
         <section className="pane threads" onMouseDown={() => setFocusedPane("threads")} style={{ '--fs-delta': `${threadsFontSize - 12}px` } as React.CSSProperties}>
-          {threadNgOpen && (
-            <div className="thread-ng-popup">
-              <div className="thread-ng-add">
-                <input
-                  value={threadNgInput}
-                  onChange={(e) => setThreadNgInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && threadNgInput.trim()) {
-                      addNgEntry("thread_words", threadNgInput);
-                      setThreadNgInput("");
-                    }
-                  }}
-                  placeholder="NGワード (例: BE:12345, /正規表現/も可)"
-                  style={{ flex: 1 }}
-                />
-                <button onClick={() => { addNgEntry("thread_words", threadNgInput); setThreadNgInput(""); }}>追加</button>
-              </div>
-              {ngFilters.thread_words.length > 0 && (
-                <ul className="thread-ng-list">
-                  {ngFilters.thread_words.map((w) => {
-                    const v = ngVal(w);
-                    const off = ngEntryDisabled(w);
-                    return (
-                      <li key={v} className={off ? "ng-disabled" : ""}>
-                        <button
-                          className={`ng-toggle ${off ? "ng-toggle-off" : "ng-toggle-on"}`}
-                          onClick={() => toggleNgEntry("thread_words", v)}
-                          title={off ? "クリックで有効化" : "クリックで無効化"}
-                        >{off ? "OFF" : "ON"}</button>
-                        <span>{v}</span>
-                        <button className="ng-remove" onClick={() => removeNgEntry("thread_words", v)}>×</button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          )}
           <div className="threads-table-wrap" ref={threadListScrollRef} onScroll={hideThreadTitlePopup}>
           <table>
             <thead>
@@ -5916,6 +5878,52 @@ export default function App() {
               }}
             />
           ))}
+        </section>
+      )}
+      {threadNgOpen && (
+        <section className="ng-panel thread-ng-panel" role="dialog" aria-label="スレ一覧NGワード">
+          <header className="ng-panel-header">
+            <strong>スレ一覧NGワード</strong>
+            <span className="ng-panel-count">{ngFilters.thread_words.length}語</span>
+            <button onClick={() => setThreadNgOpen(false)}>閉じる</button>
+          </header>
+          <div className="ng-panel-add">
+            <input
+              value={threadNgInput}
+              onChange={(e) => setThreadNgInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && threadNgInput.trim()) {
+                  addNgEntry("thread_words", threadNgInput);
+                  setThreadNgInput("");
+                }
+              }}
+              placeholder="NGワード (例: BE:12345, /正規表現/も可)"
+            />
+            <button onClick={() => { addNgEntry("thread_words", threadNgInput); setThreadNgInput(""); }}>追加</button>
+          </div>
+          <div className="ng-panel-lists">
+            {ngFilters.thread_words.length === 0 ? (
+              <span className="ng-empty">(なし)</span>
+            ) : (
+              <ul className="ng-list">
+                {ngFilters.thread_words.map((w) => {
+                  const v = ngVal(w);
+                  const off = ngEntryDisabled(w);
+                  return (
+                    <li key={v} className={off ? "ng-disabled" : ""}>
+                      <button
+                        className={`ng-toggle ${off ? "ng-toggle-off" : "ng-toggle-on"}`}
+                        onClick={() => toggleNgEntry("thread_words", v)}
+                        title={off ? "クリックで有効化" : "クリックで無効化"}
+                      >{off ? "OFF" : "ON"}</button>
+                      <span>{v}</span>
+                      <button className="ng-remove" onClick={() => removeNgEntry("thread_words", v)}>×</button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </section>
       )}
       {ngPanelOpen && (

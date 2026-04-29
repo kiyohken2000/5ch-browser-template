@@ -2157,11 +2157,6 @@ button.search-history-btn:hover {
   opacity: 0.4;
 }
 
-.thread-ng-list li.ng-disabled span {
-  text-decoration: line-through;
-  opacity: 0.45;
-}
-
 .ng-empty {
   font-size: 11px;
   color: #999999;
@@ -2305,45 +2300,12 @@ button.search-history-btn:hover {
   gap: 4px;
 }
 
-.thread-ng-popup {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  padding: 4px 6px;
-  font-size: 12px;
+.thread-ng-panel {
+  grid-template-rows: auto auto 1fr;
 }
 
-.thread-ng-add {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 4px;
-}
-
-.thread-ng-add input {
-  font-size: 12px;
-  padding: 2px 4px;
-  border: 1px solid var(--line);
-}
-
-.thread-ng-add button {
-  font-size: 11px;
-  padding: 1px 6px;
-  cursor: pointer;
-}
-
-.thread-ng-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  max-height: 120px;
-  overflow-y: auto;
-}
-
-.thread-ng-list li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1px 0;
-  font-size: 12px;
+.thread-ng-panel .ng-panel-add {
+  grid-template-columns: 1fr auto;
 }
 
 .response-jump {
@@ -3187,21 +3149,6 @@ button.search-history-btn:hover {
 .dark .ng-toggle-off {
   background: #616161;
   border-color: #757575;
-}
-.dark .thread-ng-popup {
-  background: #2d2d30;
-  border-color: #555;
-  color: var(--ink);
-}
-.dark .thread-ng-add input {
-  background: #1e1e1e;
-  color: var(--ink);
-  border-color: #555;
-}
-.dark .thread-ng-add button {
-  background: #3c3c3c;
-  color: var(--ink);
-  border-color: #555;
 }
 .dark .board-search {
   background: #1e1e1e;
