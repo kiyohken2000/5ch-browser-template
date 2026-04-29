@@ -378,6 +378,26 @@ export default function App() {
                 <li>板一覧を取得して利用開始</li>
               </ol>
               <p className="note">更新時はアプリ終了後、<code>ember.exe</code> を新しいものに上書きしてください。</p>
+              <details className="install-warning">
+                <summary>
+                  Defenderに削除された場合の復元手順
+                  <span className="install-warning-hint">クリックで展開</span>
+                </summary>
+                <p className="note">
+                  未署名のため Microsoft Defender の機械学習判定
+                  (<code>Trojan:Script/Wacatac.B!ml</code> など) で誤検知され、
+                  ダウンロード直後に自動削除されることがあります。次の手順で復元できます:
+                </p>
+                <ol className="install-steps">
+                  <li>スタート →「<strong>設定</strong>」</li>
+                  <li>「<strong>プライバシーとセキュリティ</strong>」→「<strong>Windows セキュリティ</strong>」</li>
+                  <li>「<strong>Windows セキュリティを開く</strong>」をクリック</li>
+                  <li>「<strong>ウイルスと脅威の防止</strong>」→「<strong>保護の履歴</strong>」</li>
+                  <li>「<strong>脅威が検出されました</strong>」など該当エントリを開く</li>
+                  <li>「<strong>アクション</strong>」→「<strong>許可</strong>」または「<strong>復元</strong>」を選択</li>
+                  <li>再度ダウンロードして展開 (今後は同じファイルが削除されなくなります)</li>
+                </ol>
+              </details>
             </article>
 
             <article className="card install-card">
