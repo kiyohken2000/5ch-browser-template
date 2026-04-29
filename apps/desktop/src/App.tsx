@@ -4558,7 +4558,17 @@ export default function App() {
           )}
         </div>
         {threadSearchQuery && <button className="title-action-btn" onClick={() => setThreadSearchQuery("")} title="検索クリア"><X size={14} /></button>}
-        <button className="title-action-btn" onClick={() => fetchThreadListFromCurrent()} title="スレ一覧を更新"><RefreshCw size={14} /></button>
+        <button className="title-action-btn" onClick={() => {
+          if (showFavoritesOnly) {
+            void fetchFavNewCounts();
+          } else if (showRecentOpenedOnly) {
+            void fetchSavedThreadCounts(recentOpenedThreads, "recent-opened");
+          } else if (showRecentPostedOnly) {
+            void fetchSavedThreadCounts(recentPostedThreads, "recent-posted");
+          } else {
+            void fetchThreadListFromCurrent();
+          }
+        }} title="スレ一覧を更新"><RefreshCw size={14} /></button>
         <button className="title-action-btn" onClick={() => setShowNewThreadDialog(true)} title="スレ立て"><FilePenLine size={14} /></button>
         <div className="title-split-wrap" onClick={(e) => e.stopPropagation()}>
           <button
