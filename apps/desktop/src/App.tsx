@@ -2375,6 +2375,22 @@ export default function App() {
       return next;
     });
   };
+  const removeRecentOpenedThread = (url: string) => {
+    const target = normalizeThreadUrl(url);
+    setRecentOpenedThreads((prev) => {
+      const next = prev.filter((t) => t.threadUrl !== target);
+      try { localStorage.setItem(RECENT_OPENED_THREADS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const removeRecentPostedThread = (url: string) => {
+    const target = normalizeThreadUrl(url);
+    setRecentPostedThreads((prev) => {
+      const next = prev.filter((t) => t.threadUrl !== target);
+      try { localStorage.setItem(RECENT_POSTED_THREADS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const submitNewThread = async () => {
     if (!newThreadSubject.trim() || !newThreadBody.trim()) {
@@ -4866,7 +4882,7 @@ export default function App() {
                       {recentOpenedThreads.filter((rt) => !favSearchQuery.trim() || rt.title.toLowerCase().includes(favSearchQuery.trim().toLowerCase())).map((rt) => {
                         const isFav = favorites.threads.some((t) => t.threadUrl === rt.threadUrl);
                         return (
-                          <li key={rt.threadUrl}>
+                          <li key={rt.threadUrl} className="recent-thread-item">
                             <button
                               className="board-item"
                               onClick={() => {
@@ -4886,6 +4902,19 @@ export default function App() {
                               </span>
                               {rt.title}
                             </button>
+                            <span
+                              className="recent-thread-remove"
+                              role="button"
+                              aria-label="履歴から削除"
+                              title="履歴から削除"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeRecentOpenedThread(rt.threadUrl);
+                                setStatus(`履歴から削除: ${rt.title}`);
+                              }}
+                            >
+                              <Trash2 size={11} />
+                            </span>
                           </li>
                         );
                       })}
@@ -4909,7 +4938,7 @@ export default function App() {
                       {recentPostedThreads.filter((rt) => !favSearchQuery.trim() || rt.title.toLowerCase().includes(favSearchQuery.trim().toLowerCase())).map((rt) => {
                         const isFav = favorites.threads.some((t) => t.threadUrl === rt.threadUrl);
                         return (
-                          <li key={rt.threadUrl}>
+                          <li key={rt.threadUrl} className="recent-thread-item">
                             <button
                               className="board-item"
                               onClick={() => {
@@ -4929,6 +4958,19 @@ export default function App() {
                               </span>
                               {rt.title}
                             </button>
+                            <span
+                              className="recent-thread-remove"
+                              role="button"
+                              aria-label="書き込み履歴から削除"
+                              title="書き込み履歴から削除"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeRecentPostedThread(rt.threadUrl);
+                                setStatus(`書き込み履歴から削除: ${rt.title}`);
+                              }}
+                            >
+                              <Trash2 size={11} />
+                            </span>
                           </li>
                         );
                       })}
@@ -6065,6 +6107,21 @@ export default function App() {
             if (t && "threadUrl" in t && typeof t.threadUrl === "string") purgeThreadCache(t.threadUrl);
             setThreadMenu(null);
           }}>キャッシュから削除</button>
+          {(showRecentOpenedOnly || showRecentPostedOnly) && (
+            <button onClick={() => {
+              const t = threadItems.find((item) => item.id === threadMenu.threadId);
+              if (t && "threadUrl" in t && typeof t.threadUrl === "string") {
+                if (showRecentOpenedOnly) {
+                  removeRecentOpenedThread(t.threadUrl);
+                  setStatus(`履歴から削除: ${t.title}`);
+                } else if (showRecentPostedOnly) {
+                  removeRecentPostedThread(t.threadUrl);
+                  setStatus(`書き込み履歴から削除: ${t.title}`);
+                }
+              }
+              setThreadMenu(null);
+            }}>履歴から削除</button>
+          )}
         </div>
       )}
       {responseMenu && (

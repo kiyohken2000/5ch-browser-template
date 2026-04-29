@@ -1963,6 +1963,38 @@ button.search-history-btn:hover {
   color: #e6a817;
 }
 
+.recent-thread-item {
+  position: relative;
+}
+
+.recent-thread-item .board-item {
+  padding-right: 22px;
+}
+
+.recent-thread-remove {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: #888;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.recent-thread-item:hover .recent-thread-remove {
+  display: inline-flex;
+}
+
+.recent-thread-remove:hover {
+  color: #c0392b;
+  background: rgba(192, 57, 43, 0.12);
+}
+
 .fav-category {
   background: linear-gradient(180deg, #fff8e0 0%, #f0e8c0 100%);
 }
@@ -3269,6 +3301,13 @@ button.search-history-btn:hover {
 .dark .board-item:hover,
 .dark .board-item.selected {
   background: #37373d;
+}
+.dark .recent-thread-remove {
+  color: #aaa;
+}
+.dark .recent-thread-remove:hover {
+  color: #ff7a6c;
+  background: rgba(255, 122, 108, 0.14);
 }
 .dark .category-header {
   color: var(--sub);
