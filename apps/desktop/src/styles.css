@@ -3985,6 +3985,26 @@ button.search-history-btn:hover {
   background: rgba(255, 255, 255, 0.06);
 }
 
+/* ガラス+ダーク: ID文字を明度ブースト + 黒の濃い縁取りで暗色パレットの可読性を確保 */
+.shell.glass.dark .response-id-cell {
+  filter: brightness(1.7) saturate(0.95);
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 1),
+    0 0 3px rgba(0, 0, 0, 0.95),
+    0 0 6px rgba(0, 0, 0, 0.7);
+  font-weight: 600;
+}
+
+/* ガラス+ダーク: 赤系の新着マーカー/カウントを明度ブーストして背景に埋もれさせない */
+.shell.glass.dark .response-new-marker,
+.shell.glass.dark .new-count.has-new,
+.shell.glass.dark .new-response-separator,
+.shell.glass.dark .new-response-separator::before,
+.shell.glass.dark .new-response-separator::after {
+  filter: brightness(1.6) saturate(1.1);
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.85);
+}
+
 /* === Floating menus / panels === */
 .shell.glass .title-split-menu {
   background: rgba(255, 255, 255, 0.85);
@@ -4531,13 +4551,17 @@ button.search-history-btn:hover {
   background: rgba(0, 102, 204, 0.32);
 }
 
-/* === Response popups (anchor / back-ref / ID hover) — nearly opaque === */
+/* === Response popups (anchor / back-ref / ID hover) — frosted glass === */
 .shell.glass .anchor-popup,
 .shell.glass .back-ref-popup,
 .shell.glass .id-popup {
-  background: #fafafc;
-  border-color: rgba(0, 0, 0, 0.18);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
   z-index: 600;
 }
 
@@ -4551,9 +4575,13 @@ button.search-history-btn:hover {
 .shell.glass.dark .anchor-popup,
 .shell.glass.dark .back-ref-popup,
 .shell.glass.dark .id-popup {
-  background: #1c1c24;
+  background: rgba(30, 30, 40, 0.7);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
   border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .shell.glass.dark .response-viewer article {
