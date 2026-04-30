@@ -9,6 +9,10 @@ import emberImagePane from "./assets/images/ember-image-pane.jpeg";
 import emberRiberLayout1 from "./assets/images/ember-riber-layout-1.jpg";
 import emberRiberLayout2 from "./assets/images/ember-riber-layout-2.jpeg";
 import emberWindowsImagePane from "./assets/images/ember-windows-image-pane.jpeg";
+import emberGlassOffLight from "./assets/images/ember-windows-glass-off-light.jpg";
+import emberGlassOffDark from "./assets/images/ember-windows-glass-off-dark.jpg";
+import emberGlassOnLight from "./assets/images/ember-windows-glass-on-light.jpg";
+import emberGlassOnDark from "./assets/images/ember-windows-glass-on-dark.jpg";
 
 const REPO_RELEASES_URL = "https://github.com/kiyohken2000/5ch-browser-template/releases";
 const GITHUB_URL = "https://github.com/kiyohken2000/5ch-browser-template";
@@ -41,6 +45,7 @@ type ZoomImage = {
 
 type PlatformKey = "windows" | "mac";
 type ThemeKey = "light" | "dark";
+type GlassKey = "on" | "off";
 
 const THEME_STORAGE_KEY = "ember.landing.theme";
 
@@ -77,12 +82,19 @@ const themeShowcase: Record<PlatformKey, Record<ThemeKey, string>> = {
   mac: { light: emberMacLight, dark: emberMacDark },
 };
 
+const glassShowcase: Record<GlassKey, Record<ThemeKey, string>> = {
+  on: { light: emberGlassOnLight, dark: emberGlassOnDark },
+  off: { light: emberGlassOffLight, dark: emberGlassOffDark },
+};
+
 export default function App() {
   const [meta, setMeta] = useState<LatestJson | null>(null);
   const [metaStatus, setMetaStatus] = useState("loading...");
   const [zoomedImage, setZoomedImage] = useState<ZoomImage | null>(null);
   const [platform, setPlatform] = useState<PlatformKey>("windows");
   const [theme, setTheme] = useState<ThemeKey>("light");
+  const [glass, setGlass] = useState<GlassKey>("on");
+  const [glassTheme, setGlassTheme] = useState<ThemeKey>("light");
   const [colorScheme, setColorScheme] = useState<ThemeKey>(() => readInitialColorScheme());
   const windowsAsset = meta?.platforms["windows-x64"] ?? null;
   const macAsset = meta?.platforms["macos-arm64"] ?? null;
@@ -112,6 +124,59 @@ export default function App() {
   }, [colorScheme]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const targets = document.querySelectorAll<HTMLElement>(".reveal");
+    if (reduced) {
+      targets.forEach((el) => el.classList.add("is-visible"));
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.12, rootMargin: "0px 0px -40px 0px" },
+    );
+    targets.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const nodes = Array.from(document.querySelectorAll<HTMLElement>(".shot-button.tilt"));
+    const cleanups: Array<() => void> = [];
+    nodes.forEach((node) => {
+      const max = Number(node.dataset.tilt) || 7;
+      const onMove = (event: MouseEvent) => {
+        const rect = node.getBoundingClientRect();
+        const px = (event.clientX - rect.left) / rect.width - 0.5;
+        const py = (event.clientY - rect.top) / rect.height - 0.5;
+        node.style.setProperty("--tilt-x", `${(-py * max).toFixed(2)}deg`);
+        node.style.setProperty("--tilt-y", `${(px * max).toFixed(2)}deg`);
+        node.classList.add("is-tilting");
+      };
+      const onLeave = () => {
+        node.style.setProperty("--tilt-x", "0deg");
+        node.style.setProperty("--tilt-y", "0deg");
+        node.classList.remove("is-tilting");
+      };
+      node.addEventListener("mousemove", onMove);
+      node.addEventListener("mouseleave", onLeave);
+      cleanups.push(() => {
+        node.removeEventListener("mousemove", onMove);
+        node.removeEventListener("mouseleave", onLeave);
+      });
+    });
+    return () => cleanups.forEach((fn) => fn());
+  }, []);
+
+  useEffect(() => {
     if (!zoomedImage) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setZoomedImage(null);
@@ -130,6 +195,8 @@ export default function App() {
 
   const showcaseImage = themeShowcase[platform][theme];
   const showcaseAlt = `Ember ${platform === "windows" ? "Windows" : "macOS"} (${theme === "light" ? "Light" : "Dark"})`;
+  const glassImage = glassShowcase[glass][glassTheme];
+  const glassAlt = `Ember ガラス効果 ${glass === "on" ? "オン" : "オフ"} (${glassTheme === "light" ? "Light" : "Dark"})`;
 
   return (
     <>
@@ -195,7 +262,8 @@ export default function App() {
               <div className="shot-frame floating">
                 <button
                   type="button"
-                  className="shot-button"
+                  className="shot-button tilt"
+                  data-tilt="6"
                   onClick={() => openZoom(emberWindowsLight, "Ember メイン画面")}
                   aria-label="スクリーンショットを拡大"
                 >
@@ -204,7 +272,8 @@ export default function App() {
               </div>
               <button
                 type="button"
-                className="shot-mini shot-button floating-slow"
+                className="shot-mini shot-button floating-slow tilt"
+                data-tilt="9"
                 onClick={() => openZoom(emberMacDark, "Ember macOS ダーク")}
                 aria-label="スクリーンショットを拡大"
               >
@@ -224,12 +293,12 @@ export default function App() {
         </section>
 
         <section id="features" className="section">
-          <div className="section-head">
+          <div className="section-head reveal">
             <p className="kicker">Features</p>
             <h2>専ブラに求められる要素を、<br />妥協なく。</h2>
           </div>
 
-          <div className="feature-big">
+          <div className="feature-big reveal">
             <div className="feature-big-text">
               <h3>ライト / ダーク、どちらも美しく。</h3>
               <p>
@@ -281,7 +350,8 @@ export default function App() {
             <div className="feature-big-shot">
               <button
                 type="button"
-                className="shot-button"
+                className="shot-button tilt"
+                data-tilt="5"
                 onClick={() => openZoom(showcaseImage, showcaseAlt)}
                 aria-label="スクリーンショットを拡大"
               >
@@ -290,8 +360,70 @@ export default function App() {
             </div>
           </div>
 
+          <div className="feature-big reveal">
+            <div className="feature-big-text">
+              <h3>ガラス効果で、洗練された質感。</h3>
+              <p>
+                半透明のフロスト感あるガラス効果をオンにできます。
+                ライト/ダークどちらのテーマでも、背景のグラデーションが透けて、デスクトップに馴染む上品な見た目に。
+              </p>
+              <div className="toggle-group">
+                <div className="toggle-set" role="tablist" aria-label="ガラス効果">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={glass === "on"}
+                    className={`toggle-pill ${glass === "on" ? "is-active" : ""}`}
+                    onClick={() => setGlass("on")}
+                  >
+                    <SparkleIcon /> Glass On
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={glass === "off"}
+                    className={`toggle-pill ${glass === "off" ? "is-active" : ""}`}
+                    onClick={() => setGlass("off")}
+                  >
+                    <SquareIcon /> Glass Off
+                  </button>
+                </div>
+                <div className="toggle-set" role="tablist" aria-label="テーマ">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={glassTheme === "light"}
+                    className={`toggle-pill ${glassTheme === "light" ? "is-active" : ""}`}
+                    onClick={() => setGlassTheme("light")}
+                  >
+                    <SunIcon /> Light
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={glassTheme === "dark"}
+                    className={`toggle-pill ${glassTheme === "dark" ? "is-active" : ""}`}
+                    onClick={() => setGlassTheme("dark")}
+                  >
+                    <MoonIcon /> Dark
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="feature-big-shot">
+              <button
+                type="button"
+                className="shot-button"
+                onClick={() => openZoom(glassImage, glassAlt)}
+                aria-label="スクリーンショットを拡大"
+              >
+                <img src={glassImage} alt={glassAlt} />
+              </button>
+            </div>
+          </div>
+
           <div className="feature-grid">
-            <article className="card feature-card">
+            <article className="card feature-card reveal" data-delay="1">
               <div className="feature-icon"><LayoutIcon /></div>
               <h3>リバー型レイアウト</h3>
               <p>
@@ -307,7 +439,7 @@ export default function App() {
               </button>
             </article>
 
-            <article className="card feature-card">
+            <article className="card feature-card reveal" data-delay="2">
               <div className="feature-icon"><ImageIcon /></div>
               <h3>画像プレビュー</h3>
               <p>
@@ -324,7 +456,7 @@ export default function App() {
               </button>
             </article>
 
-            <article className="card feature-card">
+            <article className="card feature-card reveal" data-delay="3">
               <div className="feature-icon"><SearchIcon /></div>
               <h3>NG / 検索 / お気に入り</h3>
               <p>
@@ -341,7 +473,7 @@ export default function App() {
               </button>
             </article>
 
-            <article className="card feature-card">
+            <article className="card feature-card reveal" data-delay="4">
               <div className="feature-icon"><ZapIcon /></div>
               <h3>Rust製の軽さ</h3>
               <p>
@@ -361,13 +493,13 @@ export default function App() {
         </section>
 
         <section id="install" className="section">
-          <div className="section-head">
+          <div className="section-head reveal">
             <p className="kicker">Install</p>
             <h2>インストール方法</h2>
           </div>
 
           <div className="install-grid">
-            <article className="card install-card">
+            <article className="card install-card reveal" data-delay="1">
               <div className="install-head">
                 <WindowsIcon />
                 <h3>Windows</h3>
@@ -400,7 +532,7 @@ export default function App() {
               </details>
             </article>
 
-            <article className="card install-card">
+            <article className="card install-card reveal" data-delay="2">
               <div className="install-head">
                 <AppleIcon />
                 <h3>macOS</h3>
@@ -427,7 +559,7 @@ export default function App() {
               </div>
             </article>
 
-            <article className="card install-card">
+            <article className="card install-card reveal" data-delay="3">
               <div className="install-head">
                 <LinuxIcon />
                 <h3>Linux (x64 / AArch64)</h3>
@@ -446,11 +578,11 @@ export default function App() {
         </section>
 
         <section id="download" className="section">
-          <div className="section-head">
+          <div className="section-head reveal">
             <p className="kicker">Download</p>
             <h2>最新リリース</h2>
           </div>
-          <div className="card download-card">
+          <div className="card download-card reveal">
             <div className="download-meta">
               <div>
                 <p className="mono muted">status</p>
@@ -507,7 +639,7 @@ export default function App() {
         </section>
 
         <section className="section">
-          <div className="card support-card">
+          <div className="card support-card reveal">
             <div>
               <h3>フィードバック</h3>
               <p className="lead">
@@ -540,7 +672,6 @@ export default function App() {
             className="image-zoom-content"
             src={zoomedImage.src}
             alt={zoomedImage.alt}
-            onClick={(event) => event.stopPropagation()}
           />
         </div>
       ) : null}
@@ -637,6 +768,22 @@ function ZapIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z" />
+    </svg>
+  );
+}
+
+function SparkleIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8" />
+    </svg>
+  );
+}
+
+function SquareIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="4" y="4" width="16" height="16" rx="2.5" />
     </svg>
   );
 }
