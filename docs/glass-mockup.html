@@ -332,6 +332,146 @@
   }
   body.dark .variant-strong .status-bar { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.08); }
 
+  /* ====================== */
+  /* Variant 4: Fake Glass (実装可能版・ウィンドウ不透明) */
+  /* ====================== */
+  /*
+   * Variant 3 と同じ見た目を狙うが、ウィンドウ自体は不透明。
+   * .ember 自体に「壁紙風」のカラフルなグラデーションを内側に焼き込み、
+   * その上に乗る各要素を backdrop-filter でブラーすることで奥行きを演出。
+   * Tauri 2 + Win11 + WebView2 で唯一実装可能な現実解。
+   */
+  .variant-fake .ember {
+    background:
+      radial-gradient(circle at 18% 22%, rgba(255,214,165,0.55) 0%, transparent 45%),
+      radial-gradient(circle at 82% 28%, rgba(160,196,255,0.55) 0%, transparent 50%),
+      radial-gradient(circle at 48% 88%, rgba(255,173,173,0.45) 0%, transparent 45%),
+      radial-gradient(circle at 95% 95%, rgba(189,178,255,0.55) 0%, transparent 50%),
+      linear-gradient(135deg, #fdfcfb 0%, #ebe0d4 100%);
+    border: 1px solid rgba(255,255,255,0.85);
+    box-shadow:
+      0 20px 60px rgba(0,0,0,0.18),
+      inset 0 1px 0 rgba(255,255,255,0.65),
+      inset 0 -1px 0 rgba(0,0,0,0.04);
+  }
+  .variant-fake .menu-bar {
+    background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.18));
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-bottom: 1px solid rgba(255,255,255,0.5);
+  }
+  .variant-fake .menu-item:hover { background: rgba(255,255,255,0.55); border-radius: 6px; }
+  .variant-fake .tool-bar {
+    background: rgba(255,255,255,0.22);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border-bottom: 1px solid rgba(255,255,255,0.4);
+  }
+  .variant-fake .tool-bar button {
+    background: rgba(255,255,255,0.55);
+    border: 1px solid rgba(255,255,255,0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.85);
+  }
+  .variant-fake .tool-bar input {
+    background: rgba(255,255,255,0.5);
+    border-color: rgba(255,255,255,0.6);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .variant-fake .pane { border-right: 1px solid rgba(255,255,255,0.35); }
+  .variant-fake .pane:last-child { border-right: none; }
+  .variant-fake .pane:nth-child(1) {
+    background: rgba(255,255,255,0.12);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+  }
+  .variant-fake .pane:nth-child(2) {
+    background: rgba(255,255,255,0.18);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+  }
+  .variant-fake .board-btn.selected { box-shadow: 0 4px 12px rgba(0,102,204,0.32); }
+  .variant-fake .response {
+    background: rgba(255,255,255,0.6);
+    border: 1px solid rgba(255,255,255,0.8);
+    box-shadow:
+      0 4px 16px rgba(0,0,0,0.06),
+      inset 0 1px 0 rgba(255,255,255,0.9);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .variant-fake .status-bar {
+    background: rgba(255,255,255,0.22);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(255,255,255,0.4);
+  }
+
+  body.dark .variant-fake .ember {
+    background:
+      radial-gradient(circle at 18% 22%, rgba(91,59,140,0.6) 0%, transparent 45%),
+      radial-gradient(circle at 82% 28%, rgba(31,64,104,0.6) 0%, transparent 50%),
+      radial-gradient(circle at 48% 88%, rgba(139,58,58,0.45) 0%, transparent 45%),
+      radial-gradient(circle at 95% 95%, rgba(45,64,89,0.6) 0%, transparent 50%),
+      linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    border-color: rgba(255,255,255,0.16);
+    box-shadow:
+      0 20px 60px rgba(0,0,0,0.5),
+      inset 0 1px 0 rgba(255,255,255,0.14),
+      inset 0 -1px 0 rgba(0,0,0,0.3);
+    color: #e8e8e8;
+  }
+  body.dark .variant-fake .menu-bar {
+    background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.02));
+    border-color: rgba(255,255,255,0.08);
+  }
+  body.dark .variant-fake .menu-item:hover { background: rgba(255,255,255,0.12); }
+  body.dark .variant-fake .tool-bar { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.08); }
+  body.dark .variant-fake .tool-bar button {
+    background: rgba(255,255,255,0.09);
+    border-color: rgba(255,255,255,0.18);
+    color: #e8e8e8;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.1);
+  }
+  body.dark .variant-fake .tool-bar input { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #e8e8e8; }
+  body.dark .variant-fake .pane { border-color: rgba(255,255,255,0.08); }
+  body.dark .variant-fake .pane:nth-child(1) { background: rgba(255,255,255,0.02); }
+  body.dark .variant-fake .pane:nth-child(2) { background: rgba(255,255,255,0.04); }
+  body.dark .variant-fake .response {
+    background: rgba(255,255,255,0.07);
+    border-color: rgba(255,255,255,0.13);
+    box-shadow:
+      0 4px 16px rgba(0,0,0,0.3),
+      inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  body.dark .variant-fake .status-bar { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.08); }
+
+  .note {
+    font-size: 11px;
+    line-height: 1.6;
+    margin: 6px 4px 0 4px;
+    padding: 8px 12px;
+    max-width: 720px;
+    background: rgba(255,255,255,0.55);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,0.45);
+    border-radius: 10px;
+    color: #333;
+  }
+  body.dark .note {
+    background: rgba(40,40,50,0.55);
+    border-color: rgba(255,255,255,0.1);
+    color: #d4d4d4;
+  }
+  .note b { font-weight: 600; }
+  .note .ok { color: #1a7a3a; }
+  .note .ng { color: #b32424; }
+  body.dark .note .ok { color: #6dd66d; }
+  body.dark .note .ng { color: #ff8b8b; }
+
   .label {
     font-size: 11px;
     opacity: 0.85;
@@ -525,6 +665,68 @@
         </div>
       </div>
       <div class="status-bar">準備完了 — 3スレッド読み込み済み</div>
+    </div>
+  </div>
+
+  <div>
+    <span class="label">Variant 4 — Fake Glass（実装可能版・ウィンドウ不透明）</span>
+    <div class="ember variant-fake">
+      <div class="menu-bar">
+        <span class="menu-item">ファイル</span>
+        <span class="menu-item">表示</span>
+        <span class="menu-item">ツール</span>
+        <span class="menu-item">設定</span>
+        <span class="menu-item">ヘルプ</span>
+      </div>
+      <div class="tool-bar">
+        <button class="active">板</button>
+        <button>スレ</button>
+        <button>★</button>
+        <input value="https://mi.5ch.net/news4vip/" />
+        <button>移動</button>
+        <button>更新</button>
+      </div>
+      <div class="body">
+        <div class="pane">
+          <h3>板一覧</h3>
+          <button class="board-btn selected">ニュース速報(VIP)</button>
+          <button class="board-btn">なんでも実況J</button>
+          <button class="board-btn">ニュース速報+</button>
+          <button class="board-btn">ニュー速嫌儲</button>
+          <button class="board-btn">PC一般</button>
+          <button class="board-btn">プログラマ</button>
+        </div>
+        <div class="pane">
+          <h3>スレ一覧</h3>
+          <div class="thread-row selected"><span class="num">1</span>今日の昼飯何にする？<span class="res">234</span></div>
+          <div class="thread-row"><span class="num">2</span>新型MacBook買った奴おる？<span class="res">102</span></div>
+          <div class="thread-row"><span class="num">3</span>Tauri vs Electron 速い方<span class="res">567</span></div>
+          <div class="thread-row"><span class="num">4</span>Liquid Glassってどう思う<span class="res">89</span></div>
+          <div class="thread-row"><span class="num">5</span>Rust書いてる人来てくれ<span class="res">412</span></div>
+        </div>
+        <div class="pane">
+          <h3>レス</h3>
+          <div class="response">
+            <div class="head"><span class="num">1 </span><span class="name">名無しさん</span> 2026/04/30(木) 12:34:56.78 ID:abc123</div>
+            <div class="body-text">今日の昼飯何にする？<br>カレーかラーメンで迷ってる</div>
+          </div>
+          <div class="response">
+            <div class="head"><span class="num">2 </span><span class="name">名無しさん</span> 2026/04/30(木) 12:35:12.34 ID:def456</div>
+            <div class="body-text">&gt;&gt;1<br>カレー一択だろJK</div>
+          </div>
+          <div class="response">
+            <div class="head"><span class="num">3 </span><span class="name">名無しさん</span> 2026/04/30(木) 12:36:01.99 ID:ghi789</div>
+            <div class="body-text">ラーメンの方が満足度高いぞ</div>
+          </div>
+        </div>
+      </div>
+      <div class="status-bar">準備完了 — 3スレッド読み込み済み</div>
+    </div>
+    <div class="note">
+      <b>実装方針 3 (フェイクガラス) の完成予想図。</b><br>
+      <span class="ok">✅ 両OS で確実に動作</span> — Tauri / WebView2 の透過に依存しない<br>
+      <span class="ng">❌ 壁紙は透けない</span> — ウィンドウ自体は不透明 (背景は内側に焼き込んだグラデーション)<br>
+      Variant 3 と並べて見ると違いがわかる。Variant 3 はページ背景の壁紙が直接透けるのに対し、Variant 4 は <code>.shell</code> 内に静的グラデーションを敷き、その上に乗る各要素を <code>backdrop-filter</code> でブラーしている。視覚的な「奥行き感・ガラス感」は約 80% 再現。
     </div>
   </div>
 </div>

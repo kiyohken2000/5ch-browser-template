@@ -3636,3 +3636,927 @@ button.search-history-btn:hover {
   pointer-events: none;
   z-index: 99999;
 }
+
+/* ==========================================================
+ * Liquid Glass Theme (Variant 4 — Fake Glass)
+ * .shell.glass で有効。
+ * ウィンドウ自体は不透明だが、.shell に固定グラデーションを焼き込み、
+ * その上に乗る各バー / フローティングパネルを backdrop-filter でブラー。
+ * Tauri/WebView2 の透過に依存せず、両OS で確実に動作する実装方針。
+ * ========================================================== */
+
+.shell.glass {
+  background:
+    radial-gradient(circle at 18% 22%, rgba(255, 214, 165, 0.55) 0%, transparent 45%),
+    radial-gradient(circle at 82% 28%, rgba(160, 196, 255, 0.55) 0%, transparent 50%),
+    radial-gradient(circle at 48% 88%, rgba(255, 173, 173, 0.45) 0%, transparent 45%),
+    radial-gradient(circle at 95% 95%, rgba(189, 178, 255, 0.55) 0%, transparent 50%),
+    linear-gradient(135deg, #fdfcfb 0%, #ebe0d4 100%);
+  background-attachment: fixed;
+}
+
+.shell.glass .menu-bar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.18));
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-bottom-color: rgba(255, 255, 255, 0.5);
+  position: relative;
+  z-index: 200;
+}
+
+.shell.glass .tool-bar {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-bottom-color: rgba(255, 255, 255, 0.4);
+  position: relative;
+  z-index: 150;
+}
+
+.shell.glass .board-button-bar {
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-bottom-color: rgba(255, 255, 255, 0.35);
+}
+
+.shell.glass .status-bar {
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top-color: rgba(255, 255, 255, 0.4);
+}
+
+.shell.glass .address-input {
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shell.glass .menu-dropdown,
+.shell.glass .menu-submenu {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.shell.glass .settings-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.shell.glass .compose-window {
+  background: rgba(245, 245, 245, 0.55);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  z-index: 300;
+}
+
+/* === Dark variant === */
+.shell.glass.dark {
+  background:
+    radial-gradient(circle at 18% 22%, rgba(140, 90, 220, 0.85) 0%, transparent 45%),
+    radial-gradient(circle at 82% 28%, rgba(60, 130, 220, 0.85) 0%, transparent 50%),
+    radial-gradient(circle at 48% 88%, rgba(220, 90, 130, 0.7) 0%, transparent 45%),
+    radial-gradient(circle at 95% 95%, rgba(80, 130, 180, 0.85) 0%, transparent 50%),
+    linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background-attachment: fixed;
+}
+
+.shell.glass.dark .menu-bar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .tool-bar {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .board-button-bar {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .status-bar {
+  background: rgba(255, 255, 255, 0.03);
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .address-input {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.shell.glass.dark .menu-dropdown,
+.shell.glass.dark .menu-submenu {
+  background: rgba(30, 30, 40, 0.85);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.shell.glass.dark .settings-panel {
+  background: rgba(30, 30, 40, 0.85);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.shell.glass.dark .compose-window {
+  background: rgba(30, 30, 40, 0.85);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* === Pane areas (boards / threads / responses) === */
+.shell.glass .pane {
+  background: transparent;
+  border-right-color: rgba(255, 255, 255, 0.3);
+}
+
+.shell.glass .pane-splitter {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.25) 0, rgba(255, 255, 255, 0.4) 50%, rgba(255, 255, 255, 0.25) 100%);
+  border-right-color: rgba(255, 255, 255, 0.4);
+  border-left-color: rgba(255, 255, 255, 0.5);
+}
+
+.shell.glass .boards-header,
+.shell.glass .thread-tab-bar-wrap,
+.shell.glass .thread-tab-bar {
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom-color: rgba(255, 255, 255, 0.4);
+}
+
+.shell.glass .board-search {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shell.glass .threads-toolbar {
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom-color: rgba(255, 255, 255, 0.4);
+  z-index: 100;
+}
+
+.shell.glass .threads table {
+  background: transparent;
+}
+
+.shell.glass .threads th {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.35) 100%);
+  border-color: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shell.glass .threads td {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: transparent;
+}
+
+.shell.glass .threads tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.shell.glass .selected-row td,
+.shell.glass .threads tbody tr:nth-child(even).selected-row td,
+.shell.glass .response-layout tbody tr:nth-child(even).selected-row td {
+  background: rgba(0, 102, 204, 0.22);
+}
+
+.shell.glass .response-layout tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.shell.glass .response-scroll {
+  background: transparent;
+}
+
+.shell.glass .response-block:hover:not(.selected) {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* === Dark variant for panes === */
+.shell.glass.dark .pane {
+  background: transparent !important;
+  border-right-color: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .pane-splitter {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0, rgba(255, 255, 255, 0.1) 50%, rgba(255, 255, 255, 0.05) 100%);
+  border-right-color: rgba(255, 255, 255, 0.08);
+  border-left-color: rgba(255, 255, 255, 0.1);
+}
+
+.shell.glass.dark .boards-header,
+.shell.glass.dark .thread-tab-bar-wrap,
+.shell.glass.dark .thread-tab-bar {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .board-search {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.shell.glass.dark .threads-toolbar {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .threads table {
+  background: transparent !important;
+}
+
+.shell.glass.dark .response-scroll {
+  background: transparent !important;
+}
+
+.shell.glass.dark .threads-table-wrap {
+  background: transparent !important;
+}
+
+.shell.glass.dark .threads-toolbar {
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+.shell.glass.dark .search-with-history {
+  background: transparent !important;
+}
+
+.shell.glass .threads-table-wrap {
+  background: transparent !important;
+}
+
+.shell.glass .pane {
+  background: transparent !important;
+}
+
+/* === Force all opaque pane backgrounds to be transparent in glass dark mode === */
+.shell.glass.dark .pane.threads,
+.shell.glass.dark .pane.responses,
+.shell.glass.dark .pane.boards,
+.shell.glass.dark .threads-table-wrap,
+.shell.glass.dark .threads table,
+.shell.glass.dark .threads tbody,
+.shell.glass.dark .response-scroll,
+.shell.glass.dark .response-layout,
+.shell.glass.dark .response-content-row,
+.shell.glass.dark .right-pane {
+  background: transparent !important;
+}
+
+.shell.glass.dark .threads th {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.04) 100%) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: var(--ink) !important;
+}
+
+.shell.glass.dark .threads td {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  background: transparent !important;
+}
+
+.shell.glass.dark .threads tbody tr:nth-child(even) td,
+.shell.glass.dark .response-layout tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.shell.glass .pane.threads,
+.shell.glass .pane.responses,
+.shell.glass .pane.boards,
+.shell.glass .threads-table-wrap,
+.shell.glass .threads table,
+.shell.glass .response-scroll,
+.shell.glass .response-layout,
+.shell.glass .response-content-row,
+.shell.glass .right-pane {
+  background: transparent !important;
+}
+
+.shell.glass.dark .threads th {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.04) 100%);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.shell.glass.dark .threads td {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: transparent;
+}
+
+.shell.glass.dark .threads tbody tr:nth-child(even) td,
+.shell.glass.dark .response-layout tbody tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.shell.glass.dark .selected-row td,
+.shell.glass.dark .threads tbody tr:nth-child(even).selected-row td,
+.shell.glass.dark .response-layout tbody tr:nth-child(even).selected-row td {
+  background: rgba(0, 102, 204, 0.32);
+}
+
+.shell.glass.dark .response-block:hover:not(.selected) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* === Floating menus / panels === */
+.shell.glass .title-split-menu {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.shell.glass .title-split-menu button {
+  border-bottom-color: rgba(255, 255, 255, 0.4);
+}
+
+.shell.glass .title-split-menu button:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.shell.glass .ng-panel,
+.shell.glass .ng-image-panel {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  z-index: 300;
+}
+
+.shell.glass .ng-panel-header {
+  background: rgba(255, 255, 255, 0.35);
+  border-bottom-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Dark variant */
+.shell.glass.dark .title-split-menu {
+  background: rgba(30, 30, 40, 0.85);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.shell.glass.dark .title-split-menu button {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+}
+
+.shell.glass.dark .title-split-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .ng-panel,
+.shell.glass.dark .ng-image-panel {
+  background: rgba(30, 30, 40, 0.85);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.shell.glass.dark .ng-panel-header {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+/* === Compose window inner sections === */
+.shell.glass .compose-header {
+  background: rgba(255, 255, 255, 0.35);
+  border-bottom-color: rgba(255, 255, 255, 0.5);
+}
+
+.shell.glass .compose-body {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shell.glass.dark .compose-header {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .compose-body {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+}
+
+.shell.glass.dark .compose-fields input,
+.shell.glass.dark .compose-grid input:not([type="checkbox"]) {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+}
+
+.shell.glass .compose-grid input:not([type="checkbox"]) {
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* === Settings panel inner sections === */
+.shell.glass .settings-header {
+  background: rgba(255, 255, 255, 0.35);
+  border-bottom-color: rgba(255, 255, 255, 0.5);
+}
+
+.shell.glass .settings-body fieldset {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.shell.glass.dark .settings-header {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .settings-body fieldset {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* === Buttons inside glass surfaces === */
+.shell.glass .settings-panel button,
+.shell.glass .compose-window button,
+.shell.glass .ng-panel button,
+.shell.glass .ng-image-panel button {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.shell.glass .settings-panel button:hover,
+.shell.glass .compose-window button:hover,
+.shell.glass .ng-panel button:hover,
+.shell.glass .ng-image-panel button:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.shell.glass .settings-panel input[type="text"],
+.shell.glass .settings-panel input[type="email"],
+.shell.glass .settings-panel input[type="password"],
+.shell.glass .settings-panel input[type="number"],
+.shell.glass .settings-panel input:not([type]),
+.shell.glass .settings-panel select,
+.shell.glass .settings-panel textarea,
+.shell.glass .ng-panel input,
+.shell.glass .ng-panel select,
+.shell.glass .ng-panel textarea,
+.shell.glass .ng-image-panel input {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+}
+
+.shell.glass.dark .settings-panel button,
+.shell.glass.dark .compose-window button,
+.shell.glass.dark .ng-panel button,
+.shell.glass.dark .ng-image-panel button {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.shell.glass.dark .settings-panel button:hover,
+.shell.glass.dark .compose-window button:hover,
+.shell.glass.dark .ng-panel button:hover,
+.shell.glass.dark .ng-image-panel button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.shell.glass.dark .settings-panel input[type="text"],
+.shell.glass.dark .settings-panel input[type="email"],
+.shell.glass.dark .settings-panel input[type="password"],
+.shell.glass.dark .settings-panel input[type="number"],
+.shell.glass.dark .settings-panel input:not([type]),
+.shell.glass.dark .settings-panel select,
+.shell.glass.dark .settings-panel textarea,
+.shell.glass.dark .ng-panel input,
+.shell.glass.dark .ng-panel select,
+.shell.glass.dark .ng-panel textarea,
+.shell.glass.dark .ng-image-panel input {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+}
+
+/* === Thread tabs (in response pane) === */
+.shell.glass .thread-tab {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.4);
+  border-bottom: none;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shell.glass .thread-tab.active {
+  background: rgba(255, 255, 255, 0.55);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.55);
+}
+
+.shell.glass .thread-tab:not(.active):hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.shell.glass .tab-scroll-btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--ink);
+}
+
+.shell.glass .tab-scroll-btn:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.shell.glass.dark .thread-tab {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+}
+
+.shell.glass.dark .thread-tab.active {
+  background: rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.shell.glass.dark .thread-tab:not(.active):hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.shell.glass.dark .tab-scroll-btn {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+}
+
+.shell.glass.dark .tab-scroll-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* === Board pane: tabs / search / categories === */
+.shell.glass .board-tab {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shell.glass .board-tab.active {
+  background: rgba(255, 255, 255, 0.55);
+  border-bottom-color: rgba(255, 255, 255, 0.55);
+}
+
+.shell.glass .board-tab:not(.active):hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.shell.glass .fav-search,
+.shell.glass .board-search {
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shell.glass .category-toggle {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.18) 100%);
+  border-bottom-color: rgba(255, 255, 255, 0.4);
+  color: var(--ink);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shell.glass .category-toggle:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.3) 100%);
+}
+
+.shell.glass .board-item:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.shell.glass .board-item.selected {
+  background: rgba(0, 102, 204, 0.25);
+}
+
+.shell.glass.dark .board-tab {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+}
+
+.shell.glass.dark .board-tab.active {
+  background: rgba(255, 255, 255, 0.1);
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+.shell.glass.dark .board-tab:not(.active):hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.shell.glass.dark .fav-search,
+.shell.glass.dark .board-search {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+}
+
+.shell.glass.dark .category-toggle {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+}
+
+.shell.glass.dark .category-toggle:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.05) 100%);
+}
+
+.shell.glass.dark .board-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.shell.glass.dark .board-item.selected {
+  background: rgba(0, 102, 204, 0.35);
+}
+
+/* === Title action buttons (icons in toolbars) === */
+.shell.glass .tool-bar button,
+.shell.glass .title-action-btn {
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  color: #1b1b1b;
+  border-radius: 4px;
+}
+
+.shell.glass .tool-bar button:hover:not(:disabled),
+.shell.glass .title-action-btn:hover {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+.shell.glass .title-action-btn.active-toggle {
+  background: rgba(0, 102, 204, 0.6);
+  border-color: rgba(0, 102, 204, 0.5);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 102, 204, 0.3);
+}
+
+.shell.glass.dark .tool-bar button,
+.shell.glass.dark .title-action-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--ink);
+}
+
+
+.shell.glass.dark .title-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.shell.glass.dark .title-action-btn.active-toggle {
+  background: rgba(0, 102, 204, 0.5);
+  border-color: rgba(0, 102, 204, 0.4);
+  color: #fff;
+}
+
+/* === Stronger button outlines (light mode) for visibility on glass === */
+.shell.glass .settings-panel button,
+.shell.glass .compose-window button,
+.shell.glass .ng-panel button,
+.shell.glass .ng-image-panel button {
+  border-color: rgba(0, 0, 0, 0.18);
+}
+
+.shell.glass .settings-panel button:hover,
+.shell.glass .compose-window button:hover,
+.shell.glass .ng-panel button:hover,
+.shell.glass .ng-image-panel button:hover {
+  border-color: rgba(0, 0, 0, 0.28);
+}
+
+/* === Allow dropdowns to escape pane bounds in glass mode === */
+.shell.glass .right-pane {
+  overflow: visible;
+}
+
+.shell.glass .pane.threads,
+.shell.glass .pane.boards {
+  overflow: visible;
+}
+
+/* NOTE: Do NOT add z-index to .pane.threads/.pane.responses — that traps
+   fixed-positioned overlays (compose, ng-panel, thread-menu, popups)
+   below the pane's stacking context. Bars use z:150-200 instead. */
+
+.shell.glass .title-split-menu,
+.shell.glass .search-history-dropdown {
+  z-index: 9999;
+}
+
+/* === search-history-dropdown glass === */
+.shell.glass .search-history-dropdown {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.shell.glass .search-history-item:hover {
+  background: rgba(0, 102, 204, 0.18);
+}
+
+.shell.glass.dark .search-history-dropdown {
+  background: rgba(30, 30, 40, 0.85);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.shell.glass.dark .search-history-item:hover {
+  background: rgba(0, 102, 204, 0.32);
+}
+
+/* === Response nav bar (footer of response pane) === */
+.shell.glass .response-nav-bar {
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-top-color: rgba(255, 255, 255, 0.4);
+}
+
+.shell.glass .response-nav-bar button {
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shell.glass .response-nav-bar button:hover {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.shell.glass .nav-jump-input {
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.6);
+  color: var(--ink);
+}
+
+.shell.glass.dark .response-nav-bar {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-top-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.shell.glass.dark .response-nav-bar button {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  color: var(--ink) !important;
+}
+
+.shell.glass.dark .response-nav-bar button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.shell.glass.dark .nav-jump-input {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: var(--ink);
+}
+
+/* === Image gallery sub-pane === */
+.shell.glass .image-gallery-pane {
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-left-color: rgba(255, 255, 255, 0.4);
+}
+
+.shell.glass .image-gallery-header {
+  background: rgba(255, 255, 255, 0.25);
+  border-bottom-color: rgba(255, 255, 255, 0.4);
+}
+
+.shell.glass.dark .image-gallery-pane {
+  background: rgba(255, 255, 255, 0.03);
+  border-left-color: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .image-gallery-header {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+/* === Context menus (right-click menus) — opaque, on top of everything === */
+.shell.glass .thread-menu,
+.shell.glass .response-menu,
+.shell.glass .image-context-menu,
+.shell.glass .menu-dropdown.image-context-menu {
+  background: #f8f8fa;
+  border-color: rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.22);
+  z-index: 500;
+}
+
+.shell.glass .thread-menu button,
+.shell.glass .response-menu button {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid transparent;
+}
+
+.shell.glass .thread-menu button:hover,
+.shell.glass .response-menu button:hover {
+  background: rgba(0, 102, 204, 0.18);
+}
+
+.shell.glass.dark .thread-menu,
+.shell.glass.dark .response-menu,
+.shell.glass.dark .image-context-menu,
+.shell.glass.dark .menu-dropdown.image-context-menu {
+  background: #1c1c24;
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+}
+
+.shell.glass.dark .thread-menu button,
+.shell.glass.dark .response-menu button {
+  background: transparent;
+  color: var(--ink);
+}
+
+.shell.glass.dark .thread-menu button:hover,
+.shell.glass.dark .response-menu button:hover {
+  background: rgba(0, 102, 204, 0.32);
+}
+
+/* === Response popups (anchor / back-ref / ID hover) — nearly opaque === */
+.shell.glass .anchor-popup,
+.shell.glass .back-ref-popup,
+.shell.glass .id-popup {
+  background: #fafafc;
+  border-color: rgba(0, 0, 0, 0.18);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  z-index: 600;
+}
+
+.shell.glass .response-viewer article {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shell.glass.dark .anchor-popup,
+.shell.glass.dark .back-ref-popup,
+.shell.glass.dark .id-popup {
+  background: #1c1c24;
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+.shell.glass.dark .response-viewer article {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}

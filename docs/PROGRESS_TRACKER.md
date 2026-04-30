@@ -229,36 +229,41 @@ Phase 4（任意）: 自動同期
   - サーバー側が特定のクライアント名やバージョンを検証している可能性
 - 次回実装時は、まず curl で手動リクエストを送信して正しい XML 形式を特定することを推奨
 
-### Liquid Glass テーマ（オプション）
+### Liquid Glass テーマ（オプション・実装済み: Variant 4 採用）
 
-設定で「ガラス効果」を有効化すると、ツールバー / メニュー / 板パネル / 設定ダイアログが半透明 + ブラーになり、ウィンドウ自体も OS レベルの Mica（Win11）/ Vibrancy（macOS）で背景の壁紙が透けて見える、という visionOS / iOS 26 風のテーマ。
+設定で「ガラス効果」を有効化すると、メニュー / ツールバー / ステータスバー / 各種ドロップダウン / 設定パネル / 投稿ウィンドウが半透明 + ブラーになり、ウィンドウ全体に内側カラフルグラデーションが敷かれる、visionOS / iOS 26 風のテーマ。
 
-**設計**
-- `App.tsx` に `glassMode` ステート追加 → `<html>`, `<body>`, `.shell` に `.glass` クラス付与
-- `styles.css` に `.shell.glass` セレクタで Variant 3 スタイル定義（`backdrop-filter: blur(40-60px)` + 内側ハイライト + 二重影）
-- `.shell.glass.dark` でダークガラスもサポート
-- Tauri コマンド `set_window_glass(enabled, dark)` で OS レベルのブラーを切替（`window-vibrancy` 0.6 経由で Mica/Acrylic/Vibrancy を適用）
-- 永続化は `desktop.layoutPrefs.v1` の `glassMode` フィールド
+**実装内容（feature/glass-fake → main）**
 
-**実装試行の記録（2026-04-30）**
+- `App.tsx`: `glassMode` ステート追加 / `<html>`, `<body>`, `.shell` に `.glass` クラス付与 / 設定パネル「表示」セクションにチェックボックス / `desktop.layoutPrefs.v1` に `glassMode` 永続化
+- `styles.css`: `.shell.glass` セレクタで Variant 4（フェイクガラス）スタイル定義 — `.shell` 自体に固定の多色ラジアルグラデーションを焼き込み、その上に乗る要素を `backdrop-filter: blur()` でブラーする方式
+- `.shell.glass.dark` でダークガラス対応
+- Tauri 側変更なし（`window-vibrancy` 不使用、`transparent: true` 不使用）
 
-3バリエーション（Subtle/Medium/Strong）のスタンドアロンHTMLモックアップ（`docs/glass-mockup.html` 参照）でデザイン確認 → ユーザーは Strong Glass（Variant 3）を採用希望。実アプリへの適用を試みたが、**Tauri v2 + Windows 11 + Mica の相性問題**でウィンドウ透過が達成できず撤退。
+**経緯：Variant 3（OS 透過）の試行と撤退（2026-04-30）**
+
+当初は壁紙が透ける Strong Glass（Variant 3）を志向し、`window-vibrancy::apply_mica` + `tauri.conf.json` の `transparent: true` で実装を試みたが、**Tauri v2 + Windows 11 + Mica の相性問題**でウィンドウ透過が達成できず撤退。
 
 判明した事項:
-- ✅ ウィンドウ内要素のブラー（CSS `backdrop-filter`）は完全に動作 — ドロップダウン等は意図通り
-- ✅ `window-vibrancy::apply_mica` は `Ok` を返す（`set_window_glass ok` とログ確認済み）
-- ❌ ただし **WebView2 のレイヤーが不透明のまま**で、Mica が窓枠に効いていても WebView2 が手前を塗りつぶしてしまう
-- ❌ `tauri.conf.json` に `transparent: true` を入れる → Windows では `WS_EX_LAYERED` レイヤード窓化されて、DWM の Mica と合成されない既知問題
-- ❌ `transparent: true` を外して `WebviewWindow::set_background_color(Color(0,0,0,0))` で WebView2 を透明化 → これでも WebView2 が不透明のまま（DevTools で `getComputedStyle` 確認、CSS 側はすべて transparent、にも関わらず可視は不透明）
+- ✅ ウィンドウ内要素のブラー（CSS `backdrop-filter`）は完全に動作
+- ✅ `window-vibrancy::apply_mica` は `Ok` を返す
+- ❌ **WebView2 のレイヤーが不透明のまま**で、Mica が窓枠に効いていても WebView2 が手前を塗りつぶす
+- ❌ `transparent: true` を入れると Windows では `WS_EX_LAYERED` 化され DWM Mica と合成されない既知問題
+- ❌ `WebviewWindow::set_background_color(Color(0,0,0,0))` でも WebView2 が不透明のまま
+
+**Variant 4（フェイクガラス）採用理由**
+
+WebView2 透過に依存しない実装方針として、`.shell` 内に静的なカラフルグラデーションを焼き込み、内部要素を `backdrop-filter` でブラーする方式に切替。壁紙は透けないが、視覚的な「奥行き感・ガラス感」は約 80% 再現でき、両OS で確実に動作する。デザイン確認用に `docs/glass-mockup.html` の Variant 4 を併設。
 
 **残してある成果物**
-- `docs/glass-mockup.html` — 3バリエーションのスタンドアロンHTMLモックアップ（ブラウザで開けば見た目確認できる）
 
-**次回実装時の方針候補**
-- `webview2-com` クレート経由で `ICoreWebView2Controller2::put_DefaultBackgroundColor(transparent)` を生 API で叩く（Tauri の API は内部でこれを呼ぶはずだが効いてない様子）
+- `docs/glass-mockup.html` — 4バリエーションのスタンドアロンHTMLモックアップ（Variant 1-3 は参考用、Variant 4 が実装版）
+
+**今後 Variant 3（真ガラス）を再挑戦する場合の方針候補**
+
+- `webview2-com` クレート経由で `ICoreWebView2Controller2::put_DefaultBackgroundColor` を生 API で叩く
 - Tauri 2.x のアップデートで `transparent` + Mica の組み合わせが改善されているか定期チェック
 - macOS だけ先行実装（Vibrancy は WebView2 不透明問題と無関係なため動作する可能性が高い）
-- WebView2 のバージョンによる挙動差を切り分け（Edge WebView2 Runtime の更新で改善する可能性）
 
 ## 決定事項
 
