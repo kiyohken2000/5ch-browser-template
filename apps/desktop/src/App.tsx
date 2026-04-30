@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
-  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon,
+  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -838,6 +838,7 @@ export default function App() {
   const [focusedPane, setFocusedPane] = useState<PaneName>("responses");
   const [fontFamily, setFontFamily] = useState("");
   const [darkMode, setDarkMode] = useState(false);
+  const [glassMode, setGlassMode] = useState(false);
   const [composeFontSize, setComposeFontSize] = useState(13);
   const [idPopup, setIdPopup] = useState<{ right: number; y: number; anchorTop: number; id: string } | null>(null);
   const idPopupCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3511,6 +3512,7 @@ export default function App() {
           threadsFontSize?: number;
           responsesFontSize?: number;
           darkMode?: boolean;
+          glassMode?: boolean;
           fontFamily?: string;
           threadColWidths?: Record<string, number>;
           showBoardButtons?: boolean;
@@ -3552,6 +3554,7 @@ export default function App() {
         setThreadsFontSize(typeof parsed.threadsFontSize === "number" ? parsed.threadsFontSize : fallbackFs);
         setResponsesFontSize(typeof parsed.responsesFontSize === "number" ? parsed.responsesFontSize : fallbackFs);
         if (typeof parsed.darkMode === "boolean") setDarkMode(parsed.darkMode);
+        if (typeof parsed.glassMode === "boolean") setGlassMode(parsed.glassMode);
         if (typeof parsed.fontFamily === "string") setFontFamily(parsed.fontFamily);
         if (parsed.threadColWidths && typeof parsed.threadColWidths === "object") {
           setThreadColWidths((prev) => ({ ...prev, ...parsed.threadColWidths }));
@@ -4212,6 +4215,7 @@ export default function App() {
       threadsFontSize,
       responsesFontSize,
       darkMode,
+      glassMode,
       fontFamily,
       threadColWidths,
       showBoardButtons,
@@ -4242,7 +4246,7 @@ export default function App() {
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -4275,6 +4279,11 @@ export default function App() {
       invoke("set_window_theme", { dark: darkMode }).catch(() => {});
     }
   }, [darkMode]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("glass", glassMode);
+    document.body.classList.toggle("glass", glassMode);
+  }, [glassMode]);
 
   useEffect(() => {
     if (isTauriRuntime()) {
@@ -4349,7 +4358,7 @@ export default function App() {
 
   return (
     <div
-      className={`shell${darkMode ? " dark" : ""}${thumbMaskEnabled ? " thumb-masked" : ""}`}
+      className={`shell${darkMode ? " dark" : ""}${glassMode ? " glass" : ""}${thumbMaskEnabled ? " thumb-masked" : ""}`}
       style={{ fontFamily: fontFamily ? `"Backslash", ${fontFamily}` : undefined, gridTemplateRows: showBoardButtons && favorites.boards.length > 0 ? "26px 32px auto 1fr 22px" : undefined, "--thumb-size": `${thumbSize}px`, "--thumb-mask-blur": `${(thumbMaskStrength / 100) * 20}px`, "--thumb-mask-brightness": `${1 - (thumbMaskStrength / 100) * 0.25}` } as React.CSSProperties}
       onClick={() => {
         setThreadMenu(null);
@@ -4510,6 +4519,20 @@ export default function App() {
           aria-label="テーマ切替"
         >
           {darkMode ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
+        <button
+          className={`title-action-btn ${glassMode ? "active-toggle" : ""}`}
+          onClick={() => {
+            setGlassMode((prev) => {
+              const next = !prev;
+              setStatus(next ? "glass: on" : "glass: off");
+              return next;
+            });
+          }}
+          title={glassMode ? "ガラス効果オフ" : "ガラス効果オン"}
+          aria-label="ガラス効果切替"
+        >
+          <Sparkles size={14} />
         </button>
         <input className="address-input" value={locationInput} onChange={(e) => setLocationInput(e.target.value)} onKeyDown={onLocationInputKeyDown} onFocus={(e) => e.target.select()} />
         <button onClick={goFromLocationInput}>移動</button>
@@ -6685,6 +6708,10 @@ export default function App() {
                     <option value="light">ライト</option>
                     <option value="dark">ダーク</option>
                   </select>
+                </label>
+                <label className="settings-row">
+                  <span>ガラス効果</span>
+                  <input type="checkbox" checked={glassMode} onChange={(e) => setGlassMode(e.target.checked)} />
                 </label>
                 <label className="settings-row">
                   <span>フォント</span>
