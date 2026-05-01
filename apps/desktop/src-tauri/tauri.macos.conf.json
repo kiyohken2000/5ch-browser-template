@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "title": "Ember",
+        "width": 1400,
+        "height": 900,
+        "resizable": true,
+        "transparent": true,
+        "titleBarStyle": "Transparent",
+        "windowEffects": {
+          "effects": ["headerView"],
+          "state": "followsWindowActiveState"
+        }
+      }
+    ]
+  }
+}
