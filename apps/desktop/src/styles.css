@@ -4641,3 +4641,86 @@ button.search-history-btn:hover {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.12);
 }
+
+/* ==========================================================
+ * Lite mode (.shell.glass.glass-lite)
+ * blur 半径と saturate を最小化、radial-gradient を 1層に削減し、
+ * GPU コンポジット負荷を現行ガラスから更に半減させる軽量版。
+ * 設定 UI 上は OFF / 軽量 / フル の 3段階の中間。
+ * 仕様: docs/glass-mockup.html (Variant 5 — Lite Glass)
+ * ========================================================== */
+
+.shell.glass.glass-lite {
+  background:
+    radial-gradient(circle at 22% 28%, rgba(255, 214, 165, 0.35) 0%, transparent 60%),
+    linear-gradient(135deg, #fdfcfb 0%, #ebe0d4 100%);
+  background-attachment: fixed;
+}
+
+.shell.glass.glass-lite.dark {
+  background:
+    radial-gradient(circle at 22% 25%, rgba(140, 90, 220, 0.22) 0%, transparent 60%),
+    linear-gradient(135deg, #16161f 0%, #14172a 100%);
+  background-attachment: fixed;
+}
+
+/* 大型の半透明面 (バー・パネル・コンテキストメニュー等): 14-16px → 6px */
+.shell.glass.glass-lite .menu-bar,
+.shell.glass.glass-lite .tool-bar,
+.shell.glass.glass-lite .board-button-bar,
+.shell.glass.glass-lite .menu-dropdown,
+.shell.glass.glass-lite .menu-submenu,
+.shell.glass.glass-lite .settings-panel,
+.shell.glass.glass-lite .shortcuts-panel,
+.shell.glass.glass-lite .compose-window,
+.shell.glass.glass-lite .ng-panel,
+.shell.glass.glass-lite .ng-image-panel,
+.shell.glass.glass-lite .title-split-menu,
+.shell.glass.glass-lite .search-history-dropdown,
+.shell.glass.glass-lite .thread-menu,
+.shell.glass.glass-lite .response-menu,
+.shell.glass.glass-lite .image-context-menu,
+.shell.glass.glass-lite .menu-dropdown.image-context-menu,
+.shell.glass.glass-lite .anchor-popup,
+.shell.glass.glass-lite .back-ref-popup,
+.shell.glass.glass-lite .id-popup {
+  backdrop-filter: blur(6px) saturate(120%);
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
+}
+
+/* 中型ツールバー / ヘッダ系: 12px → 6px */
+.shell.glass.glass-lite .status-bar,
+.shell.glass.glass-lite .boards-header,
+.shell.glass.glass-lite .thread-tab-bar-wrap,
+.shell.glass.glass-lite .thread-tab-bar,
+.shell.glass.glass-lite .threads-toolbar,
+.shell.glass.glass-lite .response-nav-bar,
+.shell.glass.glass-lite .image-gallery-pane {
+  backdrop-filter: blur(6px) saturate(120%);
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
+}
+
+/* 小要素 (入力欄・ボタン・タブ・記事カード): 6px → 4px */
+.shell.glass.glass-lite .address-input,
+.shell.glass.glass-lite .board-search,
+.shell.glass.glass-lite .fav-search,
+.shell.glass.glass-lite .compose-body,
+.shell.glass.glass-lite .settings-panel button,
+.shell.glass.glass-lite .compose-window button,
+.shell.glass.glass-lite .ng-panel button,
+.shell.glass.glass-lite .ng-image-panel button,
+.shell.glass.glass-lite .thread-tab,
+.shell.glass.glass-lite .board-tab,
+.shell.glass.glass-lite .category-toggle,
+.shell.glass.glass-lite .response-nav-bar button,
+.shell.glass.glass-lite .response-viewer article {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* ダイアログ用 lightbox-overlay: 8px → 4px */
+.shell.glass.glass-lite .lightbox-overlay:has(.settings-panel),
+.shell.glass.glass-lite .lightbox-overlay:has(.shortcuts-panel) {
+  backdrop-filter: blur(4px) saturate(110%);
+  -webkit-backdrop-filter: blur(4px) saturate(110%);
+}
