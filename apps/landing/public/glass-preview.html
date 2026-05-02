@@ -513,6 +513,76 @@
   body.dark .variant-lite .response { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.06); }
   body.dark .variant-lite .status-bar { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.05); }
 
+  /* ====================== */
+  /* Variant 6: Ultra Lite Glass (オフと軽量の中間・blur 2px のみ) */
+  /* ====================== */
+  /*
+   * v0.0.137 で導入。Lite からさらにもう一段落とした最軽量モード。
+   * blur 2px のみ・saturate なし・radial-gradient なし。
+   * 大面積要素 (バー / ペイン / ポップアップ) のみ blur を適用し、
+   * 小要素 (ボタン / 入力 / タブ / レス枠) には backdrop-filter を一切使わない。
+   * GPU コンポジット負荷を限界まで削った状態でも、平面より僅かに奥行きを残す中間表現。
+   */
+  .variant-ultra-lite .ember {
+    background: linear-gradient(135deg, #fdfcfb 0%, #ebe0d4 100%);
+    border: 1px solid rgba(0,0,0,0.08);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+  }
+  .variant-ultra-lite .menu-bar {
+    background: rgba(255,255,255,0.5);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+  }
+  .variant-ultra-lite .menu-item:hover { background: rgba(0,0,0,0.05); }
+  .variant-ultra-lite .tool-bar {
+    background: rgba(255,255,255,0.38);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+  }
+  .variant-ultra-lite .tool-bar button {
+    background: rgba(255,255,255,0.7);
+    border: 1px solid rgba(0,0,0,0.1);
+  }
+  .variant-ultra-lite .tool-bar input {
+    background: rgba(255,255,255,0.7);
+    border-color: rgba(0,0,0,0.1);
+  }
+  .variant-ultra-lite .pane {
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    border-right: 1px solid rgba(0,0,0,0.06);
+  }
+  .variant-ultra-lite .pane:last-child { border-right: none; }
+  .variant-ultra-lite .pane:nth-child(2) { background: rgba(0,0,0,0.02); }
+  .variant-ultra-lite .response {
+    background: rgba(255,255,255,0.7);
+    border-color: rgba(0,0,0,0.06);
+  }
+  .variant-ultra-lite .status-bar {
+    background: rgba(255,255,255,0.4);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    border-top: 1px solid rgba(0,0,0,0.06);
+  }
+
+  body.dark .variant-ultra-lite .ember {
+    background: linear-gradient(135deg, #16161f 0%, #14172a 100%);
+    border-color: rgba(255,255,255,0.06);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+    color: #d4d4d4;
+  }
+  body.dark .variant-ultra-lite .menu-bar { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.05); }
+  body.dark .variant-ultra-lite .menu-item:hover { background: rgba(255,255,255,0.07); }
+  body.dark .variant-ultra-lite .tool-bar { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.05); }
+  body.dark .variant-ultra-lite .tool-bar button,
+  body.dark .variant-ultra-lite .tool-bar input { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); color: #d4d4d4; }
+  body.dark .variant-ultra-lite .pane { border-color: rgba(255,255,255,0.05); }
+  body.dark .variant-ultra-lite .pane:nth-child(2) { background: rgba(255,255,255,0.02); }
+  body.dark .variant-ultra-lite .response { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.06); }
+  body.dark .variant-ultra-lite .status-bar { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.05); }
+
   .note {
     font-size: 11px;
     line-height: 1.6;
@@ -566,8 +636,8 @@
 
 <div class="note" style="max-width: 720px; margin-bottom: 16px;">
   <b>このページについて。</b><br>
-  Ember のガラス効果のデザイン検討時に作成したモックアップを、ランディングから参照できる形にしたものです。設定 → 表示 → ガラス効果 で <b>オフ / 軽量 / フル</b> の3段階を切替できます。<br>
-  実装版に対応するのは <b>Variant 5 — Lite Glass</b>（軽量モード）と <b>Variant 4 — Fake Glass</b>（フル）。Variant 1〜3 は採用されなかった検討案です。<br>
+  Ember のガラス効果のデザイン検討時に作成したモックアップを、ランディングから参照できる形にしたものです。設定 → 表示 → ガラス効果 で <b>オフ / ウルトラ軽量 / 軽量 / フル</b> の4段階を切替できます。<br>
+  実装版に対応するのは <b>Variant 6 — Ultra Lite Glass</b>（ウルトラ軽量・v0.0.137 で追加）/ <b>Variant 5 — Lite Glass</b>（軽量モード）/ <b>Variant 4 — Fake Glass</b>（フル）。Variant 1〜3 は採用されなかった検討案です。<br>
   右上のトグルでライト/ダーク切替可能。
 </div>
 
@@ -861,8 +931,72 @@
       <span class="ok">✅ macOS 体感負荷の大幅低減</span> — blur 半径を 6px に固定 + saturate 120% で GPU コンポジット負荷を最小化<br>
       <span class="ok">✅ Windows ウィンドウ管理障害の回避</span> — 大面積 backdrop-filter を最小化することで WebView2 の再描画コストを抑制<br>
       <span class="ng">❌ 奥行き感はほぼ失われる</span> — 「すりガラス」→「半透明アクリル板」程度。Variant 4 の壁紙感は出ない<br>
-      設定 UI 上は <b>OFF / Lite / Full</b> の3段階トグルとして提供する想定。dark variant の radial-gradient は 4層 → 1層 (top-left 紫のみ) まで削減。<br>
-      推定負荷: フルガラス (現行 v0.0.134) を 100 とすると、<b>軽量モードは 35〜45</b>、フラット OFF は 5〜10。中間ポジションでガラス感の輪郭は維持。
+      設定 UI 上は <b>OFF / Ultra Lite / Lite / Full</b> の4段階トグルとして提供 (v0.0.137 〜)。dark variant の radial-gradient は 4層 → 1層 (top-left 紫のみ) まで削減。<br>
+      推定負荷: フルガラス (現行) を 100 とすると、<b>軽量モードは 35〜45</b>、フラット OFF は 5〜10。中間ポジションでガラス感の輪郭は維持。
+    </div>
+  </div>
+
+  <div>
+    <span class="label">Variant 6 — Ultra Lite Glass（ウルトラ軽量・v0.0.137 で追加）</span>
+    <div class="ember variant-ultra-lite">
+      <div class="menu-bar">
+        <span class="menu-item">ファイル</span>
+        <span class="menu-item">表示</span>
+        <span class="menu-item">ツール</span>
+        <span class="menu-item">設定</span>
+        <span class="menu-item">ヘルプ</span>
+      </div>
+      <div class="tool-bar">
+        <button class="active">板</button>
+        <button>スレ</button>
+        <button>★</button>
+        <input value="https://mi.5ch.net/news4vip/" />
+        <button>移動</button>
+        <button>更新</button>
+      </div>
+      <div class="body">
+        <div class="pane">
+          <h3>板一覧</h3>
+          <button class="board-btn selected">ニュース速報(VIP)</button>
+          <button class="board-btn">なんでも実況J</button>
+          <button class="board-btn">ニュース速報+</button>
+          <button class="board-btn">ニュー速嫌儲</button>
+          <button class="board-btn">PC一般</button>
+          <button class="board-btn">プログラマ</button>
+        </div>
+        <div class="pane">
+          <h3>スレ一覧</h3>
+          <div class="thread-row selected"><span class="num">1</span>今日の昼飯何にする？<span class="res">234</span></div>
+          <div class="thread-row"><span class="num">2</span>新型MacBook買った奴おる？<span class="res">102</span></div>
+          <div class="thread-row"><span class="num">3</span>Tauri vs Electron 速い方<span class="res">567</span></div>
+          <div class="thread-row"><span class="num">4</span>Liquid Glassってどう思う<span class="res">89</span></div>
+          <div class="thread-row"><span class="num">5</span>Rust書いてる人来てくれ<span class="res">412</span></div>
+        </div>
+        <div class="pane">
+          <h3>レス</h3>
+          <div class="response">
+            <div class="head"><span class="num">1 </span><span class="name">名無しさん</span> 2026/04/30(木) 12:34:56.78 ID:abc123</div>
+            <div class="body-text">今日の昼飯何にする？<br>カレーかラーメンで迷ってる</div>
+          </div>
+          <div class="response">
+            <div class="head"><span class="num">2 </span><span class="name">名無しさん</span> 2026/04/30(木) 12:35:12.34 ID:def456</div>
+            <div class="body-text">&gt;&gt;1<br>カレー一択だろJK</div>
+          </div>
+          <div class="response">
+            <div class="head"><span class="num">3 </span><span class="name">名無しさん</span> 2026/04/30(木) 12:36:01.99 ID:ghi789</div>
+            <div class="body-text">ラーメンの方が満足度高いぞ</div>
+          </div>
+        </div>
+      </div>
+      <div class="status-bar">準備完了 — 3スレッド読み込み済み</div>
+    </div>
+    <div class="note">
+      <b>ウルトラ軽量モードの完成予想図。</b><br>
+      <span class="ok">✅ GPU コンポジット負荷を限界まで削減</span> — blur 2px のみ・saturate なし・radial-gradient なし<br>
+      <span class="ok">✅ 大面積要素 (バー / ペイン / ステータスバー) のみ blur を適用</span> — 小要素 (ボタン / 入力 / レス枠) には backdrop-filter を一切使わない<br>
+      <span class="ng">❌ 奥行き感はほとんど無い</span> — 「半透明アクリル板」→「ほぼ平面」程度。Lite と OFF の中間表現<br>
+      推定負荷: フルガラスを 100 とすると、<b>ウルトラ軽量は 12〜18</b>、Lite は 35〜45、フラット OFF は 5〜10。<br>
+      ガラス効果は維持したいがコストは限界まで削りたいユーザー向け (低スペック Mac / Windows ノート / バッテリー駆動時)。
     </div>
   </div>
 </div>
