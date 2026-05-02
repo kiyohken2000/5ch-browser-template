@@ -840,6 +840,7 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [glassMode, setGlassMode] = useState(false);
   const [glassLite, setGlassLite] = useState(false);
+  const [glassUltraLite, setGlassUltraLite] = useState(false);
   const [composeFontSize, setComposeFontSize] = useState(13);
   const [idPopup, setIdPopup] = useState<{ right: number; y: number; anchorTop: number; id: string; z?: number } | null>(null);
   const popupTopZRef = useRef<number>(610);
@@ -2927,7 +2928,7 @@ export default function App() {
     }
     if (leftId) {
       if (idPopupCloseTimer.current) clearTimeout(idPopupCloseTimer.current);
-      idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 150);
+      idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 80);
     }
   };
 
@@ -2937,7 +2938,20 @@ export default function App() {
     const refs = backRefMap.get(resp.id);
     return (
       <div className="anchor-popup-header">
-        <span className="response-viewer-no">{resp.id}</span>{" "}
+        <span
+          className="response-viewer-no"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedResponse(resp.id);
+            setAnchorPopup(null);
+            setBackRefPopup(null);
+            setNestedPopups([]);
+            setIdPopup(null);
+            setStatus(`jumped to >>${resp.id}`);
+          }}
+        >
+          {resp.id}
+        </span>{" "}
         {resp.name}{" "}
         <time>{date}</time>
         {id ? (
@@ -3608,6 +3622,7 @@ export default function App() {
           darkMode?: boolean;
           glassMode?: boolean;
           glassLite?: boolean;
+          glassUltraLite?: boolean;
           fontFamily?: string;
           threadColWidths?: Record<string, number>;
           showBoardButtons?: boolean;
@@ -3651,6 +3666,7 @@ export default function App() {
         if (typeof parsed.darkMode === "boolean") setDarkMode(parsed.darkMode);
         if (typeof parsed.glassMode === "boolean") setGlassMode(parsed.glassMode);
         if (typeof parsed.glassLite === "boolean") setGlassLite(parsed.glassLite);
+        if (typeof parsed.glassUltraLite === "boolean") setGlassUltraLite(parsed.glassUltraLite);
         if (typeof parsed.fontFamily === "string") setFontFamily(parsed.fontFamily);
         if (parsed.threadColWidths && typeof parsed.threadColWidths === "object") {
           setThreadColWidths((prev) => ({ ...prev, ...parsed.threadColWidths }));
@@ -4313,6 +4329,7 @@ export default function App() {
       darkMode,
       glassMode,
       glassLite,
+      glassUltraLite,
       fontFamily,
       threadColWidths,
       showBoardButtons,
@@ -4343,7 +4360,7 @@ export default function App() {
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -4380,10 +4397,13 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("glass", glassMode);
     document.body.classList.toggle("glass", glassMode);
-    const lite = glassMode && glassLite;
+    const ultra = glassMode && glassUltraLite;
+    const lite = glassMode && !glassUltraLite && glassLite;
+    document.documentElement.classList.toggle("glass-ultra-lite", ultra);
+    document.body.classList.toggle("glass-ultra-lite", ultra);
     document.documentElement.classList.toggle("glass-lite", lite);
     document.body.classList.toggle("glass-lite", lite);
-  }, [glassMode, glassLite]);
+  }, [glassMode, glassLite, glassUltraLite]);
 
   useEffect(() => {
     if (isTauriRuntime()) {
@@ -4458,7 +4478,7 @@ export default function App() {
 
   return (
     <div
-      className={`shell${darkMode ? " dark" : ""}${glassMode ? " glass" : ""}${glassMode && glassLite ? " glass-lite" : ""}${thumbMaskEnabled ? " thumb-masked" : ""}`}
+      className={`shell${darkMode ? " dark" : ""}${glassMode ? " glass" : ""}${glassMode && glassUltraLite ? " glass-ultra-lite" : ""}${glassMode && !glassUltraLite && glassLite ? " glass-lite" : ""}${thumbMaskEnabled ? " thumb-masked" : ""}`}
       style={{ fontFamily: fontFamily ? `"Backslash", ${fontFamily}` : undefined, gridTemplateRows: showBoardButtons && favorites.boards.length > 0 ? "26px 32px auto 1fr 22px" : undefined, "--thumb-size": `${thumbSize}px`, "--thumb-mask-blur": `${(thumbMaskStrength / 100) * 20}px`, "--thumb-mask-brightness": `${1 - (thumbMaskStrength / 100) * 0.25}` } as React.CSSProperties}
       onClick={() => {
         setThreadMenu(null);
@@ -4623,13 +4643,29 @@ export default function App() {
         <button
           className={`title-action-btn ${glassMode ? "active-toggle" : ""}`}
           onClick={() => {
-            const cur: "off" | "lite" | "full" = !glassMode ? "off" : glassLite ? "lite" : "full";
-            const next: "off" | "lite" | "full" = cur === "off" ? "lite" : cur === "lite" ? "full" : "off";
+            const cur: "off" | "ultra" | "lite" | "full" = !glassMode
+              ? "off"
+              : glassUltraLite
+              ? "ultra"
+              : glassLite
+              ? "lite"
+              : "full";
+            const next: "off" | "ultra" | "lite" | "full" =
+              cur === "off" ? "ultra" : cur === "ultra" ? "lite" : cur === "lite" ? "full" : "off";
             setGlassMode(next !== "off");
+            setGlassUltraLite(next === "ultra");
             setGlassLite(next === "lite");
             setStatus(`glass: ${next}`);
           }}
-          title={!glassMode ? "ガラス効果: オフ → 軽量" : glassLite ? "ガラス効果: 軽量 → フル" : "ガラス効果: フル → オフ"}
+          title={
+            !glassMode
+              ? "ガラス効果: オフ → ウルトラ軽量"
+              : glassUltraLite
+              ? "ガラス効果: ウルトラ軽量 → 軽量"
+              : glassLite
+              ? "ガラス効果: 軽量 → フル"
+              : "ガラス効果: フル → オフ"
+          }
           aria-label="ガラス効果切替"
         >
           <Sparkles size={14} />
@@ -5524,7 +5560,7 @@ export default function App() {
                   setAnchorPopup(null);
                   setNestedPopups([]);
                   anchorPopupCloseTimer.current = null;
-                }, 150);
+                }, 80);
               }}
             >
               {responsesLoading && (
@@ -5604,7 +5640,7 @@ export default function App() {
                               setIdPopup({ right, y: rect.bottom + 2, anchorTop: rect.top, id });
                             }}
                             onMouseLeave={() => {
-                              idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 150);
+                              idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 80);
                             }}
                           >
                             ID:{id}({idSeqMap.get(r.id) ?? 1}/{count})
@@ -5722,7 +5758,7 @@ export default function App() {
                           const next = e.relatedTarget as HTMLElement | null;
                           if (next?.closest(".anchor-popup")) return;
                           if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
-                          anchorPopupCloseTimer.current = setTimeout(() => { setAnchorPopup(null); setNestedPopups([]); anchorPopupCloseTimer.current = null; }, 150);
+                          anchorPopupCloseTimer.current = setTimeout(() => { setAnchorPopup(null); setNestedPopups([]); anchorPopupCloseTimer.current = null; }, 80);
                         }}
                       >
                         &gt;&gt;{img.responseNo}
@@ -6431,7 +6467,7 @@ export default function App() {
                 setAnchorPopup(null);
                 setNestedPopups([]);
                 anchorPopupCloseTimer.current = null;
-              }, 150);
+              }, 80);
             }}
             onMouseOver={(ev) => handlePopupChainOver(ev)}
             onMouseOut={(ev) => handlePopupChainOut(ev)}
@@ -6506,7 +6542,7 @@ export default function App() {
                 setBackRefPopup(null);
                 setNestedPopups([]);
                 anchorPopupCloseTimer.current = null;
-              }, 150);
+              }, 80);
             }}
             onMouseOver={(ev) => handlePopupChainOver(ev, i)}
             onMouseOut={(ev) => handlePopupChainOut(ev, i)}
@@ -6538,7 +6574,7 @@ export default function App() {
             onMouseLeave={(ev) => {
               const next = ev.relatedTarget as HTMLElement | null;
               if (next?.closest(".anchor-popup")) return;
-              idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 150);
+              idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 80);
             }}
             onMouseOver={(ev) => {
               const t = ev.target as HTMLElement;
@@ -6563,7 +6599,7 @@ export default function App() {
                 setAnchorPopup(null);
                 setNestedPopups([]);
                 anchorPopupCloseTimer.current = null;
-              }, 150);
+              }, 80);
             }}
             onClick={handlePopupImageClick}
             onMouseMove={handlePopupImageHover}
@@ -6755,14 +6791,16 @@ export default function App() {
                 <label className="settings-row">
                   <span>ガラス効果</span>
                   <select
-                    value={!glassMode ? "off" : glassLite ? "lite" : "full"}
+                    value={!glassMode ? "off" : glassUltraLite ? "ultra" : glassLite ? "lite" : "full"}
                     onChange={(e) => {
                       const v = e.target.value;
                       setGlassMode(v !== "off");
+                      setGlassUltraLite(v === "ultra");
                       setGlassLite(v === "lite");
                     }}
                   >
                     <option value="off">オフ</option>
+                    <option value="ultra">ウルトラ軽量</option>
                     <option value="lite">軽量</option>
                     <option value="full">フル</option>
                   </select>

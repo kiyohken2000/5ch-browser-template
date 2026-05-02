@@ -1,6 +1,6 @@
 [package]
 name = "ember"
-version = "0.0.136"
+version = "0.0.137"
 description = "5ちゃんねる専用ブラウザ"
 homepage = "https://ember-5ch.pages.dev"
 repository = "https://github.com/kiyohken2000/5ch-browser-template"
