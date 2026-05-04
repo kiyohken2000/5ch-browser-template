@@ -2498,6 +2498,38 @@ button.search-history-btn:hover {
   border-color: var(--accent);
 }
 
+.youtube-thumb {
+  position: relative;
+}
+.youtube-thumb-img {
+  object-fit: cover;
+}
+.youtube-play-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #fff;
+  background: rgba(200, 30, 30, 0.85);
+  border-radius: 50%;
+  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  padding-left: 3px;
+  box-sizing: border-box;
+}
+.thumb-masked .youtube-thumb .youtube-play-icon {
+  opacity: 0.4;
+}
+.thumb-masked .youtube-thumb:hover .youtube-play-icon {
+  opacity: 1;
+}
+
 .thumb-masked .response-thumb,
 .thumb-masked .image-gallery-thumb {
   filter: blur(var(--thumb-mask-blur, 16px)) brightness(var(--thumb-mask-brightness, 0.8));
