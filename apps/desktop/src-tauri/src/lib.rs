@@ -1358,50 +1358,102 @@ async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(),
     }
 
     let label = "youtube-pip";
-    let inject_script = format!(
-        "window.__pipVideoId={}; if (typeof loadPipVideo === 'function') loadPipVideo();",
-        serde_json::to_string(&video_id).unwrap_or_else(|_| "\"\"".into())
-    );
 
-    if let Some(existing) = app.get_webview_window(label) {
-        existing.eval(&inject_script).map_err(|e| e.to_string())?;
-        let _ = existing.set_focus();
-        return Ok(());
-    }
+    // macOS: load YouTube directly as the top-level page (decorations on, no
+    //   pip.html iframe). Avoids the `tauri://localhost` parent origin which
+    //   YouTube rejects in release builds (error 153).
+    // Windows: keep the pip.html + iframe wrapper with our custom titlebar.
+    #[cfg(target_os = "macos")]
+    {
+        let url_str = format!(
+            "https://www.youtube-nocookie.com/embed/{}?autoplay=1&playsinline=1&rel=0",
+            video_id
+        );
+        let url = tauri::Url::parse(&url_str).map_err(|e| e.to_string())?;
 
-    let saved = core_store::load_json::<YoutubePipBounds>("youtube_pip_bounds.json").ok();
-    let width = saved.as_ref().map(|b| b.width).filter(|w| *w >= 200.0).unwrap_or(480.0);
-    let height = saved.as_ref().map(|b| b.height).filter(|h| *h >= 150.0).unwrap_or(310.0);
+        if let Some(existing) = app.get_webview_window(label) {
+            existing.navigate(url).map_err(|e| e.to_string())?;
+            let _ = existing.set_focus();
+            return Ok(());
+        }
 
-    let mut builder = WebviewWindowBuilder::new(
-        &app,
-        label,
-        WebviewUrl::App(std::path::PathBuf::from("pip.html")),
-    )
-    .title("YouTube PiP")
-    .always_on_top(true)
-    .decorations(false)
-    .resizable(true)
-    .skip_taskbar(true)
-    .initialization_script(&inject_script)
-    .inner_size(width, height);
+        let saved = core_store::load_json::<YoutubePipBounds>("youtube_pip_bounds.json").ok();
+        let width = saved.as_ref().map(|b| b.width).filter(|w| *w >= 200.0).unwrap_or(480.0);
+        let height = saved.as_ref().map(|b| b.height).filter(|h| *h >= 150.0).unwrap_or(310.0);
 
-    if let Some(b) = saved.as_ref() {
-        if let (Some(px), Some(py)) = (b.x, b.y) {
-            if position_visible_on_any_monitor(&app, px, py, width, height) {
-                builder = builder.position(px, py);
+        let mut builder = WebviewWindowBuilder::new(&app, label, WebviewUrl::External(url))
+            .title("YouTube PiP")
+            .always_on_top(true)
+            .decorations(true)
+            .resizable(true)
+            .skip_taskbar(true)
+            .inner_size(width, height);
+
+        if let Some(b) = saved.as_ref() {
+            if let (Some(px), Some(py)) = (b.x, b.y) {
+                if position_visible_on_any_monitor(&app, px, py, width, height) {
+                    builder = builder.position(px, py);
+                }
             }
         }
+
+        let window = builder.build().map_err(|e| e.to_string())?;
+
+        let app_handle = app.clone();
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                persist_youtube_pip_bounds(&app_handle);
+            }
+        });
     }
 
-    let window = builder.build().map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "macos"))]
+    {
+        let inject_script = format!(
+            "window.__pipVideoId={}; if (typeof loadPipVideo === 'function') loadPipVideo();",
+            serde_json::to_string(&video_id).unwrap_or_else(|_| "\"\"".into())
+        );
 
-    let app_handle = app.clone();
-    window.on_window_event(move |event| {
-        if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-            persist_youtube_pip_bounds(&app_handle);
+        if let Some(existing) = app.get_webview_window(label) {
+            existing.eval(&inject_script).map_err(|e| e.to_string())?;
+            let _ = existing.set_focus();
+            return Ok(());
         }
-    });
+
+        let saved = core_store::load_json::<YoutubePipBounds>("youtube_pip_bounds.json").ok();
+        let width = saved.as_ref().map(|b| b.width).filter(|w| *w >= 200.0).unwrap_or(480.0);
+        let height = saved.as_ref().map(|b| b.height).filter(|h| *h >= 150.0).unwrap_or(310.0);
+
+        let mut builder = WebviewWindowBuilder::new(
+            &app,
+            label,
+            WebviewUrl::App(std::path::PathBuf::from("pip.html")),
+        )
+        .title("YouTube PiP")
+        .always_on_top(true)
+        .decorations(false)
+        .resizable(true)
+        .skip_taskbar(true)
+        .initialization_script(&inject_script)
+        .inner_size(width, height);
+
+        if let Some(b) = saved.as_ref() {
+            if let (Some(px), Some(py)) = (b.x, b.y) {
+                if position_visible_on_any_monitor(&app, px, py, width, height) {
+                    builder = builder.position(px, py);
+                }
+            }
+        }
+
+        let window = builder.build().map_err(|e| e.to_string())?;
+
+        let app_handle = app.clone();
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                persist_youtube_pip_bounds(&app_handle);
+            }
+        });
+    }
 
     Ok(())
 }
