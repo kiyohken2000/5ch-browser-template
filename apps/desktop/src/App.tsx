@@ -6356,7 +6356,7 @@ export default function App() {
           <button onClick={() => {
             const t = threadItems.find((item) => item.id === threadMenu.threadId);
             if (t) {
-              addNgEntry("words", t.title);
+              addNgEntry("thread_words", t.title);
             }
             setThreadMenu(null);
           }}>スレタイNGに追加</button>
