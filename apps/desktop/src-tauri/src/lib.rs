@@ -1291,6 +1291,22 @@ struct YoutubePipBounds {
     height: f64,
 }
 
+fn persist_youtube_pip_bounds(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("youtube-pip") {
+        let pos = w.outer_position().ok();
+        let size = w.inner_size().ok();
+        if let Some(s) = size {
+            let bounds = YoutubePipBounds {
+                x: pos.map(|p| p.x),
+                y: pos.map(|p| p.y),
+                width: s.width as f64,
+                height: s.height as f64,
+            };
+            let _ = core_store::save_json("youtube_pip_bounds.json", &bounds);
+        }
+    }
+}
+
 #[tauri::command]
 async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(), String> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
@@ -1343,21 +1359,7 @@ async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(),
     let app_handle = app.clone();
     window.on_window_event(move |event| {
         if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-            if let Some(w) = app_handle.get_webview_window("youtube-pip") {
-                let pos = w.outer_position().ok();
-                let size = w.inner_size().ok();
-                if let Some(s) = size {
-                    let bounds = YoutubePipBounds {
-                        x: pos.map(|p| p.x),
-                        y: pos.map(|p| p.y),
-                        width: s.width as f64,
-                        height: s.height as f64,
-                    };
-                    std::thread::spawn(move || {
-                        let _ = core_store::save_json("youtube_pip_bounds.json", &bounds);
-                    });
-                }
-            }
+            persist_youtube_pip_bounds(&app_handle);
         }
     });
 
@@ -1366,6 +1368,7 @@ async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(),
 
 #[tauri::command]
 fn close_youtube_pip(app: tauri::AppHandle) -> Result<(), String> {
+    persist_youtube_pip_bounds(&app);
     if let Some(window) = app.get_webview_window("youtube-pip") {
         window.close().map_err(|e| e.to_string())?;
     }
