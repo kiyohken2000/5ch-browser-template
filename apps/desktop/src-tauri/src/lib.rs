@@ -1284,19 +1284,22 @@ fn set_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> Result<(), S
 #[serde(rename_all = "camelCase")]
 struct YoutubePipBounds {
     #[serde(default)]
-    x: Option<i32>,
+    x: Option<f64>,
     #[serde(default)]
-    y: Option<i32>,
+    y: Option<f64>,
     width: f64,
     height: f64,
 }
 
+/// `x/y/width/height` are logical (DPI-independent) values. Monitors expose
+/// physical bounds + scale factor, so we convert the saved logical bounds to
+/// physical for comparison.
 fn position_visible_on_any_monitor(
     app: &tauri::AppHandle,
-    x: i32,
-    y: i32,
-    width: f64,
-    height: f64,
+    logical_x: f64,
+    logical_y: f64,
+    logical_w: f64,
+    logical_h: f64,
 ) -> bool {
     let monitors = match app.available_monitors() {
         Ok(m) => m,
@@ -1305,35 +1308,37 @@ fn position_visible_on_any_monitor(
     if monitors.is_empty() {
         return false;
     }
-    let win_w = width as i32;
-    let win_h = height as i32;
-    let min_visible: i32 = 100;
+    let min_visible = 100.0;
     monitors.iter().any(|m| {
+        let scale = m.scale_factor();
         let pos = m.position();
         let size = m.size();
-        let mx = pos.x;
-        let my = pos.y;
-        let mw = size.width as i32;
-        let mh = size.height as i32;
-        let win_right = x + win_w;
-        let win_bottom = y + win_h;
-        x + min_visible < mx + mw
-            && win_right - min_visible > mx
-            && y + min_visible < my + mh
-            && win_bottom - min_visible > my
+        let mx = pos.x as f64;
+        let my = pos.y as f64;
+        let mw = size.width as f64;
+        let mh = size.height as f64;
+        let phys_x = logical_x * scale;
+        let phys_y = logical_y * scale;
+        let phys_w = logical_w * scale;
+        let phys_h = logical_h * scale;
+        phys_x + min_visible < mx + mw
+            && phys_x + phys_w - min_visible > mx
+            && phys_y + min_visible < my + mh
+            && phys_y + phys_h - min_visible > my
     })
 }
 
 fn persist_youtube_pip_bounds(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("youtube-pip") {
+        let scale = w.scale_factor().unwrap_or(1.0);
         let pos = w.outer_position().ok();
         let size = w.inner_size().ok();
         if let Some(s) = size {
             let bounds = YoutubePipBounds {
-                x: pos.map(|p| p.x),
-                y: pos.map(|p| p.y),
-                width: s.width as f64,
-                height: s.height as f64,
+                x: pos.map(|p| p.x as f64 / scale),
+                y: pos.map(|p| p.y as f64 / scale),
+                width: s.width as f64 / scale,
+                height: s.height as f64 / scale,
             };
             let _ = core_store::save_json("youtube_pip_bounds.json", &bounds);
         }
@@ -1384,7 +1389,7 @@ async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(),
     if let Some(b) = saved.as_ref() {
         if let (Some(px), Some(py)) = (b.x, b.y) {
             if position_visible_on_any_monitor(&app, px, py, width, height) {
-                builder = builder.position(px as f64, py as f64);
+                builder = builder.position(px, py);
             }
         }
     }
