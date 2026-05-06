@@ -1,0 +1,118 @@
+name: Sync Upstream
+
+# 毎日 朝6時(JST) = UTC 21:00 に実行 + 手動実行ボタン
+on:
+  schedule:
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_REPO: kiyohken2000/5ch-browser-template
+  FEAT_BRANCH: feat/windows-ci-support
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream and branches
+        run: |
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream main
+          git fetch origin "${FEAT_BRANCH}"
+
+      - name: Detect upstream changes
+        id: check
+        run: |
+          # merge-base 方式: main が独自コミットを持っていても正しく検出
+          MERGE_BASE=$(git merge-base HEAD upstream/main)
+          UPSTREAM=$(git rev-parse upstream/main)
+          echo "merge_base=${MERGE_BASE}"
+          echo "upstream=${UPSTREAM}"
+          if [ "$MERGE_BASE" = "$UPSTREAM" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo ":: No new upstream changes."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo ":: Upstream has new changes."
+          fi
+
+      - name: Sync main from upstream
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          # release.yml をupstreamマージから保護
+          cp .github/workflows/release.yml /tmp/our-release.yml
+
+          git merge upstream/main --no-edit || {
+            # コンフリクト時はupstream側を優先（release.yml以外）
+            git checkout --theirs . 2>/dev/null || true
+            git add -A
+            git commit --no-edit
+          }
+
+          # release.yml を復元
+          cp /tmp/our-release.yml .github/workflows/release.yml
+          if ! git diff --quiet -- .github/workflows/release.yml; then
+            git add .github/workflows/release.yml
+            git commit -m "chore: preserve release.yml (Windows) after upstream sync"
+          fi
+
+          git push origin main
+
+      - name: Merge main into feat branch
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git checkout "${FEAT_BRANCH}"
+          git merge --no-ff main -m "chore: sync upstream main into ${FEAT_BRANCH}"
+          git push origin "${FEAT_BRANCH}"
+
+      - name: Sync upstream tags
+        if: steps.check.outputs.changed == 'true'
+        env:
+          PUSH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch upstream --tags
+          # PAT_TOKEN cannot push tags whose commit history modifies
+          # .github/workflows/ (requires 'workflow' scope on classic PATs).
+          # Use the built-in GITHUB_TOKEN which inherits job-level
+          # contents:write and is not subject to this restriction.
+          TAG_REMOTE="https://x-access-token:${PUSH_TOKEN}@github.com/${{ github.repository }}.git"
+          FAILED=""
+          for TAG in $(git tag -l | sort -V); do
+            if ! git push --quiet "${TAG_REMOTE}" "refs/tags/${TAG}" 2>/dev/null; then
+              echo "::warning::Failed to push tag ${TAG}"
+              FAILED="${FAILED} ${TAG}"
+            fi
+          done
+          if [ -n "$FAILED" ]; then
+            echo "::warning::Tags that failed to push:${FAILED}"
+          fi
+
+      - name: Create and push win10 tag
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          VERSION=$(jq -r '.version' apps/desktop/src-tauri/tauri.conf.json)
+          TAG="v${VERSION}-win10"
+
+          git fetch origin --tags
+          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo ":: Tag ${TAG} already exists — skipping."
+          else
+            git tag -a "${TAG}" -m "Win10 build for v${VERSION}"
+            git push origin "${TAG}"
+            echo ":: Pushed tag ${TAG}"
+          fi

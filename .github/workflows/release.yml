@@ -1,27 +1,20 @@
-name: Release (Linux)
+name: Release (Windows)
 
 on:
   push:
     tags:
-      - "v*"
+      - "v*-win10"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Target tag (e.g. v0.0.98-win10)"
+        required: true
 
 jobs:
-  build-linux-x64:
-    runs-on: ubuntu-22.04
+  build-windows-x64:
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            rpm \
-            fcitx5-frontend-gtk3
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -35,249 +28,40 @@ jobs:
         run: npm ci
         working-directory: apps/desktop
 
-      - name: Build AppImage, deb, rpm
+      - name: Build NSIS installer
         working-directory: apps/desktop
+        shell: pwsh
         run: |
-          TMP_CONFIG="$(mktemp /tmp/tauri-linux-build-override.XXXXXX.json)"
-          cat > "$TMP_CONFIG" <<'JSON'
+          $tmpConfig = New-TemporaryFile
+          @"
           {
             "bundle": {
-              "icon": ["icons/icon.png"],
-              "targets": ["appimage", "deb", "rpm"]
+              "icon": ["icons/icon.png", "icons/icon.ico"],
+              "targets": ["nsis"]
             }
           }
-          JSON
-          npm run tauri:build -- --config "$TMP_CONFIG"
-          rm -f "$TMP_CONFIG"
-
-      - name: Repack AppImage with bundled libs
-        run: |
-          sudo apt-get install -y libfuse2
-          cd target/release/bundle/appimage
-          APPIMAGE="$(ls *.AppImage)"
-          chmod +x "$APPIMAGE"
-          ./"$APPIMAGE" --appimage-extract
-
-          # Bundle FreeType to avoid symbol mismatch with bundled WebKit2GTK
-          cp /usr/lib/x86_64-linux-gnu/libfreetype.so.6* squashfs-root/usr/lib/
-
-          # Bundle Fcitx5 client library (required by im-fcitx5.so for daemon communication)
-          cp /usr/lib/x86_64-linux-gnu/libFcitx5GClient.so.2* squashfs-root/usr/lib/ 2>/dev/null \
-            || echo "WARNING: libFcitx5GClient not found, Fcitx5 IM will not work"
-
-          # Bundle GTK3 IM modules for Fcitx5/IBus input method support
-          IMMODULES_DIR=squashfs-root/usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules
-          mkdir -p "$IMMODULES_DIR"
-          cp /usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/im-fcitx5.so "$IMMODULES_DIR/" 2>/dev/null \
-            || echo "WARNING: im-fcitx5.so not found"
-          cp /usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/im-ibus.so "$IMMODULES_DIR/" 2>/dev/null \
-            || echo "WARNING: im-ibus.so not found"
-
-          # Regenerate immodules.cache from ALL bundled modules (do not overwrite on failure)
-          CACHE_FILE=squashfs-root/usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules.cache
-          if ls "$IMMODULES_DIR"/*.so >/dev/null 2>&1; then
-            gtk-query-immodules-3.0 "$IMMODULES_DIR"/*.so > "${CACHE_FILE}.new" 2>/dev/null \
-              && mv "${CACHE_FILE}.new" "$CACHE_FILE" || rm -f "${CACHE_FILE}.new"
-          fi
-
-          # Bundle GIO TLS module into the path linuxdeploy-plugin-gtk sets as GIO_EXTRA_MODULES
-          # Only the GIO module itself is bundled — its TLS dependencies (libgnutls,
-          # libnettle, etc.) are intentionally left to the host system, because bundling
-          # Ubuntu's versions causes CA trust store path mismatches on other distros
-          # ("Unacceptable TLS certificate" errors).
-          GIO_MODULES_DIR=squashfs-root/usr/lib/x86_64-linux-gnu/gio/modules
-          mkdir -p "$GIO_MODULES_DIR"
-          cp /usr/lib/x86_64-linux-gnu/gio/modules/libgiognutls.so "$GIO_MODULES_DIR/" 2>/dev/null \
-            || echo "WARNING: libgiognutls.so not found, HTTPS image loading may fail"
-          gio-querymodules "$GIO_MODULES_DIR" 2>/dev/null || true
-
-          # Remove TLS dependency libs auto-bundled by linuxdeploy — the host
-          # system's versions must be used so GnuTLS can find the distro's CA
-          # trust store (bundling Ubuntu's causes "Unacceptable TLS certificate").
-          rm -f squashfs-root/usr/lib/libgnutls.so.* \
-               squashfs-root/usr/lib/libnettle.so.* \
-               squashfs-root/usr/lib/libhogweed.so.* \
-               squashfs-root/usr/lib/libp11-kit.so.* \
-               squashfs-root/usr/lib/libtasn1.so.* \
-               squashfs-root/usr/lib/libidn2.so.*
-
-          # Download appimagetool and runtime (pinned to stable releases)
-          wget -q "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage" -O appimagetool
-          wget -q "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64" -O runtime-x86_64
-          chmod +x appimagetool
-          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool --no-appstream --runtime-file runtime-x86_64 squashfs-root "$APPIMAGE"
-
-      - name: Verify AppImage
-        run: |
-          file target/release/bundle/appimage/*.AppImage
-          ls -lh target/release/bundle/appimage/*.AppImage
-
-      - name: Reduce deb dependency requirements for Debian 12+
-        run: |
-          DEB_FILE=$(ls target/release/bundle/deb/*.deb)
-          TEMP_DIR=$(mktemp -d)
-          dpkg-deb -R "$DEB_FILE" "$TEMP_DIR"
-          # Adjust libc6 and libssl3 requirements for Debian 12 (Bookworm) compatibility
-          # Debian 12 has libc6 2.38 and libssl3 3.1, so set requirements slightly lower
-          sed -i 's/libc6 (>= [^)]*)/libc6 (>= 2.38)/g' "$TEMP_DIR/DEBIAN/control"
-          sed -i 's/libssl3 (>= [^)]*)/libssl3 (>= 3.1)/g' "$TEMP_DIR/DEBIAN/control"
-          dpkg-deb -b "$TEMP_DIR" "$DEB_FILE"
-          rm -rf "$TEMP_DIR"
-          echo "Reduced dependency requirements:"
-          dpkg -I "$DEB_FILE" | grep Depends
+          "@ | Set-Content -Path $tmpConfig
+          npm run tauri:build -- --config "$tmpConfig"
+          Remove-Item $tmpConfig
 
       - name: Collect artifacts
+        shell: pwsh
         run: |
-          mkdir -p out
-          cp target/release/bundle/appimage/*.AppImage out/ember-linux-amd64.AppImage
-          cp target/release/bundle/deb/*.deb out/ember-linux-amd64.deb
-          cp target/release/bundle/rpm/*.rpm out/ember-linux-amd64.rpm
+          New-Item -ItemType Directory -Path out -Force
+          $nsis = Get-ChildItem -Path target/release/bundle/nsis/*.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($nsis) { Copy-Item $nsis.FullName -Destination out/ember-windows-10+-x64-setup.exe }
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: linux-x64
-          path: out/*
-
-  build-linux-aarch64:
-    runs-on: ubuntu-22.04-arm
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Tauri system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            rpm \
-            fcitx5-frontend-gtk3
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install desktop deps
-        run: npm ci
-        working-directory: apps/desktop
-
-      - name: Build AppImage, deb, rpm
-        working-directory: apps/desktop
-        run: |
-          TMP_CONFIG="$(mktemp /tmp/tauri-linux-aarch64-build-override.XXXXXX.json)"
-          cat > "$TMP_CONFIG" <<'JSON'
-          {
-            "bundle": {
-              "icon": ["icons/icon.png"],
-              "targets": ["appimage", "deb", "rpm"]
-            }
-          }
-          JSON
-          npm run tauri:build -- --config "$TMP_CONFIG"
-          rm -f "$TMP_CONFIG"
-
-      - name: Repack AppImage with bundled libs
-        run: |
-          sudo apt-get install -y libfuse2
-          cd target/release/bundle/appimage
-          APPIMAGE="$(ls *.AppImage)"
-          chmod +x "$APPIMAGE"
-          ./"$APPIMAGE" --appimage-extract
-
-          # Bundle FreeType to avoid symbol mismatch with bundled WebKit2GTK
-          cp /usr/lib/aarch64-linux-gnu/libfreetype.so.6* squashfs-root/usr/lib/
-
-          # Bundle Fcitx5 client library (required by im-fcitx5.so for daemon communication)
-          cp /usr/lib/aarch64-linux-gnu/libFcitx5GClient.so.2* squashfs-root/usr/lib/ 2>/dev/null \
-            || echo "WARNING: libFcitx5GClient not found, Fcitx5 IM will not work"
-
-          # Bundle GTK3 IM modules for Fcitx5/IBus input method support
-          IMMODULES_DIR=squashfs-root/usr/lib/aarch64-linux-gnu/gtk-3.0/3.0.0/immodules
-          mkdir -p "$IMMODULES_DIR"
-          cp /usr/lib/aarch64-linux-gnu/gtk-3.0/3.0.0/immodules/im-fcitx5.so "$IMMODULES_DIR/" 2>/dev/null \
-            || echo "WARNING: im-fcitx5.so not found"
-          cp /usr/lib/aarch64-linux-gnu/gtk-3.0/3.0.0/immodules/im-ibus.so "$IMMODULES_DIR/" 2>/dev/null \
-            || echo "WARNING: im-ibus.so not found"
-
-          # Regenerate immodules.cache from ALL bundled modules (do not overwrite on failure)
-          CACHE_FILE=squashfs-root/usr/lib/aarch64-linux-gnu/gtk-3.0/3.0.0/immodules.cache
-          if ls "$IMMODULES_DIR"/*.so >/dev/null 2>&1; then
-            gtk-query-immodules-3.0 "$IMMODULES_DIR"/*.so > "${CACHE_FILE}.new" 2>/dev/null \
-              && mv "${CACHE_FILE}.new" "$CACHE_FILE" || rm -f "${CACHE_FILE}.new"
-          fi
-
-          # Bundle GIO TLS module into the path linuxdeploy-plugin-gtk sets as GIO_EXTRA_MODULES
-          # Only the GIO module itself is bundled — its TLS dependencies (libgnutls,
-          # libnettle, etc.) are intentionally left to the host system, because bundling
-          # Ubuntu's versions causes CA trust store path mismatches on other distros
-          # ("Unacceptable TLS certificate" errors).
-          GIO_MODULES_DIR=squashfs-root/usr/lib/aarch64-linux-gnu/gio/modules
-          mkdir -p "$GIO_MODULES_DIR"
-          cp /usr/lib/aarch64-linux-gnu/gio/modules/libgiognutls.so "$GIO_MODULES_DIR/" 2>/dev/null \
-            || echo "WARNING: libgiognutls.so not found, HTTPS image loading may fail"
-          gio-querymodules "$GIO_MODULES_DIR" 2>/dev/null || true
-
-          # Remove TLS dependency libs auto-bundled by linuxdeploy — the host
-          # system's versions must be used so GnuTLS can find the distro's CA
-          # trust store (bundling Ubuntu's causes "Unacceptable TLS certificate").
-          rm -f squashfs-root/usr/lib/libgnutls.so.* \
-               squashfs-root/usr/lib/libnettle.so.* \
-               squashfs-root/usr/lib/libhogweed.so.* \
-               squashfs-root/usr/lib/libp11-kit.so.* \
-               squashfs-root/usr/lib/libtasn1.so.* \
-               squashfs-root/usr/lib/libidn2.so.*
-
-          # Download appimagetool and runtime (pinned to stable releases)
-          wget -q "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-aarch64.AppImage" -O appimagetool
-          wget -q "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-aarch64" -O runtime-aarch64
-          chmod +x appimagetool
-          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=aarch64 ./appimagetool --no-appstream --runtime-file runtime-aarch64 squashfs-root "$APPIMAGE"
-
-      - name: Verify AppImage
-        run: |
-          file target/release/bundle/appimage/*.AppImage
-          ls -lh target/release/bundle/appimage/*.AppImage
-
-      - name: Reduce deb dependency requirements for Debian 12+
-        run: |
-          DEB_FILE=$(ls target/release/bundle/deb/*.deb)
-          TEMP_DIR=$(mktemp -d)
-          dpkg-deb -R "$DEB_FILE" "$TEMP_DIR"
-          # Adjust libc6 and libssl3 requirements for Debian 12 (Bookworm) compatibility
-          # Debian 12 has libc6 2.38 and libssl3 3.1, so set requirements slightly lower
-          sed -i 's/libc6 (>= [^)]*)/libc6 (>= 2.38)/g' "$TEMP_DIR/DEBIAN/control"
-          sed -i 's/libssl3 (>= [^)]*)/libssl3 (>= 3.1)/g' "$TEMP_DIR/DEBIAN/control"
-          dpkg-deb -b "$TEMP_DIR" "$DEB_FILE"
-          rm -rf "$TEMP_DIR"
-          echo "Reduced dependency requirements:"
-          dpkg -I "$DEB_FILE" | grep Depends
-
-      - name: Collect artifacts
-        run: |
-          mkdir -p out
-          cp target/release/bundle/appimage/*.AppImage out/ember-linux-aarch64.AppImage
-          cp target/release/bundle/deb/*.deb out/ember-linux-aarch64.deb
-          cp target/release/bundle/rpm/*.rpm out/ember-linux-aarch64.rpm
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-aarch64
+          name: windows-x64
           path: out/*
 
   attach-to-release:
-    needs: [build-linux-x64, build-linux-aarch64]
+    needs: [build-windows-x64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -287,6 +71,6 @@ jobs:
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: |
-            artifacts/linux-x64/*
-            artifacts/linux-aarch64/*
+            artifacts/windows-x64/*
