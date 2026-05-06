@@ -1291,6 +1291,39 @@ struct YoutubePipBounds {
     height: f64,
 }
 
+fn position_visible_on_any_monitor(
+    app: &tauri::AppHandle,
+    x: i32,
+    y: i32,
+    width: f64,
+    height: f64,
+) -> bool {
+    let monitors = match app.available_monitors() {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    if monitors.is_empty() {
+        return false;
+    }
+    let win_w = width as i32;
+    let win_h = height as i32;
+    let min_visible: i32 = 100;
+    monitors.iter().any(|m| {
+        let pos = m.position();
+        let size = m.size();
+        let mx = pos.x;
+        let my = pos.y;
+        let mw = size.width as i32;
+        let mh = size.height as i32;
+        let win_right = x + win_w;
+        let win_bottom = y + win_h;
+        x + min_visible < mx + mw
+            && win_right - min_visible > mx
+            && y + min_visible < my + mh
+            && win_bottom - min_visible > my
+    })
+}
+
 fn persist_youtube_pip_bounds(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("youtube-pip") {
         let pos = w.outer_position().ok();
@@ -1350,7 +1383,9 @@ async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(),
 
     if let Some(b) = saved.as_ref() {
         if let (Some(px), Some(py)) = (b.x, b.y) {
-            builder = builder.position(px as f64, py as f64);
+            if position_visible_on_any_monitor(&app, px, py, width, height) {
+                builder = builder.position(px as f64, py as f64);
+            }
         }
     }
 
