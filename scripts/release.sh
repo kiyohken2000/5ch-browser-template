@@ -81,9 +81,11 @@ git add \
   "$TAURI_DIR/tauri.conf.json" \
   "$TAURI_DIR/Cargo.toml" \
   "$TAURI_DIR/src/lib.rs" \
+  "$TAURI_DIR/capabilities/default.json" \
   Cargo.lock \
   "$DESKTOP_DIR/src/App.tsx" \
-  "$DESKTOP_DIR/src/styles.css"
+  "$DESKTOP_DIR/src/styles.css" \
+  "$DESKTOP_DIR/public/pip.html"
 
 # Only add files that have changes staged
 git diff --cached --quiet && { echo "No changes to commit"; exit 1; }
