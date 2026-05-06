@@ -102,6 +102,22 @@ chmod +x ember-linux-{amd64|aarch64}.AppImage
 >   一部の環境でAppImage起動時にWebKitGTKがクラッシュします。  
 >   rpm/debパッケージの使用 または 自身でソースからビルドしたもの (`/<プロジェクトルート>/target/release/ember`) を使用することを推奨します。  
 >   詳細: [tauri-apps/tauri#11988](https://github.com/tauri-apps/tauri/issues/11988)  
+>
+> - **NVIDIAプロプライエタリドライバ環境などで黒画面になる場合がある**  
+>   WebKitGTK 2.40+のDMA-BUFレンダラーがNVIDIAドライバや一部の仮想GPU (KVM等) 環境で正しく動作せず、ウィンドウが真っ黒のまま表示されないことがあります。  
+>   (コンソールにエラーは出ません)  
+>   その場合は環境変数 `WEBKIT_DISABLE_DMABUF_RENDERER=1` を付けて起動してください。  
+>
+>     ```bash
+>     # 一時的に試す
+>     WEBKIT_DISABLE_DMABUF_RENDERER=1 ember
+>
+>     # 永続化する場合 (~/.bashrc または ~/.profile などに追記)
+>     export WEBKIT_DISABLE_DMABUF_RENDERER=1
+>
+>     # .desktopファイルから起動する場合は Exec= 行を以下のように変更
+>     # Exec=env WEBKIT_DISABLE_DMABUF_RENDERER=1 ember %U
+>     ```
 
 #### ビルド向け
 
