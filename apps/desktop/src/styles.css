@@ -2208,14 +2208,25 @@ button.search-history-btn:hover {
   padding: 1px 4px;
   border-radius: 3px;
   font-weight: bold;
+  border: 1px solid transparent;
+  cursor: pointer;
+  line-height: 1.2;
 }
 .ng-mode-hide {
   background: #e04040;
   color: #fff;
+  border-color: #c83030;
+}
+.ng-mode-hide:hover {
+  background: #c83030;
 }
 .ng-mode-img {
   background: #d0a020;
   color: #fff;
+  border-color: #b8901c;
+}
+.ng-mode-img:hover {
+  background: #b8901c;
 }
 .ng-remove {
   flex: none !important;
@@ -4236,6 +4247,76 @@ button.search-history-btn:hover {
 .shell.glass .ng-panel button:hover,
 .shell.glass .ng-image-panel button:hover {
   background: rgba(255, 255, 255, 0.75);
+}
+
+/* ガラス: NG リストの ON/OFF トグルは緑/灰の識別色を維持 */
+.shell.glass .ng-panel button.ng-toggle.ng-toggle-on,
+.shell.glass.dark .ng-panel button.ng-toggle.ng-toggle-on {
+  background: #4caf50;
+  border-color: #43a047;
+  color: #fff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.shell.glass .ng-panel button.ng-toggle.ng-toggle-on:hover,
+.shell.glass.dark .ng-panel button.ng-toggle.ng-toggle-on:hover {
+  background: #43a047;
+}
+.shell.glass .ng-panel button.ng-toggle.ng-toggle-off,
+.shell.glass.dark .ng-panel button.ng-toggle.ng-toggle-off {
+  background: #9e9e9e;
+  border-color: #757575;
+  color: #fff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.shell.glass .ng-panel button.ng-toggle.ng-toggle-off:hover,
+.shell.glass.dark .ng-panel button.ng-toggle.ng-toggle-off:hover {
+  background: #8a8a8a;
+}
+.shell.glass.dark .ng-panel button.ng-toggle.ng-toggle-on {
+  background: #2e7d32;
+  border-color: #388e3c;
+}
+.shell.glass.dark .ng-panel button.ng-toggle.ng-toggle-on:hover {
+  background: #357a38;
+}
+.shell.glass.dark .ng-panel button.ng-toggle.ng-toggle-off {
+  background: #616161;
+  border-color: #757575;
+}
+.shell.glass.dark .ng-panel button.ng-toggle.ng-toggle-off:hover {
+  background: #525252;
+}
+
+/* ガラス: NG モードラベル(画像/非表示)も識別色を維持 */
+.shell.glass .ng-panel button.ng-mode-label.ng-mode-hide,
+.shell.glass.dark .ng-panel button.ng-mode-label.ng-mode-hide {
+  background: #e04040;
+  border-color: #c83030;
+  color: #fff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.shell.glass .ng-panel button.ng-mode-label.ng-mode-hide:hover,
+.shell.glass.dark .ng-panel button.ng-mode-label.ng-mode-hide:hover {
+  background: #c83030;
+}
+.shell.glass .ng-panel button.ng-mode-label.ng-mode-img,
+.shell.glass.dark .ng-panel button.ng-mode-label.ng-mode-img {
+  background: #d0a020;
+  border-color: #b8901c;
+  color: #fff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.shell.glass .ng-panel button.ng-mode-label.ng-mode-img:hover,
+.shell.glass.dark .ng-panel button.ng-mode-label.ng-mode-img:hover {
+  background: #b8901c;
 }
 
 .shell.glass .settings-panel input[type="text"],

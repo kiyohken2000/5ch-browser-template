@@ -1340,6 +1340,18 @@ export default function App() {
     });
   };
 
+  const toggleNgEntryMode = (type: "words" | "ids" | "names" | "thread_words", value: string) => {
+    void persistNgFilters({
+      ...ngFilters,
+      [type]: ngFilters[type].map((e) => {
+        if (ngVal(e) !== value) return e;
+        const base = typeof e === "string" ? { value: e, mode: "hide" as const } : e;
+        const next: "hide" | "hide-images" = ngEntryMode(e) === "hide" ? "hide-images" : "hide";
+        return { ...base, mode: next };
+      }),
+    });
+  };
+
   const setNgSectionDisabled = (type: "words" | "ids" | "names" | "thread_words", disabled: boolean) => {
     void persistNgFilters({
       ...ngFilters,
@@ -6256,14 +6268,18 @@ export default function App() {
                             onClick={() => toggleNgEntry(type, v)}
                             title={off ? "クリックで有効化" : "クリックで無効化"}
                           >{off ? "OFF" : "ON"}</button>
-                          <span className={`ng-mode-label ${mode === "hide-images" ? "ng-mode-img" : "ng-mode-hide"}`}>
+                          <button
+                            className={`ng-mode-label ${mode === "hide-images" ? "ng-mode-img" : "ng-mode-hide"}`}
+                            onClick={() => toggleNgEntryMode(type, v)}
+                            title={mode === "hide-images" ? "画像NG (クリックで非表示に切替)" : "非表示 (クリックで画像NGに切替)"}
+                          >
                             {mode === "hide-images" ? "画像" : "非表示"}
-                          </span>
+                          </button>
                           <button
                             className={`ng-toggle ${exNo1 ? "ng-toggle-on" : "ng-toggle-off"}`}
                             onClick={() => toggleNgEntryExcludeNo1(type, v)}
                             title={exNo1 ? ">>1を除外中 (クリックで解除)" : ">>1には適用しない (クリックで有効)"}
-                          >&gt;&gt;1除外</button>
+                          >{exNo1 ? ">>1除外ON" : ">>1除外OFF"}</button>
                           <span>{v}</span>
                           <button className="ng-remove" onClick={() => removeNgEntry(type, v)}>×</button>
                         </li>
