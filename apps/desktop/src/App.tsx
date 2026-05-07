@@ -2683,7 +2683,7 @@ export default function App() {
         </th>
       );
     }
-    const isLeftResize = colKey === "res" || colKey === "read" || colKey === "unread" || colKey === "lastFetch" || colKey === "speed";
+    const isLeftResize = colKey === "res" || colKey === "read" || colKey === "unread" || colKey === "lastFetch" || colKey === "speed" || colKey === "datNumber";
     const resizeSide: "left" | "right" = isLeftResize ? "left" : "right";
     const sortKey: "fetched" | "id" | "datNumber" | "res" | "got" | "new" | "lastFetch" | "speed" = colKey === "read"
       ? "got"
