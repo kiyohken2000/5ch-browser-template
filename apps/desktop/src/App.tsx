@@ -11,6 +11,7 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import ReactMarkdown from "react-markdown";
 
 type AiModelEntry = {
   id: string;
@@ -47,10 +48,26 @@ function formatAiBytes(n: number): string {
   if (n >= 1e3) return `${(n / 1e3).toFixed(1)} KB`;
   return `${n} B`;
 }
+
+function aiWrapTurn(template: string, role: "user" | "assistant", content: string): string {
+  if (template === "qwen" || template === "chatml") {
+    return `<|im_start|>${role}\n${content}<|im_end|>\n`;
+  }
+  // default: gemma
+  const r = role === "user" ? "user" : "model";
+  return `<start_of_turn>${r}\n${content}<end_of_turn>\n`;
+}
+
+function aiOpenAssistantTurn(template: string): string {
+  if (template === "qwen" || template === "chatml") {
+    return `<|im_start|>assistant\n`;
+  }
+  return `<start_of_turn>model\n`;
+}
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
-  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles,
+  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -919,6 +936,18 @@ export default function App() {
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [aiDownloads, setAiDownloads] = useState<Record<string, { downloaded: number; total: number | null }>>({});
   const [aiError, setAiError] = useState<string | null>(null);
+  const [aiSubpaneOpen, setAiSubpaneOpen] = useState(false);
+  const [aiSubpaneTab, setAiSubpaneTab] = useState<"summary" | "chat">("summary");
+  const [aiSummary, setAiSummary] = useState("");
+  const [aiChatMessages, setAiChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [aiChatInput, setAiChatInput] = useState("");
+  const [aiInferenceBusy, setAiInferenceBusy] = useState(false);
+  const [aiTokenProgress, setAiTokenProgress] = useState<{ received: number; max: number } | null>(null);
+  const [aiCanContinue, setAiCanContinue] = useState<"summary" | "chat" | null>(null);
+  const aiSessionIdRef = useRef<string | null>(null);
+  const aiTokenTargetRef = useRef<"summary" | "chat" | null>(null);
+  const aiMaxTokensRef = useRef<number>(400);
+  const aiLastPromptRef = useRef<string>("");
   const [boardsFontSize, setBoardsFontSize] = useState(12);
   const [threadsFontSize, setThreadsFontSize] = useState(12);
   const [responsesFontSize, setResponsesFontSize] = useState(12);
@@ -4629,10 +4658,12 @@ export default function App() {
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
-    const unlisteners: UnlistenFn[] = [];
+    let cancelled = false;
+    let u1: UnlistenFn | null = null;
+    let u2: UnlistenFn | null = null;
     void (async () => {
       try {
-        const u1 = await listen<{ modelId: string; downloaded: number; total: number | null }>(
+        const v1 = await listen<{ modelId: string; downloaded: number; total: number | null }>(
           "ai-download-progress",
           (e) => {
             setAiDownloads((prev) => ({
@@ -4641,7 +4672,9 @@ export default function App() {
             }));
           },
         );
-        const u2 = await listen<{ modelId: string; ok: boolean; error: string | null }>(
+        if (cancelled) { v1(); return; }
+        u1 = v1;
+        const v2 = await listen<{ modelId: string; ok: boolean; error: string | null }>(
           "ai-download-finished",
           (e) => {
             setAiDownloads((prev) => {
@@ -4655,15 +4688,16 @@ export default function App() {
             void refreshAiStatus();
           },
         );
-        unlisteners.push(u1, u2);
+        if (cancelled) { v2(); return; }
+        u2 = v2;
       } catch (e) {
         console.warn("ai event listen failed", e);
       }
     })();
     return () => {
-      for (const u of unlisteners) {
-        try { u(); } catch { /* ignore */ }
-      }
+      cancelled = true;
+      try { u1?.(); } catch { /* ignore */ }
+      try { u2?.(); } catch { /* ignore */ }
     };
   }, []);
 
@@ -4704,6 +4738,237 @@ export default function App() {
     } catch (e) {
       setAiError(`無効化失敗: ${String(e)}`);
     }
+  };
+
+  // --- AI sub-pane: streaming inference --------------------------------
+  // Reset per-thread AI state on thread change.
+  const currentAiThreadUrl = threadTabs[activeTabIndex]?.threadUrl;
+  useEffect(() => {
+    setAiSummary("");
+    setAiChatMessages([]);
+    setAiChatInput("");
+    setAiInferenceBusy(false);
+    setAiTokenProgress(null);
+    setAiCanContinue(null);
+    aiSessionIdRef.current = null;
+    aiTokenTargetRef.current = null;
+    aiLastPromptRef.current = "";
+  }, [currentAiThreadUrl]);
+
+  // Auto-close subpane when no model is active.
+  useEffect(() => {
+    if (!aiStatus?.activeModelId) {
+      setAiSubpaneOpen(false);
+    }
+  }, [aiStatus?.activeModelId]);
+
+  // Status is loaded when AI settings dialog opens; also fetch once at startup
+  // so the toggle button can reflect activation state immediately.
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    void refreshAiStatus();
+  }, []);
+
+  // Streaming token events.
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let cancelled = false;
+    let u1: UnlistenFn | null = null;
+    let u2: UnlistenFn | null = null;
+    void (async () => {
+      try {
+        const v1 = await listen<{ sessionId: string; token: string }>(
+          "ai-inference-token",
+          (e) => {
+            if (e.payload.sessionId !== aiSessionIdRef.current) return;
+            const target = aiTokenTargetRef.current;
+            if (target === "summary") {
+              setAiSummary((prev) => prev + e.payload.token);
+            } else if (target === "chat") {
+              setAiChatMessages((prev) => {
+                if (prev.length === 0) return prev;
+                const last = prev[prev.length - 1];
+                if (last.role !== "assistant") return prev;
+                const next = prev.slice(0, -1);
+                next.push({ role: "assistant", content: last.content + e.payload.token });
+                return next;
+              });
+            }
+            setAiTokenProgress((prev) => {
+              const max = aiMaxTokensRef.current;
+              const received = (prev?.received ?? 0) + 1;
+              return { received, max };
+            });
+          },
+        );
+        if (cancelled) { v1(); return; }
+        u1 = v1;
+        const v2 = await listen<{ sessionId: string; ok: boolean; error: string | null; truncated: boolean }>(
+          "ai-inference-finished",
+          (e) => {
+            if (e.payload.sessionId !== aiSessionIdRef.current) return;
+            const target = aiTokenTargetRef.current;
+            setAiInferenceBusy(false);
+            setAiTokenProgress(null);
+            aiSessionIdRef.current = null;
+            aiTokenTargetRef.current = null;
+            if (!e.payload.ok && e.payload.error) {
+              setAiError(`推論失敗: ${e.payload.error}`);
+              setAiCanContinue(null);
+            } else if (e.payload.truncated && target) {
+              setAiCanContinue(target);
+            } else {
+              setAiCanContinue(null);
+            }
+          },
+        );
+        if (cancelled) { v2(); return; }
+        u2 = v2;
+      } catch (e) {
+        console.warn("ai inference listen failed", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      try { u1?.(); } catch { /* ignore */ }
+      try { u2?.(); } catch { /* ignore */ }
+    };
+  }, []);
+
+  // Format thread responses for the model prompt, truncating to fit context.
+  const buildThreadContext = (maxChars: number): string => {
+    const title = threadTabs[activeTabIndex]?.title ?? "";
+    const lines: string[] = [`タイトル: ${title}`, ""];
+    let used = lines.join("\n").length;
+    for (const r of responseItems) {
+      const plain = stripHtmlForMatch(r.text);
+      const line = `>>${r.id} ${r.name} ${r.time}\n${plain}\n`;
+      if (used + line.length > maxChars) break;
+      lines.push(line);
+      used += line.length;
+    }
+    return lines.join("\n");
+  };
+
+  const aiActiveTemplate = (): string => {
+    const id = aiStatus?.activeModelId;
+    if (!id) return "gemma";
+    return aiCatalog?.models.find((m) => m.id === id)?.promptTemplate ?? "gemma";
+  };
+
+  const aiStartSummary = () => {
+    if (aiInferenceBusy || !aiStatus?.activeModelId || responseItems.length === 0) return;
+    const ctx = buildThreadContext(8000);
+    const template = aiActiveTemplate();
+    const userMsg = [
+      "以下の5ちゃんねるスレッドを日本語で要約してください。",
+      "",
+      "形式:",
+      "- 冒頭1行で全体テーマを述べる",
+      "- 主な論点や流れを箇条書き (3〜6項目)",
+      "- 盛り上がったレスや特徴的な発言があれば >>N の形で言及",
+      "- 推測や創作はしない。スレッド内の発言だけを根拠にする",
+      "",
+      "【スレッド】",
+      ctx,
+    ].join("\n");
+    const prompt = aiWrapTurn(template, "user", userMsg) + aiOpenAssistantTurn(template);
+    const sid = `sum-${Date.now()}`;
+    const maxTokens = 400;
+    aiSessionIdRef.current = sid;
+    aiTokenTargetRef.current = "summary";
+    aiMaxTokensRef.current = maxTokens;
+    aiLastPromptRef.current = prompt;
+    setAiSummary("");
+    setAiInferenceBusy(true);
+    setAiTokenProgress({ received: 0, max: maxTokens });
+    setAiCanContinue(null);
+    setAiError(null);
+    void invoke("ai_run_inference", { sessionId: sid, prompt, maxTokens }).catch((e) => {
+      console.warn("ai_run_inference failed", e);
+    });
+  };
+
+  const aiSendChat = () => {
+    if (aiInferenceBusy || !aiStatus?.activeModelId) return;
+    const message = aiChatInput.trim();
+    if (!message) return;
+    const newMessages: { role: "user" | "assistant"; content: string }[] = [
+      ...aiChatMessages,
+      { role: "user", content: message },
+      { role: "assistant", content: "" },
+    ];
+    setAiChatMessages(newMessages);
+    setAiChatInput("");
+
+    const ctx = buildThreadContext(6000);
+    const template = aiActiveTemplate();
+    const systemInstructions = [
+      "あなたは5ちゃんねるのスレッドを読み解くアシスタントです。以下のスレッドを踏まえて、ユーザーの質問に答えてください。",
+      "",
+      "回答ルール:",
+      "- 基本2〜4文で簡潔に。冗長な前置きや締めくくりは不要。",
+      "- レス番号 (>>15 など) を聞かれたら、そのレスの本文を実際に読んで、何を言っているかを直接答える。",
+      "- 必要なら関連レス番号を >>N の形式で引用する。",
+      "- スレッドに書かれていないことは「スレッドに記載なし」と答える。",
+      "- スレッド全体を要約しない。聞かれたことだけに答える。",
+    ].join("\n");
+    const completeMessages = newMessages.slice(0, -1); // omit the empty assistant placeholder
+    let prompt = "";
+    completeMessages.forEach((m, i) => {
+      if (m.role === "user") {
+        const body = i === 0
+          ? `${systemInstructions}\n\n【スレッド】\n${ctx}\n\n【ユーザーの質問】\n${m.content}`
+          : m.content;
+        prompt += aiWrapTurn(template, "user", body);
+      } else {
+        prompt += aiWrapTurn(template, "assistant", m.content);
+      }
+    });
+    prompt += aiOpenAssistantTurn(template);
+    const sid = `chat-${Date.now()}`;
+    const maxTokens = 400;
+    aiSessionIdRef.current = sid;
+    aiTokenTargetRef.current = "chat";
+    aiMaxTokensRef.current = maxTokens;
+    aiLastPromptRef.current = prompt;
+    setAiInferenceBusy(true);
+    setAiTokenProgress({ received: 0, max: maxTokens });
+    setAiCanContinue(null);
+    setAiError(null);
+    void invoke("ai_run_inference", { sessionId: sid, prompt, maxTokens }).catch((e) => {
+      console.warn("ai_run_inference failed", e);
+    });
+  };
+
+  const aiCancelInference = () => {
+    void invoke("ai_cancel_inference").catch((e) => console.warn("ai_cancel_inference failed", e));
+  };
+
+  const aiContinueGenerate = () => {
+    if (aiInferenceBusy || !aiCanContinue || !aiLastPromptRef.current) return;
+    const target = aiCanContinue;
+    let generatedSoFar = "";
+    if (target === "summary") {
+      generatedSoFar = aiSummary;
+    } else {
+      const last = aiChatMessages[aiChatMessages.length - 1];
+      if (last?.role === "assistant") generatedSoFar = last.content;
+    }
+    const newPrompt = aiLastPromptRef.current + generatedSoFar;
+    const sid = `cont-${Date.now()}`;
+    const maxTokens = 400;
+    aiSessionIdRef.current = sid;
+    aiTokenTargetRef.current = target;
+    aiMaxTokensRef.current = maxTokens;
+    aiLastPromptRef.current = newPrompt;
+    setAiInferenceBusy(true);
+    setAiTokenProgress({ received: 0, max: maxTokens });
+    setAiCanContinue(null);
+    setAiError(null);
+    void invoke("ai_run_inference", { sessionId: sid, prompt: newPrompt, maxTokens }).catch((e) => {
+      console.warn("ai_run_inference (continue) failed", e);
+    });
   };
 
   return (
@@ -5544,6 +5809,14 @@ export default function App() {
                 <button className="title-action-btn" onClick={downloadAllThreadImages} title="画像を一括ダウンロード"><Download size={14} /></button>
                 <button className={`title-action-btn ${imageGalleryOpen ? "active-toggle" : ""}`} onClick={() => setImageGalleryOpen((v) => !v)} title="画像一覧"><Images size={14} /></button>
                 <button
+                  className={`title-action-btn ${aiSubpaneOpen ? "active-toggle" : ""}`}
+                  onClick={() => setAiSubpaneOpen((v) => !v)}
+                  disabled={!aiStatus?.activeModelId}
+                  title={aiStatus?.activeModelId ? "AI" : "AI (モデル未有効 - ツール → AI 設定)"}
+                >
+                  <BrainCircuit size={14} />
+                </button>
+                <button
                   className={`title-action-btn ${thumbMaskEnabled ? "active-toggle" : ""}`}
                   onClick={() => setThumbMaskEnabled((v) => !v)}
                   title={thumbMaskEnabled ? "サムネイルマスク解除" : "サムネイルをマスク"}
@@ -6042,6 +6315,129 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+            {aiSubpaneOpen && aiStatus?.activeModelId && (
+              <div className="ai-subpane">
+                <div className="ai-subpane-header">
+                  <div className="ai-subpane-tabs">
+                    <button
+                      className={`ai-subpane-tab ${aiSubpaneTab === "summary" ? "active" : ""}`}
+                      onClick={() => setAiSubpaneTab("summary")}
+                    >
+                      要約
+                    </button>
+                    <button
+                      className={`ai-subpane-tab ${aiSubpaneTab === "chat" ? "active" : ""}`}
+                      onClick={() => setAiSubpaneTab("chat")}
+                    >
+                      チャット
+                    </button>
+                  </div>
+                  <button className="title-action-btn" onClick={() => setAiSubpaneOpen(false)} title="閉じる"><X size={12} /></button>
+                </div>
+                {aiSubpaneTab === "summary" ? (
+                  <div className="ai-subpane-body">
+                    <div className="ai-subpane-toolbar">
+                      <button
+                        onClick={aiStartSummary}
+                        disabled={aiInferenceBusy || responseItems.length === 0}
+                      >
+                        {aiInferenceBusy && aiTokenTargetRef.current === "summary" ? "生成中..." : "要約する"}
+                      </button>
+                      {aiInferenceBusy && aiTokenTargetRef.current === "summary" && (
+                        <button onClick={aiCancelInference}>停止</button>
+                      )}
+                      {!aiInferenceBusy && aiCanContinue === "summary" && (
+                        <button onClick={aiContinueGenerate}>続きを生成</button>
+                      )}
+                      {aiSummary && !aiInferenceBusy && (
+                        <button onClick={() => { setAiSummary(""); setAiCanContinue(null); }}>クリア</button>
+                      )}
+                    </div>
+                    {aiInferenceBusy && aiTokenTargetRef.current === "summary" && aiTokenProgress && (
+                      <div className="ai-progress">
+                        <div className="ai-progress-bar" style={{ width: `${Math.min(100, (aiTokenProgress.received / aiTokenProgress.max) * 100)}%` }} />
+                        <span className="ai-progress-label">
+                          {aiTokenProgress.received} / {aiTokenProgress.max} トークン ({Math.round((aiTokenProgress.received / aiTokenProgress.max) * 100)}%)
+                        </span>
+                      </div>
+                    )}
+                    <div className="ai-summary-content ai-markdown">
+                      {aiSummary ? (
+                        <ReactMarkdown>{aiSummary}</ReactMarkdown>
+                      ) : (
+                        <div className="ai-placeholder">
+                          「要約する」ボタンを押すと、現在のスレを要約します。
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="ai-subpane-body">
+                    <div className="ai-chat-history">
+                      {aiChatMessages.length === 0 && (
+                        <div className="ai-placeholder">
+                          このスレについて質問してください (例:「論点をまとめて」「&gt;&gt;50 の意図は？」)。
+                        </div>
+                      )}
+                      {aiChatMessages.map((m, i) => (
+                        <div key={i} className={`ai-chat-msg ai-chat-msg-${m.role}`}>
+                          <div className="ai-chat-msg-role">{m.role === "user" ? "あなた" : "AI"}</div>
+                          <div className={`ai-chat-msg-content ${m.role === "assistant" ? "ai-markdown" : ""}`}>
+                            {m.role === "assistant" && m.content
+                              ? <ReactMarkdown>{m.content}</ReactMarkdown>
+                              : m.content || (m.role === "assistant" && aiInferenceBusy ? "..." : "")}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {aiInferenceBusy && aiTokenTargetRef.current === "chat" && aiTokenProgress && (
+                      <div className="ai-progress">
+                        <div className="ai-progress-bar" style={{ width: `${Math.min(100, (aiTokenProgress.received / aiTokenProgress.max) * 100)}%` }} />
+                        <span className="ai-progress-label">
+                          {aiTokenProgress.received} / {aiTokenProgress.max} トークン ({Math.round((aiTokenProgress.received / aiTokenProgress.max) * 100)}%)
+                        </span>
+                      </div>
+                    )}
+                    {!aiInferenceBusy && aiCanContinue === "chat" && (
+                      <div className="ai-subpane-toolbar">
+                        <button onClick={aiContinueGenerate}>続きを生成</button>
+                      </div>
+                    )}
+                    <div className="ai-chat-input-row">
+                      <textarea
+                        className="ai-chat-input"
+                        value={aiChatInput}
+                        onChange={(e) => setAiChatInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (aiInferenceBusy) return;
+                          const submitMatch =
+                            e.key === "Enter" &&
+                            ((composeSubmitKey === "shift" && e.shiftKey) ||
+                              (composeSubmitKey === "ctrl" && (e.ctrlKey || e.metaKey)));
+                          if (submitMatch) {
+                            e.preventDefault();
+                            aiSendChat();
+                          }
+                        }}
+                        placeholder={`メッセージ (${composeSubmitKey === "shift" ? "Shift" : "Ctrl"}+Enter で送信)`}
+                        rows={2}
+                        disabled={aiInferenceBusy}
+                      />
+                      {aiInferenceBusy && aiTokenTargetRef.current === "chat" ? (
+                        <button onClick={aiCancelInference}>停止</button>
+                      ) : (
+                        <button
+                          onClick={aiSendChat}
+                          disabled={aiInferenceBusy || !aiChatInput.trim()}
+                        >
+                          送信
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             </div>

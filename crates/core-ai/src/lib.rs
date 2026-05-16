@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::{Read, Write};
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
@@ -374,21 +375,40 @@ fn backend() -> Result<&'static LlamaBackend, AiError> {
     Ok(BACKEND.get_or_init(|| b))
 }
 
-/// Load a GGUF model and run a single greedy completion.
+/// Why a streaming completion stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StopReason {
+    /// The model emitted an end-of-generation token.
+    EndOfGeneration,
+    /// The `max_new_tokens` cap was reached before the model finished.
+    MaxTokensReached,
+}
+
+/// Stream a greedy completion, calling `on_token` with each decoded text fragment.
 ///
-/// Stateless PoC API: load + complete + drop on every call. Not for production use.
-pub fn complete(
+/// Stateless PoC API: load + complete + drop on every call. Returns
+/// [`AiError::InferenceFailed("cancelled")`] when `cancel` is set mid-generation.
+/// Returns [`StopReason`] indicating why generation stopped.
+pub fn complete_streaming<F>(
     model_path: &Path,
     prompt: &str,
     max_new_tokens: u32,
-) -> Result<String, AiError> {
+    cancel: &AtomicBool,
+    mut on_token: F,
+) -> Result<StopReason, AiError>
+where
+    F: FnMut(&str),
+{
     let backend = backend()?;
 
     let model_params = LlamaModelParams::default();
     let model = LlamaModel::load_from_file(backend, model_path, &model_params)
         .map_err(|e| AiError::ModelLoadFailed(e.to_string()))?;
 
-    let ctx_params = LlamaContextParams::default();
+    let ctx_params = LlamaContextParams::default()
+        .with_n_ctx(NonZeroU32::new(8192))
+        .with_n_batch(8192);
     let mut ctx = model
         .new_context(backend, ctx_params)
         .map_err(|e| AiError::ContextCreationFailed(e.to_string()))?;
@@ -398,6 +418,12 @@ pub fn complete(
         .map_err(|e| AiError::InferenceFailed(format!("tokenize: {e}")))?;
 
     let n_prompt = prompt_tokens.len();
+    let n_ctx = ctx.n_ctx() as usize;
+    if n_prompt + max_new_tokens as usize > n_ctx {
+        return Err(AiError::InferenceFailed(format!(
+            "prompt too long: {n_prompt} tokens + {max_new_tokens} new > context {n_ctx}"
+        )));
+    }
     let batch_cap = std::cmp::max(n_prompt, 64);
     let mut batch = LlamaBatch::new(batch_cap, 1);
     batch
@@ -407,22 +433,29 @@ pub fn complete(
     ctx.decode(&mut batch)
         .map_err(|e| AiError::InferenceFailed(format!("decode prompt: {e}")))?;
 
-    let mut output = String::new();
     let mut n_cur: i32 = i32::try_from(n_prompt)
         .map_err(|_| AiError::InferenceFailed("prompt length overflow".into()))?;
 
+    let mut stop_reason = StopReason::MaxTokensReached;
     for _ in 0..max_new_tokens {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(AiError::InferenceFailed("cancelled".into()));
+        }
+
         let mut candidates = ctx.token_data_array();
         let token = candidates.sample_token_greedy();
-
         if model.is_eog_token(token) {
+            stop_reason = StopReason::EndOfGeneration;
             break;
         }
 
         let bytes = model
             .token_to_piece_bytes(token, 64, false, None)
             .map_err(|e| AiError::InferenceFailed(format!("token_to_piece: {e}")))?;
-        output.push_str(&String::from_utf8_lossy(&bytes));
+        let piece = String::from_utf8_lossy(&bytes);
+        if !piece.is_empty() {
+            on_token(&piece);
+        }
 
         batch.clear();
         batch
@@ -433,6 +466,21 @@ pub fn complete(
         n_cur += 1;
     }
 
+    Ok(stop_reason)
+}
+
+/// Load a GGUF model and run a single greedy completion, collecting the
+/// full output as a String. Convenience wrapper around `complete_streaming`.
+pub fn complete(
+    model_path: &Path,
+    prompt: &str,
+    max_new_tokens: u32,
+) -> Result<String, AiError> {
+    let cancel = AtomicBool::new(false);
+    let mut output = String::new();
+    complete_streaming(model_path, prompt, max_new_tokens, &cancel, |piece| {
+        output.push_str(piece);
+    })?;
     Ok(output)
 }
 

@@ -1608,9 +1608,14 @@ async fn download_images(urls: Vec<String>, dest_dir: String) -> Result<Download
 const AI_BUNDLED_CATALOG: &str = include_str!("../ai-models.json");
 
 static AI_CANCEL_FLAGS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+static AI_INFERENCE_CANCEL: OnceLock<Mutex<Option<Arc<AtomicBool>>>> = OnceLock::new();
 
 fn ai_cancel_flags() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
     AI_CANCEL_FLAGS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn ai_inference_cancel() -> &'static Mutex<Option<Arc<AtomicBool>>> {
+    AI_INFERENCE_CANCEL.get_or_init(|| Mutex::new(None))
 }
 
 fn ai_models_dir() -> Result<PathBuf, String> {
@@ -1780,6 +1785,117 @@ fn ai_deactivate_model() -> Result<(), String> {
     core_ai::set_active_model(&dir, None).map_err(|e| e.to_string())
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct AiInferenceToken {
+    session_id: String,
+    token: String,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct AiInferenceFinished {
+    session_id: String,
+    ok: bool,
+    error: Option<String>,
+    truncated: bool,
+}
+
+#[tauri::command]
+async fn ai_run_inference(
+    app: AppHandle,
+    session_id: String,
+    prompt: String,
+    max_tokens: Option<u32>,
+) -> Result<(), String> {
+    let dir = ai_models_dir()?;
+    let manifest = core_ai::load_manifest(&dir).map_err(|e| e.to_string())?;
+    let active_id = manifest
+        .active_model_id
+        .clone()
+        .ok_or_else(|| "no active model".to_string())?;
+    let installed = manifest
+        .find(&active_id)
+        .ok_or_else(|| format!("active model not installed: {active_id}"))?;
+    let path = dir.join(&installed.filename);
+    let max = max_tokens.unwrap_or(512);
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut slot = ai_inference_cancel().lock().map_err(|e| e.to_string())?;
+        // Cancel any previous in-flight inference before starting a new one.
+        if let Some(prev) = slot.take() {
+            prev.store(true, Ordering::Relaxed);
+        }
+        *slot = Some(cancel.clone());
+    }
+
+    let token_app = app.clone();
+    let token_session = session_id.clone();
+    let cancel_thread = cancel.clone();
+
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        core_ai::complete_streaming(&path, &prompt, max, &cancel_thread, |piece| {
+            let _ = token_app.emit(
+                "ai-inference-token",
+                AiInferenceToken {
+                    session_id: token_session.clone(),
+                    token: piece.to_string(),
+                },
+            );
+        })
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?;
+
+    // Clear the in-flight cancel slot if it's still ours.
+    {
+        let mut slot = ai_inference_cancel().lock().map_err(|e| e.to_string())?;
+        if let Some(curr) = slot.as_ref() {
+            if Arc::ptr_eq(curr, &cancel) {
+                *slot = None;
+            }
+        }
+    }
+
+    match result {
+        Ok(reason) => {
+            let _ = app.emit(
+                "ai-inference-finished",
+                AiInferenceFinished {
+                    session_id: session_id.clone(),
+                    ok: true,
+                    error: None,
+                    truncated: reason == core_ai::StopReason::MaxTokensReached,
+                },
+            );
+            Ok(())
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            let _ = app.emit(
+                "ai-inference-finished",
+                AiInferenceFinished {
+                    session_id: session_id.clone(),
+                    ok: false,
+                    error: Some(msg.clone()),
+                    truncated: false,
+                },
+            );
+            Err(msg)
+        }
+    }
+}
+
+#[tauri::command]
+fn ai_cancel_inference() -> Result<(), String> {
+    let slot = ai_inference_cancel().lock().map_err(|e| e.to_string())?;
+    if let Some(flag) = slot.as_ref() {
+        flag.store(true, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Disable WebKit2GTK's DMA-BUF renderer and GPU compositing on Wayland
@@ -1938,7 +2054,9 @@ pub fn run() {
             ai_cancel_download,
             ai_delete_model,
             ai_activate_model,
-            ai_deactivate_model
+            ai_deactivate_model,
+            ai_run_inference,
+            ai_cancel_inference
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

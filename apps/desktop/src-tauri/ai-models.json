@@ -4,7 +4,7 @@
     {
       "id": "gemma3-1b-it-q4km",
       "name": "Gemma3-1B-IT",
-      "description": "軽量・高速。日本語と英語の汎用要約に向く。",
+      "description": "最軽量・最速。お試し向け。",
       "sizeBytes": 806058272,
       "quantization": "Q4_K_M",
       "url": "https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf",
@@ -12,6 +12,32 @@
       "contextLength": 32768,
       "promptTemplate": "gemma",
       "languages": ["ja", "en"],
+      "recommendedFor": ["summary"]
+    },
+    {
+      "id": "gemma3-4b-it-q4km",
+      "name": "Gemma3-4B-IT",
+      "description": "中型・バランス型。1B より明確に賢く、特定レス参照や微妙なニュアンスも拾える。",
+      "sizeBytes": 2489894016,
+      "quantization": "Q4_K_M",
+      "url": "https://huggingface.co/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
+      "sha256": "04a43a22e8d2003deda5acc262f68ec1005fa76c735a9962a8c77042a74a7d19",
+      "contextLength": 32768,
+      "promptTemplate": "gemma",
+      "languages": ["ja", "en"],
+      "recommendedFor": ["summary", "reply"]
+    },
+    {
+      "id": "qwen3-4b-instruct-2507-q4km",
+      "name": "Qwen3-4B-Instruct (2507)",
+      "description": "中型・日本語に強い。会話や要約の品質はトップクラス。",
+      "sizeBytes": 2497281120,
+      "quantization": "Q4_K_M",
+      "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+      "contextLength": 32768,
+      "promptTemplate": "qwen",
+      "languages": ["ja", "en", "zh"],
       "recommendedFor": ["summary", "reply"]
     }
   ]
