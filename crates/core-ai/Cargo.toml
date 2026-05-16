@@ -1,0 +1,9 @@
+[package]
+name = "core-ai"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+llama-cpp-2 = "0.1.146"
