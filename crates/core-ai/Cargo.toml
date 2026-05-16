@@ -6,4 +6,4 @@ edition = "2021"
 [dependencies]
 thiserror = { workspace = true }
 serde = { workspace = true }
-llama-cpp-2 = "0.1.146"
+llama-cpp-2 = { version = "0.1.146", features = ["metal"] }

@@ -317,8 +317,27 @@ $env:PATH = "C:/Program Files/CMake/bin;$env:PATH"
 cargo check -p core-ai
 ```
 
-### macOS / Linux
-未検証 (Phase 1 で対応予定)。Mac は Homebrew で `llvm` `cmake`、Linux は apt/dnf 経由。
+### macOS (実測済み: M2 / macOS 26.5 Tahoe)
+
+| ツール | バージョン | インストール |
+|---|---|---|
+| LLVM (libclang) | 22.1.5 | `brew install llvm` |
+| CMake | 4.3.2 | `brew install cmake` |
+| Xcode CLT | 21.0.0 (bundled clang) | 通常インストール済み |
+
+ビルド時の環境変数 (Apple Silicon):
+```bash
+export LIBCLANG_PATH="/opt/homebrew/opt/llvm/lib"
+export PATH="/opt/homebrew/opt/llvm/bin:/opt/homebrew/opt/cmake/bin:$PATH"
+cargo check -p core-ai   # 約 1m 18s (初回 C++ ビルド込み)
+```
+
+**重要: Metal はデフォルトで自動有効**。llama.cpp の cmake が macOS 上で Metal を自動検出するため、`features = ["metal"]` は実質的に不要 (追加しても速度変化なし)。全レイヤーが GPU にオフロードされる (`offloaded 27/27 layers to GPU`)。
+
+Metal ライブラリのコンパイルキャッシュは OS が管理する。初回起動は ~10s のウォームアップが発生するが、2 回目以降は安定する。
+
+### Linux
+未検証。apt/dnf で `llvm` `cmake` を入れ、`LIBCLANG_PATH` を設定する予定。
 
 ## 実装フェーズ
 
@@ -336,9 +355,21 @@ cargo check -p core-ai
 
 Gemma3-1B は日本語要約タスクで実用的な品質と速度を確認。計画書の「日本語性能に難あり」想定より良好。
 
-### Phase 1.5: macOS ビルド検証
-1. Mac 環境で `brew install llvm cmake` 後 `cargo check -p core-ai` が通ることを確認
-2. Metal バックエンド有効化 (`features = ["metal"]`) でビルド + 推論動作確認
+**PoC 検証結果 (macOS M2 / Metal 推論)**:
+| モデル | サイズ | プロンプト | 生成 | 速度 | 備考 |
+|---|---|---|---|---|---|
+| TinyLlama-1.1B-Chat Q4_K_M | 0.6 GB | 英語 30 tok | "John Smith. I am a software engineer..." | ~1.2s* (≈25 tok/s) | Metal コールドスタート ~10s 含まず |
+| Gemma3-1B-IT Q4_K_M | 0.8 GB | 日本語要約 80 tok | マークダウン箇条書き要約 | 2.40s (≈33 tok/s) | ウォームキャッシュ安定値 |
+
+*) TinyLlama は全体 13.2s だが内訳は Metal 初期化 ~10s + モデルロード + 推論。ウォームキャッシュ時は Gemma3 同様の速度と推定。
+
+macOS Metal (M2) vs Windows CPU 比較: Gemma3-1B で **≈14% 高速** (33 vs 29 tok/s)。`features = ["metal"]` は macOS では不要 (cmake が自動検出)。
+
+### Phase 1.5: macOS ビルド検証 ✅ 完了
+1. ✅ Mac 環境で `brew install llvm cmake` 後 `cargo check -p core-ai` が通ることを確認 (M2 / macOS 26.5)
+2. ✅ Metal バックエンド有効化でビルド + 推論動作確認 (Metal は cmake が自動検出、feature flag 不要)
+3. ✅ TinyLlama / Gemma3-1B どちらも推論成功、日本語出力品質を確認
+4. ✅ Metal vs CPU 速度比較: Mac Metal ≈33 tok/s vs Windows CPU ≈29 tok/s (Gemma3-1B)
 
 ### Phase 2: モデル管理基盤 (1-2 週)
 1. `ai-models.json` フォーマット確定、初期 3 モデル分の URL/SHA256 登録
