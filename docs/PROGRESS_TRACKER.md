@@ -107,7 +107,8 @@
 
 **残タスク**
 - ⏳ Phase 4 レス返信案 (右クリックメニューから生成 → 書き込みダイアログ)
-- ⏳ Phase 5 仕上げ (ショートカット / keep-loaded 最適化 / smoke test / リモートカタログ fetch)
+- ⏳ Phase 5 仕上げ (ショートカット / keep-loaded 最適化 / smoke test / リモートカタログ fetch ✅ v0.0.159)
+- ⏳ Phase 6 Vulkan GPU 推論 (Windows / Linux 用、NVIDIA / AMD / Intel Arc / 内蔵 GPU 対応)
 
 **新規 crate**
 - `crates/core-ai/` — llama-cpp-2 ラップ、モデル管理、ストリーミング推論
