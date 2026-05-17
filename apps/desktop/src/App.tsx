@@ -4866,10 +4866,15 @@ export default function App() {
 
   // Status is loaded when AI settings dialog opens; also fetch once at startup
   // so the toggle button can reflect activation state immediately.
+  //
+  // refreshAiBackendDevices is intentionally NOT called here: it triggers
+  // LlamaBackend::init() which probes the Vulkan loader, and on machines with
+  // unsupported GPUs (e.g. NVIDIA Kepler / GeForce 700 — driver support
+  // dropped Oct 2024) the ICD enumeration crashes the whole app a few seconds
+  // after window display. Status tab opens already call it on demand.
   useEffect(() => {
     if (!isTauriRuntime()) return;
     void refreshAiStatus();
-    void refreshAiBackendDevices();
     void refreshAiCacheState();
   }, []);
 
