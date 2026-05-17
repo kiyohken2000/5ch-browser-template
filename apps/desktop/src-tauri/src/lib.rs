@@ -2050,25 +2050,48 @@ pub fn run() {
     let _ = core_store::init_portable_layout();
     let _ = core_store::append_log("app started");
 
-    // If the user has enabled "GPU を無効化" (AI 安全モード), prevent the Vulkan
-    // loader from loading ANY ICD. Must run BEFORE LlamaBackend::init() is ever
-    // called — once the loader has probed a broken ICD (e.g. NVIDIA Kepler,
-    // driver support dropped Oct 2024) the process is already dead.
+    // If the user has enabled "GPU を無効化" (AI 安全モード), hide the bundled
+    // Vulkan loader DLL so that `volkInitialize()` inside ggml-vulkan fails its
+    // `LoadLibrary("vulkan-1.dll")` call. ggml then registers only the CPU
+    // backend and never touches the broken ICD that would crash the process
+    // (NVIDIA Kepler / GeForce 700 series — driver support dropped Oct 2024).
     //
-    // Two env vars are set for redundancy:
-    // - VK_LOADER_DRIVERS_DISABLE=~all~ : filter env var (loader 1.3.234+).
-    //   The special value is "~all~", NOT "*" (v0.0.164 bug — `*` was treated
-    //   as a literal manifest pattern and matched nothing).
-    // - VK_DRIVER_FILES=<nonexistent> : overrides system discovery entirely
-    //   (older loaders, formerly named VK_ICD_FILENAMES).
-    // See: https://github.com/KhronosGroup/Vulkan-Loader/blob/main/docs/LoaderEnvVars.md
-    if let Ok(sm) = core_store::load_json::<AiSafeMode>("ai_safe_mode.json") {
-        if sm.disable_gpu {
-            std::env::set_var("VK_LOADER_DRIVERS_DISABLE", "~all~");
-            std::env::set_var("VK_DRIVER_FILES", "ember_no_vulkan_drivers_marker.json");
-            std::env::set_var("VK_ICD_FILENAMES", "ember_no_vulkan_drivers_marker.json");
-            let _ = core_store::append_log("AI safe mode active: Vulkan drivers disabled");
+    // v0.0.164 tried VK_LOADER_DRIVERS_DISABLE="*" — wrong special value.
+    // v0.0.165 fixed to "~all~" but still crashed: env vars set in our main()
+    // are too late if the loader cached its filter state at DLL_PROCESS_ATTACH.
+    // Hiding the DLL itself is the only reliable defense.
+    //
+    // When safe mode is turned OFF (via the UI), the next launch restores the DLL.
+    let safe_mode = core_store::load_json::<AiSafeMode>("ai_safe_mode.json")
+        .map(|sm| sm.disable_gpu)
+        .unwrap_or(false);
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let active = exe_dir.join("vulkan-1.dll");
+            let disabled = exe_dir.join("vulkan-1.dll.safe-mode-disabled");
+            if safe_mode {
+                if active.exists() && !disabled.exists() {
+                    let _ = std::fs::rename(&active, &disabled);
+                    let _ = core_store::append_log("AI safe mode: vulkan-1.dll hidden");
+                } else if active.exists() && disabled.exists() {
+                    let _ = std::fs::remove_file(&active);
+                    let _ = core_store::append_log("AI safe mode: stale vulkan-1.dll removed");
+                }
+            } else if disabled.exists() && !active.exists() {
+                let _ = std::fs::rename(&disabled, &active);
+                let _ = core_store::append_log("AI safe mode off: vulkan-1.dll restored");
+            } else if disabled.exists() && active.exists() {
+                let _ = std::fs::remove_file(&disabled);
+            }
         }
+    }
+    // Belt-and-suspenders: also set the loader filter env vars in case any other
+    // vulkan-1.dll is discoverable via system PATH. Harmless when no loader runs.
+    // See: https://github.com/KhronosGroup/Vulkan-Loader/blob/main/docs/LoaderEnvVars.md
+    if safe_mode {
+        std::env::set_var("VK_LOADER_DRIVERS_DISABLE", "~all~");
+        std::env::set_var("VK_DRIVER_FILES", "ember_no_vulkan_drivers_marker.json");
+        std::env::set_var("VK_ICD_FILENAMES", "ember_no_vulkan_drivers_marker.json");
     }
 
     tauri::Builder::default()
