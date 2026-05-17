@@ -245,7 +245,8 @@
       "Bash(unzip -l out/ember-mac-arm64.zip)",
       "Read(//c/VulkanSDK/1.4.350.0//**)",
       "Read(//c/VulkanSDK/1.4.350.0/**)",
-      "Bash(unzip -l __TRACKED_VAR__/out/ember-win-x64.zip)"
+      "Bash(unzip -l __TRACKED_VAR__/out/ember-win-x64.zip)",
+      "Bash(\"C:/Program Files/LLVM/bin/llvm-objdump.exe\" -p /c/t/release/ember.exe)"
     ]
   },
   "enableAllProjectMcpServers": true,
