@@ -137,7 +137,18 @@ fi
 echo "  Bundling vulkan-1.dll from: $VULKAN_DLL_SRC"
 cp "$VULKAN_DLL_SRC" "$TARGET_DIR/release/vulkan-1.dll"
 
-(cd "$TARGET_DIR/release" && powershell -Command "Compress-Archive -Path ember.exe,vulkan-1.dll -DestinationPath ember-win-x64.zip -Force")
+# Apache 2.0 redistribution requires the license text to ship alongside the
+# binary. Vulkan-Loader upstream has no NOTICE file, but we include our own
+# ATTRIBUTION pointing to the source repo for the user's benefit.
+VULKAN_LICENSE_DIR="$TAURI_DIR/third_party_licenses/vulkan-loader"
+if [[ ! -f "$VULKAN_LICENSE_DIR/LICENSE.txt" || ! -f "$VULKAN_LICENSE_DIR/ATTRIBUTION.txt" ]]; then
+  echo "  ERROR: Vulkan-Loader license files missing at $VULKAN_LICENSE_DIR"
+  exit 1
+fi
+cp "$VULKAN_LICENSE_DIR/LICENSE.txt" "$TARGET_DIR/release/VULKAN-LOADER-LICENSE.txt"
+cp "$VULKAN_LICENSE_DIR/ATTRIBUTION.txt" "$TARGET_DIR/release/VULKAN-LOADER-ATTRIBUTION.txt"
+
+(cd "$TARGET_DIR/release" && powershell -Command "Compress-Archive -Path ember.exe,vulkan-1.dll,VULKAN-LOADER-LICENSE.txt,VULKAN-LOADER-ATTRIBUTION.txt -DestinationPath ember-win-x64.zip -Force")
 cp "$TARGET_DIR/release/ember-win-x64.zip" "$OUT_DIR/ember-win-x64.zip"
 
 WIN_SHA256=$(sha256sum "$OUT_DIR/ember-win-x64.zip" | awk '{print $1}')

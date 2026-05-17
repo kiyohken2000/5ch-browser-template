@@ -160,3 +160,13 @@ sudo dnf install webkit2gtk4.1-devel gtk3-devel openssl-devel libxdo-devel libap
 - ZIP 展開で即実行（インストーラーなし）
 - 5ch ドメインは `5ch.io` 正規化
 - BE / UPLIFT は必須
+
+## サードパーティライセンス
+
+Windows 配布 ZIP には以下のサードパーティ製バイナリが同梱されています。
+
+| 同梱物 | ライセンス | 出所 | 同梱ライセンスファイル |
+|--------|----------|------|---------------------|
+| `vulkan-1.dll` (Vulkan Loader) | Apache License 2.0 | [KhronosGroup/Vulkan-Loader](https://github.com/KhronosGroup/Vulkan-Loader) | `VULKAN-LOADER-LICENSE.txt` / `VULKAN-LOADER-ATTRIBUTION.txt` |
+
+ライセンス本文と attribution は ZIP 内の exe と同階層に配置されています。

@@ -1,0 +1,34 @@
+vulkan-1.dll (Vulkan Loader)
+============================
+
+This binary is the Vulkan Loader, sourced from the official Khronos Group
+repository:
+
+    https://github.com/KhronosGroup/Vulkan-Loader
+
+The Vulkan Loader is distributed under the Apache License, Version 2.0.
+The full license text is included in LICENSE.txt (same directory).
+
+Copyright Notices
+-----------------
+
+The Vulkan Loader is Copyright (c) 2014 onwards The Khronos Group Inc.,
+Valve Corporation, LunarG Inc., Google Inc., and other contributors.
+Per-file copyright notices are retained in the source distribution at
+the URL above.
+
+Modifications
+-------------
+
+This project (Ember) does NOT modify the vulkan-1.dll binary in any way.
+It is bundled verbatim from a Vulkan SDK installation (LunarG SDK) or
+the system Vulkan Runtime on the build machine.
+
+Source Access
+-------------
+
+Apache 2.0 does not require us to redistribute source code, but it is
+publicly available at the URL above. Specific build sources for the
+LunarG-distributed binary are available at:
+
+    https://vulkan.lunarg.com/sdk/home

@@ -16,6 +16,8 @@
 | Linux | `apt install libvulkan-dev glslang-tools libclang-dev cmake` |
 
 > **vulkan-1.dll の同梱**: `scripts/release.sh` は Windows ZIP 作成時に `vulkan-1.dll` を `ember.exe` の隣に置いてバンドルする（Apache 2.0、`$VULKAN_SDK/Bin` または `C:\Windows\System32` から自動コピー）。これにより Vulkan Runtime 未インストール環境でも DLL not found エラーを回避する。**ただし** 実際の GPU ドライバが破損 / 旧世代 (NVIDIA Kepler 等) の場合は ICD 列挙でクラッシュするため、ランディングで「Vulkan 1.2+ 対応 GPU 必須」と告知している。
+>
+> **Apache 2.0 ライセンス同梱 (v0.0.168+)**: vulkan-1.dll の再配布には Apache 2.0 セクション 4 によりライセンス本文の同梱が必要。`apps/desktop/src-tauri/third_party_licenses/vulkan-loader/{LICENSE.txt,ATTRIBUTION.txt}` をリポジトリにコミット済で、`release.sh` がこれらを ZIP 内に `VULKAN-LOADER-LICENSE.txt` / `VULKAN-LOADER-ATTRIBUTION.txt` として配置する。ライセンスファイルが欠けていると `release.sh` は exit 1 する。手動ビルド時もこの 2 ファイルを ZIP に必ず含めること。
 
 ## リリース手順（自動）
 
@@ -119,11 +121,17 @@ cd ../../target/release
 # v0.0.161+ : vulkan-1.dll を ember.exe の隣に配置 (Vulkan Runtime 未導入環境対策)
 cp "$VULKAN_SDK/Bin/vulkan-1.dll" .  # または cp /c/Windows/System32/vulkan-1.dll .
 
-powershell -Command "Compress-Archive -Path ember.exe,vulkan-1.dll -DestinationPath ember-win-x64.zip -Force"
+# v0.0.168+ : Apache 2.0 ライセンス本文と attribution を同梱 (再配布要件)
+cp apps/desktop/src-tauri/third_party_licenses/vulkan-loader/LICENSE.txt VULKAN-LOADER-LICENSE.txt
+cp apps/desktop/src-tauri/third_party_licenses/vulkan-loader/ATTRIBUTION.txt VULKAN-LOADER-ATTRIBUTION.txt
+
+powershell -Command "Compress-Archive -Path ember.exe,vulkan-1.dll,VULKAN-LOADER-LICENSE.txt,VULKAN-LOADER-ATTRIBUTION.txt -DestinationPath ember-win-x64.zip -Force"
 sha256sum ember-win-x64.zip && wc -c < ember-win-x64.zip
 ```
 
 > ZIP に `vulkan-1.dll` を含めないと、Vulkan Runtime 未導入環境のユーザーが AI 機能を使った瞬間に「vulkan-1.dll が見つかりません」で落ちる。Windows の DLL 検索順は exe ディレクトリが最優先なので、同梱で OK。
+>
+> Apache 2.0 (vulkan-1.dll のライセンス) は再配布時にライセンス本文同梱を要求する。`VULKAN-LOADER-LICENSE.txt` (Apache 2.0 本文) と `VULKAN-LOADER-ATTRIBUTION.txt` (出所・著作権表示) の 2 ファイルを必ず ZIP に含めること。
 
 ### 4. macOS ビルド
 
@@ -175,4 +183,5 @@ npx wrangler pages deploy dist --project-name ember-5ch --branch main --commit-d
 - ファイル名は固定: `ember-win-x64.zip`, `ember-mac-arm64.zip`
 - `latest.json` にシークレット情報を含めない
 - **Windows ZIP には必ず `vulkan-1.dll` を同梱**（`scripts/release.sh` は自動同梱、手動ビルド時は忘れがち）
+- **Windows ZIP には必ず `VULKAN-LOADER-LICENSE.txt` と `VULKAN-LOADER-ATTRIBUTION.txt` を同梱** (Apache 2.0 セクション 4 の再配布要件。欠けるとライセンス違反)
 - **`ai-models.json` を編集した場合は landing デプロイ必須** — アプリ起動時にランディングから取得しているため、Pages に push しないと新カタログが配布されない
