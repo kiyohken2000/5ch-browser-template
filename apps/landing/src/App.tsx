@@ -541,6 +541,25 @@ export default function App() {
                   <li>再度ダウンロードして展開 (今後は同じファイルが削除されなくなります)</li>
                 </ol>
               </details>
+              <details className="install-warning">
+                <summary>
+                  AI 機能の動作環境 (要約・チャット利用時)
+                  <span className="install-warning-hint">クリックで展開</span>
+                </summary>
+                <p className="note">
+                  AI 機能 (スレッド要約・チャット) は GPU の <strong>Vulkan</strong> ドライバを利用します。
+                  比較的新しい GPU が必要です:
+                </p>
+                <ul className="install-steps">
+                  <li><strong>推奨:</strong> NVIDIA GeForce 900 シリーズ以降 / AMD Radeon (GCN 2.0 以降) / Intel HD Graphics 500 シリーズ以降</li>
+                  <li><strong>非対応:</strong> NVIDIA GeForce 700 シリーズ以前 (Kepler 世代、ドライバサポートが 2024 年 10 月に終了)</li>
+                </ul>
+                <p className="note">
+                  非対応 GPU 環境では、AI 機能を起動した時点 (要約開始・モデルロード・AI ステータスタブ表示など) でアプリがクラッシュすることが確認されています。
+                  恐れ入りますが当該環境では AI 機能のご利用はお控えください。
+                  通常のスレッドビューア機能 (板一覧・スレッド表示・画像プレビュー・NG / 検索 / お気に入りなど) はそのままお使いいただけます。
+                </p>
+              </details>
             </article>
 
             <article className="card install-card reveal" data-delay="2">
