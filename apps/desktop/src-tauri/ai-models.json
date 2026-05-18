@@ -15,6 +15,19 @@
       "recommendedFor": ["summary"]
     },
     {
+      "id": "gemma4-e2b-it-q4km",
+      "name": "Gemma4-E2B-IT",
+      "description": "Gemma 3 1B の上位互換。Effective 2B (実体 5.1B エラスティック)、Apache 2.0。軽量だが Gemma 3 1B より明確に賢い。",
+      "sizeBytes": 3106736256,
+      "quantization": "Q4_K_M",
+      "url": "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf",
+      "sha256": "9378bc471710229ef165709b62e34bfb62231420ddaf6d729e727305b5b8672d",
+      "contextLength": 32768,
+      "promptTemplate": "gemma4",
+      "languages": ["ja", "en"],
+      "recommendedFor": ["summary"]
+    },
+    {
       "id": "gemma3-4b-it-q4km",
       "name": "Gemma3-4B-IT",
       "description": "中型・バランス型。1B より明確に賢く、特定レス参照や微妙なニュアンスも拾える。",
@@ -80,6 +93,19 @@
       "recommendedFor": ["summary", "reply"]
     },
     {
+      "id": "gemma4-31b-it-q4km",
+      "name": "Gemma4-31B-IT",
+      "description": "Gemma 3 12B の後継。31B Dense、Apache 2.0、最高品質。VRAM/RAM に余裕がある環境向け。",
+      "sizeBytes": 18323731456,
+      "quantization": "Q4_K_M",
+      "url": "https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q4_K_M.gguf",
+      "sha256": "9fdf3dc8b0384830b4402d151388c140bd8eb2abf8d60588d8224231198254a1",
+      "contextLength": 32768,
+      "promptTemplate": "gemma4",
+      "languages": ["ja", "en"],
+      "recommendedFor": ["summary", "reply"]
+    },
+    {
       "id": "qwen3-14b-q4km",
       "name": "Qwen3-14B",
       "description": "大型・賢さ重視。要約 1 本で数十秒〜分かかることも。メモリ/VRAM に余裕のある環境向け。",
@@ -90,6 +116,19 @@
       "contextLength": 32768,
       "promptTemplate": "qwen",
       "languages": ["ja", "en", "zh"],
+      "recommendedFor": ["summary", "reply"]
+    },
+    {
+      "id": "gemma4-26b-a4b-q4km",
+      "name": "Gemma4-26B-A4B (MoE)",
+      "description": "Gemma 4 MoE。26B 級の賢さで活性 4B のため中型並みに速い。Apache 2.0、DL 約 16 GB (Unsloth Dynamic Q4_K_M)。",
+      "sizeBytes": 16947539744,
+      "quantization": "Q4_K_M",
+      "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf",
+      "sha256": "34c746b1d50ab813e29cd46c4796e3f43c741901a582f93a67b55b9fc9687b35",
+      "contextLength": 32768,
+      "promptTemplate": "gemma4",
+      "languages": ["ja", "en"],
       "recommendedFor": ["summary", "reply"]
     },
     {
