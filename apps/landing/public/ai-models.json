@@ -28,6 +28,19 @@
       "recommendedFor": ["summary", "reply"]
     },
     {
+      "id": "gemma4-e4b-it-q4km",
+      "name": "Gemma4-E4B-IT",
+      "description": "Gemma 3 4B 後継。Effective 4B (実体は 8.6B エラスティック)、Apache 2.0、256K ctx ネイティブ対応。要約・チャットとも Gemma 3 4B より明確に賢い。",
+      "sizeBytes": 4977169568,
+      "quantization": "Q4_K_M",
+      "url": "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf",
+      "sha256": "519b9793ed6ce0ff530f1b7c96e848e08e49e7af4d57bb97f76215963a54146d",
+      "contextLength": 32768,
+      "promptTemplate": "gemma4",
+      "languages": ["ja", "en"],
+      "recommendedFor": ["summary", "reply"]
+    },
+    {
       "id": "qwen3-4b-instruct-2507-q4km",
       "name": "Qwen3-4B-Instruct (2507)",
       "description": "中型・日本語に強い。会話や要約の品質はトップクラス。",

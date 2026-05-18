@@ -88,7 +88,11 @@ function aiWrapTurn(template: string, role: "user" | "assistant", content: strin
   if (template === "qwen" || template === "chatml") {
     return `<|im_start|>${role}\n${content}<|im_end|>\n`;
   }
-  // default: gemma
+  if (template === "gemma4") {
+    const r = role === "user" ? "user" : "model";
+    return `<|turn>${r}\n${content}<turn|>\n`;
+  }
+  // default: gemma (Gemma 3)
   const r = role === "user" ? "user" : "model";
   return `<start_of_turn>${r}\n${content}<end_of_turn>\n`;
 }
@@ -96,6 +100,12 @@ function aiWrapTurn(template: string, role: "user" | "assistant", content: strin
 function aiOpenAssistantTurn(template: string): string {
   if (template === "qwen" || template === "chatml") {
     return `<|im_start|>assistant\n`;
+  }
+  if (template === "gemma4") {
+    // The jinja "empty thought" trick (`<|channel>thought\n<channel|>`) is
+    // ignored by Gemma 4 4B — it keeps writing into the channel and then
+    // closes it itself. Skipping it makes the model emit content directly.
+    return `<|turn>model\n`;
   }
   return `<start_of_turn>model\n`;
 }
@@ -995,6 +1005,7 @@ export default function App() {
   const aiTokenTargetRef = useRef<"summary" | "chat" | null>(null);
   const aiMaxTokensRef = useRef<number>(400);
   const aiLastPromptRef = useRef<string>("");
+  const aiChatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [boardsFontSize, setBoardsFontSize] = useState(12);
   const [threadsFontSize, setThreadsFontSize] = useState(12);
   const [responsesFontSize, setResponsesFontSize] = useState(12);
@@ -4960,19 +4971,100 @@ export default function App() {
   }, []);
 
   // Format thread responses for the model prompt, truncating to fit context.
-  const buildThreadContext = (maxChars: number): string => {
+  // When focusIds is provided, those responses (+ neighbors ±2) are always
+  // included so the model can answer questions like ">>500 はどう?" even on
+  // long threads where the head-of-list truncation would otherwise drop them.
+  const buildThreadContext = (maxChars: number, focusIds?: number[]): string => {
     const title = threadTabs[activeTabIndex]?.title ?? "";
-    const lines: string[] = [`タイトル: ${title}`, ""];
-    let used = lines.join("\n").length;
-    for (const r of responseItems) {
+    const header = `タイトル: ${title}`;
+    const formatRes = (r: typeof responseItems[number]): string => {
       const plain = stripHtmlForMatch(r.text);
-      const line = `>>${r.id} ${r.name} ${r.time}\n${plain}\n`;
+      return `>>${r.id} ${r.name} ${r.time}\n${plain}\n`;
+    };
+
+    const maxId = responseItems.length;
+    const mustIds = new Set<number>();
+    if (focusIds && focusIds.length > 0) {
+      for (const id of focusIds) {
+        if (id < 1 || id > maxId) continue;
+        for (let off = -2; off <= 2; off++) {
+          const t = id + off;
+          if (t >= 1 && t <= maxId) mustIds.add(t);
+        }
+      }
+    }
+
+    const included = new Set<number>();
+    let used = header.length + 2;
+    for (const r of responseItems) {
+      if (!mustIds.has(r.id)) continue;
+      included.add(r.id);
+      used += formatRes(r).length;
+    }
+    for (const r of responseItems) {
+      if (included.has(r.id)) continue;
+      const line = formatRes(r);
       if (used + line.length > maxChars) break;
-      lines.push(line);
+      included.add(r.id);
       used += line.length;
     }
-    return lines.join("\n");
+
+    const sorted = responseItems.filter((r) => included.has(r.id));
+    const parts: string[] = [header, ""];
+    let prevId = 0;
+    for (const r of sorted) {
+      if (prevId > 0 && r.id - prevId > 1) {
+        parts.push(`...(>>${prevId + 1}〜>>${r.id - 1} 省略)...`);
+        parts.push("");
+      }
+      parts.push(formatRes(r));
+      prevId = r.id;
+    }
+    if (sorted.length > 0 && prevId < maxId) {
+      parts.push(`...(>>${prevId + 1}〜>>${maxId} 省略)...`);
+    }
+    return parts.join("\n");
   };
+
+  // Extract response numbers from user text. Supports `>>123`, `>>123-125`,
+  // `>>123,130`, `123番`, `レス123`, `123のレス`, etc. Bare digits ("2024年")
+  // are intentionally ignored — too many false positives.
+  const extractResNumbers = (text: string): number[] => {
+    const nums = new Set<number>();
+    const anchorRe = />+\s*(\d+(?:\s*[-–~,、]\s*\d+)*)/g;
+    let m: RegExpExecArray | null;
+    while ((m = anchorRe.exec(text)) !== null) {
+      const group = m[1];
+      let consumed = false;
+      const rangeRe = /(\d+)\s*[-–~]\s*(\d+)/g;
+      let rm: RegExpExecArray | null;
+      while ((rm = rangeRe.exec(group)) !== null) {
+        consumed = true;
+        const start = parseInt(rm[1], 10);
+        const end = parseInt(rm[2], 10);
+        if (end >= start && end - start <= 20) {
+          for (let i = start; i <= end; i++) nums.add(i);
+        } else {
+          nums.add(start);
+          nums.add(end);
+        }
+      }
+      if (!consumed) {
+        const numRe = /\d+/g;
+        let nm: RegExpExecArray | null;
+        while ((nm = numRe.exec(group)) !== null) nums.add(parseInt(nm[0], 10));
+      }
+    }
+    const jaSuffixRe = /(\d+)\s*(?:番|のレス|レス目|の発言|の書き込み|の人)/g;
+    while ((m = jaSuffixRe.exec(text)) !== null) nums.add(parseInt(m[1], 10));
+    const jaPrefixRe = /レス\s*(\d+)/g;
+    while ((m = jaPrefixRe.exec(text)) !== null) nums.add(parseInt(m[1], 10));
+    return [...nums];
+  };
+
+  // Escape `>` so ReactMarkdown does not turn `>>15` at line start into a
+  // nested blockquote. Applied to all LLM-generated text before rendering.
+  const escapeMdAnchors = (text: string): string => text.replace(/>/g, "\\>");
 
   const aiActiveTemplate = (): string => {
     const id = aiStatus?.activeModelId;
@@ -4985,7 +5077,8 @@ export default function App() {
     const ctx = buildThreadContext(8000);
     const template = aiActiveTemplate();
     const userMsg = [
-      "以下の5ちゃんねるスレッドを日本語で要約してください。",
+      "以下の5ちゃんねるスレッドを **日本語で** 要約してください。",
+      "言語ルール: 出力は必ず日本語のみ。英語の単語・文章は一切使わない。Reply in Japanese only — do not use English.",
       "",
       "形式:",
       "- 冒頭1行で全体テーマを述べる",
@@ -4995,6 +5088,8 @@ export default function App() {
       "",
       "【スレッド】",
       ctx,
+      "",
+      "上記スレッドを日本語で要約してください (英語禁止)。",
     ].join("\n");
     const prompt = aiWrapTurn(template, "user", userMsg) + aiOpenAssistantTurn(template);
     const sid = `sum-${Date.now()}`;
@@ -5026,10 +5121,13 @@ export default function App() {
     setAiChatMessages(newMessages);
     setAiChatInput("");
 
-    const ctx = buildThreadContext(6000);
+    const focusIds = extractResNumbers(message);
+    const ctx = buildThreadContext(6000, focusIds);
     const template = aiActiveTemplate();
     const systemInstructions = [
       "あなたは5ちゃんねるのスレッドを読み解くアシスタントです。以下のスレッドを踏まえて、ユーザーの質問に答えてください。",
+      "",
+      "言語ルール (最重要): 出力は必ず日本語のみ。英語の単語・文章は一切使わない。Reply in Japanese only — do not use English.",
       "",
       "回答ルール:",
       "- 基本2〜4文で簡潔に。冗長な前置きや締めくくりは不要。",
@@ -6523,7 +6621,7 @@ export default function App() {
                     )}
                     <div className="ai-summary-content ai-markdown">
                       {aiSummary ? (
-                        <ReactMarkdown>{aiSummary}</ReactMarkdown>
+                        <ReactMarkdown>{escapeMdAnchors(aiSummary)}</ReactMarkdown>
                       ) : (
                         <div className="ai-placeholder">
                           「要約する」ボタンを押すと、現在のスレを要約します。
@@ -6543,8 +6641,26 @@ export default function App() {
                     )}
                     <div className="ai-chat-history">
                       {aiChatMessages.length === 0 && (
-                        <div className="ai-placeholder">
-                          このスレについて質問してください (例:「論点をまとめて」「&gt;&gt;50 の意図は？」)。
+                        <div className="ai-chat-examples">
+                          <div className="ai-chat-examples-title">例 (クリックで挿入)</div>
+                          {[
+                            "論点をまとめて",
+                            "盛り上がってるレスは?",
+                            ">>50 の意図は?",
+                            ">>50 に対する肯定的なレスを考えて",
+                          ].map((ex) => (
+                            <button
+                              key={ex}
+                              type="button"
+                              className="ai-chat-example-btn"
+                              onClick={() => {
+                                setAiChatInput(ex);
+                                requestAnimationFrame(() => aiChatInputRef.current?.focus());
+                              }}
+                            >
+                              {ex}
+                            </button>
+                          ))}
                         </div>
                       )}
                       {aiChatMessages.map((m, i) => (
@@ -6552,7 +6668,7 @@ export default function App() {
                           <div className="ai-chat-msg-role">{m.role === "user" ? "あなた" : "AI"}</div>
                           <div className={`ai-chat-msg-content ${m.role === "assistant" ? "ai-markdown" : ""}`}>
                             {m.role === "assistant" && m.content
-                              ? <ReactMarkdown>{m.content}</ReactMarkdown>
+                              ? <ReactMarkdown>{escapeMdAnchors(m.content)}</ReactMarkdown>
                               : m.content || (m.role === "assistant" && aiInferenceBusy ? "..." : "")}
                           </div>
                         </div>
@@ -6573,6 +6689,7 @@ export default function App() {
                     )}
                     <div className="ai-chat-input-row">
                       <textarea
+                        ref={aiChatInputRef}
                         className="ai-chat-input"
                         value={aiChatInput}
                         onChange={(e) => setAiChatInput(e.target.value)}
@@ -6619,7 +6736,7 @@ export default function App() {
                         <span className="ai-status-label">ロード状態</span>
                         <span className="ai-status-value">
                           {aiCacheState?.loaded
-                            ? <><strong style={{ color: "var(--accent, #4caf50)" }}>ロード済</strong> ({aiCacheState.modelId} / {aiCacheState.backendKind})</>
+                            ? <strong style={{ color: "var(--accent, #4caf50)" }}>ロード済</strong>
                             : <span style={{ opacity: 0.7 }}>未ロード</span>}
                         </span>
                       </div>
