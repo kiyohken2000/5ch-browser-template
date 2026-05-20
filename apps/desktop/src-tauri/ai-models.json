@@ -2,19 +2,6 @@
   "version": 1,
   "models": [
     {
-      "id": "gemma3-1b-it-q4km",
-      "name": "Gemma3-1B-IT",
-      "description": "最軽量・最速。お試し向け。",
-      "sizeBytes": 806058272,
-      "quantization": "Q4_K_M",
-      "url": "https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf",
-      "sha256": "8270790f3ab69fdfe860b7b64008d9a19986d8df7e407bb018184caa08798ebd",
-      "contextLength": 32768,
-      "promptTemplate": "gemma",
-      "languages": ["ja", "en"],
-      "recommendedFor": ["summary"]
-    },
-    {
       "id": "gemma4-e2b-it-q4km",
       "name": "Gemma4-E2B-IT",
       "description": "Gemma 3 1B の上位互換。Effective 2B (実体 5.1B エラスティック)、Apache 2.0。軽量だが Gemma 3 1B より明確に賢い。",
@@ -26,19 +13,6 @@
       "promptTemplate": "gemma4",
       "languages": ["ja", "en"],
       "recommendedFor": ["summary"]
-    },
-    {
-      "id": "gemma3-4b-it-q4km",
-      "name": "Gemma3-4B-IT",
-      "description": "中型・バランス型。1B より明確に賢く、特定レス参照や微妙なニュアンスも拾える。",
-      "sizeBytes": 2489894016,
-      "quantization": "Q4_K_M",
-      "url": "https://huggingface.co/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
-      "sha256": "04a43a22e8d2003deda5acc262f68ec1005fa76c735a9962a8c77042a74a7d19",
-      "contextLength": 32768,
-      "promptTemplate": "gemma",
-      "languages": ["ja", "en"],
-      "recommendedFor": ["summary", "reply"]
     },
     {
       "id": "gemma4-e4b-it-q4km",
@@ -116,19 +90,6 @@
       "contextLength": 32768,
       "promptTemplate": "qwen",
       "languages": ["ja", "en", "zh"],
-      "recommendedFor": ["summary", "reply"]
-    },
-    {
-      "id": "gemma4-26b-a4b-q4km",
-      "name": "Gemma4-26B-A4B (MoE)",
-      "description": "Gemma 4 MoE。26B 級の賢さで活性 4B のため中型並みに速い。Apache 2.0、DL 約 16 GB (Unsloth Dynamic Q4_K_M)。",
-      "sizeBytes": 16947539744,
-      "quantization": "Q4_K_M",
-      "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf",
-      "sha256": "34c746b1d50ab813e29cd46c4796e3f43c741901a582f93a67b55b9fc9687b35",
-      "contextLength": 32768,
-      "promptTemplate": "gemma4",
-      "languages": ["ja", "en"],
       "recommendedFor": ["summary", "reply"]
     },
     {

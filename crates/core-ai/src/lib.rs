@@ -658,6 +658,11 @@ where
 
     on_phase(InferencePhase::Generating);
     let mut stop_reason = StopReason::MaxTokensReached;
+    // BPE 系トークナイザ (Qwen 等) は 1 文字を複数トークンに分割するため、
+    // トークン単位で UTF-8 デコードすると境界をまたぐ多バイト文字が壊れて
+    // U+FFFD (��) 化する。バイトを跨いで累積し、有効な UTF-8 プレフィックス
+    // だけを emit、未完了バイトは次トークンに繰り越す。
+    let mut pending: Vec<u8> = Vec::new();
     for _ in 0..max_new_tokens {
         if cancel.load(Ordering::Relaxed) {
             return Err(AiError::InferenceFailed("cancelled".into()));
@@ -673,9 +678,23 @@ where
         let bytes = model
             .token_to_piece_bytes(token, 64, false, None)
             .map_err(|e| AiError::InferenceFailed(format!("token_to_piece: {e}")))?;
-        let piece = String::from_utf8_lossy(&bytes);
-        if !piece.is_empty() {
-            on_token(&piece);
+        pending.extend_from_slice(&bytes);
+        match std::str::from_utf8(&pending) {
+            Ok(s) => {
+                if !s.is_empty() {
+                    on_token(s);
+                }
+                pending.clear();
+            }
+            Err(e) => {
+                let valid_up_to = e.valid_up_to();
+                if valid_up_to > 0 {
+                    // SAFETY: from_utf8 が valid_up_to まで妥当と保証している。
+                    let s = unsafe { std::str::from_utf8_unchecked(&pending[..valid_up_to]) };
+                    on_token(s);
+                    pending.drain(..valid_up_to);
+                }
+            }
         }
 
         batch.clear();
@@ -685,6 +704,14 @@ where
         ctx.decode(&mut batch)
             .map_err(|e| AiError::InferenceFailed(format!("decode step: {e}")))?;
         n_cur += 1;
+    }
+
+    // 終了時に残った未完了バイトは復旧不能なので lossy で出す。
+    if !pending.is_empty() {
+        let s = String::from_utf8_lossy(&pending);
+        if !s.is_empty() {
+            on_token(&s);
+        }
     }
 
     Ok(stop_reason)

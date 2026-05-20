@@ -97,12 +97,23 @@ function aiWrapTurn(template: string, role: "user" | "assistant", content: strin
   return `<start_of_turn>${r}\n${content}<end_of_turn>\n`;
 }
 
-// Invisible Japanese anchor appended after the assistant turn opens. LLMs
-// strongly bias toward the language of the most recent tokens; seeding a
-// Japanese phrase here makes English drift far less likely than relying on
-// system-prompt instructions alone. The streaming handler strips this prefix
-// from the visible output (see aiPrefillRemainingRef).
-const AI_LANG_PREFILL = "[日本語で回答]\n";
+// Invisible prefill appended after the assistant turn opens. Two purposes:
+// (1) Seed Japanese so the model doesn't drift into English — LLMs bias toward
+//     the language of the most recent tokens far more strongly than they obey
+//     system-prompt rules.
+// (2) For Qwen3 chat templates, close the implicit <think> block so the model
+//     emits content directly instead of leaking "</think>" into the answer.
+// The streaming handler strips this prefix from the visible output
+// (see aiPrefillRemainingRef).
+const AI_LANG_ANCHOR = "[日本語で回答]\n";
+const AI_QWEN_THINK_SKIP = "<think>\n\n</think>\n\n";
+
+function aiPrefillFor(template: string): string {
+  if (template === "qwen" || template === "chatml") {
+    return AI_QWEN_THINK_SKIP + AI_LANG_ANCHOR;
+  }
+  return AI_LANG_ANCHOR;
+}
 
 function aiOpenAssistantTurn(template: string): string {
   let opener: string;
@@ -116,7 +127,7 @@ function aiOpenAssistantTurn(template: string): string {
   } else {
     opener = `<start_of_turn>model\n`;
   }
-  return opener + AI_LANG_PREFILL;
+  return opener + aiPrefillFor(template);
 }
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
@@ -1014,9 +1025,9 @@ export default function App() {
   const aiTokenTargetRef = useRef<"summary" | "chat" | null>(null);
   const aiMaxTokensRef = useRef<number>(400);
   const aiLastPromptRef = useRef<string>("");
-  // Remaining bytes of AI_LANG_PREFILL to silently consume from the streamed
-  // output. Defensive: the prefill lives in the prompt (model normally never
-  // echoes it), but if a particular model does parrot it, strip it here.
+  // Remaining bytes of the prefill (aiPrefillFor) to silently consume from the
+  // streamed output. Defensive: the prefill lives in the prompt (model normally
+  // never echoes it), but if a particular model does parrot it, strip it here.
   const aiPrefillRemainingRef = useRef<string>("");
   const aiChatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [boardsFontSize, setBoardsFontSize] = useState(12);
@@ -5148,7 +5159,7 @@ export default function App() {
     aiTokenTargetRef.current = "summary";
     aiMaxTokensRef.current = maxTokens;
     aiLastPromptRef.current = prompt;
-    aiPrefillRemainingRef.current = AI_LANG_PREFILL;
+    aiPrefillRemainingRef.current = aiPrefillFor(template);
     setAiSummary("");
     setAiInferenceBusy(true);
     setAiInferencePhase(null);
@@ -5206,7 +5217,7 @@ export default function App() {
     aiTokenTargetRef.current = "chat";
     aiMaxTokensRef.current = maxTokens;
     aiLastPromptRef.current = prompt;
-    aiPrefillRemainingRef.current = AI_LANG_PREFILL;
+    aiPrefillRemainingRef.current = aiPrefillFor(template);
     setAiInferenceBusy(true);
     setAiInferencePhase(null);
     setAiTokenProgress({ received: 0, max: maxTokens });
