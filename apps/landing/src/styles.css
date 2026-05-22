@@ -437,7 +437,7 @@ h1 {
 .feature-big-text > .kicker {
   margin-bottom: 8px;
 }
-.ai-caption {
+.feature-big-text .ai-caption {
   margin: 14px 0 8px;
   color: var(--ink-sub);
   font-size: 0.95rem;
@@ -473,6 +473,7 @@ h1 {
   font-weight: 600;
   border-radius: 999px;
   cursor: pointer;
+  white-space: nowrap;
   transition: background 160ms ease, color 160ms ease;
 }
 .toggle-pill:hover {

@@ -17,6 +17,7 @@ import aiSettings from "./assets/images/ai-settings.png";
 import aiSummarize from "./assets/images/ai-summarize.png";
 import aiChat from "./assets/images/ai-chat.png";
 import aiStatus from "./assets/images/ai-status.png";
+import aiResponseAssist from "./assets/images/ai-response-assist.jpg";
 
 const REPO_RELEASES_URL = "https://github.com/kiyohken2000/5ch-browser-template/releases";
 const GITHUB_URL = "https://github.com/kiyohken2000/5ch-browser-template";
@@ -50,12 +51,13 @@ type ZoomImage = {
 type PlatformKey = "windows" | "mac";
 type ThemeKey = "light" | "dark";
 type GlassKey = "on" | "off";
-type AiTabKey = "settings" | "summarize" | "chat" | "status";
+type AiTabKey = "settings" | "summarize" | "chat" | "assist" | "status";
 
 const aiShowcase: Record<AiTabKey, { src: string; alt: string; caption: string }> = {
   settings: { src: aiSettings, alt: "AI 設定 - モデル選択と推論バックエンド", caption: "モデルをワンクリックでダウンロードして有効化。GPU / CPU の切替も可能。" },
   summarize: { src: aiSummarize, alt: "AI スレッド要約", caption: "長いスレッドを開いたまま、サイドパネルで要約。読みどころが一目で分かる。" },
   chat: { src: aiChat, alt: "AI チャット", caption: "現在開いているスレッドの内容を前提にチャット。気になる流れを掘り下げる。" },
+  assist: { src: aiResponseAssist, alt: "AI レスバトル支援 - 投稿前チェック", caption: "投稿予定のレスをスレ文脈込みで AI がチェック。誤字・揚げ足・平易の3観点で指摘。" },
   status: { src: aiStatus, alt: "AI ステータス", caption: "ロード中のモデル、推論バックエンド、検出 GPU/CPU デバイスを一目で確認。" },
 };
 
@@ -487,6 +489,15 @@ export default function App() {
                     onClick={() => setAiTab("chat")}
                   >
                     チャット
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={aiTab === "assist"}
+                    className={`toggle-pill ${aiTab === "assist" ? "is-active" : ""}`}
+                    onClick={() => setAiTab("assist")}
+                  >
+                    レス支援
                   </button>
                   <button
                     type="button"
