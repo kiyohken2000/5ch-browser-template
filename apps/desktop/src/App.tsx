@@ -8091,6 +8091,7 @@ export default function App() {
         <div className="thread-menu" style={{ left: idMenu.x, top: idMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { void navigator.clipboard.writeText(`ID:${idMenu.id}`); setStatus("IDをコピーしました"); setIdMenu(null); }}>このIDをコピー</button>
           <button onClick={() => { addNgEntry("ids", idMenu.id); setIdMenu(null); }}>NGIDに追加</button>
+          <button onClick={() => { addHighlightEntry("ids", idMenu.id); setIdMenu(null); }}>IDをハイライト</button>
         </div>
       )}
       {beMenu && (
