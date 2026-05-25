@@ -147,6 +147,22 @@ try {
   assert(toolSeps.length >= 2, `toolbar should have at least 2 separators, got ${toolSeps.length}`);
   console.log("smoke-ui: toolbar separators ok");
 
+  // toolbar has board/thread pane visibility toggle buttons; clicking hides the pane
+  const boardToggleBtn = await page.$('.tool-bar button[aria-label="板一覧ペイン表示切替"]');
+  const threadToggleBtn = await page.$('.tool-bar button[aria-label="スレ一覧ペイン表示切替"]');
+  assert(boardToggleBtn, "toolbar should have board pane visibility toggle button");
+  assert(threadToggleBtn, "toolbar should have thread pane visibility toggle button");
+  const boardsPaneBefore = await page.$(".pane.boards");
+  assert(boardsPaneBefore, "boards pane should exist before toggle");
+  await boardToggleBtn.click();
+  const boardsHidden = await page.evaluate(() => {
+    const el = document.querySelector(".pane.boards");
+    return !el || window.getComputedStyle(el).display === "none";
+  });
+  assert(boardsHidden, "clicking board toggle should hide the boards pane");
+  await boardToggleBtn.click(); // restore
+  console.log("smoke-ui: pane visibility toggles ok");
+
   // clicking a thread marks it as read (removes unread-row class)
   const firstRow = await page.$(".threads tbody tr:first-child");
   if (firstRow) {
