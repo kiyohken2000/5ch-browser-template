@@ -134,7 +134,7 @@ function aiOpenAssistantTurn(template: string): string {
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
-  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen,
+  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -1128,6 +1128,8 @@ export default function App() {
   const [threadPanePx, setThreadPanePx] = useState(DEFAULT_THREAD_PANE_PX);
   const [responseTopRatio, setResponseTopRatio] = useState(DEFAULT_RESPONSE_TOP_RATIO);
   const [paneLayoutMode, setPaneLayoutMode] = useState<PaneLayoutMode>("classic");
+  const [boardPaneHidden, setBoardPaneHidden] = useState(false);
+  const [threadPaneHidden, setThreadPaneHidden] = useState(false);
   const resizeDragRef = useRef<ResizeDragState | null>(null);
   const [threadColWidths, setThreadColWidths] = useState<Record<string, number>>({ ...DEFAULT_COL_WIDTHS });
   const [threadColVisible, setThreadColVisible] = useState<Record<ToggleableThreadColKey, boolean>>({ ...DEFAULT_COL_VISIBLE });
@@ -3766,6 +3768,8 @@ export default function App() {
     setThreadPanePx(DEFAULT_THREAD_PANE_PX);
     setResponseTopRatio(DEFAULT_RESPONSE_TOP_RATIO);
     setPaneLayoutMode("classic");
+    setBoardPaneHidden(false);
+    setThreadPaneHidden(false);
     setThreadColWidths({ ...DEFAULT_COL_WIDTHS });
     setThreadColVisible({ ...DEFAULT_COL_VISIBLE });
     setThreadColOrder([...DEFAULT_THREAD_COL_ORDER]);
@@ -4049,6 +4053,8 @@ export default function App() {
           threadPanePx?: number;
           responseTopRatio?: number;
           paneLayoutMode?: PaneLayoutMode;
+          boardPaneHidden?: boolean;
+          threadPaneHidden?: boolean;
           fontSize?: number;
           boardsFontSize?: number;
           threadsFontSize?: number;
@@ -4097,6 +4103,8 @@ export default function App() {
           setResponseTopRatio(parsed.responseTopRatio);
         }
         if (parsed.paneLayoutMode === "classic" || parsed.paneLayoutMode === "river") setPaneLayoutMode(parsed.paneLayoutMode);
+        if (typeof parsed.boardPaneHidden === "boolean") setBoardPaneHidden(parsed.boardPaneHidden);
+        if (typeof parsed.threadPaneHidden === "boolean") setThreadPaneHidden(parsed.threadPaneHidden);
         const fallbackFs = typeof parsed.fontSize === "number" ? parsed.fontSize : 12;
         setBoardsFontSize(typeof parsed.boardsFontSize === "number" ? parsed.boardsFontSize : fallbackFs);
         setThreadsFontSize(typeof parsed.threadsFontSize === "number" ? parsed.threadsFontSize : fallbackFs);
@@ -4767,6 +4775,8 @@ export default function App() {
       threadPanePx,
       responseTopRatio,
       paneLayoutMode,
+      boardPaneHidden,
+      threadPaneHidden,
       boardsFontSize,
       threadsFontSize,
       responsesFontSize,
@@ -4808,7 +4818,7 @@ export default function App() {
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -5786,6 +5796,36 @@ export default function App() {
           <Columns3 size={14} />
         </button>
         <button
+          className={`title-action-btn ${boardPaneHidden ? "active-toggle" : ""}`}
+          onClick={() => {
+            setBoardPaneHidden((prev) => {
+              const next = !prev;
+              if (next && focusedPane === "boards") setFocusedPane("responses");
+              setStatus(next ? "板一覧ペイン: 非表示" : "板一覧ペイン: 表示");
+              return next;
+            });
+          }}
+          title={boardPaneHidden ? "板一覧ペインを表示" : "板一覧ペインを隠す"}
+          aria-label="板一覧ペイン表示切替"
+        >
+          <PanelLeft size={14} />
+        </button>
+        <button
+          className={`title-action-btn ${threadPaneHidden ? "active-toggle" : ""}`}
+          onClick={() => {
+            setThreadPaneHidden((prev) => {
+              const next = !prev;
+              if (next && focusedPane === "threads") setFocusedPane("responses");
+              setStatus(next ? "スレ一覧ペイン: 非表示" : "スレ一覧ペイン: 表示");
+              return next;
+            });
+          }}
+          title={threadPaneHidden ? "スレ一覧ペインを表示" : "スレ一覧ペインを隠す"}
+          aria-label="スレ一覧ペイン表示切替"
+        >
+          <PanelTop size={14} />
+        </button>
+        <button
           className={`title-action-btn ${darkMode ? "active-toggle" : ""}`}
           onClick={() => {
             setDarkMode((prev) => {
@@ -6057,10 +6097,10 @@ export default function App() {
       <main
         className="layout"
         style={{
-          gridTemplateColumns: `${boardPanePx}px ${SPLITTER_PX}px 1fr`,
+          gridTemplateColumns: boardPaneHidden ? "1fr" : `${boardPanePx}px ${SPLITTER_PX}px 1fr`,
         }}
       >
-        <section className="pane boards" onMouseDown={() => setFocusedPane("boards")} style={{ '--fs-delta': `${boardsFontSize - 12}px` } as React.CSSProperties}>
+        <section className="pane boards" onMouseDown={() => setFocusedPane("boards")} style={{ '--fs-delta': `${boardsFontSize - 12}px`, display: boardPaneHidden ? "none" : undefined } as React.CSSProperties}>
           <div className="boards-header">
             <div className="board-tabs">
               <button
@@ -6314,6 +6354,7 @@ export default function App() {
             </div>
           )}
         </section>
+        {!boardPaneHidden && (
         <div
           className="pane-splitter"
           role="separator"
@@ -6322,14 +6363,15 @@ export default function App() {
           onMouseDown={(e) => beginHorizontalResize("board-thread", e)}
           onClick={(e) => e.stopPropagation()}
         />
+        )}
         <div
           ref={responseLayoutRef}
           className={`right-pane ${paneLayoutMode === "river" ? "right-pane-river" : ""}`}
           style={paneLayoutMode === "river"
-            ? { gridTemplateColumns: `${threadPanePx}px ${SPLITTER_PX}px 1fr` }
-            : { gridTemplateRows: `${threadPanePx}px ${SPLITTER_PX}px 1fr` }}
+            ? { gridTemplateColumns: threadPaneHidden ? "1fr" : `${threadPanePx}px ${SPLITTER_PX}px 1fr` }
+            : { gridTemplateRows: threadPaneHidden ? "1fr" : `${threadPanePx}px ${SPLITTER_PX}px 1fr` }}
         >
-        <section className="pane threads" onMouseDown={() => setFocusedPane("threads")} style={{ '--fs-delta': `${threadsFontSize - 12}px` } as React.CSSProperties}>
+        <section className="pane threads" onMouseDown={() => setFocusedPane("threads")} style={{ '--fs-delta': `${threadsFontSize - 12}px`, display: threadPaneHidden ? "none" : undefined } as React.CSSProperties}>
           <div className="threads-table-wrap" ref={threadListScrollRef} tabIndex={-1} onScroll={hideThreadTitlePopup}>
           <table>
             <thead>
@@ -6392,6 +6434,7 @@ export default function App() {
           </table>
           </div>
         </section>
+        {!threadPaneHidden && (
         <div
           className={`row-splitter ${paneLayoutMode === "river" ? "row-splitter-river" : ""}`}
           role="separator"
@@ -6400,6 +6443,7 @@ export default function App() {
           onMouseDown={beginResponseRowResize}
           onClick={(e) => e.stopPropagation()}
         />
+        )}
         <section className="pane responses" onMouseDown={() => setFocusedPane("responses")} style={{ '--fs-delta': `${responsesFontSize - 12}px` } as React.CSSProperties}>
           {activeTabIndex >= 0 && activeTabIndex < threadTabs.length && (
             <div className="thread-title-bar">
