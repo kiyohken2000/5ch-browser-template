@@ -1061,6 +1061,14 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [threadColumnsOpen, setThreadColumnsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dataDirInfo, setDataDirInfo] = useState<{
+    currentDir: string;
+    defaultDir: string;
+    pointerDir: string | null;
+    isCustom: boolean;
+    envOverride: boolean;
+  } | null>(null);
+  const [dataDirMsg, setDataDirMsg] = useState<string | null>(null);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [aiCatalog, setAiCatalog] = useState<AiCatalog | null>(null);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
@@ -5003,6 +5011,76 @@ export default function App() {
     })();
   }, [aiSettingsOpen]);
 
+  const refreshDataDirInfo = async () => {
+    if (!isTauriRuntime()) return;
+    try {
+      const info = await invoke<{
+        currentDir: string;
+        defaultDir: string;
+        pointerDir: string | null;
+        isCustom: boolean;
+        envOverride: boolean;
+      }>("get_data_dir_info");
+      setDataDirInfo(info);
+    } catch (e) {
+      console.warn("get_data_dir_info failed", e);
+    }
+  };
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    setDataDirMsg(null);
+    void refreshDataDirInfo();
+  }, [settingsOpen]);
+
+  const changeDataDir = async () => {
+    if (!isTauriRuntime()) return;
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const selected = await open({ directory: true, title: "データフォルダを選択" });
+      if (!selected) return;
+      const dir = typeof selected === "string" ? selected : (selected as string[])[0];
+      if (!dir) return;
+      await invoke("set_data_dir", { path: dir });
+      await refreshDataDirInfo();
+      setDataDirMsg("変更しました。アプリを再起動すると反映されます。これまでのデータは自動コピーされません。");
+    } catch (e) {
+      console.warn("set_data_dir failed", e);
+      setDataDirMsg(`変更できません: ${String(e)}`);
+    }
+  };
+
+  const resetDataDir = async () => {
+    if (!isTauriRuntime()) return;
+    try {
+      await invoke("clear_data_dir");
+      await refreshDataDirInfo();
+      setDataDirMsg("デフォルトに戻しました。アプリを再起動すると反映されます。");
+    } catch (e) {
+      console.warn("clear_data_dir failed", e);
+      setDataDirMsg(`戻せません: ${String(e)}`);
+    }
+  };
+
+  // Undo a not-yet-applied change so the after-restart path matches the path
+  // currently in use. If this session is already on the default dir, clearing
+  // the pointer restores it; otherwise re-point at the current dir.
+  const cancelDataDirChange = async () => {
+    if (!isTauriRuntime() || !dataDirInfo) return;
+    try {
+      if (dataDirInfo.currentDir === dataDirInfo.defaultDir) {
+        await invoke("clear_data_dir");
+      } else {
+        await invoke("set_data_dir", { path: dataDirInfo.currentDir });
+      }
+      await refreshDataDirInfo();
+      setDataDirMsg("変更を取り消しました。現在の保存先のまま継続します。");
+    } catch (e) {
+      console.warn("cancel data dir change failed", e);
+      setDataDirMsg(`取り消せません: ${String(e)}`);
+    }
+  };
+
   useEffect(() => {
     if (!isTauriRuntime()) return;
     let cancelled = false;
@@ -8743,6 +8821,69 @@ export default function App() {
                 {authSaveMsg && <div className="settings-row"><span>{authSaveMsg}</span></div>}
                 <div className="settings-row"><span>Ronin: {roninState}</span><span>BE: {beState}</span></div>
               </fieldset>
+              <fieldset>
+                  <legend>データフォルダ</legend>
+                  <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                    <span>現在の保存先</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.8em", opacity: 0.75, wordBreak: "break-all" }}>
+                      <span>{dataDirInfo?.currentDir ?? "—"}</span>
+                      <button
+                        type="button"
+                        className="title-action-btn"
+                        title="保存先フォルダを開く"
+                        onClick={() => {
+                          void invoke("reveal_data_dir").catch((e) => {
+                            console.warn("reveal_data_dir failed", e);
+                            setDataDirMsg(`フォルダを開けません: ${String(e)}`);
+                          });
+                        }}
+                      >
+                        <FolderOpen size={14} />
+                      </button>
+                    </span>
+                  </div>
+                  {dataDirInfo && !dataDirInfo.envOverride && (() => {
+                    const nextDir = dataDirInfo.pointerDir ?? dataDirInfo.defaultDir;
+                    if (nextDir === dataDirInfo.currentDir) return null;
+                    return (
+                      <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                        <span>再起動後の保存先</span>
+                        <span style={{ fontSize: "0.8em", color: "var(--accent, #c60)", fontWeight: 600, wordBreak: "break-all" }}>
+                          {nextDir}
+                        </span>
+                      </div>
+                    );
+                  })()}
+                  {dataDirInfo?.envOverride ? (
+                    <div className="settings-row">
+                      <span className="settings-hint">
+                        環境変数 EMBER_DATA_DIR が設定されているため、ここでは変更できません。
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="settings-row" style={{ gap: 4 }}>
+                        <button onClick={() => void changeDataDir()}>フォルダを変更…</button>
+                        {dataDirInfo && (dataDirInfo.pointerDir ?? dataDirInfo.defaultDir) !== dataDirInfo.currentDir && (
+                          <button onClick={() => void cancelDataDirChange()}>取り消す</button>
+                        )}
+                        {dataDirInfo?.isCustom && (
+                          <button onClick={() => void resetDataDir()}>デフォルトに戻す</button>
+                        )}
+                      </div>
+                      {dataDirMsg && (
+                        <div className="settings-row"><span className="settings-hint">{dataDirMsg}</span></div>
+                      )}
+                      <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                        <span className="settings-hint" style={{ lineHeight: 1.5 }}>
+                          OneDrive / iCloud Drive / Google Drive 等の同期フォルダを指定すると、複数PCでお気に入り・NG・既読・認証設定を共有できます。設定は各PCで個別に行ってください（この設定自体は同期されません）。<br />
+お気に入り（スレ・板）は同期されますが、スレの読みかけ位置・開いているタブ・検索履歴・自分の書き込み記録は同期されません（端末ごとの保存）。<br />
+                          ⚠ 2台同時に起動しないでください（同期の競合でデータが壊れる恐れがあります）。AIモデルは保存先の変更にかかわらず常に各PCのローカルに保存され、同期されません。
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </fieldset>
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>

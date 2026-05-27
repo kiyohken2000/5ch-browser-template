@@ -808,6 +808,7 @@ try {
   assert(legends.includes("表示"), `settings should have 表示 section, got ${legends}`);
   assert(legends.includes("書き込み"), `settings should have 書き込み section, got ${legends}`);
   assert(legends.some((l) => l.includes("Ronin")), `settings should have Ronin/BE section, got ${legends}`);
+  assert(legends.includes("データフォルダ"), `settings should have データフォルダ section, got ${legends}`);
   assert(legends.includes("情報"), `settings should have 情報 section, got ${legends}`);
   // close settings
   await page.click('.settings-header button:has-text("閉じる")');

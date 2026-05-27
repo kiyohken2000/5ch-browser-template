@@ -1692,17 +1692,19 @@ fn ai_inference_cancel() -> &'static Mutex<Option<Arc<AtomicBool>>> {
 }
 
 fn ai_models_dir() -> Result<PathBuf, String> {
-    let base = core_store::portable_data_dir().map_err(|e| e.to_string())?;
+    // Models live under the local default dir, NOT the redirected data dir, so
+    // multi-GB files never end up on a cloud-synced folder. See
+    // core_store::models_base_dir.
+    let base = core_store::models_base_dir().map_err(|e| e.to_string())?;
     let dir = base.join("models");
     Ok(dir)
 }
 
-#[tauri::command]
-fn ai_reveal_models_dir() -> Result<(), String> {
-    let dir = ai_models_dir()?;
-    // Create on first run so we open an empty folder instead of erroring out
-    // when the user has not downloaded anything yet.
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+/// Open `dir` in the OS file manager, creating it first so we never error out
+/// on a not-yet-existing folder. Shared by the AI models reveal and the data
+/// folder reveal.
+fn reveal_dir_in_file_manager(dir: &std::path::Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let path = dir.as_os_str();
 
     #[cfg(target_os = "windows")]
@@ -1734,6 +1736,68 @@ fn ai_reveal_models_dir() -> Result<(), String> {
 
     #[allow(unreachable_code)]
     Err("unsupported platform".to_string())
+}
+
+#[tauri::command]
+fn ai_reveal_models_dir() -> Result<(), String> {
+    let dir = ai_models_dir()?;
+    reveal_dir_in_file_manager(&dir)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DataDirInfo {
+    /// Effective data dir in use this session (resolved once at startup).
+    current_dir: String,
+    /// Built-in per-machine location (where a redirect reverts to).
+    default_dir: String,
+    /// Redirect target recorded in the pointer file, if any.
+    pointer_dir: Option<String>,
+    /// True when a redirect pointer is active (current != default via pointer).
+    is_custom: bool,
+    /// True when EMBER_DATA_DIR is set — GUI changes are disabled in that case.
+    env_override: bool,
+}
+
+#[tauri::command]
+fn get_data_dir_info() -> Result<DataDirInfo, String> {
+    let current = core_store::portable_data_dir().map_err(|e| e.to_string())?;
+    let default = core_store::default_data_dir().map_err(|e| e.to_string())?;
+    let pointer = core_store::data_dir_pointer_target().map_err(|e| e.to_string())?;
+    let env_override = core_store::data_dir_env_override();
+    Ok(DataDirInfo {
+        current_dir: current.to_string_lossy().to_string(),
+        default_dir: default.to_string_lossy().to_string(),
+        pointer_dir: pointer.as_ref().map(|p| p.to_string_lossy().to_string()),
+        is_custom: pointer.is_some() && !env_override,
+        env_override,
+    })
+}
+
+#[tauri::command]
+fn set_data_dir(path: String) -> Result<(), String> {
+    if core_store::data_dir_env_override() {
+        return Err("環境変数 EMBER_DATA_DIR が設定されているため、ここでは変更できません".to_string());
+    }
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("フォルダが指定されていません".to_string());
+    }
+    core_store::set_data_dir_pointer(std::path::Path::new(trimmed)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_data_dir() -> Result<(), String> {
+    if core_store::data_dir_env_override() {
+        return Err("環境変数 EMBER_DATA_DIR が設定されているため、ここでは変更できません".to_string());
+    }
+    core_store::clear_data_dir_pointer().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn reveal_data_dir() -> Result<(), String> {
+    let dir = core_store::portable_data_dir().map_err(|e| e.to_string())?;
+    reveal_dir_in_file_manager(&dir)
 }
 
 #[derive(Serialize, Clone)]
@@ -2294,7 +2358,11 @@ pub fn run() {
             ai_list_backend_devices,
             ai_cache_state,
             ai_preload_model,
-            ai_unload_model
+            ai_unload_model,
+            get_data_dir_info,
+            set_data_dir,
+            clear_data_dir,
+            reveal_data_dir
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
