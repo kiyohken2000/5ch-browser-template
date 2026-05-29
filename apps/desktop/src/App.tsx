@@ -5823,6 +5823,7 @@ export default function App() {
             { text: "sep" },
             { text: "設定", action: () => setSettingsOpen(true) },
             { text: "AI 設定", action: () => setAiSettingsOpen(true) },
+            { text: "マウスジェスチャ設定", action: () => setGestureListOpen(true) },
             ...(navigator.userAgent.includes("Windows") ? [
               { text: "sep" },
               { text: "終了", action: () => { if (isTauriRuntime()) { void invoke("quit_app"); } } },
@@ -5882,7 +5883,6 @@ export default function App() {
           ]},
           { label: "ヘルプ", items: [
             { text: "ショートカット一覧", action: () => setShortcutsOpen(true) },
-            { text: "マウスジェスチャ設定", action: () => setGestureListOpen(true) },
             { text: "更新確認", action: checkForUpdates },
             { text: "sep" },
             { text: "バージョン情報", action: () => requestAnimationFrame(() => { setAboutOpen(true); void checkForUpdates(); }) },
