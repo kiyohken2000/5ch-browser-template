@@ -87,6 +87,7 @@ git add \
   "$TAURI_DIR/Cargo.toml" \
   "$TAURI_DIR/src/lib.rs" \
   "$TAURI_DIR/capabilities/default.json" \
+  "$TAURI_DIR/ai-models.json" \
   Cargo.lock \
   "$DESKTOP_DIR/src/App.tsx" \
   "$DESKTOP_DIR/src/styles.css" \

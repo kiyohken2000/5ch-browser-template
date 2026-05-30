@@ -70,7 +70,10 @@ python "$ROOT_DIR/scripts/prepare_release_metadata.py" \
   --mac-zip "$MAC_ZIP"
 
 cd "$ROOT_DIR"
-git add "$LANDING_DIR/public/latest.json"
+git add \
+  "$LANDING_DIR/public/latest.json" \
+  "$LANDING_DIR/public/ai-models.json" \
+  "$LANDING_DIR/src/App.tsx"
 git commit -m "release: update latest.json for ${TAG}
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
