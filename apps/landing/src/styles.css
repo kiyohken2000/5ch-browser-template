@@ -507,6 +507,38 @@ h1 {
   border-bottom-color: var(--ink);
 }
 
+/* Features CTA (README link) */
+.features-cta {
+  margin-top: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.features-cta-text {
+  max-width: 640px;
+  color: var(--ink-sub);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  margin: 0;
+}
+.features-cta-link {
+  display: inline-block;
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 0.95rem;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.features-cta-link:hover {
+  background-color: var(--panel-strong);
+  border-color: var(--ink);
+  transform: translateY(-1px);
+}
+
 /* Feature grid */
 .feature-grid {
   display: grid;

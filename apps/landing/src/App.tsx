@@ -613,6 +613,20 @@ export default function App() {
               </button>
             </article>
           </div>
+
+          <div className="features-cta reveal">
+            <p className="features-cta-text">
+              ここに載っているのは代表的なものだけです。NG / ハイライト / マウスジェスチャ / オートスクロール / 画像 NG / YouTube PiP / データフォルダ共有など、全 80+ 機能の一覧は README をご覧ください。
+            </p>
+            <a
+              className="features-cta-link"
+              href={`${GITHUB_URL}#%E4%B8%BB%E3%81%AA%E6%A9%9F%E8%83%BD`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              全機能一覧を README で見る →
+            </a>
+          </div>
         </section>
 
         <section id="install" className="section">
