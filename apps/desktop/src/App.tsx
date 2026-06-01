@@ -7582,7 +7582,14 @@ export default function App() {
                         <span className="ai-status-label">ロード状態</span>
                         <span className="ai-status-value">
                           {aiCacheState?.loaded
-                            ? <strong style={{ color: "var(--accent, #4caf50)" }}>ロード済</strong>
+                            ? <>
+                                <strong style={{ color: "var(--accent, #4caf50)" }}>ロード済</strong>
+                                {aiCacheState.modelId && (
+                                  <span style={{ opacity: 0.7, marginLeft: 6 }}>
+                                    ({aiCacheState.modelId})
+                                  </span>
+                                )}
+                              </>
                             : <span style={{ opacity: 0.7 }}>未ロード</span>}
                         </span>
                       </div>
