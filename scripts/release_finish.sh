@@ -73,7 +73,8 @@ cd "$ROOT_DIR"
 git add \
   "$LANDING_DIR/public/latest.json" \
   "$LANDING_DIR/public/ai-models.json" \
-  "$LANDING_DIR/src/App.tsx"
+  "$LANDING_DIR/src/App.tsx" \
+  "$LANDING_DIR/src/assets/images/ai-translate.png"
 git commit -m "release: update latest.json for ${TAG}
 
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
