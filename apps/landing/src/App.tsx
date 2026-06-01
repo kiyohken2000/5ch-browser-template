@@ -18,6 +18,7 @@ import aiSummarize from "./assets/images/ai-summarize.png";
 import aiChat from "./assets/images/ai-chat.png";
 import aiStatus from "./assets/images/ai-status.png";
 import aiResponseAssist from "./assets/images/ai-response-assist.jpg";
+import aiTranslate from "./assets/images/ai-translate.png";
 
 const REPO_RELEASES_URL = "https://github.com/kiyohken2000/5ch-browser-template/releases";
 const GITHUB_URL = "https://github.com/kiyohken2000/5ch-browser-template";
@@ -52,13 +53,14 @@ type ZoomImage = {
 type PlatformKey = "windows" | "mac";
 type ThemeKey = "light" | "dark";
 type GlassKey = "on" | "off";
-type AiTabKey = "settings" | "summarize" | "chat" | "assist" | "status";
+type AiTabKey = "settings" | "summarize" | "chat" | "assist" | "translate" | "status";
 
 const aiShowcase: Record<AiTabKey, { src: string; alt: string; caption: string }> = {
   settings: { src: aiSettings, alt: "AI 設定 - モデル選択と推論バックエンド", caption: "モデルをワンクリックでダウンロードして有効化。GPU / CPU の切替も可能。" },
   summarize: { src: aiSummarize, alt: "AI スレッド要約", caption: "長いスレッドを開いたまま、サイドパネルで要約。読みどころが一目で分かる。" },
   chat: { src: aiChat, alt: "AI チャット", caption: "現在開いているスレッドの内容を前提にチャット。気になる流れを掘り下げる。" },
   assist: { src: aiResponseAssist, alt: "AI レスバトル支援 - 投稿前チェック", caption: "投稿予定のレスをスレ文脈込みで AI がチェック。誤字・揚げ足・平易の3観点で指摘。" },
+  translate: { src: aiTranslate, alt: "AI 翻訳 - 外国語レスを日本語で読む", caption: "翻訳特化モデル Hy-MT2 で外国語レスを日本語に。書き込みも英・中・韓へ翻訳可能。" },
   status: { src: aiStatus, alt: "AI ステータス", caption: "ロード中のモデル、推論バックエンド、検出 GPU/CPU デバイスを一目で確認。" },
 };
 
@@ -453,11 +455,15 @@ export default function App() {
           <div className="feature-big reveal">
             <div className="feature-big-text">
               <p className="kicker">AI</p>
-              <h3>ローカル LLM で、要約と対話。</h3>
+              <h3>ローカル LLM で、要約・対話・翻訳。</h3>
               <p>
-                スレッドの要約・チャットを <b>完全ローカルの LLM</b> で実行。
+                スレッドの要約・チャット・翻訳を <b>完全ローカルの LLM</b> で実行。
                 クラウドにデータを送らないので、プライバシーを保ったまま長いスレッドを素早く把握できます。
                 Gemma3 / Qwen3 など複数モデルから選択可能、初回ダウンロード後はオフラインでも利用できます。
+              </p>
+              <p>
+                翻訳は専用モデル <b>Hy-MT2</b> (Tencent 製・1.8B・33 言語) を使い、外国語レスを日本語で読んだり、
+                自分の書き込みを英・中・韓へ翻訳できます。
               </p>
               <p>
                 Apple Silicon は Metal、Windows / Linux は Vulkan で GPU 推論。
@@ -500,6 +506,15 @@ export default function App() {
                     onClick={() => setAiTab("assist")}
                   >
                     レス支援
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={aiTab === "translate"}
+                    className={`toggle-pill ${aiTab === "translate" ? "is-active" : ""}`}
+                    onClick={() => setAiTab("translate")}
+                  >
+                    翻訳
                   </button>
                   <button
                     type="button"
