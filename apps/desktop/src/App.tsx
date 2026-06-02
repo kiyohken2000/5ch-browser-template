@@ -431,6 +431,10 @@ const EX0CH_ENABLED_KEY = "desktop.ex0chEnabled.v1";
 const LANDING_PAGE_URL = "https://ember-5ch.pages.dev";
 const BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/votepurchase";
 const BOARD_TREE_SCROLL_KEY = "desktop.boardTreeScrollTop.v1";
+const BOARD_PANE_TAB_KEY = "desktop.boardPaneTab.v1";
+const FAV_RECENT_EXPANDED_KEY = "desktop.favRecentExpanded.v1";
+const FAV_RECENT_POSTED_EXPANDED_KEY = "desktop.favRecentPostedExpanded.v1";
+const FAV_THREADS_SCROLL_KEY = "desktop.favThreadsScrollTop.v1";
 const SCROLL_POS_KEY = "desktop.scrollPositions.v1";
 const NEW_THREAD_SIZE_KEY = "desktop.newThreadDialogSize.v1";
 const THREAD_FETCH_TIMES_KEY = "desktop.threadFetchTimes.v1";
@@ -1087,9 +1091,19 @@ export default function App() {
   const restoreSessionRef = useRef(false);
   const hoverPreviewEnabledRef = useRef(hoverPreviewEnabled);
   hoverPreviewEnabledRef.current = hoverPreviewEnabled;
-  const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">("boards");
-  const [favRecentExpanded, setFavRecentExpanded] = useState(false);
-  const [favRecentPostedExpanded, setFavRecentPostedExpanded] = useState(false);
+  const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">(() => {
+    try {
+      const v = localStorage.getItem(BOARD_PANE_TAB_KEY);
+      if (v === "boards" || v === "fav-threads") return v;
+    } catch { /* ignore */ }
+    return "boards";
+  });
+  const [favRecentExpanded, setFavRecentExpanded] = useState(() => {
+    try { return localStorage.getItem(FAV_RECENT_EXPANDED_KEY) === "1"; } catch { return false; }
+  });
+  const [favRecentPostedExpanded, setFavRecentPostedExpanded] = useState(() => {
+    try { return localStorage.getItem(FAV_RECENT_POSTED_EXPANDED_KEY) === "1"; } catch { return false; }
+  });
   const [showCachedOnly, setShowCachedOnly] = useState(false);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [showRecentOpenedOnly, setShowRecentOpenedOnly] = useState(false);
@@ -1289,6 +1303,8 @@ export default function App() {
   const threadScrollPositions = useRef<Record<string, number>>({});
   const boardTreeRef = useRef<HTMLDivElement | null>(null);
   const boardTreeScrollRestoreRef = useRef<number | null>(null);
+  const favThreadsRef = useRef<HTMLDivElement | null>(null);
+  const favThreadsScrollRestoreRef = useRef<number | null>(null);
   const responseLayoutRef = useRef<HTMLDivElement | null>(null);
   const threadTbodyRef = useRef<HTMLTableSectionElement | null>(null);
   const responseScrollRef = useRef<HTMLDivElement | null>(null);
@@ -3970,6 +3986,10 @@ export default function App() {
     const top = event.currentTarget.scrollTop;
     try { localStorage.setItem(BOARD_TREE_SCROLL_KEY, String(top)); } catch { /* ignore */ }
   };
+  const onFavThreadsScroll: UIEventHandler<HTMLDivElement> = (event) => {
+    const top = event.currentTarget.scrollTop;
+    try { localStorage.setItem(FAV_THREADS_SCROLL_KEY, String(top)); } catch { /* ignore */ }
+  };
   const scrollSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onResponseScroll: UIEventHandler<HTMLDivElement> = () => {
     if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
@@ -4420,6 +4440,13 @@ export default function App() {
         if (Number.isFinite(n) && n >= 0) boardTreeScrollRestoreRef.current = n;
       }
     } catch { /* ignore */ }
+    try {
+      const saved = localStorage.getItem(FAV_THREADS_SCROLL_KEY);
+      if (saved != null) {
+        const n = Number(saved);
+        if (Number.isFinite(n) && n >= 0) favThreadsScrollRestoreRef.current = n;
+      }
+    } catch { /* ignore */ }
     // Load thread fetch times
     try {
       const ftRaw = localStorage.getItem(THREAD_FETCH_TIMES_KEY);
@@ -4526,6 +4553,24 @@ export default function App() {
     if (saved == null) return;
     boardTreeRef.current.scrollTop = saved;
   }, [boardPaneTab, boardCategories]);
+
+  useEffect(() => {
+    if (boardPaneTab !== "fav-threads") return;
+    if (!favThreadsRef.current) return;
+    const saved = favThreadsScrollRestoreRef.current;
+    if (saved == null) return;
+    favThreadsRef.current.scrollTop = saved;
+  }, [boardPaneTab, favorites.threads, recentOpenedThreads, recentPostedThreads, favRecentExpanded, favRecentPostedExpanded]);
+
+  useEffect(() => {
+    try { localStorage.setItem(BOARD_PANE_TAB_KEY, boardPaneTab); } catch { /* ignore */ }
+  }, [boardPaneTab]);
+  useEffect(() => {
+    try { localStorage.setItem(FAV_RECENT_EXPANDED_KEY, favRecentExpanded ? "1" : "0"); } catch { /* ignore */ }
+  }, [favRecentExpanded]);
+  useEffect(() => {
+    try { localStorage.setItem(FAV_RECENT_POSTED_EXPANDED_KEY, favRecentPostedExpanded ? "1" : "0"); } catch { /* ignore */ }
+  }, [favRecentPostedExpanded]);
 
   const handlePopupImageClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -6583,7 +6628,7 @@ export default function App() {
               </ul>
             )
           ) : (
-            <div className="fav-threads-list">
+            <div className="fav-threads-list" ref={favThreadsRef} onScroll={onFavThreadsScroll}>
               <input
                 className="fav-search"
                 value={favSearchQuery}
