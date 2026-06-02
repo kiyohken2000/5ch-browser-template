@@ -877,7 +877,7 @@ pub fn create_thread(
         body.find(&pattern).and_then(|idx| {
             let rest = &body[idx..];
             // find the end of the URL (quote, space, angle bracket, etc.)
-            let end = rest.find(|c: char| c == '"' || c == '\'' || c == '<' || c == ' ' || c == '\n')
+            let end = rest.find(['"', '\'', '<', ' ', '\n'])
                 .unwrap_or(rest.len());
             let path = &rest[..end];
             // Verify it looks like a valid thread path (has a numeric ID)

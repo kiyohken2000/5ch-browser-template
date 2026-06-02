@@ -266,7 +266,7 @@ fn validate_model_url(url: &str) -> Result<(), AiError> {
     let host = parsed
         .host_str()
         .ok_or_else(|| AiError::UntrustedUrl(format!("no host in url: {url}")))?;
-    if !ALLOWED_HOSTS.iter().any(|h| host == *h) {
+    if !ALLOWED_HOSTS.contains(&host) {
         return Err(AiError::UntrustedUrl(format!("host not allowed: {host}")));
     }
     Ok(())

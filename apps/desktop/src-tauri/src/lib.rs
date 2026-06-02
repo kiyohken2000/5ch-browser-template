@@ -840,7 +840,7 @@ async fn fetch_board_categories() -> Result<Vec<BoardCategory>, String> {
             let url = item
                 .get("url")
                 .and_then(|v| v.as_str())
-                .map(|u| normalize_5ch_url(u))
+                .map(normalize_5ch_url)
                 .unwrap_or_default();
             if !board_name.is_empty() && !url.is_empty() {
                 boards.push(BoardEntry { board_name, url });
@@ -2248,7 +2248,7 @@ pub fn run() {
                 }
 
                 // Track maximize state to restore saved size on un-maximize
-                let started_maximized = saved.as_ref().map_or(false, |s| s.maximized);
+                let started_maximized = saved.as_ref().is_some_and(|s| s.maximized);
                 let restore_on_unmaximize = std::cell::Cell::new(started_maximized);
                 let restore_w = saved.as_ref().map_or(1400.0, |s| s.width);
                 let restore_h = saved.as_ref().map_or(900.0, |s| s.height);
