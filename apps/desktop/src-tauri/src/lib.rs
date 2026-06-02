@@ -1353,6 +1353,7 @@ struct YoutubePipBounds {
 /// `x/y/width/height` are logical (DPI-independent) values. Monitors expose
 /// physical bounds + scale factor, so we convert the saved logical bounds to
 /// physical for comparison.
+#[cfg(not(target_os = "macos"))]
 fn position_visible_on_any_monitor(
     app: &tauri::AppHandle,
     logical_x: f64,
@@ -1406,8 +1407,6 @@ fn persist_youtube_pip_bounds(app: &tauri::AppHandle) {
 
 #[tauri::command]
 async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(), String> {
-    use tauri::{WebviewUrl, WebviewWindowBuilder};
-
     if video_id.len() != 11
         || !video_id
             .chars()
@@ -1415,8 +1414,6 @@ async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(),
     {
         return Err("Invalid YouTube video ID".into());
     }
-
-    let label = "youtube-pip";
 
     // macOS: WKWebView + Tauri 2 release では YouTube embed が「エラー153」で
     //   再生できないため、PiP は提供せず標準ブラウザで開くフォールバックに
@@ -1430,11 +1427,15 @@ async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(),
             .arg(&url_str)
             .spawn()
             .map_err(|e| e.to_string())?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(target_os = "macos"))]
     {
+        use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+        let label = "youtube-pip";
+
         let inject_script = format!(
             "window.__pipVideoId={}; if (typeof loadPipVideo === 'function') loadPipVideo();",
             serde_json::to_string(&video_id).unwrap_or_else(|_| "\"\"".into())
@@ -1479,9 +1480,9 @@ async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(),
                 persist_youtube_pip_bounds(&app_handle);
             }
         });
-    }
 
-    Ok(())
+        Ok(())
+    }
 }
 
 #[tauri::command]
