@@ -2,9 +2,22 @@
   "version": 1,
   "models": [
     {
+      "id": "lfm2-5-1.2b-jp-q4km",
+      "name": "LFM2.5-1.2B-JP",
+      "description": "最軽量・日本語要約専用 (0.73 GB)。Liquid AI の Hybrid (Conv+Attn) アーキ、128K ctx。",
+      "sizeBytes": 730894624,
+      "quantization": "Q4_K_M",
+      "url": "https://huggingface.co/LiquidAI/LFM2.5-1.2B-JP-202606-GGUF/resolve/main/LFM2.5-1.2B-JP-202606-Q4_K_M.gguf",
+      "sha256": "23d4d4060cb06463563f6e8644bbbc7d1cb0bfe4cf21d5edf3ccc6f515fd44bb",
+      "contextLength": 128000,
+      "promptTemplate": "lfm2",
+      "languages": ["ja"],
+      "recommendedFor": ["summary"]
+    },
+    {
       "id": "gemma3-1b-it-q4km",
       "name": "Gemma3-1B-IT",
-      "description": "最軽量・最速 (0.75 GB)。低スペック PC でのお試し向け。",
+      "description": "軽量・高速 (0.75 GB)。低スペック PC でのお試し向け。多言語対応 (ja/en)。",
       "sizeBytes": 806058272,
       "quantization": "Q4_K_M",
       "url": "https://huggingface.co/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf",

@@ -2768,6 +2768,30 @@ button.search-history-btn:hover {
   opacity: 1;
 }
 
+a.body-link-image {
+  position: relative;
+}
+a.body-link-image::after {
+  content: "Ctrlを押しながらポイントするとポップアップ表示します";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 2px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 1;
+}
+a.body-link-image:hover::after {
+  opacity: 1;
+}
+
 .response-thumb {
   max-width: var(--thumb-size, 200px);
   max-height: var(--thumb-size, 200px);

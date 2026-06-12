@@ -96,7 +96,7 @@ function formatAiBytes(n: number): string {
 }
 
 function aiWrapTurn(template: string, role: "user" | "assistant", content: string): string {
-  if (template === "qwen" || template === "chatml") {
+  if (template === "qwen" || template === "chatml" || template === "lfm2") {
     return `<|im_start|>${role}\n${content}<|im_end|>\n`;
   }
   if (template === "gemma4") {
@@ -130,12 +130,26 @@ function aiPrefillFor(template: string): string {
   if (template === "qwen" || template === "chatml") {
     return AI_QWEN_THINK_SKIP + AI_LANG_ANCHOR;
   }
+  // LFM2 uses ChatML wrapping but has no <think> mechanism — injecting the
+  // qwen think-skip tokens would leak as literal text and derail the model.
+  if (template === "lfm2") return AI_LANG_ANCHOR;
   return AI_LANG_ANCHOR;
+}
+
+// Emit a dedicated system turn for templates where the model benefits from
+// role separation. Small LFM2 1.2B mis-attributes "(最重要)" labels inside a
+// user turn as the actual question, so its system instructions go here instead.
+// Returns empty string for templates where the existing user-turn-only flow works.
+function aiSystemTurn(template: string, content: string): string {
+  if (template === "lfm2") {
+    return `<|im_start|>system\n${content}<|im_end|>\n`;
+  }
+  return "";
 }
 
 function aiOpenAssistantTurn(template: string): string {
   let opener: string;
-  if (template === "qwen" || template === "chatml") {
+  if (template === "qwen" || template === "chatml" || template === "lfm2") {
     opener = `<|im_start|>assistant\n`;
   } else if (template === "gemma4") {
     // The jinja "empty thought" trick (`<|channel>thought\n<channel|>`) is
@@ -860,7 +874,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
         } else {
           collectedThumbs.push(`<span class="thumb-link" data-lightbox-src="${href}"><img class="response-thumb" src="${href}" loading="lazy" referrerpolicy="no-referrer" alt="" /></span>`);
         }
-        return `<a class="body-link" href="${href}" target="_blank" rel="noopener">${match}</a>`;
+        return `<a class="body-link body-link-image" href="${href}" target="_blank" rel="noopener">${match}</a>`;
       }
     );
   }
@@ -4772,11 +4786,19 @@ export default function App() {
 
   const handlePopupImageHover = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
+    if (!e.ctrlKey && !hoverPreviewEnabled) return;
     const thumb = target.closest<HTMLImageElement>("img.response-thumb");
-    if ((!e.ctrlKey && !hoverPreviewEnabled) || !thumb) return;
-    const src = thumb.getAttribute("src");
-    if (!src) return;
-    showHoverPreview(src);
+    if (thumb) {
+      const src = thumb.getAttribute("src");
+      if (!src) return;
+      showHoverPreview(src);
+      return;
+    }
+    const link = target.closest<HTMLAnchorElement>("a.body-link");
+    const href = link?.getAttribute("href");
+    if (href && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(href)) {
+      showHoverPreview(href);
+    }
   };
 
   useEffect(() => {
@@ -5934,12 +5956,33 @@ export default function App() {
       "- スレッドに書かれていないことは「スレッドに記載なし」と答える。",
       "- スレッド全体を要約しない。聞かれたことだけに答える。",
     ].join("\n");
+    // Small models (LFM2 1.2B) struggle to locate the referenced response
+    // inside a long thread context. Re-quote the target response(s) just
+    // before the question so the model doesn't have to hunt for them.
+    // Name field is omitted because 5ch default names like "番組の途中ですが
+    // アフィサイトへの転載は禁止です" get misread as the poster's statement.
+    let focusBlock = "";
+    if (template === "lfm2" && focusIds.length > 0) {
+      const focusBodies: string[] = [];
+      for (const id of focusIds) {
+        const r = responseItems.find((x) => x.id === id);
+        if (!r) continue;
+        const plain = stripHtmlForMatch(r.text);
+        focusBodies.push(`>>${r.id} (${r.time}):\n${plain}`);
+      }
+      if (focusBodies.length > 0) {
+        focusBlock = `\n\n【質問対象のレス】\n${focusBodies.join("\n\n")}`;
+      }
+    }
     const completeMessages = newMessages.slice(0, -1); // omit the empty assistant placeholder
-    let prompt = "";
+    const sysTurn = aiSystemTurn(template, systemInstructions);
+    let prompt = sysTurn;
     completeMessages.forEach((m, i) => {
       if (m.role === "user") {
         const body = i === 0
-          ? `${systemInstructions}\n\n【スレッド】\n${ctx}\n\n【ユーザーの質問】\n${m.content}`
+          ? (sysTurn
+              ? `【スレッド】\n${ctx}${focusBlock}\n\n【ユーザーの質問】\n${m.content}`
+              : `${systemInstructions}\n\n【スレッド】\n${ctx}${focusBlock}\n\n【ユーザーの質問】\n${m.content}`)
           : m.content;
         prompt += aiWrapTurn(template, "user", body);
       } else {
@@ -7312,11 +7355,19 @@ export default function App() {
               }}
               onMouseMove={(e) => {
                 const target = e.target as HTMLElement;
+                if (!e.ctrlKey && !hoverPreviewEnabled) return;
                 const thumb = target.closest<HTMLImageElement>("img.response-thumb");
-                if ((!e.ctrlKey && !hoverPreviewEnabled) || !thumb) return;
-                const src = thumb.getAttribute("src");
-                if (!src) return;
-                showHoverPreview(src);
+                if (thumb) {
+                  const src = thumb.getAttribute("src");
+                  if (!src) return;
+                  showHoverPreview(src);
+                  return;
+                }
+                const link = target.closest<HTMLAnchorElement>("a.body-link");
+                const href = link?.getAttribute("href");
+                if (href && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(href)) {
+                  showHoverPreview(href);
+                }
               }}
               onMouseOver={(e) => {
                 const target = e.target as HTMLElement;
@@ -7336,8 +7387,14 @@ export default function App() {
               }}
               onMouseOut={(e) => {
                 const target = e.target as HTMLElement;
-                // Hide hover preview when mouse leaves thumb (hover mode)
-                if (hoverPreviewEnabled && target.closest("img.response-thumb")) {
+                // Hide hover preview when mouse leaves thumb or image URL link (hover mode)
+                const leftThumb = target.closest("img.response-thumb");
+                const leftImageLink = (() => {
+                  const link = target.closest<HTMLAnchorElement>("a.body-link");
+                  const href = link?.getAttribute("href");
+                  return href ? /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(href) : false;
+                })();
+                if (hoverPreviewEnabled && (leftThumb || leftImageLink)) {
                   const next = e.relatedTarget as HTMLElement | null;
                   if (!next?.closest(".hover-preview")) {
                     if (hoverPreviewShowTimerRef.current) { clearTimeout(hoverPreviewShowTimerRef.current); hoverPreviewShowTimerRef.current = null; }
@@ -9652,7 +9709,7 @@ export default function App() {
                   {aiCatalog && aiCatalog.models.length === 0 && (
                     <div className="ai-loading">利用可能なモデルがありません</div>
                   )}
-                  {aiCatalog?.models.map((m) => {
+                  {aiCatalog?.models.filter((m) => m.id !== TRANSLATION_MODEL_ID).map((m) => {
                     const installed = aiStatus?.installed.find((i) => i.id === m.id);
                     const active = aiStatus?.activeModelId === m.id;
                     const progress = aiDownloads[m.id];

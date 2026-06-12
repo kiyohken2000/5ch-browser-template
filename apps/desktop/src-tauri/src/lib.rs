@@ -1699,11 +1699,13 @@ async fn ai_fetch_remote_catalog() -> Option<String> {
     resp.text().await.ok()
 }
 
-/// Build the effective model catalog: remote entries take precedence, but any
-/// id present in the bundled copy and missing from the remote is appended.
-/// This lets the app surface newly-added bundled models (post-release dev
-/// builds) before the landing-only deploy lands — without breaking the
-/// production flow where the remote catalog is canonical.
+/// Build the effective model catalog. The bundled catalog (= what shipped with
+/// this build) drives the order — including new entries that haven't reached
+/// the landing deploy yet. Per-entry data is taken from the remote when the id
+/// exists there (so updated descriptions / URLs roll out without a binary
+/// release), else from the bundled copy. Remote-only entries (catalog updated
+/// post-release with a model the user's bundled copy lacks) are appended last,
+/// in remote order.
 async fn ai_load_merged_catalog() -> Result<core_ai::ModelCatalog, String> {
     let bundled = core_ai::parse_catalog(AI_BUNDLED_CATALOG).map_err(|e| e.to_string())?;
     let Some(body) = ai_fetch_remote_catalog().await else {
@@ -1712,11 +1714,23 @@ async fn ai_load_merged_catalog() -> Result<core_ai::ModelCatalog, String> {
     let Ok(remote) = core_ai::parse_catalog(&body) else {
         return Ok(bundled);
     };
-    let mut models = remote.models;
-    let known: std::collections::HashSet<String> = models.iter().map(|m| m.id.clone()).collect();
-    for entry in bundled.models {
-        if !known.contains(&entry.id) {
-            models.push(entry);
+    let remote_by_id: std::collections::HashMap<&str, &core_ai::ModelEntry> =
+        remote.models.iter().map(|m| (m.id.as_str(), m)).collect();
+    let bundled_ids: std::collections::HashSet<&str> =
+        bundled.models.iter().map(|m| m.id.as_str()).collect();
+    let mut models: Vec<core_ai::ModelEntry> = bundled
+        .models
+        .iter()
+        .map(|b| {
+            remote_by_id
+                .get(b.id.as_str())
+                .map(|r| (*r).clone())
+                .unwrap_or_else(|| b.clone())
+        })
+        .collect();
+    for r in &remote.models {
+        if !bundled_ids.contains(r.id.as_str()) {
+            models.push(r.clone());
         }
     }
     Ok(core_ai::ModelCatalog { version: remote.version, models })
