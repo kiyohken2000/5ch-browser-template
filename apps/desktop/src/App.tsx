@@ -2482,6 +2482,8 @@ export default function App() {
         if (row.threadKey === currentKey) continue;
         const rowCreated = Number(row.threadKey) || 0;
         if (rowCreated <= currentCreated) continue;
+        if (ngFilters.words.some((w) => !ngEntryDisabled(w) && ngMatch(ngVal(w), row.title))) continue;
+        if (ngFilters.thread_words.some((w) => !ngEntryDisabled(w) && ngMatch(ngVal(w), row.title))) continue;
         const rowNorm = normalizeThreadTitleForSearch(row.title);
         if (!rowNorm || !normalized) continue;
         let score = 0;
