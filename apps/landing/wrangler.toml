@@ -1,0 +1,7 @@
+name = "ember-5ch"
+compatibility_date = "2024-09-01"
+pages_build_output_dir = "./dist"
+
+[[kv_namespaces]]
+binding = "COUNTER"
+id = "6a0024e028514a9fa4ec0a3f2a19b557"

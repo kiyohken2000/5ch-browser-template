@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import appIcon from "./assets/images/icon.png";
 import bmcButton from "./assets/images/bmc-button.png";
 import emberWindowsLight from "./assets/images/ember-windows-light.jpg";
@@ -114,6 +114,9 @@ export default function App() {
   const [glassTheme, setGlassTheme] = useState<ThemeKey>("light");
   const [aiTab, setAiTab] = useState<AiTabKey>("settings");
   const [colorScheme, setColorScheme] = useState<ThemeKey>(() => readInitialColorScheme());
+  const [stats, setStats] = useState<Record<string, number> | null>(null);
+  const [statsStatus, setStatsStatus] = useState<"loading" | "ok" | "error">("loading");
+  const [showDailyStats, setShowDailyStats] = useState(false);
   const windowsAsset = meta?.platforms["windows-x64"] ?? null;
   const macAsset = meta?.platforms["macos-arm64"] ?? null;
   const primaryDownloadUrl = meta?.download_page_url || REPO_RELEASES_URL;
@@ -131,6 +134,39 @@ export default function App() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch("/stats");
+        if (!r.ok) throw new Error(`status=${r.status}`);
+        const data = (await r.json()) as Record<string, number>;
+        setStats(data);
+        setStatsStatus("ok");
+      } catch (e) {
+        console.warn("stats fetch failed", e);
+        setStatsStatus("error");
+      }
+    })();
+  }, []);
+
+  const statsRows = useMemo(() => {
+    if (!stats) return [] as Array<{ date: string; count: number }>;
+    const days: Array<{ date: string; count: number }> = [];
+    for (const [key, val] of Object.entries(stats)) {
+      const m = key.match(/^latest:app:(\d{4}-\d{2}-\d{2})$/);
+      if (!m) continue;
+      days.push({ date: m[1], count: val });
+    }
+    return days
+      .sort((a, b) => (a.date < b.date ? 1 : -1))
+      .slice(0, 30);
+  }, [stats]);
+
+  const statsTotal = useMemo(() => {
+    if (!stats) return null;
+    return stats["latest:app:total"] ?? 0;
+  }, [stats]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = colorScheme;
@@ -887,6 +923,59 @@ export default function App() {
               </p>
             </div>
           </div>
+        </section>
+
+        <section className="reveal stats-section">
+          <h2>自動更新チェック数</h2>
+          <p className="muted small">
+            Ember クライアントが <code>/latest.json</code> を取得した回数（UTC 日付）。
+          </p>
+          {statsStatus === "loading" ? (
+            <p className="muted small">読み込み中…</p>
+          ) : statsStatus === "error" || statsTotal === null ? (
+            <p className="muted small">統計を取得できませんでした。</p>
+          ) : (
+            <div className="stats-table-wrap">
+              <table className="stats-table">
+                <thead>
+                  <tr>
+                    <th>日付 (UTC)</th>
+                    <th>件数</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="stats-totals-row">
+                    <th scope="row">累計</th>
+                    <td>{statsTotal.toLocaleString()}</td>
+                  </tr>
+                  {showDailyStats && (
+                    statsRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={2} className="muted small">まだ日次データがありません。</td>
+                      </tr>
+                    ) : (
+                      statsRows.map((row) => (
+                        <tr key={row.date}>
+                          <th scope="row">{row.date}</th>
+                          <td>{row.count.toLocaleString()}</td>
+                        </tr>
+                      ))
+                    )
+                  )}
+                </tbody>
+              </table>
+              <button
+                type="button"
+                className="stats-toggle"
+                onClick={() => setShowDailyStats((v) => !v)}
+                aria-expanded={showDailyStats}
+              >
+                {showDailyStats
+                  ? "日別を隠す"
+                  : `日別を表示${statsRows.length > 0 ? ` (直近 ${statsRows.length} 日)` : ""}`}
+              </button>
+            </div>
+          )}
         </section>
 
         <footer className="site-footer">
