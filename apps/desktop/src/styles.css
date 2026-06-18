@@ -2702,6 +2702,101 @@ button.search-history-btn:hover {
   grid-template-columns: 1fr auto;
 }
 
+.thread-cat-panel {
+  grid-template-rows: auto auto 1fr;
+}
+
+.thread-cat-panel-header {
+  cursor: move;
+  user-select: none;
+}
+
+.thread-cat-panel-header button {
+  cursor: pointer;
+}
+
+.thread-cat-panel .ng-panel-add {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.thread-cat-panel .ng-panel-add input {
+  flex: 1;
+  min-width: 80px;
+}
+
+.thread-cat-tag {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 4px;
+  border-radius: 8px;
+  font-size: calc(10px + var(--fs-delta, 0px));
+  font-weight: 700;
+  line-height: 1.5;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.thread-cat-tag.hl-c-yellow { background: #ffe08a; color: #5a3a00; }
+.thread-cat-tag.hl-c-orange { background: #ffc48a; color: #5a2e00; }
+.thread-cat-tag.hl-c-green  { background: #b6e8a8; color: #1e4d12; }
+.thread-cat-tag.hl-c-blue   { background: #a8d4f5; color: #0d3a5c; }
+.thread-cat-tag.hl-c-pink   { background: #f7b8d2; color: #5c1238; }
+.thread-cat-tag.hl-c-purple { background: #d4b8f0; color: #3a1260; }
+
+.dark .thread-cat-tag.hl-c-yellow { background: #6b5210; color: #ffe9a8; }
+.dark .thread-cat-tag.hl-c-orange { background: #6e3f12; color: #ffd6a8; }
+.dark .thread-cat-tag.hl-c-green  { background: #2a5a18; color: #c8f0b8; }
+.dark .thread-cat-tag.hl-c-blue   { background: #163f63; color: #b8dcf5; }
+.dark .thread-cat-tag.hl-c-pink   { background: #6b1a3a; color: #f7c8dc; }
+.dark .thread-cat-tag.hl-c-purple { background: #3a1768; color: #dcc8f0; }
+
+.thread-cat-tag:hover {
+  filter: brightness(1.1);
+}
+
+.thread-cat-list .thread-cat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 4px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.dark .thread-cat-list .thread-cat-item {
+  border-bottom-color: #2c2c2c;
+}
+
+.thread-cat-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.thread-cat-list .thread-cat-row > span {
+  flex: 0 0 auto;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.thread-cat-list .thread-cat-row > select {
+  margin-left: auto;
+}
+
+.thread-cat-hit-count {
+  flex: 0 0 auto;
+  min-width: 24px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--sub);
+  font-variant-numeric: tabular-nums;
+}
+
 .response-jump {
   width: 48px;
   padding: 1px 4px;

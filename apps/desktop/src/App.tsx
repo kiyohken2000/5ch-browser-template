@@ -219,7 +219,7 @@ function buildTranslationPrompt(text: string, targetLangNativeName: string): str
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
-  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, User, Smile,
+  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, User, Smile, Tag,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -485,6 +485,57 @@ const RECENT_POSTED_THREADS_KEY = "desktop.recentPostedThreads.v1";
 const THREAD_SORT_PERSIST_KEY = "desktop.threadSortPersistEnabled.v1";
 const THREAD_SORT_PREFS_KEY = "desktop.threadSortPrefs.v1";
 const POST_LOG_PREFS_KEY = "desktop.postLogPrefs.v1";
+const THREAD_CATEGORIES_KEY = "desktop.threadCategories.v2";
+const DISMISSED_UPDATE_VERSION_KEY = "desktop.dismissedUpdateVersion.v1";
+
+type ThreadCategory = {
+  keyword: string;
+  color: string;
+  enabled: boolean;
+};
+
+const sanitizeThreadCategoryColor = (c: unknown): string => {
+  if (typeof c === "string" && HIGHLIGHT_COLOR_KEYS.has(c)) return c;
+  return "yellow";
+};
+
+const sanitizeThreadCategoryList = (raw: unknown): ThreadCategory[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: ThreadCategory[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const rec = item as Record<string, unknown>;
+    const keyword = typeof rec.keyword === "string" ? rec.keyword.trim() : "";
+    if (!keyword || seen.has(keyword)) continue;
+    out.push({
+      keyword,
+      color: sanitizeThreadCategoryColor(rec.color),
+      enabled: rec.enabled === false ? false : true,
+    });
+    seen.add(keyword);
+  }
+  return out;
+};
+
+// keyword は `/regex/flags` 形式なら正規表現、それ以外は部分一致 (大文字小文字無視)
+const buildThreadCategoryMatcher = (keyword: string): ((title: string) => boolean) | null => {
+  const trimmed = keyword.trim();
+  if (!trimmed) return null;
+  const regexMatch = trimmed.match(/^\/(.+)\/([a-z]*)$/i);
+  if (regexMatch) {
+    try {
+      const flags = regexMatch[2].includes("i") ? regexMatch[2] : regexMatch[2] + "i";
+      const re = new RegExp(regexMatch[1], flags);
+      return (title: string) => re.test(title);
+    } catch (e) {
+      console.warn("threadCategory: invalid regex", trimmed, e);
+      return null;
+    }
+  }
+  const lower = trimmed.toLowerCase();
+  return (title: string) => title.toLowerCase().includes(lower);
+};
 const MAX_SEARCH_HISTORY = 20;
 const MAX_RECENT_THREADS = 100;
 const MENU_EDGE_PADDING = 8;
@@ -1100,6 +1151,29 @@ export default function App() {
   const [ngAddMode, setNgAddMode] = useState<"hide" | "hide-images">("hide");
   const [threadNgOpen, setThreadNgOpen] = useState(false);
   const [threadNgInput, setThreadNgInput] = useState("");
+  const [threadCategories, setThreadCategories] = useState<ThreadCategory[]>(() => {
+    try {
+      const raw = localStorage.getItem(THREAD_CATEGORIES_KEY);
+      if (!raw) return [];
+      return sanitizeThreadCategoryList(JSON.parse(raw));
+    } catch (e) {
+      console.warn("desktop.threadCategories.v1 load failed", e);
+      return [];
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(THREAD_CATEGORIES_KEY, JSON.stringify(threadCategories));
+    } catch (e) {
+      console.warn("desktop.threadCategories.v1 save failed", e);
+    }
+  }, [threadCategories]);
+  const [threadCategoryPanelOpen, setThreadCategoryPanelOpen] = useState(false);
+  const [threadCategoryPanelPos, setThreadCategoryPanelPos] = useState<{ x: number; y: number } | null>(null);
+  const threadCategoryPanelDragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
+  const [categoryAddKeyword, setCategoryAddKeyword] = useState("");
+  const [categoryAddColor, setCategoryAddColor] = useState<string>("yellow");
+  const [threadCategoryFilter, setThreadCategoryFilter] = useState<string | null>(null);
   const [ngPanelOpen, setNgPanelOpen] = useState(false);
   const [showBoardButtons, setShowBoardButtons] = useState(false);
   const [toolBarVisible, setToolBarVisible] = useState(true);
@@ -3209,7 +3283,7 @@ export default function App() {
     }
   };
 
-  const checkForUpdates = async () => {
+  const checkForUpdates = async (opts?: { autoOpenIfNew?: boolean }) => {
     setUpdateProbe("running...");
     setUpdateResult(null);
     try {
@@ -3223,6 +3297,15 @@ export default function App() {
       );
       if (r.hasUpdate) {
         setStatus(`新しいバージョンがあります: v${r.latestVersion}`);
+        if (opts?.autoOpenIfNew) {
+          let dismissed: string | null = null;
+          try {
+            dismissed = localStorage.getItem(DISMISSED_UPDATE_VERSION_KEY);
+          } catch (e) {
+            console.warn("desktop.dismissedUpdateVersion.v1 read failed", e);
+          }
+          if (dismissed !== r.latestVersion) setAboutOpen(true);
+        }
       } else {
         setStatus(`最新版です (v${r.currentVersion})`);
       }
@@ -3236,12 +3319,23 @@ export default function App() {
     if (autoUpdateCheckedRef.current) return;
     if (!isTauriRuntime()) return;
     autoUpdateCheckedRef.current = true;
-    void checkForUpdates();
+    void checkForUpdates({ autoOpenIfNew: true });
   }, []);
 
   const openDownloadPage = async () => {
     if (!updateResult?.downloadPageUrl) return;
     await invoke("open_external_url", { url: updateResult.downloadPageUrl });
+  };
+
+  const closeAboutDialog = () => {
+    if (updateResult?.hasUpdate && updateResult.latestVersion) {
+      try {
+        localStorage.setItem(DISMISSED_UPDATE_VERSION_KEY, updateResult.latestVersion);
+      } catch (e) {
+        console.warn("desktop.dismissedUpdateVersion.v1 save failed", e);
+      }
+    }
+    setAboutOpen(false);
   };
 
   const beState = beLoggedIn ? "ON" : "OFF";
@@ -3573,6 +3667,63 @@ export default function App() {
   }
   const ngFilteredCount = ngResultMap.size;
 
+  const compiledResponseCategories = useMemo(() => {
+    const out: { keyword: string; color: string; match: (text: string) => boolean; highlightRegex: RegExp | null }[] = [];
+    for (const c of threadCategories) {
+      if (!c.enabled) continue;
+      const matcher = buildThreadCategoryMatcher(c.keyword);
+      if (!matcher) continue;
+      const trimmed = c.keyword.trim();
+      const reLiteral = trimmed.match(/^\/(.+)\/([a-z]*)$/i);
+      let highlightRegex: RegExp | null = null;
+      try {
+        if (reLiteral) {
+          const flagsBase = reLiteral[2];
+          let flags = flagsBase;
+          if (!flags.includes("g")) flags += "g";
+          if (!flags.includes("i")) flags += "i";
+          highlightRegex = new RegExp(reLiteral[1], flags);
+        } else {
+          highlightRegex = new RegExp(escapeRegExp(trimmed), "gi");
+        }
+      } catch (e) {
+        console.warn("threadCategory: highlight regex build failed", c.keyword, e);
+      }
+      out.push({ keyword: c.keyword, color: c.color, match: matcher, highlightRegex });
+    }
+    return out;
+  }, [threadCategories]);
+  const responseCategoryMap = new Map<number, { keyword: string; color: string }[]>();
+  const responseCategoryCounts = new Map<string, number>();
+  if (compiledResponseCategories.length > 0) {
+    for (const r of responseItems) {
+      const plain = stripHtmlForMatch(r.text);
+      const hits: { keyword: string; color: string }[] = [];
+      for (const c of compiledResponseCategories) {
+        if (c.match(plain)) {
+          hits.push({ keyword: c.keyword, color: c.color });
+          responseCategoryCounts.set(c.keyword, (responseCategoryCounts.get(c.keyword) ?? 0) + 1);
+        }
+      }
+      if (hits.length > 0) responseCategoryMap.set(r.id, hits);
+    }
+  }
+  const applyCategoryHighlights = (html: string, hits: { keyword: string; color: string }[] | undefined): string => {
+    if (!hits || hits.length === 0) return html;
+    let out = html;
+    for (const hit of hits) {
+      const compiled = compiledResponseCategories.find((c) => c.keyword === hit.keyword);
+      if (!compiled?.highlightRegex) continue;
+      const re = compiled.highlightRegex;
+      const color = hit.color;
+      out = out
+        .split(/(<[^>]+>)/g)
+        .map((part) => part.startsWith("<") ? part : part.replace(re, (m) => `<mark class="highlight-word hl-c-${color}">${m}</mark>`))
+        .join("");
+    }
+    return out;
+  };
+
   // 強調表示 (NGの逆): 有効なエントリを {value,color} に正規化 (本文/名前/IDをインラインで <mark>)
   const toHlActive = (list: (string | HlEntry)[]) =>
     list.filter((e) => !hlDisabled(e)).map((e) => ({ value: hlVal(e), color: hlColor(e) }));
@@ -3582,6 +3733,10 @@ export default function App() {
   const visibleResponseItems = responseItems.filter((r) => {
     const ngResult = ngResultMap.get(r.id);
     if (ngResult === "hide") return false;
+    if (threadCategoryFilter) {
+      const cats = responseCategoryMap.get(r.id);
+      if (!cats || !cats.some((c) => c.keyword === threadCategoryFilter)) return false;
+    }
     if (responseSearchQuery) {
       const q = responseSearchQuery.toLowerCase();
       const plainText = decodeHtmlEntities(r.text.replace(/<[^>]+>/g, "")).toLowerCase();
@@ -4285,7 +4440,7 @@ export default function App() {
           return;
         }
         if (lightboxUrl) { setLightboxUrl(null); return; }
-        if (aboutOpen) { setAboutOpen(false); return; }
+        if (aboutOpen) { closeAboutDialog(); return; }
         if (shortcutsOpen) { setShortcutsOpen(false); return; }
         if (gestureListOpen) { setGestureListOpen(false); return; }
         if (threadColumnsOpen) { setThreadColumnsOpen(false); return; }
@@ -4937,6 +5092,14 @@ export default function App() {
         });
         return;
       }
+      const tcdrag = threadCategoryPanelDragRef.current;
+      if (tcdrag) {
+        setThreadCategoryPanelPos({
+          x: tcdrag.startPosX + (event.clientX - tcdrag.startX),
+          y: tcdrag.startPosY + (event.clientY - tcdrag.startY),
+        });
+        return;
+      }
       const cresize = composeResizeRef.current;
       if (cresize) {
         const dx = event.clientX - cresize.startX;
@@ -5017,6 +5180,12 @@ export default function App() {
       }
       if (emojiPickerDragRef.current) {
         emojiPickerDragRef.current = null;
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        return;
+      }
+      if (threadCategoryPanelDragRef.current) {
+        threadCategoryPanelDragRef.current = null;
         document.body.style.userSelect = "";
         document.body.style.cursor = "";
         return;
@@ -7193,6 +7362,18 @@ export default function App() {
                 >
                   {autoScrollEnabled ? <Pause size={14} /> : <Play size={14} />}
                 </button>
+                <button
+                  className={`title-action-btn ${threadCategoryPanelOpen || threadCategoryFilter ? "active-toggle" : ""}`}
+                  onClick={() => setThreadCategoryPanelOpen((v) => !v)}
+                  title={threadCategoryFilter ? `レス分類 (絞込中: ${threadCategoryFilter})` : "レス分類"}
+                ><Tag size={14} /></button>
+                {threadCategoryFilter && (
+                  <button
+                    className="title-action-btn"
+                    onClick={() => setThreadCategoryFilter(null)}
+                    title={`分類絞込解除: ${threadCategoryFilter}`}
+                  ><X size={14} /></button>
+                )}
                 <button className="title-action-btn" onClick={() => setNgPanelOpen((v) => !v)} title="NGフィルタ"><EyeOff size={14} /></button>
                 <button className="title-action-btn" onClick={() => setNgImagePanelOpen((v) => !v)} title="画像NG"><ImageOff size={14} /></button>
               </span>
@@ -7589,7 +7770,7 @@ export default function App() {
                         )}
                       </span>
                     </div>
-                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}`} dangerouslySetInnerHTML={{ __html: renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled }).__html + (responseBodyBottomPad ? "<br><br>" : "") }} />
+                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}`} dangerouslySetInnerHTML={{ __html: (threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled }).__html) + (responseBodyBottomPad ? "<br><br>" : "") }} />
                     {responseTranslations[r.id] && (() => {
                       const tr = responseTranslations[r.id];
                       const langLabel = translationLangLabel(tr.lang);
@@ -8460,6 +8641,120 @@ export default function App() {
           ))}
         </section>
       )}
+      {threadCategoryPanelOpen && (
+        <section
+          className="ng-panel thread-cat-panel"
+          role="dialog"
+          aria-label="レス分類"
+          style={threadCategoryPanelPos ? { left: threadCategoryPanelPos.x, top: threadCategoryPanelPos.y, right: "auto", bottom: "auto" } : {}}
+        >
+          <header
+            className="ng-panel-header thread-cat-panel-header"
+            onMouseDown={(e) => {
+              if ((e.target as HTMLElement).closest("button")) return;
+              e.preventDefault();
+              const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+              threadCategoryPanelDragRef.current = {
+                startX: e.clientX,
+                startY: e.clientY,
+                startPosX: rect.left,
+                startPosY: rect.top,
+              };
+              if (!threadCategoryPanelPos) setThreadCategoryPanelPos({ x: rect.left, y: rect.top });
+              document.body.style.userSelect = "none";
+              document.body.style.cursor = "move";
+            }}
+          >
+            <strong>レス分類</strong>
+            <span className="ng-panel-count">{threadCategories.length}語</span>
+            {threadCategoryFilter && (
+              <button onClick={() => setThreadCategoryFilter(null)} title="絞込解除">絞込解除: {threadCategoryFilter}</button>
+            )}
+            <button onClick={() => setThreadCategoryPanelOpen(false)}>閉じる</button>
+          </header>
+          <div className="ng-panel-add">
+            <input
+              value={categoryAddKeyword}
+              onChange={(e) => setCategoryAddKeyword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const kw = categoryAddKeyword.trim();
+                  if (!kw) return;
+                  if (threadCategories.some((c) => c.keyword === kw)) {
+                    setStatus(`キーワード「${kw}」は既に登録済みです`);
+                    return;
+                  }
+                  setThreadCategories((prev) => [...prev, { keyword: kw, color: categoryAddColor, enabled: true }]);
+                  setCategoryAddKeyword("");
+                }
+              }}
+              placeholder="キーワード (/正規表現/も可)"
+            />
+            <select value={categoryAddColor} onChange={(e) => setCategoryAddColor(e.target.value)} className={`hl-color-select hl-c-${categoryAddColor}`} title="タグの色">
+              {HIGHLIGHT_COLORS.map((c) => (
+                <option key={c.key} value={c.key}>{c.label}</option>
+              ))}
+            </select>
+            <button onClick={() => {
+              const kw = categoryAddKeyword.trim();
+              if (!kw) {
+                setStatus("キーワードを入力してください");
+                return;
+              }
+              if (threadCategories.some((c) => c.keyword === kw)) {
+                setStatus(`キーワード「${kw}」は既に登録済みです`);
+                return;
+              }
+              setThreadCategories((prev) => [...prev, { keyword: kw, color: categoryAddColor, enabled: true }]);
+              setCategoryAddKeyword("");
+            }}>追加</button>
+          </div>
+          <div className="ng-panel-lists">
+            {threadCategories.length === 0 ? (
+              <span className="ng-empty">(なし) — キーワードを入力して追加してください</span>
+            ) : (
+              <ul className="ng-list thread-cat-list">
+                {threadCategories.map((cat) => (
+                  <li key={cat.keyword} className={`thread-cat-item ${cat.enabled ? "" : "ng-disabled"}`}>
+                    <div className="thread-cat-row">
+                      <button
+                        className={`ng-toggle ${cat.enabled ? "ng-toggle-on" : "ng-toggle-off"}`}
+                        onClick={() => setThreadCategories((prev) => prev.map((c) => c.keyword === cat.keyword ? { ...c, enabled: !c.enabled } : c))}
+                      >{cat.enabled ? "ON" : "OFF"}</button>
+                      <span className={`thread-cat-tag hl-c-${cat.color}`}>{cat.keyword}</span>
+                      <select
+                        value={cat.color}
+                        onChange={(e) => setThreadCategories((prev) => prev.map((c) => c.keyword === cat.keyword ? { ...c, color: sanitizeThreadCategoryColor(e.target.value) } : c))}
+                        className={`hl-color-select hl-c-${cat.color}`}
+                        title="タグの色"
+                      >
+                        {HIGHLIGHT_COLORS.map((c) => (
+                          <option key={c.key} value={c.key}>{c.label}</option>
+                        ))}
+                      </select>
+                      <button
+                        className={`ng-toggle ${threadCategoryFilter === cat.keyword ? "ng-toggle-on" : "ng-toggle-off"}`}
+                        onClick={() => setThreadCategoryFilter((prev) => prev === cat.keyword ? null : cat.keyword)}
+                        title={threadCategoryFilter === cat.keyword ? "クリックで絞込解除" : "クリックでこのキーワードのみ表示"}
+                      >絞込</button>
+                      <span className="thread-cat-hit-count" title="現スレでのヒットレス数">
+                        {responseCategoryCounts.get(cat.keyword) ?? 0}
+                      </span>
+                      <button
+                        className="ng-remove"
+                        onClick={() => {
+                          setThreadCategories((prev) => prev.filter((c) => c.keyword !== cat.keyword));
+                          if (threadCategoryFilter === cat.keyword) setThreadCategoryFilter(null);
+                        }}
+                      >×</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      )}
       {threadNgOpen && (
         <section className="ng-panel thread-ng-panel" role="dialog" aria-label="スレ一覧NGワード">
           <header className="ng-panel-header">
@@ -9196,11 +9491,11 @@ export default function App() {
         );
       })()}
       {aboutOpen && (
-        <div className="lightbox-overlay" onClick={() => setAboutOpen(false)}>
+        <div className="lightbox-overlay" onClick={closeAboutDialog}>
           <div className="settings-panel" onClick={(e) => e.stopPropagation()} style={{ width: 360, textAlign: "center" }}>
             <header className="settings-header">
               <strong>バージョン情報</strong>
-              <button onClick={() => setAboutOpen(false)}>閉じる</button>
+              <button onClick={closeAboutDialog}>閉じる</button>
             </header>
             <div style={{ padding: "24px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
               <img src="/icon.png" alt="Ember" style={{ width: 64, height: 64 }} />
