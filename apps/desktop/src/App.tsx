@@ -1452,11 +1452,10 @@ export default function App() {
   const uploadFileRef = useRef<HTMLInputElement | null>(null);
 
   // Emoji picker state — フローティング別ウィンドウ
-  const [emojiPickerTarget, setEmojiPickerTarget] = useState<"compose" | "newThread" | null>(null);
+  const [emojiPickerTarget, setEmojiPickerTarget] = useState<"compose" | null>(null);
   const [emojiPickerPos, setEmojiPickerPos] = useState<{ x: number; y: number } | null>(null);
   const emojiPickerDragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
   const composeBodyRef = useRef<HTMLTextAreaElement | null>(null);
-  const newThreadBodyRef = useRef<HTMLTextAreaElement | null>(null);
 
   const insertEmojiAtCursor = (
     textareaRef: RefObject<HTMLTextAreaElement>,
@@ -8163,9 +8162,7 @@ export default function App() {
           >
             <Smile size={12} />
             <strong>絵文字</strong>
-            <span className="emoji-picker-window-target">
-              {emojiPickerTarget === "compose" ? "→ 書き込み" : "→ スレ立て"}
-            </span>
+            <span className="emoji-picker-window-target">→ 書き込み</span>
             <button
               className="emoji-picker-window-close"
               onClick={() => setEmojiPickerTarget(null)}
@@ -8176,8 +8173,6 @@ export default function App() {
             onEmojiClick={(data: EmojiClickData) => {
               if (emojiPickerTarget === "compose") {
                 insertEmojiAtCursor(composeBodyRef, composeBody, setComposeBody, data.emoji);
-              } else if (emojiPickerTarget === "newThread") {
-                insertEmojiAtCursor(newThreadBodyRef, newThreadBody, setNewThreadBody, data.emoji);
               }
             }}
             theme={darkMode ? EmojiPickerTheme.DARK : EmojiPickerTheme.LIGHT}
@@ -9962,7 +9957,6 @@ export default function App() {
               <label style={{ flex: 1, display: "flex", flexDirection: "column" }}>
                 本文
                 <textarea
-                  ref={newThreadBodyRef}
                   value={newThreadBody}
                   onChange={(e) => setNewThreadBody(e.target.value)}
                   placeholder="本文を入力"
@@ -9972,13 +9966,6 @@ export default function App() {
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <button onClick={submitNewThread} disabled={newThreadSubmitting}>
                   {newThreadSubmitting ? "送信中..." : "スレ立て"}
-                </button>
-                <button
-                  onClick={() => setEmojiPickerTarget((t) => (t === "newThread" ? null : "newThread"))}
-                  title="絵文字を挿入"
-                  className={emojiPickerTarget === "newThread" ? "active-toggle" : ""}
-                >
-                  <Smile size={14} />
                 </button>
                 <span style={{ fontSize: "0.85em", color: "var(--sub)" }}>
                   板: {getBoardUrlFromThreadUrl(threadUrl)}
