@@ -42,6 +42,44 @@ fn get_login_cookie_header_filtered2(include_be: bool, include_uplift: bool) -> 
     if header.is_empty() { None } else { Some(header) }
 }
 
+/// LOGIN_COOKIES に格納されている Cookie は be.5ch.io / uplift.5ch.io / donguri.5ch.io
+/// で発行されたもので、bbspink.com など他ドメインに送ると「Beユーザー情報の
+/// 取得に失敗しました。(500)」を引き起こす。送り先が 5ch ドメインのときだけ
+/// 添付する。
+fn is_5ch_login_target(target_url: &str) -> bool {
+    let after_scheme = target_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(target_url);
+    let host = after_scheme
+        .split(['/', ':', '?', '#'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    host == "5ch.io"
+        || host == "5ch.net"
+        || host.ends_with(".5ch.io")
+        || host.ends_with(".5ch.net")
+}
+
+fn get_login_cookie_header_for(target_url: &str) -> Option<String> {
+    if !is_5ch_login_target(target_url) {
+        return None;
+    }
+    get_login_cookie_header()
+}
+
+fn get_login_cookie_header_for_filtered2(
+    target_url: &str,
+    include_be: bool,
+    include_uplift: bool,
+) -> Option<String> {
+    if !is_5ch_login_target(target_url) {
+        return None;
+    }
+    get_login_cookie_header_filtered2(include_be, include_uplift)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MenuSummary {
@@ -383,7 +421,7 @@ async fn probe_post_confirm_empty(thread_url: String) -> Result<PostConfirmResul
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
-    let ch = get_login_cookie_header();
+    let ch = get_login_cookie_header_for(&thread_url);
     submit_post_confirm(&client, &tokens, "", "", "", ch.as_deref())
         .await
         .map_err(|e| e.to_string())
@@ -403,7 +441,7 @@ async fn probe_post_confirm(
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
-    let ch = get_login_cookie_header();
+    let ch = get_login_cookie_header_for(&thread_url);
     submit_post_confirm(
         &client,
         &tokens,
@@ -425,7 +463,7 @@ async fn probe_post_finalize_preview(thread_url: String) -> Result<PostFinalizeP
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
-    let ch = get_login_cookie_header();
+    let ch = get_login_cookie_header_for(&thread_url);
     let (_, confirm_html) = submit_post_confirm_with_html(&client, &tokens, "", "", "", ch.as_deref())
         .await
         .map_err(|e| e.to_string())?;
@@ -446,7 +484,7 @@ async fn probe_post_finalize_preview_from_input(
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
-    let ch = get_login_cookie_header();
+    let ch = get_login_cookie_header_for(&thread_url);
     let (_, confirm_html) = submit_post_confirm_with_html(
         &client,
         &tokens,
@@ -475,7 +513,7 @@ async fn probe_post_finalize_submit_empty(
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
-    let ch = get_login_cookie_header();
+    let ch = get_login_cookie_header_for(&thread_url);
     let (_, confirm_html) = submit_post_confirm_with_html(&client, &tokens, "", "", "", ch.as_deref())
         .await
         .map_err(|e| e.to_string())?;
@@ -502,7 +540,7 @@ async fn probe_post_finalize_submit_from_input(
     let tokens = fetch_post_form_tokens(&client, &thread_url)
         .await
         .map_err(|e| e.to_string())?;
-    let ch = get_login_cookie_header();
+    let ch = get_login_cookie_header_for(&thread_url);
     let (_, confirm_html) = submit_post_confirm_with_html(
         &client,
         &tokens,
@@ -526,7 +564,7 @@ async fn create_thread_command(
     mail: Option<String>,
     message: String,
 ) -> Result<CreateThreadResult, String> {
-    let cookie_header = get_login_cookie_header();
+    let cookie_header = get_login_cookie_header_for(&board_url);
     tauri::async_runtime::spawn_blocking(move || {
         create_thread(
             &board_url,
@@ -571,7 +609,7 @@ async fn probe_post_flow_trace(
         tokens.post_url, tokens.bbs, tokens.key, tokens.time
     ));
 
-    let cookie_header = get_login_cookie_header_filtered2(include_be.unwrap_or(true), include_uplift.unwrap_or(true));
+    let cookie_header = get_login_cookie_header_for_filtered2(&thread_url, include_be.unwrap_or(true), include_uplift.unwrap_or(true));
     let _ = core_store::append_log(&format!("post_flow: include_be={} include_uplift={} cookie_header={}", include_be.unwrap_or(true), include_uplift.unwrap_or(true), cookie_header.as_deref().unwrap_or("(none)")));
     let (confirm, confirm_html) = submit_post_confirm_with_html(
         &client,
@@ -822,6 +860,17 @@ fn collect_categories_from_menu(
         };
         let mut boards: Vec<BoardEntry> = Vec::new();
         for item in content {
+            // `directory_name == "NONE"` のエントリは「板」ではなく、カテゴリ TOP
+            // ページや外部リンク (BBSPINK の TOPページ/RONIN、ニュースの
+            // 5ちゃんねるアンテナ/公式X) を指す。クリックすると parse_board_location
+            // が拒否して "unsupported url" エラーになるため一覧から除外する。
+            let directory_name = item
+                .get("directory_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            if directory_name.eq_ignore_ascii_case("NONE") {
+                continue;
+            }
             let board_name = item
                 .get("board_name")
                 .and_then(|v| v.as_str())
@@ -2520,4 +2569,34 @@ pub fn run() {
             }
             let _ = event;
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_5ch_login_target;
+
+    #[test]
+    fn is_5ch_login_target_matches_5ch_hosts() {
+        assert!(is_5ch_login_target("https://5ch.io/"));
+        assert!(is_5ch_login_target("https://5ch.net/"));
+        assert!(is_5ch_login_target("https://mao.5ch.io/test/read.cgi/ngt/1234/"));
+        assert!(is_5ch_login_target("https://greta.5ch.net/poverty/"));
+        assert!(is_5ch_login_target("HTTPS://MAO.5CH.IO/"));
+    }
+
+    #[test]
+    fn is_5ch_login_target_rejects_bbspink_and_others() {
+        assert!(!is_5ch_login_target("https://mercury.bbspink.com/onatech/"));
+        assert!(!is_5ch_login_target("https://phoebe.bbspink.com/erochara/"));
+        assert!(!is_5ch_login_target("https://bbspink.org/ex0ch/operate/"));
+        assert!(!is_5ch_login_target("https://example.com/"));
+        assert!(!is_5ch_login_target(""));
+    }
+
+    #[test]
+    fn is_5ch_login_target_rejects_suffix_spoof() {
+        // 5ch.io.example.com など末尾偽装の防御
+        assert!(!is_5ch_login_target("https://5ch.io.example.com/"));
+        assert!(!is_5ch_login_target("https://evil5ch.io/"));
+    }
 }
