@@ -1040,7 +1040,11 @@ const renderHighlightedPlainTextWithEntries = (text: string, query: string, entr
   return { __html: out };
 };
 
-const IMAGE_URL_RE = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/)[^\s<>&"]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*)?/gi;
+// 本文プレビュー (renderResponseBody) の画像検出と同じ2パターンを網羅する:
+//  1. スキーム省略込みの `://i.imgur.com/...` (先頭が英字でない `://`)
+//  2. スキームなしの裸ホスト `i.imgur.com/...`
+// これらを取りこぼすと本文ではプレビューされるのに画像一覧サブペインに出ない。
+const IMAGE_URL_RE = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*)?|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]*\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*)?/gi;
 const extractImageUrls = (html: string): string[] => {
   const plain = html.replace(/<[^>]+>/g, " ");
   const decoded = decodeHtmlEntities(plain);
@@ -1218,6 +1222,8 @@ export default function App() {
   const [youtubeThumbsEnabled, setYoutubeThumbsEnabled] = useState(true);
   const [responseBodyBottomPad, setResponseBodyBottomPad] = useState(false);
   const [titleClickRefresh, setTitleClickRefresh] = useState(false);
+  // レス選択時にそのレスを表示領域内へ自動スクロールするか (既定 ON = 従来動作)
+  const [autoScrollToSelected, setAutoScrollToSelected] = useState(true);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
   const [autoScrollSpeed, setAutoScrollSpeed] = useState(40);
   const [nextThreadCandidates, setNextThreadCandidates] = useState<{ threadUrl: string; title: string; responseCount: number; threadKey: string; score: number }[]>([]);
@@ -4656,6 +4662,7 @@ export default function App() {
           responseBodyBottomPad?: boolean;
           titleClickRefresh?: boolean;
           autoScrollSpeed?: number;
+          autoScrollToSelected?: boolean;
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
         if (typeof parsed.threadPanePx === "number") {
@@ -4722,6 +4729,7 @@ export default function App() {
         if (typeof parsed.responseBodyBottomPad === "boolean") setResponseBodyBottomPad(parsed.responseBodyBottomPad);
         if (typeof parsed.titleClickRefresh === "boolean") setTitleClickRefresh(parsed.titleClickRefresh);
         if (typeof parsed.autoScrollSpeed === "number" && parsed.autoScrollSpeed > 0) setAutoScrollSpeed(parsed.autoScrollSpeed);
+        if (typeof parsed.autoScrollToSelected === "boolean") setAutoScrollToSelected(parsed.autoScrollToSelected);
       } catch { /* ignore */ }
     };
     // Try localStorage first, then file-based persistence
@@ -5457,12 +5465,13 @@ export default function App() {
       responseBodyBottomPad,
       titleClickRefresh,
       autoScrollSpeed,
+      autoScrollToSelected,
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed, autoScrollToSelected]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -5528,10 +5537,11 @@ export default function App() {
   }, [selectedThread]);
 
   useEffect(() => {
+    if (!autoScrollToSelected) return;
     if (!responseScrollRef.current) return;
     const block = responseScrollRef.current.querySelector<HTMLDivElement>(".response-block.selected");
     block?.scrollIntoView({ block: "nearest" });
-  }, [selectedResponse]);
+  }, [selectedResponse, autoScrollToSelected]);
 
   useEffect(() => {
     if (activeTabIndex < 0 || !tabBarRef.current) return;
@@ -9799,6 +9809,10 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={titleClickRefresh} onChange={(e) => setTitleClickRefresh(e.target.checked)} />
                   <span>スレタイクリックでスレ一覧を更新</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={autoScrollToSelected} onChange={(e) => setAutoScrollToSelected(e.target.checked)} />
+                  <span>レス選択時に自動スクロールして表示</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={restoreSession} onChange={(e) => setRestoreSession(e.target.checked)} />
