@@ -1520,6 +1520,9 @@ export default function App() {
   const tabBarRef = useRef<HTMLDivElement | null>(null);
   const threadListScrollRef = useRef<HTMLDivElement | null>(null);
   const suppressThreadScrollRef = useRef(false);
+  // ナビボタン(Top/New/続き/End/ジャンプ)等の明示的な移動時に立てる。
+  // autoScrollToSelected が OFF でも、この操作では必ずスクロールさせるためのフラグ。
+  const forceResponseScrollRef = useRef(false);
   const [lastFetchTime, setLastFetchTime] = useState<string | null>(null);
   const [newResponseStart, setNewResponseStart] = useState<number | null>(null);
   const threadFetchTimesRef = useRef<Record<string, string>>({});
@@ -2214,6 +2217,12 @@ export default function App() {
       const el = responseScrollRef.current?.querySelector(`[data-response-no="${no}"]`);
       if (el) el.scrollIntoView({ block: "start" });
     }, 50);
+  };
+  // レスを選択しつつ、autoScrollToSelected の設定に関わらず必ず表示位置までスクロールする。
+  // Top/New/続き/End/ジャンプ など明示的な移動操作用。
+  const selectResponseAndScroll = (id: number) => {
+    forceResponseScrollRef.current = true;
+    setSelectedResponse(id);
   };
 
   const toggleCategory = (name: string) => {
@@ -3895,7 +3904,7 @@ export default function App() {
           className="response-viewer-no"
           onClick={(e) => {
             e.stopPropagation();
-            setSelectedResponse(resp.id);
+            selectResponseAndScroll(resp.id);
             setAnchorPopup(null);
             setBackRefPopup(null);
             setNestedPopups([]);
@@ -4554,7 +4563,7 @@ export default function App() {
         const cur = selectedResponse || ids[0];
         const idx = Math.max(ids.indexOf(cur), 0);
         const nextIdx = e.key === "ArrowUp" ? Math.max(0, idx - 1) : Math.min(ids.length - 1, idx + 1);
-        setSelectedResponse(ids[nextIdx]);
+        selectResponseAndScroll(ids[nextIdx]);
         return;
       }
       if (e.key === "Tab" && (e.ctrlKey || e.metaKey) && threadTabs.length > 1) {
@@ -4863,7 +4872,7 @@ export default function App() {
                       selectedResponse: bm ?? 1,
                     });
                     setFetchedResponses(responses);
-                    if (bm) setSelectedResponse(bm);
+                    if (bm) selectResponseAndScroll(bm);
                   }
                 })
                 .catch(() => {});
@@ -4956,7 +4965,7 @@ export default function App() {
       const ids = getAnchorIds(anchor);
       const first = ids.find((id) => responseItems.some((r) => r.id === id));
       if (first) {
-        setSelectedResponse(first);
+        selectResponseAndScroll(first);
         setAnchorPopup(null);
         setBackRefPopup(null);
         setNestedPopups([]);
@@ -5537,7 +5546,10 @@ export default function App() {
   }, [selectedThread]);
 
   useEffect(() => {
-    if (!autoScrollToSelected) return;
+    // 明示的な移動操作 (Top/New/続き/End/ジャンプ) は autoScrollToSelected の設定に関わらず必ずスクロールする。
+    const force = forceResponseScrollRef.current;
+    forceResponseScrollRef.current = false;
+    if (!autoScrollToSelected && !force) return;
     if (!responseScrollRef.current) return;
     const block = responseScrollRef.current.querySelector<HTMLDivElement>(".response-block.selected");
     block?.scrollIntoView({ block: "nearest" });
@@ -7291,7 +7303,7 @@ export default function App() {
                       if ("threadUrl" in t && typeof t.threadUrl === "string") {
                         const bm = loadBookmark(t.threadUrl);
                         if (bm) {
-                          setSelectedResponse(bm);
+                          selectResponseAndScroll(bm);
                           setStatus(`栞: >>${bm}`);
                         }
                       }
@@ -7645,7 +7657,7 @@ export default function App() {
                 const ids = getAnchorIds(anchor);
                 const first = ids.find((id) => responseItems.some((r) => r.id === id));
                 if (first) {
-                  setSelectedResponse(first);
+                  selectResponseAndScroll(first);
                   setAnchorPopup(null);
                   setStatus(`jumped to >>${first}`);
                 }
@@ -7921,7 +7933,7 @@ export default function App() {
                       <span
                         className="image-gallery-resno"
                         onClick={() => {
-                          setSelectedResponse(img.responseNo);
+                          selectResponseAndScroll(img.responseNo);
                           setStatus(`>>${img.responseNo}`);
                         }}
                         onMouseEnter={(e) => {
@@ -8040,7 +8052,7 @@ export default function App() {
                         const ids = getAnchorIds(anchor);
                         const first = ids.find((id) => responseItems.some((r) => r.id === id));
                         if (first) {
-                          setSelectedResponse(first);
+                          selectResponseAndScroll(first);
                           setAnchorPopup(null);
                           setStatus(`jumped to >>${first}`);
                         }
@@ -8287,13 +8299,13 @@ export default function App() {
                 <button className={`link-filter-btn ${responseLinkFilter === "mine" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "mine" ? "" : "mine")} title="自分のレスのみ"><User size={13} /></button>
               </span>
               <span className="nav-buttons">
-                <button onClick={() => { if (visibleResponseItems.length > 0) setSelectedResponse(visibleResponseItems[0].id); }}>Top</button>
+                <button onClick={() => { if (visibleResponseItems.length > 0) selectResponseAndScroll(visibleResponseItems[0].id); }}>Top</button>
                 {newResponseStart !== null && (
                   <button
                     className="nav-new-btn"
                     onClick={() => {
                       const first = visibleResponseItems.find((r) => r.id >= newResponseStart);
-                      if (first) setSelectedResponse(first.id);
+                      if (first) selectResponseAndScroll(first.id);
                     }}
                   >
                     New
@@ -8305,14 +8317,14 @@ export default function App() {
                     title="「ここまで読んだ」の続きへ"
                     onClick={() => {
                       const next = visibleResponseItems.find((r) => r.id > currentReadMarker);
-                      if (next) setSelectedResponse(next.id);
-                      else setSelectedResponse(currentReadMarker);
+                      if (next) selectResponseAndScroll(next.id);
+                      else selectResponseAndScroll(currentReadMarker);
                     }}
                   >
                     続き
                   </button>
                 )}
-                <button onClick={() => { if (visibleResponseItems.length > 0) setSelectedResponse(visibleResponseItems[visibleResponseItems.length - 1].id); }}>End</button>
+                <button onClick={() => { if (visibleResponseItems.length > 0) selectResponseAndScroll(visibleResponseItems[visibleResponseItems.length - 1].id); }}>End</button>
                 <input
                   className="nav-jump-input"
                   placeholder=">>"
@@ -8321,7 +8333,7 @@ export default function App() {
                     const val = (e.target as HTMLInputElement).value.replace(/^>>?/, "").trim();
                     const no = Number(val);
                     if (no > 0 && visibleResponseItems.some((r) => r.id === no)) {
-                      setSelectedResponse(no);
+                      selectResponseAndScroll(no);
                       (e.target as HTMLInputElement).value = "";
                       setStatus(`>>${no}`);
                     }
@@ -9524,7 +9536,7 @@ export default function App() {
                 <div
                   key={r.id}
                   className="id-popup-item"
-                  onClick={() => { setSelectedResponse(r.id); setIdPopup(null); }}
+                  onClick={() => { selectResponseAndScroll(r.id); setIdPopup(null); }}
                 >
                   <span className="response-viewer-no">{r.id}</span>
                   <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled })} />
