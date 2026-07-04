@@ -9443,9 +9443,11 @@ export default function App() {
         const nMaxH = 300;
         const nSpaceBelow = window.innerHeight - np.y;
         const nFlipUp = nSpaceBelow < nMaxH && np.anchorTop > nSpaceBelow;
+        const nPopupWidth = Math.min(620, window.innerWidth - 24);
+        const nLeft = Math.max(8, Math.min(np.x + i * 8, window.innerWidth - nPopupWidth - 8));
         const nPosStyle = nFlipUp
-          ? { left: np.x + i * 8, bottom: window.innerHeight - np.anchorTop + 1 + i * 8 }
-          : { left: np.x + i * 8, top: np.y + i * 8 };
+          ? { left: nLeft, bottom: window.innerHeight - np.anchorTop + 1 + i * 8 }
+          : { left: nLeft, top: np.y + i * 8 };
         return (
           <div
             key={`${np.responseIds[0]}-${i}`}
