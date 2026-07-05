@@ -45,7 +45,16 @@ jobs:
       - name: Install Vulkan SDK (core-ai GGML_VULKAN backend)
         shell: pwsh
         run: |
-          choco install vulkan-sdk -y --no-progress
+          # Chocolatey's community feed occasionally returns 503; retry so a
+          # transient outage doesn't fail the whole Windows job.
+          $ok = $false
+          for ($i = 1; $i -le 3; $i++) {
+            choco install vulkan-sdk -y --no-progress
+            if (Test-Path 'C:\VulkanSDK') { $ok = $true; break }
+            Write-Host "Vulkan SDK install failed (attempt $i/3), retrying in 15s..."
+            Start-Sleep -Seconds 15
+          }
+          if (-not $ok) { throw "Vulkan SDK install failed after 3 attempts" }
           $vk = (Get-ChildItem 'C:\VulkanSDK' -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
           echo "VULKAN_SDK=$vk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "$vk\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
