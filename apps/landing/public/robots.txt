@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ember-5ch.pages.dev/sitemap.xml

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import appIcon from "./assets/images/icon.png";
 import bmcButton from "./assets/images/bmc-button.png";
 import emberWindowsLight from "./assets/images/ember-windows-light.jpg";
@@ -55,13 +55,19 @@ type ThemeKey = "light" | "dark";
 type GlassKey = "on" | "off";
 type AiTabKey = "settings" | "summarize" | "chat" | "assist" | "translate" | "status";
 
-const aiShowcase: Record<AiTabKey, { src: string; alt: string; caption: string }> = {
-  settings: { src: aiSettings, alt: "AI 設定 - モデル選択と推論バックエンド", caption: "モデルをワンクリックでダウンロードして有効化。GPU / CPU の切替も可能。" },
-  summarize: { src: aiSummarize, alt: "AI スレッド要約", caption: "長いスレッドを開いたまま、サイドパネルで要約。読みどころが一目で分かる。" },
-  chat: { src: aiChat, alt: "AI チャット", caption: "現在開いているスレッドの内容を前提にチャット。気になる流れを掘り下げる。" },
-  assist: { src: aiResponseAssist, alt: "AI レスバトル支援 - 投稿前チェック", caption: "投稿予定のレスをスレ文脈込みで AI がチェック。誤字・揚げ足・平易の3観点で指摘。" },
-  translate: { src: aiTranslate, alt: "AI 翻訳 - 外国語レスを日本語で読む", caption: "翻訳特化モデル Hy-MT2 で外国語レスを日本語に。書き込みも英・中・韓へ翻訳可能。" },
-  status: { src: aiStatus, alt: "AI ステータス", caption: "ロード中のモデル、推論バックエンド、検出 GPU/CPU デバイスを一目で確認。" },
+type Shot = {
+  src: string;
+  width: number;
+  height: number;
+};
+
+const aiShowcase: Record<AiTabKey, Shot & { alt: string; caption: string }> = {
+  settings: { src: aiSettings, width: 1422, height: 932, alt: "AI 設定 - モデル選択と推論バックエンド", caption: "モデルをワンクリックでダウンロードして有効化。GPU / CPU の切替も可能。" },
+  summarize: { src: aiSummarize, width: 1422, height: 932, alt: "AI スレッド要約", caption: "長いスレッドを開いたまま、サイドパネルで要約。読みどころが一目で分かる。" },
+  chat: { src: aiChat, width: 1422, height: 932, alt: "AI チャット", caption: "現在開いているスレッドの内容を前提にチャット。気になる流れを掘り下げる。" },
+  assist: { src: aiResponseAssist, width: 1628, height: 932, alt: "AI レスバトル支援 - 投稿前チェック", caption: "投稿予定のレスをスレ文脈込みで AI がチェック。誤字・揚げ足・平易の3観点で指摘。" },
+  translate: { src: aiTranslate, width: 1422, height: 929, alt: "AI 翻訳 - 外国語レスを日本語で読む", caption: "翻訳特化モデル Hy-MT2 で外国語レスを日本語に。書き込みも英・中・韓へ翻訳可能。" },
+  status: { src: aiStatus, width: 1422, height: 932, alt: "AI ステータス", caption: "ロード中のモデル、推論バックエンド、検出 GPU/CPU デバイスを一目で確認。" },
 };
 
 const THEME_STORAGE_KEY = "ember.landing.theme";
@@ -94,14 +100,26 @@ function buildAssetUrl(downloadPageUrl: string, filename: string): string {
   return `${base}/releases/download/${tag}/${filename}`;
 }
 
-const themeShowcase: Record<PlatformKey, Record<ThemeKey, string>> = {
-  windows: { light: emberWindowsLight, dark: emberWindowsDark },
-  mac: { light: emberMacLight, dark: emberMacDark },
+const themeShowcase: Record<PlatformKey, Record<ThemeKey, Shot>> = {
+  windows: {
+    light: { src: emberWindowsLight, width: 1468, height: 932 },
+    dark: { src: emberWindowsDark, width: 1468, height: 932 },
+  },
+  mac: {
+    light: { src: emberMacLight, width: 1402, height: 902 },
+    dark: { src: emberMacDark, width: 1401, height: 902 },
+  },
 };
 
-const glassShowcase: Record<GlassKey, Record<ThemeKey, string>> = {
-  on: { light: emberGlassOnLight, dark: emberGlassOnDark },
-  off: { light: emberGlassOffLight, dark: emberGlassOffDark },
+const glassShowcase: Record<GlassKey, Record<ThemeKey, Shot>> = {
+  on: {
+    light: { src: emberGlassOnLight, width: 1415, height: 932 },
+    dark: { src: emberGlassOnDark, width: 1415, height: 932 },
+  },
+  off: {
+    light: { src: emberGlassOffLight, width: 1415, height: 932 },
+    dark: { src: emberGlassOffDark, width: 1415, height: 932 },
+  },
 };
 
 export default function App() {
@@ -168,6 +186,25 @@ export default function App() {
     return stats["latest:app:total"] ?? 0;
   }, [stats]);
 
+  const statsMax = useMemo(
+    () => statsRows.reduce((max, row) => Math.max(max, row.count), 0),
+    [statsRows],
+  );
+
+  const emberParticles = useMemo(
+    () =>
+      Array.from({ length: 54 }, (_, i) => ({
+        id: i,
+        left: Math.random() * 100,
+        size: 3 + Math.random() * 5,
+        delay: Math.random() * 12,
+        duration: 7 + Math.random() * 8,
+        drift: (Math.random() - 0.5) * 140,
+        maxOpacity: 0.55 + Math.random() * 0.45,
+      })),
+    [],
+  );
+
   useEffect(() => {
     document.documentElement.dataset.theme = colorScheme;
     try {
@@ -231,30 +268,53 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(hover: hover)").matches) return;
+    const nodes = Array.from(document.querySelectorAll<HTMLElement>(".card"));
+    const cleanups: Array<() => void> = [];
+    nodes.forEach((node) => {
+      const onMove = (event: MouseEvent) => {
+        const rect = node.getBoundingClientRect();
+        node.style.setProperty("--spot-x", `${event.clientX - rect.left}px`);
+        node.style.setProperty("--spot-y", `${event.clientY - rect.top}px`);
+      };
+      node.addEventListener("mousemove", onMove);
+      cleanups.push(() => node.removeEventListener("mousemove", onMove));
+    });
+    return () => cleanups.forEach((fn) => fn());
+  }, []);
+
+  useEffect(() => {
     if (!zoomedImage) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setZoomedImage(null);
     };
     document.body.classList.add("zoom-open");
     window.addEventListener("keydown", onKeyDown);
+    zoomCloseRef.current?.focus();
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       document.body.classList.remove("zoom-open");
+      previousFocus?.focus();
     };
   }, [zoomedImage]);
+
+  const zoomCloseRef = useRef<HTMLButtonElement | null>(null);
 
   const openZoom = (src: string, alt: string) => {
     setZoomedImage({ src, alt });
   };
 
-  const showcaseImage = themeShowcase[platform][theme];
+  const showcaseShot = themeShowcase[platform][theme];
   const showcaseAlt = `Ember ${platform === "windows" ? "Windows" : "macOS"} (${theme === "light" ? "Light" : "Dark"})`;
-  const glassImage = glassShowcase[glass][glassTheme];
+  const glassShot = glassShowcase[glass][glassTheme];
   const glassAlt = `Ember ガラス効果 ${glass === "on" ? "オン" : "オフ"} (${glassTheme === "light" ? "Light" : "Dark"})`;
 
   return (
     <>
       <div className="bg-aurora" aria-hidden="true" />
+      <div className="bg-texture" aria-hidden="true" />
 
       <header className="site-nav">
         <div className="nav-inner">
@@ -283,6 +343,23 @@ export default function App() {
 
       <main className="page" id="top">
         <section className="hero">
+          <div className="ember-field" aria-hidden="true">
+            {emberParticles.map((p) => (
+              <span
+                key={p.id}
+                className="ember-particle"
+                style={{
+                  left: `${p.left}%`,
+                  width: `${p.size}px`,
+                  height: `${p.size}px`,
+                  animationDelay: `${p.delay}s`,
+                  animationDuration: `${p.duration}s`,
+                  "--drift": `${p.drift}px`,
+                  "--max-opacity": p.maxOpacity,
+                } as CSSProperties}
+              />
+            ))}
+          </div>
           <div className="hero-inner">
             <div className="hero-copy">
               <p className="pill">
@@ -309,7 +386,7 @@ export default function App() {
                 無料 · オープンソース · 広告なし
               </p>
               <a className="bmc-link hero-bmc" href={BMC_URL} target="_blank" rel="noreferrer" aria-label="Buy Me a Coffee">
-                <img src={bmcButton} alt="Buy Me a Coffee" />
+                <img src={bmcButton} alt="Buy Me a Coffee" width={1024} height={287} decoding="async" />
               </a>
             </div>
 
@@ -322,7 +399,7 @@ export default function App() {
                   onClick={() => openZoom(emberWindowsLight, "Ember メイン画面")}
                   aria-label="スクリーンショットを拡大"
                 >
-                  <img src={emberWindowsLight} alt="Ember メイン画面" />
+                  <img src={emberWindowsLight} alt="Ember メイン画面" width={1468} height={932} {...{ fetchpriority: "high" }} />
                 </button>
               </div>
               <button
@@ -332,7 +409,7 @@ export default function App() {
                 onClick={() => openZoom(emberMacDark, "Ember macOS ダーク")}
                 aria-label="スクリーンショットを拡大"
               >
-                <img src={emberMacDark} alt="Ember macOS ダーク" />
+                <img src={emberMacDark} alt="Ember macOS ダーク" width={1401} height={902} loading="lazy" decoding="async" />
               </button>
             </div>
           </div>
@@ -407,10 +484,10 @@ export default function App() {
                 type="button"
                 className="shot-button tilt"
                 data-tilt="5"
-                onClick={() => openZoom(showcaseImage, showcaseAlt)}
+                onClick={() => openZoom(showcaseShot.src, showcaseAlt)}
                 aria-label="スクリーンショットを拡大"
               >
-                <img src={showcaseImage} alt={showcaseAlt} />
+                <img src={showcaseShot.src} alt={showcaseAlt} width={showcaseShot.width} height={showcaseShot.height} loading="lazy" decoding="async" />
               </button>
             </div>
           </div>
@@ -480,10 +557,10 @@ export default function App() {
               <button
                 type="button"
                 className="shot-button"
-                onClick={() => openZoom(glassImage, glassAlt)}
+                onClick={() => openZoom(glassShot.src, glassAlt)}
                 aria-label="スクリーンショットを拡大"
               >
-                <img src={glassImage} alt={glassAlt} />
+                <img src={glassShot.src} alt={glassAlt} width={glassShot.width} height={glassShot.height} loading="lazy" decoding="async" />
               </button>
             </div>
           </div>
@@ -565,7 +642,7 @@ export default function App() {
               </div>
               <p className="ai-caption">{aiShowcase[aiTab].caption}</p>
               <p className="note">
-                ※ AI 機能には Vulkan 1.2+ 対応 GPU が必要です。動作環境は<a href="#install">インストール手順</a>を参照。
+                ※ GPU 推論には Vulkan 1.2+ 対応 GPU (macOS は Metal) を使用します。CPU 推論への切替も可能です。動作環境は<a href="#install">インストール手順</a>を参照。
               </p>
             </div>
             <div className="feature-big-shot">
@@ -576,7 +653,7 @@ export default function App() {
                 onClick={() => openZoom(aiShowcase[aiTab].src, aiShowcase[aiTab].alt)}
                 aria-label="スクリーンショットを拡大"
               >
-                <img src={aiShowcase[aiTab].src} alt={aiShowcase[aiTab].alt} />
+                <img src={aiShowcase[aiTab].src} alt={aiShowcase[aiTab].alt} width={aiShowcase[aiTab].width} height={aiShowcase[aiTab].height} loading="lazy" decoding="async" />
               </button>
             </div>
           </div>
@@ -594,7 +671,7 @@ export default function App() {
                 onClick={() => openZoom(emberRiberLayout2, "リバー型レイアウト")}
                 aria-label="スクリーンショットを拡大"
               >
-                <img src={emberRiberLayout2} alt="リバー型レイアウト" />
+                <img src={emberRiberLayout2} alt="リバー型レイアウト" width={2270} height={1439} loading="lazy" decoding="async" />
               </button>
             </article>
 
@@ -611,7 +688,7 @@ export default function App() {
                 onClick={() => openZoom(emberImagePane, "画像ペイン")}
                 aria-label="スクリーンショットを拡大"
               >
-                <img src={emberImagePane} alt="画像ペイン" />
+                <img src={emberImagePane} alt="画像ペイン" width={1415} height={932} loading="lazy" decoding="async" />
               </button>
             </article>
 
@@ -628,7 +705,7 @@ export default function App() {
                 onClick={() => openZoom(emberRiberLayout1, "NGフィルタ / 検索")}
                 aria-label="スクリーンショットを拡大"
               >
-                <img src={emberRiberLayout1} alt="NGフィルタ / 検索" />
+                <img src={emberRiberLayout1} alt="NGフィルタ / 検索" width={2303} height={1439} loading="lazy" decoding="async" />
               </button>
             </article>
 
@@ -645,7 +722,7 @@ export default function App() {
                 onClick={() => openZoom(emberWindowsImagePane, "Windowsで動作するEmber")}
                 aria-label="スクリーンショットを拡大"
               >
-                <img src={emberWindowsImagePane} alt="Windowsで動作するEmber" />
+                <img src={emberWindowsImagePane} alt="Windowsで動作するEmber" width={1468} height={932} loading="lazy" decoding="async" />
               </button>
             </article>
           </div>
@@ -955,7 +1032,13 @@ export default function App() {
                       </tr>
                     ) : (
                       statsRows.map((row) => (
-                        <tr key={row.date}>
+                        <tr
+                          key={row.date}
+                          className="stats-day-row"
+                          style={{
+                            "--bar": statsMax > 0 ? `${Math.max(2, Math.round((row.count / statsMax) * 100))}%` : "0%",
+                          } as CSSProperties}
+                        >
                           <th scope="row">{row.date}</th>
                           <td>{row.count.toLocaleString()}</td>
                         </tr>
@@ -997,7 +1080,22 @@ export default function App() {
       </main>
 
       {zoomedImage ? (
-        <div className="image-zoom-overlay" onClick={() => setZoomedImage(null)} role="presentation">
+        <div
+          className="image-zoom-overlay"
+          onClick={() => setZoomedImage(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={zoomedImage.alt}
+        >
+          <button
+            type="button"
+            ref={zoomCloseRef}
+            className="image-zoom-close"
+            onClick={() => setZoomedImage(null)}
+            aria-label="拡大表示を閉じる"
+          >
+            <CloseIcon />
+          </button>
           <img
             className="image-zoom-content"
             src={zoomedImage.src}
@@ -1106,6 +1204,14 @@ function SparkleIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 6 6 18M6 6l12 12" />
     </svg>
   );
 }
