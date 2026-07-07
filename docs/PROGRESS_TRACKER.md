@@ -43,7 +43,7 @@
 ### テスト
 - [x] smoke-ui: Playwrightによる UIスモークテスト
 - [x] E2E: Tauri + Playwright via WebView2 CDP
-- [x] CI: GitHub Actions（Windows cargo check + smoke-ui、Ubuntu landing build）
+- [x] CI: GitHub Actions（Windows cargo check + smoke-ui、Ubuntu cargo check/clippy/test + smoke-ui、landing build）
 
 ### 配布
 - [x] GitHub Releases（Windows/macOS ZIP）

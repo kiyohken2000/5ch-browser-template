@@ -139,6 +139,13 @@ jobs:
       - name: Cargo check workspace
         run: cargo check --workspace
 
+      - name: Cargo clippy workspace
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Cargo test workspace
+        # --ignored は付けない (実サーバー接続テストは CI では実行しない)
+        run: cargo test --workspace
+
       - name: Desktop build
         run: npm run build
         working-directory: apps/desktop
