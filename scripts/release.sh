@@ -46,8 +46,14 @@ echo ""
 # --------------------------------------------------
 echo "[1/5] Version bump -> ${VERSION}"
 
+# 更新漏れ検知 (check_version_leaks.sh) 用に旧バージョンを先に控える
+OLD_VERSION=$(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' "$DESKTOP_DIR/package.json" | head -1)
+
 # package.json
 sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$DESKTOP_DIR/package.json"
+
+# package-lock.json (ルートパッケージの version を package.json に同期)
+(cd "$DESKTOP_DIR" && npm install --package-lock-only --silent)
 
 # tauri.conf.json
 sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$TAURI_DIR/tauri.conf.json"
@@ -68,6 +74,9 @@ echo "[2/5] Validating..."
 echo "  cargo check..."
 cargo check --workspace 2>&1 | tail -1
 
+echo "  version leak check..."
+bash "$ROOT_DIR/scripts/check_version_leaks.sh" "$OLD_VERSION" "$VERSION"
+
 echo "  npm build..."
 (cd "$DESKTOP_DIR" && npm run build 2>&1 | tail -1)
 
@@ -83,6 +92,7 @@ echo "[3/5] Commit & push"
 cd "$ROOT_DIR"
 git add \
   "$DESKTOP_DIR/package.json" \
+  "$DESKTOP_DIR/package-lock.json" \
   "$TAURI_DIR/tauri.conf.json" \
   "$TAURI_DIR/Cargo.toml" \
   "$TAURI_DIR/src/lib.rs" \
