@@ -284,3 +284,112 @@ pub async fn login_donguri(email: &str, password: &str) -> Result<LoginOutcome, 
         note: "donguri login".to_string(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 注意: テストデータの Cookie 値はすべてダミー。実値は使用しない。
+
+    #[test]
+    fn find_attr_value_reads_double_quoted_attr() {
+        let tag = r#"<form method="post" action="/log">"#;
+        assert_eq!(find_attr_value(tag, "action"), Some("/log".to_string()));
+    }
+
+    #[test]
+    fn find_attr_value_reads_single_quoted_attr() {
+        let tag = "<form method='post' action='/login/do'>";
+        assert_eq!(find_attr_value(tag, "action"), Some("/login/do".to_string()));
+    }
+
+    #[test]
+    fn find_attr_value_returns_none_when_attr_missing() {
+        let tag = r#"<form method="post">"#;
+        assert_eq!(find_attr_value(tag, "action"), None);
+    }
+
+    #[test]
+    fn has_input_name_matches_both_quote_styles() {
+        assert!(has_input_name(r#"<input name="mail">"#, "mail"));
+        assert!(has_input_name("<input name='pass'>", "pass"));
+        assert!(!has_input_name(r#"<input name="mail">"#, "pass"));
+    }
+
+    #[test]
+    fn parse_login_form_action_extracts_login_form_action() {
+        let html = r#"
+            <form action="/log" method="post">
+                <input name="mail"><input name="pass">
+            </form>
+        "#;
+        assert_eq!(parse_login_form_action(html), Some("/log".to_string()));
+    }
+
+    #[test]
+    fn parse_login_form_action_skips_forms_without_credentials() {
+        let html = r#"
+            <form action="/search"><input name="q"></form>
+            <form action="/log"><input name="mail"><input name="pass"></form>
+        "#;
+        assert_eq!(parse_login_form_action(html), Some("/log".to_string()));
+    }
+
+    #[test]
+    fn parse_login_form_action_returns_none_without_login_form() {
+        let html = r#"<form action="/search"><input name="q"></form>"#;
+        assert_eq!(parse_login_form_action(html), None);
+    }
+
+    #[test]
+    fn login_failed_marker_detects_error_text_and_err_path() {
+        assert!(contains_login_failed_marker("<p>ログインできません</p>"));
+        assert!(contains_login_failed_marker(r#"<a href="/err">error</a>"#));
+        assert!(!contains_login_failed_marker("<p>ようこそ</p>"));
+    }
+
+    #[test]
+    fn login_success_marker_detects_logout_link() {
+        assert!(contains_login_success_marker(r#"<a href="/logout">ログアウト</a>"#));
+        assert!(contains_login_success_marker("<title>BE 2.1</title>"));
+        assert!(!contains_login_success_marker("<p>ログインしてください</p>"));
+    }
+
+    #[test]
+    fn extract_be_login_error_returns_message_only_on_failure() {
+        assert!(extract_be_login_error("<p>ログインできません</p>").is_some());
+        assert!(extract_be_login_error("<p>ログイン成功</p>").is_none());
+    }
+
+    #[test]
+    fn cookie_names_for_sorts_and_dedupes() {
+        let jar = Jar::default();
+        let url = Url::parse("https://be.5ch.io/").expect("valid url");
+        jar.add_cookie_str("Be3M=dummy-m", &url);
+        jar.add_cookie_str("Be3D=dummy-d", &url);
+        let names = cookie_names_for(&jar, "https://be.5ch.io/").expect("cookie names");
+        assert_eq!(names, vec!["Be3D".to_string(), "Be3M".to_string()]);
+    }
+
+    #[test]
+    fn cookie_names_for_returns_empty_when_no_cookies() {
+        let jar = Jar::default();
+        let names = cookie_names_for(&jar, "https://be.5ch.io/").expect("cookie names");
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn cookie_pairs_for_extracts_name_value_pairs() {
+        let jar = Jar::default();
+        let url = Url::parse("https://uplift.5ch.io/").expect("valid url");
+        jar.add_cookie_str("sid=dummy-sid", &url);
+        let pairs = cookie_pairs_for(&jar, "https://uplift.5ch.io/");
+        assert_eq!(pairs, vec![("sid".to_string(), "dummy-sid".to_string())]);
+    }
+
+    #[test]
+    fn cookie_pairs_for_returns_empty_on_invalid_url() {
+        let jar = Jar::default();
+        assert!(cookie_pairs_for(&jar, "not a url").is_empty());
+    }
+}

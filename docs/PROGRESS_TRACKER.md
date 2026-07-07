@@ -41,6 +41,7 @@
 - [x] BE認証（ステータスバーからログイン/ログアウト切り替え）
 
 ### テスト
+- [x] Rustユニットテスト（core-parse / core-fetch / core-store / core-ai / core-auth、計60件超）
 - [x] smoke-ui: Playwrightによる UIスモークテスト
 - [x] E2E: Tauri + Playwright via WebView2 CDP
 - [x] CI: GitHub Actions（Windows cargo check + smoke-ui、Ubuntu cargo check/clippy/test + smoke-ui、landing build）
