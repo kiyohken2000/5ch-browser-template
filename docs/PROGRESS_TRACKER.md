@@ -110,7 +110,7 @@
 **残タスク**
 - ❌ Phase 4 レス返信案 — 却下 (2026-07-07、実装済みの投稿レビュー機能で足りると判断)
 - ❌ Phase 5 仕上げ — 却下 (2026-07-07。リモートカタログ fetch は v0.0.159 で実装済み)
-- 🚧 Phase 6 Vulkan GPU 推論 (実装完了、動作検証待ち = BRUSHUP_PLAN T11) — Win/Linux 用 Vulkan バックエンド + CPU/GPU 実行時切替 (`InferenceBackend::Auto / Gpu / Cpu`、`desktop.aiPrefs.v1`)
+- ✅ Phase 6 Vulkan GPU 推論 — Win/Linux 用 Vulkan バックエンド + CPU/GPU 実行時切替 (`InferenceBackend::Auto / Gpu / Cpu`、`desktop.aiPrefs.v1`)。動作検証済み (2026-07-08、詳細は AI_INTEGRATION_PLAN.md Phase 6)
 
 **新規 crate**
 - `crates/core-ai/` — llama-cpp-2 ラップ、モデル管理、ストリーミング推論

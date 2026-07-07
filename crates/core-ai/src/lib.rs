@@ -653,7 +653,7 @@ where
             .map_err(|e| AiError::InferenceFailed(format!("decode prompt chunk {chunk_idx}: {e}")))?;
     }
 
-    let mut n_cur: i32 = i32::try_from(n_prompt)
+    let n_gen_start: i32 = i32::try_from(n_prompt)
         .map_err(|_| AiError::InferenceFailed("prompt length overflow".into()))?;
 
     on_phase(InferencePhase::Generating);
@@ -663,7 +663,7 @@ where
     // U+FFFD (��) 化する。バイトを跨いで累積し、有効な UTF-8 プレフィックス
     // だけを emit、未完了バイトは次トークンに繰り越す。
     let mut pending: Vec<u8> = Vec::new();
-    for _ in 0..max_new_tokens {
+    for n_cur in (n_gen_start..).take(max_new_tokens as usize) {
         if cancel.load(Ordering::Relaxed) {
             return Err(AiError::InferenceFailed("cancelled".into()));
         }
@@ -703,7 +703,6 @@ where
             .map_err(|e| AiError::InferenceFailed(format!("batch add: {e}")))?;
         ctx.decode(&mut batch)
             .map_err(|e| AiError::InferenceFailed(format!("decode step: {e}")))?;
-        n_cur += 1;
     }
 
     // 終了時に残った未完了バイトは復旧不能なので lossy で出す。
@@ -959,6 +958,70 @@ mod tests {
         eprintln!("--- prompt ---\n{prompt}");
         eprintln!("--- output ---\n{out}\n--- end ---");
         assert!(!out.is_empty());
+    }
+
+    /// Manual GPU/CPU benchmark (BRUSHUP_PLAN T11 の検証用):
+    /// EMBER_AI_MODEL_PATH と EMBER_AI_BACKEND (auto|gpu|cpu) を設定して実行する。
+    /// llama.cpp を最適化ビルドしないと意味のある数値にならないため --release 必須。
+    /// Example:
+    ///   EMBER_AI_MODEL_PATH=C:/path/model.gguf EMBER_AI_BACKEND=gpu \
+    ///     cargo test -p core-ai --release -- --ignored bench_backend --nocapture
+    #[test]
+    #[ignore]
+    fn bench_backend_from_env() {
+        use std::time::Instant;
+        let path = std::env::var("EMBER_AI_MODEL_PATH").expect("EMBER_AI_MODEL_PATH not set");
+        let backend_kind = match std::env::var("EMBER_AI_BACKEND").as_deref() {
+            Ok("gpu") => InferenceBackend::Gpu,
+            Ok("cpu") => InferenceBackend::Cpu,
+            _ => InferenceBackend::Auto,
+        };
+        let prompt = std::env::var("EMBER_AI_PROMPT").unwrap_or_else(|_| {
+            "5ちゃんねる専用ブラウザの便利な機能を紹介します。まず一つ目は".to_string()
+        });
+        let max_tokens: u32 = std::env::var("EMBER_AI_MAX_TOKENS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(128);
+
+        let cancel = AtomicBool::new(false);
+        let start = Instant::now();
+        let mut prompt_start = start;
+        let mut gen_start = start;
+        let mut n_pieces = 0u32;
+        let mut output = String::new();
+        let stop = complete_streaming(
+            Path::new(&path),
+            &prompt,
+            max_tokens,
+            backend_kind,
+            &cancel,
+            |piece| {
+                n_pieces += 1;
+                output.push_str(piece);
+            },
+            |phase| match phase {
+                InferencePhase::LoadingModel => {}
+                InferencePhase::ProcessingPrompt => prompt_start = Instant::now(),
+                InferencePhase::Generating => gen_start = Instant::now(),
+            },
+        )
+        .expect("complete_streaming failed");
+        let gen_secs = gen_start.elapsed().as_secs_f64();
+
+        eprintln!("backend={backend_kind:?} stop={stop:?}");
+        eprintln!(
+            "load: {:.2}s  prompt: {:.2}s  generate: {:.2}s",
+            (prompt_start - start).as_secs_f64(),
+            (gen_start - prompt_start).as_secs_f64(),
+            gen_secs
+        );
+        eprintln!(
+            "generated pieces: {n_pieces}  ~tok/s: {:.1}",
+            f64::from(n_pieces) / gen_secs
+        );
+        eprintln!("--- output ---\n{output}\n--- end ---");
+        assert!(!output.is_empty());
     }
 
     /// Per-test temporary directory under target/ so tests don't pollute the system tmp

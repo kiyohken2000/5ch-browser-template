@@ -27,7 +27,7 @@ pub fn default_data_dir() -> Result<PathBuf, StoreError> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         let base = dirs::data_dir().ok_or_else(|| StoreError::Other("failed to resolve data dir".into()))?;
-        return Ok(base.join("Ember"));
+        Ok(base.join("Ember"))
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
