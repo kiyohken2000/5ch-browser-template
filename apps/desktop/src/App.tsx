@@ -9534,16 +9534,22 @@ export default function App() {
               ID:{idPopup.id} ({idResponses.length}件)
             </div>
             <div className="id-popup-list">
-              {idResponses.map((r) => (
+              {idResponses.map((r) => {
+                const replyCount = backRefMap.get(r.id)?.length ?? 0;
+                return (
                 <div
                   key={r.id}
                   className="id-popup-item"
                   onClick={() => { selectResponseAndScroll(r.id); setIdPopup(null); }}
                 >
                   <span className="response-viewer-no">{r.id}</span>
+                  {replyCount > 0 && (
+                    <span className="id-popup-reply-count" title={`${replyCount}件のレスがついています`}>▼{replyCount}</span>
+                  )}
                   <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled })} />
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );

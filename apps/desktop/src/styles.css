@@ -1262,6 +1262,13 @@ li.fav-drag-over {
 .id-popup-item:hover {
   background: #e8f0ff;
 }
+.id-popup-reply-count {
+  flex: none;
+  color: #d05a00;
+  font-size: calc(11px + var(--fs-delta, 0px));
+  font-weight: 600;
+  white-space: nowrap;
+}
 .id-popup-text {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3889,6 +3896,9 @@ a.body-link-image:hover::after {
 }
 .dark .id-popup-item:hover {
   background: #37373d;
+}
+.dark .id-popup-reply-count {
+  color: #ff9e57;
 }
 .dark .lightbox-actions button,
 .dark .lightbox-open {
