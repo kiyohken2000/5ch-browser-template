@@ -8,6 +8,7 @@ use thiserror::Error;
 use url::Url;
 use core_parse::{parse_dat_line, parse_subject_line};
 use encoding_rs::SHIFT_JIS;
+use scraper::{Html, Selector};
 
 pub const BBSMENU_URL: &str = "https://menu.5ch.io/bbsmenu.json";
 pub const EX0CH_BBSMENU_URL: &str = "https://bbspink.org/ex0ch/bbsmenu.json";
@@ -274,6 +275,127 @@ pub fn normalize_5ch_url(input: &str) -> String {
     }
 
     input.replace("5ch.net", "5ch.io")
+}
+
+// --------------------------------------------------------------------------
+// OGP (Open Graph Protocol) カード取得
+// --------------------------------------------------------------------------
+
+/// 本文中の URL から抽出した OGP メタ情報。フロントの「リンクカード」表示に使う。
+/// 取得できなかったフィールドは `None`。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OgpCard {
+    pub url: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub image: Option<String>,
+    pub site_name: Option<String>,
+}
+
+/// og タグは `<head>` 内にあるので、本文全体を読み込まず先頭のみで打ち切る上限。
+const OGP_MAX_BYTES: usize = 512 * 1024;
+
+/// セレクタにマッチする最初の要素の `content` 属性を trim して返す。空なら `None`。
+fn meta_content(doc: &Html, selector: &str) -> Option<String> {
+    let sel = Selector::parse(selector).ok()?;
+    doc.select(&sel)
+        .next()
+        .and_then(|el| el.value().attr("content"))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// `<title>` テキスト (og:title フォールバック用)。
+fn doc_title(doc: &Html) -> Option<String> {
+    let sel = Selector::parse("title").ok()?;
+    doc.select(&sel)
+        .next()
+        .map(|el| el.text().collect::<String>().trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// 生バイト先頭から `charset=` を拾って encoding を推定 (Content-Type ヘッダ欠落時)。
+fn detect_meta_charset(bytes: &[u8]) -> Option<&'static encoding_rs::Encoding> {
+    let head = &bytes[..bytes.len().min(4096)];
+    let text = String::from_utf8_lossy(head).to_ascii_lowercase();
+    let idx = text.find("charset=")?;
+    let rest = &text[idx + "charset=".len()..];
+    let label: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    encoding_rs::Encoding::for_label(label.as_bytes())
+}
+
+/// 相対 URL (og:image が相対パスの場合) をページ URL 基準で絶対化する。
+fn resolve_url(base: &str, maybe_relative: &str) -> String {
+    match Url::parse(base).and_then(|b| b.join(maybe_relative)) {
+        Ok(u) => u.to_string(),
+        Err(_) => maybe_relative.to_string(),
+    }
+}
+
+/// 外部 URL の HTML を取得し OGP メタ情報を抽出する。
+/// `client` はリダイレクト追従・timeout を設定したものを渡すこと。
+/// 本文は `OGP_MAX_BYTES` で打ち切り、Shift_JIS/EUC-JP 等は encoding_rs でデコードする。
+pub async fn fetch_ogp(client: &Client, url: &str) -> Result<OgpCard, FetchError> {
+    let mut resp = client.get(url).send().await?;
+    if !resp.status().is_success() {
+        return Err(FetchError::HttpStatus(resp.status()));
+    }
+
+    // Content-Type ヘッダの charset を優先
+    let header_charset = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|ct| {
+            ct.split(';').find_map(|part| {
+                part.trim()
+                    .strip_prefix("charset=")
+                    .map(|c| c.trim_matches('"').to_string())
+            })
+        });
+
+    // <head> が収まる程度まで読んで打ち切る
+    let mut buf: Vec<u8> = Vec::with_capacity(16 * 1024);
+    while let Some(chunk) = resp.chunk().await? {
+        buf.extend_from_slice(&chunk);
+        if buf.len() >= OGP_MAX_BYTES {
+            buf.truncate(OGP_MAX_BYTES);
+            break;
+        }
+    }
+
+    let encoding = header_charset
+        .as_deref()
+        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+        .or_else(|| detect_meta_charset(&buf))
+        .unwrap_or(encoding_rs::UTF_8);
+    let (html, _, _) = encoding.decode(&buf);
+
+    Ok(parse_ogp(url, &html))
+}
+
+/// HTML 文字列から OGP を抽出する純粋関数 (ネットワーク不要・テスト対象)。
+fn parse_ogp(url: &str, html: &str) -> OgpCard {
+    let doc = Html::parse_document(html);
+    let title =
+        meta_content(&doc, r#"meta[property="og:title"]"#).or_else(|| doc_title(&doc));
+    let description = meta_content(&doc, r#"meta[property="og:description"]"#)
+        .or_else(|| meta_content(&doc, r#"meta[name="description"]"#));
+    let image =
+        meta_content(&doc, r#"meta[property="og:image"]"#).map(|img| resolve_url(url, &img));
+    let site_name = meta_content(&doc, r#"meta[property="og:site_name"]"#);
+
+    OgpCard {
+        url: url.to_string(),
+        title,
+        description,
+        image,
+        site_name,
+    }
 }
 
 pub async fn fetch_bbsmenu_json(client: &Client) -> Result<Value, FetchError> {
@@ -1084,10 +1206,59 @@ pub async fn submit_post_finalize_from_confirm(
 mod tests {
     use super::{
         cookie_names_for_url, normalize_5ch_url, parse_board_location, parse_confirm_submit_form,
-        parse_post_form_tokens, probe_post_cookie_scope, resolve_dat_url_from_thread_url,
-        resolve_subject_url_from_thread_url, seed_cookie,
+        parse_ogp, parse_post_form_tokens, probe_post_cookie_scope,
+        resolve_dat_url_from_thread_url, resolve_subject_url_from_thread_url, seed_cookie,
     };
     use reqwest::cookie::Jar;
+
+    #[test]
+    fn parse_ogp_extracts_all_fields() {
+        let html = r#"<html><head>
+            <meta property="og:title" content="記事タイトル">
+            <meta property="og:description" content="記事の説明文">
+            <meta property="og:image" content="https://cdn.example.com/thumb.png">
+            <meta property="og:site_name" content="Example News">
+        </head><body></body></html>"#;
+        let card = parse_ogp("https://example.com/article", html);
+        assert_eq!(card.title.as_deref(), Some("記事タイトル"));
+        assert_eq!(card.description.as_deref(), Some("記事の説明文"));
+        assert_eq!(card.image.as_deref(), Some("https://cdn.example.com/thumb.png"));
+        assert_eq!(card.site_name.as_deref(), Some("Example News"));
+        assert_eq!(card.url, "https://example.com/article");
+    }
+
+    #[test]
+    fn parse_ogp_falls_back_to_title_and_meta_description() {
+        let html = r#"<html><head>
+            <title>ページタイトル</title>
+            <meta name="description" content="metaの説明">
+        </head><body></body></html>"#;
+        let card = parse_ogp("https://example.com/", html);
+        assert_eq!(card.title.as_deref(), Some("ページタイトル"));
+        assert_eq!(card.description.as_deref(), Some("metaの説明"));
+        assert!(card.image.is_none());
+        assert!(card.site_name.is_none());
+    }
+
+    #[test]
+    fn parse_ogp_resolves_relative_image_url() {
+        let html = r#"<html><head>
+            <meta property="og:title" content="T">
+            <meta property="og:image" content="/img/ogp.png">
+        </head><body></body></html>"#;
+        let card = parse_ogp("https://example.com/dir/page", html);
+        assert_eq!(card.image.as_deref(), Some("https://example.com/img/ogp.png"));
+    }
+
+    #[test]
+    fn parse_ogp_no_tags_yields_empty_card() {
+        let html = "<html><head></head><body>plain</body></html>";
+        let card = parse_ogp("https://example.com/", html);
+        assert!(card.title.is_none());
+        assert!(card.description.is_none());
+        assert!(card.image.is_none());
+        assert!(card.site_name.is_none());
+    }
 
     #[test]
     fn normalize_domain_from_5ch_net() {

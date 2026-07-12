@@ -4,8 +4,8 @@ use core_fetch::{
     fetch_post_form_tokens, fetch_subject_threads, fetch_thread_responses, is_post_success_page,
     normalize_5ch_url, parse_confirm_submit_form, probe_post_cookie_scope, seed_cookie,
     submit_post_confirm, submit_post_confirm_with_html, submit_post_finalize_from_confirm,
-    CreateThreadResult, PostConfirmResult, PostCookieReport, PostFinalizePreview, PostFormTokens,
-    PostSubmitResult, EX0CH_BBSMENU_URL,
+    CreateThreadResult, OgpCard, PostConfirmResult, PostCookieReport, PostFinalizePreview,
+    PostFormTokens, PostSubmitResult, EX0CH_BBSMENU_URL,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -299,6 +299,34 @@ async fn fetch_thread_list(thread_url: String, limit: Option<usize>) -> Result<V
             thread_url: r.thread_url,
         })
         .collect())
+}
+
+/// 本文中の外部 URL の OGP 情報を取得してカード表示用に返す。
+/// キャッシュ (7日 TTL) を優先し、無ければ取得して保存する。
+#[tauri::command]
+async fn fetch_ogp_card(url: String) -> Result<OgpCard, String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("unsupported url scheme".to_string());
+    }
+    // キャッシュ照会 (壊れた JSON はスキップして取り直す)
+    if let Ok(Some(json)) = core_store::load_ogp_cache(&url) {
+        if let Ok(card) = serde_json::from_str::<OgpCard>(&json) {
+            return Ok(card);
+        }
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (compatible; Ember/0.1)")
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let card = core_fetch::fetch_ogp(&client, &url)
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Ok(json) = serde_json::to_string(&card) {
+        let _ = core_store::save_ogp_cache(&url, &json);
+    }
+    Ok(card)
 }
 
 #[tauri::command]
@@ -2483,6 +2511,7 @@ pub fn run() {
             probe_thread_post_form,
             fetch_thread_list,
             fetch_thread_responses_command,
+            fetch_ogp_card,
             debug_post_connectivity,
             probe_post_confirm_empty,
             probe_post_confirm,

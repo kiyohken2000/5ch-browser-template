@@ -875,6 +875,21 @@ try {
   assert(legends.some((l) => l.includes("Ronin")), `settings should have Ronin/BE section, got ${legends}`);
   assert(legends.includes("データフォルダ"), `settings should have データフォルダ section, got ${legends}`);
   assert(legends.includes("情報"), `settings should have 情報 section, got ${legends}`);
+  // OGP link card toggle exists in settings
+  const ogpToggleLabel = await page.$('.settings-body label:has-text("OGPカード")');
+  assert(ogpToggleLabel, "settings should have OGP card display toggle");
+  const ogpCardCss = await page.evaluate(() => {
+    for (const sheet of document.styleSheets) {
+      try {
+        for (const rule of sheet.cssRules) {
+          if (rule.cssText?.includes(".ogp-card")) return true;
+        }
+      } catch { /* cross-origin */ }
+    }
+    return false;
+  });
+  assert(ogpCardCss, "ogp-card CSS should exist in stylesheet");
+  console.log("smoke-ui: ogp card toggle ok");
   // mouse gesture customization: settings has an "assign" button that opens the gesture config panel
   const gestureOpenBtn = await page.$(".gesture-config-open-btn");
   assert(gestureOpenBtn, "settings should have a mouse gesture assignment button");

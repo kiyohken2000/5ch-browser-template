@@ -922,7 +922,7 @@ const launchYoutubePip = (videoId: string, fallbackUrl: string): void => {
   }
 };
 
-const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean }): { __html: string } => {
+const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean }): { __html: string } => {
   let safe = html
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<a\s[^>]*>(.*?)<\/a>/gi, "$1")
@@ -1024,14 +1024,67 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   if (collectedThumbs.length > 0) {
     safe += `<div class="response-thumbs-row">${collectedThumbs.join("")}</div>`;
   }
+  // OGP カード用プレースホルダ。実データは非同期取得後に IntersectionObserver で
+  // 埋め込む (App 内の ogp fill エフェクト)。YouTube はサムネ、5ch 内部リンク・画像は対象外。
+  if (opts?.ogpCards) {
+    const ogpSlots: string[] = [];
+    const seenUrls = new Set<string>();
+    const linkRe = /<a class="body-link" href="([^"]+)"/g;
+    let om: RegExpExecArray | null;
+    while ((om = linkRe.exec(safe)) !== null) {
+      const href = om[1];
+      if (seenUrls.has(href)) continue;
+      if (extractYoutubeVideoId(href)) continue;
+      if (/^https?:\/\/[^/]*\.5ch\.(net|io)\//i.test(href)) continue;
+      seenUrls.add(href);
+      ogpSlots.push(`<div class="ogp-card-slot" data-ogp-url="${href}"></div>`);
+      if (ogpSlots.length >= 4) break;
+    }
+    if (ogpSlots.length > 0) {
+      safe += `<div class="ogp-cards">${ogpSlots.join("")}</div>`;
+    }
+  }
   return { __html: safe };
 };
-const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean }): { __html: string } => {
+const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean }): { __html: string } => {
   let out = renderResponseBody(html, opts).__html;
   out = highlightEntriesPreservingTags(out, highlightWords);
   out = highlightHtmlPreservingTags(out, query);
   return { __html: out };
 };
+
+// OGP カード (fetch_ogp_card コマンドの返却型)
+type OgpCardData = {
+  url: string;
+  title?: string | null;
+  description?: string | null;
+  image?: string | null;
+  siteName?: string | null;
+};
+const escapeOgpText = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+// OGP カードを描画すべきか (タイトルか画像が無ければ素っ気ないカードになるので出さない)
+const ogpCardHasContent = (card: OgpCardData): boolean =>
+  Boolean((card.title && card.title.trim()) || (card.image && /^https?:\/\//i.test(card.image)));
+// カードの innerHTML を生成。クリックは既存の a.body-link 委譲で外部ブラウザに開く。
+const buildOgpCardHtml = (card: OgpCardData): string => {
+  const title = card.title ? escapeOgpText(card.title.trim()) : "";
+  const desc = card.description ? escapeOgpText(card.description.trim()) : "";
+  let host = "";
+  try { host = new URL(card.url).hostname.replace(/^www\./, ""); } catch { host = ""; }
+  const site = card.siteName ? escapeOgpText(card.siteName.trim()) : escapeOgpText(host);
+  const img = card.image && /^https?:\/\//i.test(card.image)
+    ? `<span class="ogp-card-thumb"><img src="${escapeOgpText(card.image)}" loading="lazy" referrerpolicy="no-referrer" alt="" /></span>`
+    : "";
+  return `<a class="body-link ogp-card" href="${escapeOgpText(card.url)}" target="_blank" rel="noopener">`
+    + img
+    + `<span class="ogp-card-main">`
+    + (title ? `<span class="ogp-card-title">${title}</span>` : "")
+    + (desc ? `<span class="ogp-card-desc">${desc}</span>` : "")
+    + (site ? `<span class="ogp-card-site">${site}</span>` : "")
+    + `</span></a>`;
+};
+
 // 名前 / ID 用: プレーンテキストを強調エントリ + 検索クエリでハイライト
 const renderHighlightedPlainTextWithEntries = (text: string, query: string, entries: { value: string; color: string }[]): { __html: string } => {
   let out = escapeHtml(decodeHtmlEntities(text));
@@ -1220,6 +1273,12 @@ export default function App() {
   const [thumbMaskStrength, setThumbMaskStrength] = useState(80);
   const [thumbMaskForceOnStart, setThumbMaskForceOnStart] = useState(false);
   const [youtubeThumbsEnabled, setYoutubeThumbsEnabled] = useState(true);
+  // OGP リンクカード。外部サイトへ通信が飛ぶためプライバシー配慮で既定 OFF。
+  const [ogpCardsEnabled, setOgpCardsEnabled] = useState(false);
+  // 取得済み OGP のキャッシュ (null = 取得失敗/データ無し)。再レンダー間で共有し再取得を防ぐ。
+  const ogpCacheRef = useRef<Map<string, OgpCardData | null>>(new Map());
+  // 取得中の URL → Promise。同一 URL の並行フェッチを1本にまとめる。
+  const ogpInflightRef = useRef<Map<string, Promise<OgpCardData | null>>>(new Map());
   const [responseBodyBottomPad, setResponseBodyBottomPad] = useState(false);
   const [titleClickRefresh, setTitleClickRefresh] = useState(false);
   // レス選択時にそのレスを表示領域内へ自動スクロールするか (既定 ON = 従来動作)
@@ -3838,6 +3897,73 @@ export default function App() {
     return map;
   })();
 
+  // OGP リンクカードの非同期取得 & 埋め込み。トグル ON 時のみ、IntersectionObserver で
+  // 画面に入ったスロットだけ取得する (スレ内の全 URL へ一斉に通信しない)。
+  // 取得結果は ogpCacheRef にキャッシュし、再レンダーで作り直されたスロットは即座に再充填する。
+  useEffect(() => {
+    if (!ogpCardsEnabled) return;
+    const container = responseScrollRef.current;
+    if (!container) return;
+
+    const fetchCard = (url: string): Promise<OgpCardData | null> => {
+      const cache = ogpCacheRef.current;
+      if (cache.has(url)) return Promise.resolve(cache.get(url) ?? null);
+      const inflight = ogpInflightRef.current;
+      const existing = inflight.get(url);
+      if (existing) return existing;
+      if (!isTauriRuntime()) return Promise.resolve(null);
+      const p = invoke<OgpCardData>("fetch_ogp_card", { url })
+        .then((card) => {
+          cache.set(url, card);
+          return card;
+        })
+        .catch((err) => {
+          console.warn("fetch_ogp_card failed", url, err);
+          cache.set(url, null);
+          return null;
+        })
+        .finally(() => {
+          inflight.delete(url);
+        });
+      inflight.set(url, p);
+      return p;
+    };
+
+    const fillSlot = (slot: HTMLElement, card: OgpCardData | null) => {
+      if (card && ogpCardHasContent(card)) {
+        slot.innerHTML = buildOgpCardHtml(card);
+        slot.dataset.ogpState = "done";
+      } else {
+        slot.dataset.ogpState = "empty";
+      }
+    };
+
+    const io = new IntersectionObserver(
+      (entries, obs) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const slot = entry.target as HTMLElement;
+          obs.unobserve(slot);
+          if (slot.dataset.ogpState) continue;
+          const url = slot.dataset.ogpUrl;
+          if (!url) { slot.dataset.ogpState = "empty"; continue; }
+          slot.dataset.ogpState = "loading";
+          void fetchCard(url).then((card) => {
+            // 再レンダーでノードが差し替わっている可能性があるので生存確認
+            if (slot.isConnected) fillSlot(slot, card);
+          });
+        }
+      },
+      { root: container, rootMargin: "200px" }
+    );
+
+    container.querySelectorAll<HTMLElement>(".ogp-card-slot").forEach((slot) => {
+      if (!slot.dataset.ogpState) io.observe(slot);
+    });
+
+    return () => io.disconnect();
+  }, [ogpCardsEnabled, visibleResponseItems, responseSearchQuery, youtubeThumbsEnabled, imageSizeLimit, threadCategoryPanelOpen]);
+
   const handlePopupChainOver = (ev: ReactMouseEvent, nestedLevel?: number) => {
     const t = ev.target as HTMLElement;
     const pushNested = (rect: DOMRect, responseIds: number[]) => {
@@ -4659,6 +4785,7 @@ export default function App() {
           thumbMaskStrength?: number;
           thumbMaskForceOnStart?: boolean;
           youtubeThumbsEnabled?: boolean;
+          ogpCardsEnabled?: boolean;
           restoreSession?: boolean;
           autoRefreshInterval?: number;
           alwaysOnTop?: boolean;
@@ -4719,6 +4846,7 @@ export default function App() {
           setThumbMaskEnabled(parsed.thumbMaskEnabled);
         }
         if (typeof parsed.youtubeThumbsEnabled === "boolean") setYoutubeThumbsEnabled(parsed.youtubeThumbsEnabled);
+        if (typeof parsed.ogpCardsEnabled === "boolean") setOgpCardsEnabled(parsed.ogpCardsEnabled);
         if (typeof parsed.restoreSession === "boolean") { setRestoreSession(parsed.restoreSession); restoreSessionRef.current = parsed.restoreSession; }
         if (typeof parsed.autoRefreshInterval === "number") setAutoRefreshInterval(parsed.autoRefreshInterval);
         if (typeof parsed.alwaysOnTop === "boolean") setAlwaysOnTop(parsed.alwaysOnTop);
@@ -5462,6 +5590,7 @@ export default function App() {
       thumbMaskStrength,
       thumbMaskForceOnStart,
       youtubeThumbsEnabled,
+      ogpCardsEnabled,
       restoreSession,
       autoRefreshInterval,
       alwaysOnTop,
@@ -7826,7 +7955,7 @@ export default function App() {
                         )}
                       </span>
                     </div>
-                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}`} dangerouslySetInnerHTML={{ __html: (threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled }).__html) + (responseBodyBottomPad ? "<br><br>" : "") }} />
+                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}`} dangerouslySetInnerHTML={{ __html: (threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled }).__html) + (responseBodyBottomPad ? "<br><br>" : "") }} />
                     {responseTranslations[r.id] && (() => {
                       const tr = responseTranslations[r.id];
                       const langLabel = translationLangLabel(tr.lang);
@@ -9865,6 +9994,10 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={youtubeThumbsEnabled} onChange={(e) => setYoutubeThumbsEnabled(e.target.checked)} />
                   <span>YouTubeリンクのサムネイル表示</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={ogpCardsEnabled} onChange={(e) => setOgpCardsEnabled(e.target.checked)} />
+                  <span>リンクをOGPカード表示（外部サイトへ通信します）</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={hoverPreviewEnabled} onChange={(e) => setHoverPreviewEnabled(e.target.checked)} />

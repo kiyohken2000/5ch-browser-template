@@ -234,6 +234,11 @@ fn get_db() -> Result<std::sync::MutexGuard<'static, Option<Connection>>, StoreE
                 title TEXT NOT NULL DEFAULT '',
                 responses_json TEXT NOT NULL,
                 updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS ogp_cache (
+                url TEXT PRIMARY KEY,
+                json TEXT NOT NULL,
+                fetched_at INTEGER NOT NULL
             );"
         )?;
         *guard = Some(conn);
@@ -289,6 +294,47 @@ pub fn delete_thread_cache(thread_url: &str) -> Result<(), StoreError> {
     let guard = get_db()?;
     let conn = guard.as_ref().ok_or_else(|| StoreError::Other("no db".into()))?;
     conn.execute("DELETE FROM thread_cache WHERE thread_url = ?1", rusqlite::params![thread_url])?;
+    Ok(())
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+/// OGP カードのキャッシュ有効期間 (7日)。これを過ぎたら期限切れとして再取得させる。
+const OGP_CACHE_TTL_SECS: i64 = 7 * 24 * 60 * 60;
+
+/// キャッシュ済み OGP JSON を返す。未取得・期限切れなら `None`。
+pub fn load_ogp_cache(url: &str) -> Result<Option<String>, StoreError> {
+    let guard = get_db()?;
+    let conn = guard.as_ref().ok_or_else(|| StoreError::Other("no db".into()))?;
+    let mut stmt = conn.prepare("SELECT json, fetched_at FROM ogp_cache WHERE url = ?1")?;
+    let result = stmt.query_row(rusqlite::params![url], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    });
+    match result {
+        Ok((json, fetched_at)) => {
+            if now_secs() - fetched_at > OGP_CACHE_TTL_SECS {
+                Ok(None)
+            } else {
+                Ok(Some(json))
+            }
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+pub fn save_ogp_cache(url: &str, json: &str) -> Result<(), StoreError> {
+    let guard = get_db()?;
+    let conn = guard.as_ref().ok_or_else(|| StoreError::Other("no db".into()))?;
+    conn.execute(
+        "INSERT OR REPLACE INTO ogp_cache (url, json, fetched_at) VALUES (?1, ?2, ?3)",
+        rusqlite::params![url, json, now_secs()],
+    )?;
     Ok(())
 }
 
