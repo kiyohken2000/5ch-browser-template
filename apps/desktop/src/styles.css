@@ -2426,6 +2426,23 @@ button.search-history-btn:hover {
   font-size: 11px;
 }
 
+/* OGP 通信先ドメイン設定パネル */
+.ogp-domain-panel .ng-panel-add {
+  grid-template-columns: 1fr auto;
+}
+.ng-panel-hint {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--sub);
+  border-bottom: 1px solid #d0d0d0;
+}
+.ogp-domain-settings-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
 .ng-panel-bulk {
   padding: 4px 8px 6px;
   display: flex;
@@ -3115,6 +3132,7 @@ a.body-link-image:hover::after {
   min-height: 0;
 }
 .ogp-card {
+  position: relative;
   display: flex;
   align-items: stretch;
   max-width: 460px;
@@ -3129,6 +3147,26 @@ a.body-link-image:hover::after {
   text-decoration: none;
   border-color: #b8b8b8;
   background: #f2f2f2;
+}
+/* マウスオーバーで即座にリンク先 URL をカード下部にオーバーレイ表示 */
+.ogp-card::after {
+  content: attr(data-url);
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 4px 8px;
+  font-size: calc(11px + var(--fs-delta, 0px));
+  line-height: 1.35;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.82);
+  word-break: break-all;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.08s ease;
+}
+.ogp-card:hover::after {
+  opacity: 1;
 }
 .ogp-card-thumb {
   flex: none;

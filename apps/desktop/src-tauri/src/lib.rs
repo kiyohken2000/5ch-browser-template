@@ -1030,6 +1030,29 @@ fn save_ng_filters(filters: NgFilters) -> Result<(), String> {
     core_store::save_json("ng_filters.json", &filters).map_err(|e| e.to_string())
 }
 
+// --- OGP ドメインフィルタ (許可/ブロックリスト) ---
+// block は常に除外、allow は空なら全許可・登録ありならそのドメインのみ許可。
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct OgpDomainFilters {
+    #[serde(default)]
+    allow: Vec<String>,
+    #[serde(default)]
+    block: Vec<String>,
+}
+
+#[tauri::command]
+fn load_ogp_domain_filters() -> Result<OgpDomainFilters, String> {
+    match core_store::load_json::<OgpDomainFilters>("ogp_domain_filters.json") {
+        Ok(data) => Ok(data),
+        Err(_) => Ok(OgpDomainFilters::default()),
+    }
+}
+
+#[tauri::command]
+fn save_ogp_domain_filters(filters: OgpDomainFilters) -> Result<(), String> {
+    core_store::save_json("ogp_domain_filters.json", &filters).map_err(|e| e.to_string())
+}
+
 // --- Image NG (perceptual hash / dHash) ---
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -2526,6 +2549,8 @@ pub fn run() {
             save_favorites,
             load_ng_filters,
             save_ng_filters,
+            load_ogp_domain_filters,
+            save_ogp_domain_filters,
             compute_image_hash_from_url,
             build_ng_image_entry,
             load_ng_image_filter,

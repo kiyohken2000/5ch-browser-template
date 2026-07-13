@@ -922,7 +922,28 @@ const launchYoutubePip = (videoId: string, fallbackUrl: string): void => {
   }
 };
 
-const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean }): { __html: string } => {
+// OGP ドメイン許可/ブロック判定。ホスト名のサフィックス一致・大小無視。
+const ogpHostOfUrl = (url: string): string => {
+  try { return new URL(url).hostname.toLowerCase().replace(/^www\./, ""); } catch { return ""; }
+};
+const ogpHostMatchesList = (host: string, list: string[]): boolean => {
+  if (!host) return false;
+  return list.some((d) => {
+    const dom = d.trim().toLowerCase().replace(/^www\./, "");
+    if (!dom) return false;
+    return host === dom || host.endsWith("." + dom);
+  });
+};
+// block は常に除外、allow は空なら全許可・登録ありならそのドメインのみ許可。
+const ogpDomainAllowed = (url: string, allow: string[], block: string[]): boolean => {
+  const host = ogpHostOfUrl(url);
+  if (!host) return false;
+  if (ogpHostMatchesList(host, block)) return false;
+  if (allow.length > 0 && !ogpHostMatchesList(host, allow)) return false;
+  return true;
+};
+
+const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
   let safe = html
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<a\s[^>]*>(.*?)<\/a>/gi, "$1")
@@ -1036,6 +1057,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
       if (seenUrls.has(href)) continue;
       if (extractYoutubeVideoId(href)) continue;
       if (/^https?:\/\/[^/]*\.5ch\.(net|io)\//i.test(href)) continue;
+      if (!ogpDomainAllowed(href, opts.ogpAllow ?? [], opts.ogpBlock ?? [])) continue;
       seenUrls.add(href);
       ogpSlots.push(`<div class="ogp-card-slot" data-ogp-url="${href}"></div>`);
       if (ogpSlots.length >= 4) break;
@@ -1046,7 +1068,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   }
   return { __html: safe };
 };
-const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean }): { __html: string } => {
+const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
   let out = renderResponseBody(html, opts).__html;
   out = highlightEntriesPreservingTags(out, highlightWords);
   out = highlightHtmlPreservingTags(out, query);
@@ -1061,6 +1083,9 @@ type OgpCardData = {
   image?: string | null;
   siteName?: string | null;
 };
+
+// OGP ドメイン許可/ブロックリスト (ogp_domain_filters.json)
+type OgpDomainFilters = { allow: string[]; block: string[] };
 const escapeOgpText = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 // OGP カードを描画すべきか (タイトルか画像が無ければ素っ気ないカードになるので出さない)
@@ -1076,7 +1101,7 @@ const buildOgpCardHtml = (card: OgpCardData): string => {
   const img = card.image && /^https?:\/\//i.test(card.image)
     ? `<span class="ogp-card-thumb"><img src="${escapeOgpText(card.image)}" loading="lazy" referrerpolicy="no-referrer" alt="" /></span>`
     : "";
-  return `<a class="body-link ogp-card" href="${escapeOgpText(card.url)}" target="_blank" rel="noopener">`
+  return `<a class="body-link ogp-card" href="${escapeOgpText(card.url)}" data-url="${escapeOgpText(card.url)}" target="_blank" rel="noopener">`
     + img
     + `<span class="ogp-card-main">`
     + (title ? `<span class="ogp-card-title">${title}</span>` : "")
@@ -1279,6 +1304,11 @@ export default function App() {
   const ogpCacheRef = useRef<Map<string, OgpCardData | null>>(new Map());
   // 取得中の URL → Promise。同一 URL の並行フェッチを1本にまとめる。
   const ogpInflightRef = useRef<Map<string, Promise<OgpCardData | null>>>(new Map());
+  // OGP 取得対象ドメインの許可/ブロックリスト。ブロックは常に除外、許可は空なら全許可。
+  const [ogpDomainFilters, setOgpDomainFilters] = useState<OgpDomainFilters>({ allow: [], block: [] });
+  const [ogpDomainPanelOpen, setOgpDomainPanelOpen] = useState(false);
+  const [ogpDomainTab, setOgpDomainTab] = useState<"allow" | "block">("allow");
+  const [ogpDomainInput, setOgpDomainInput] = useState("");
   const [responseBodyBottomPad, setResponseBodyBottomPad] = useState(false);
   const [titleClickRefresh, setTitleClickRefresh] = useState(false);
   // レス選択時にそのレスを表示領域内へ自動スクロールするか (既定 ON = 従来動作)
@@ -1952,6 +1982,41 @@ export default function App() {
     } catch (error) {
       setStatus(`ng save error: ${String(error)}`);
     }
+  };
+
+  const loadOgpDomainFilters = async () => {
+    if (!isTauriRuntime()) return;
+    try {
+      const data = await invoke<OgpDomainFilters>("load_ogp_domain_filters");
+      setOgpDomainFilters({ allow: data.allow ?? [], block: data.block ?? [] });
+    } catch {
+      // no saved OGP domain filters yet
+    }
+  };
+
+  const persistOgpDomainFilters = async (next: OgpDomainFilters) => {
+    setOgpDomainFilters(next);
+    if (!isTauriRuntime()) return;
+    try {
+      await invoke("save_ogp_domain_filters", { filters: next });
+    } catch (error) {
+      console.warn("ogp domain filters save error", error);
+    }
+  };
+
+  const addOgpDomain = (kind: "allow" | "block", value: string) => {
+    const dom = value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+    if (!dom) return;
+    if (ogpDomainFilters[kind].includes(dom)) {
+      setStatus(`already in OGP ${kind}: ${dom}`);
+      return;
+    }
+    void persistOgpDomainFilters({ ...ogpDomainFilters, [kind]: [...ogpDomainFilters[kind], dom] });
+    setStatus(`added OGP ${kind}: ${dom}`);
+  };
+
+  const removeOgpDomain = (kind: "allow" | "block", value: string) => {
+    void persistOgpDomainFilters({ ...ogpDomainFilters, [kind]: ogpDomainFilters[kind].filter((d) => d !== value) });
   };
 
   const loadHighlightFilters = async () => {
@@ -3962,7 +4027,7 @@ export default function App() {
     });
 
     return () => io.disconnect();
-  }, [ogpCardsEnabled, visibleResponseItems, responseSearchQuery, youtubeThumbsEnabled, imageSizeLimit, threadCategoryPanelOpen]);
+  }, [ogpCardsEnabled, ogpDomainFilters, visibleResponseItems, responseSearchQuery, youtubeThumbsEnabled, imageSizeLimit, threadCategoryPanelOpen]);
 
   const handlePopupChainOver = (ev: ReactMouseEvent, nestedLevel?: number) => {
     const t = ev.target as HTMLElement;
@@ -5017,6 +5082,7 @@ export default function App() {
     void loadNgImageFilter();
     void loadReadMarkers();
     void loadHighlightFilters();
+    void loadOgpDomainFilters();
     // Load auth config and auto-login
     if (isTauriRuntime()) {
       invoke<AuthConfig>("load_auth_config").then((cfg) => {
@@ -7955,7 +8021,7 @@ export default function App() {
                         )}
                       </span>
                     </div>
-                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}`} dangerouslySetInnerHTML={{ __html: (threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled }).__html) + (responseBodyBottomPad ? "<br><br>" : "") }} />
+                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}`} dangerouslySetInnerHTML={{ __html: (threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html) + (responseBodyBottomPad ? "<br><br>" : "") }} />
                     {responseTranslations[r.id] && (() => {
                       const tr = responseTranslations[r.id];
                       const langLabel = translationLangLabel(tr.lang);
@@ -9168,6 +9234,52 @@ export default function App() {
           </>)}
         </section>
       )}
+      {ogpDomainPanelOpen && (
+        <section className="ng-panel ogp-domain-panel" role="dialog" aria-label="OGP通信先ドメイン">
+          <header className="ng-panel-header">
+            <strong>OGP通信先ドメイン</strong>
+            <span className="ng-panel-count">{ogpDomainFilters.allow.length}許可 / {ogpDomainFilters.block.length}ブロック</span>
+            <button onClick={() => setOgpDomainPanelOpen(false)}>閉じる</button>
+          </header>
+          <div className="ng-panel-tabs">
+            <button className={ogpDomainTab === "allow" ? "active-toggle" : ""} onClick={() => setOgpDomainTab("allow")}>許可リスト</button>
+            <button className={ogpDomainTab === "block" ? "active-toggle" : ""} onClick={() => setOgpDomainTab("block")}>ブロックリスト</button>
+          </div>
+          <p className="ng-panel-hint">
+            {ogpDomainTab === "allow"
+              ? "許可リストが空なら全ドメインを取得します。1件以上登録すると、登録したドメインのみ取得します。"
+              : "登録したドメインは常にOGP取得の対象外になります。"}
+          </p>
+          <div className="ng-panel-add">
+            <input
+              value={ogpDomainInput}
+              onChange={(e) => setOgpDomainInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { addOgpDomain(ogpDomainTab, ogpDomainInput); setOgpDomainInput(""); } }}
+              placeholder="例: example.com"
+            />
+            <button onClick={() => { addOgpDomain(ogpDomainTab, ogpDomainInput); setOgpDomainInput(""); }}>追加</button>
+          </div>
+          <div className="ng-panel-lists">
+            <div className="ng-list-section">
+              <h4 className="ng-section-header">
+                <span>{ogpDomainTab === "allow" ? "許可ドメイン" : "ブロックドメイン"} ({ogpDomainFilters[ogpDomainTab].length})</span>
+              </h4>
+              {ogpDomainFilters[ogpDomainTab].length === 0 ? (
+                <span className="ng-empty">(なし)</span>
+              ) : (
+                <ul className="ng-list">
+                  {ogpDomainFilters[ogpDomainTab].map((dom) => (
+                    <li key={dom}>
+                      <span className="ng-val" title={dom}>{dom}</span>
+                      <button className="ng-remove" onClick={() => removeOgpDomain(ogpDomainTab, dom)}>×</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
       {ngImagePanelOpen && (
         <section className="ng-panel ng-image-panel" role="dialog" aria-label="画像NG">
           <header className="ng-panel-header">
@@ -9999,6 +10111,13 @@ export default function App() {
                   <input type="checkbox" checked={ogpCardsEnabled} onChange={(e) => setOgpCardsEnabled(e.target.checked)} />
                   <span>リンクをOGPカード表示（外部サイトへ通信します）</span>
                 </label>
+                {ogpCardsEnabled && (
+                  <div className="settings-row">
+                    <button className="ogp-domain-settings-btn" onClick={() => { setSettingsOpen(false); setOgpDomainPanelOpen(true); }}>
+                      通信先ドメインを設定（{ogpDomainFilters.allow.length}許可 / {ogpDomainFilters.block.length}ブロック）
+                    </button>
+                  </div>
+                )}
                 <label className="settings-row">
                   <input type="checkbox" checked={hoverPreviewEnabled} onChange={(e) => setHoverPreviewEnabled(e.target.checked)} />
                   <span>画像ホバープレビュー</span>
