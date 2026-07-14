@@ -301,6 +301,13 @@ async fn fetch_thread_list(thread_url: String, limit: Option<usize>) -> Result<V
         .collect())
 }
 
+/// デコード失敗で置換文字 (U+FFFD) が混入した OGP は壊れているとみなす。
+/// 旧バージョンで文字化けキャッシュされた分を、修正後に自動で取り直させるための判定。
+fn ogp_card_looks_garbled(card: &OgpCard) -> bool {
+    let has_repl = |s: &Option<String>| s.as_deref().is_some_and(|t| t.contains('\u{FFFD}'));
+    has_repl(&card.title) || has_repl(&card.description) || has_repl(&card.site_name)
+}
+
 /// 本文中の外部 URL の OGP 情報を取得してカード表示用に返す。
 /// キャッシュ (7日 TTL) を優先し、無ければ取得して保存する。
 #[tauri::command]
@@ -308,10 +315,13 @@ async fn fetch_ogp_card(url: String) -> Result<OgpCard, String> {
     if !(url.starts_with("http://") || url.starts_with("https://")) {
         return Err("unsupported url scheme".to_string());
     }
-    // キャッシュ照会 (壊れた JSON はスキップして取り直す)
+    // キャッシュ照会 (壊れた JSON・文字化けはスキップして取り直す)
     if let Ok(Some(json)) = core_store::load_ogp_cache(&url) {
         if let Ok(card) = serde_json::from_str::<OgpCard>(&json) {
-            return Ok(card);
+            if !ogp_card_looks_garbled(&card) {
+                return Ok(card);
+            }
+            // 置換文字 (U+FFFD) を含む = 旧デコードバグ由来の文字化け → 取り直す
         }
     }
     let client = reqwest::Client::builder()

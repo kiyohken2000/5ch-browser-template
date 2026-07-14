@@ -956,14 +956,14 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
     .replace(/"/g, "&quot;");
   if (opts?.hideImages) {
     // Remove image URL lines entirely
-    safe = safe.split("\n").filter((line) => !/(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/)[^\s]+\.(?:jpg|jpeg|png|gif|webp)/i.test(line)).join("\n");
+    safe = safe.split("\n").filter((line) => !/(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/)[^\s<>&"\u0080-\uFFFF]+\.(?:jpg|jpeg|png|gif|webp)/i.test(line)).join("\n");
   }
   safe = safe.replace(/\n/g, "<br>");
   const collectedThumbs: string[] = [];
   const sizeGated = opts?.imageSizeLimitKb && opts.imageSizeLimitKb > 0;
   if (!opts?.hideImages) {
     safe = safe.replace(
-      /((?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*(?:&amp;[^\s<>&"]*)*)?|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]*\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*(?:&amp;[^\s<>&"]*)*)?)/gi,
+      /((?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"\u0080-\uFFFF]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"\u0080-\uFFFF]*(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*)?|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"\u0080-\uFFFF]*\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"\u0080-\uFFFF]*(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*)?)/gi,
       (match) => {
         const href = normalizeExternalUrl(match);
         if (!href) return match;
@@ -978,7 +978,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   }
   // Linkify non-image URLs (must run after image thumb replacement)
   safe = safe.replace(
-    /((?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"]+(?:&amp;[^\s<>&"]*)*|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]+(?:&amp;[^\s<>&"]*)*)/gi,
+    /((?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"\u0080-\uFFFF]+(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"\u0080-\uFFFF]+(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*)/gi,
     (match) => {
       // Skip if already inside a thumb-link or img tag
       if (match.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i)) return match;
@@ -1122,7 +1122,7 @@ const renderHighlightedPlainTextWithEntries = (text: string, query: string, entr
 //  1. スキーム省略込みの `://i.imgur.com/...` (先頭が英字でない `://`)
 //  2. スキームなしの裸ホスト `i.imgur.com/...`
 // これらを取りこぼすと本文ではプレビューされるのに画像一覧サブペインに出ない。
-const IMAGE_URL_RE = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*)?|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]*\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"]*)?/gi;
+const IMAGE_URL_RE = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"\u0080-\uFFFF]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"\u0080-\uFFFF]*)?|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"\u0080-\uFFFF]*\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"\u0080-\uFFFF]*)?/gi;
 const extractImageUrls = (html: string): string[] => {
   const plain = html.replace(/<[^>]+>/g, " ");
   const decoded = decodeHtmlEntities(plain);
@@ -3902,7 +3902,7 @@ export default function App() {
       if (!myPostNos.has(r.id)) return false;
     } else if (responseLinkFilter) {
       const plain = r.text.replace(/<[^>]+>/g, "");
-      const urlRe = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"]+|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"]+/gi;
+      const urlRe = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"\u0080-\uFFFF]+|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"\u0080-\uFFFF]+/gi;
       const imageRe = /\.(?:jpg|jpeg|png|gif|webp)(?:\?|$)/i;
       const videoRe = /\.(?:mp4|webm|mov)(?:\?|$)|youtu\.?be|nicovideo|nico\.ms/i;
       const urls = plain.match(urlRe) || [];
