@@ -1101,13 +1101,22 @@ const buildOgpCardHtml = (card: OgpCardData): string => {
   const img = card.image && /^https?:\/\//i.test(card.image)
     ? `<span class="ogp-card-thumb"><img src="${escapeOgpText(card.image)}" loading="lazy" referrerpolicy="no-referrer" alt="" /></span>`
     : "";
-  return `<a class="body-link ogp-card" href="${escapeOgpText(card.url)}" data-url="${escapeOgpText(card.url)}" target="_blank" rel="noopener">`
+  // マウスオーバー時に説明文の全文 (カード内では2行にクランプ) とリンク先 URL を
+  // カード下部にオーバーレイ表示し、リンクを開くかどうかの判断材料にする。
+  const url = escapeOgpText(card.url);
+  const hover = `<span class="ogp-card-hover" aria-hidden="true">`
+    + (desc ? `<span class="ogp-card-hover-desc">${desc}</span>` : "")
+    + `<span class="ogp-card-hover-url">${url}</span>`
+    + `</span>`;
+  return `<a class="body-link ogp-card" href="${url}" target="_blank" rel="noopener">`
     + img
     + `<span class="ogp-card-main">`
     + (title ? `<span class="ogp-card-title">${title}</span>` : "")
     + (desc ? `<span class="ogp-card-desc">${desc}</span>` : "")
     + (site ? `<span class="ogp-card-site">${site}</span>` : "")
-    + `</span></a>`;
+    + `</span>`
+    + hover
+    + `</a>`;
 };
 
 // 名前 / ID 用: プレーンテキストを強調エントリ + 検索クエリでハイライト

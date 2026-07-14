@@ -3148,25 +3148,38 @@ a.body-link-image:hover::after {
   border-color: #b8b8b8;
   background: #f2f2f2;
 }
-/* マウスオーバーで即座にリンク先 URL をカード下部にオーバーレイ表示 */
-.ogp-card::after {
-  content: attr(data-url);
+/* マウスオーバーで即座に説明文の全文とリンク先 URL をカード下部にオーバーレイ表示 */
+.ogp-card-hover {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  padding: 4px 8px;
-  font-size: calc(11px + var(--fs-delta, 0px));
-  line-height: 1.35;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  max-height: 60vh;
+  overflow: hidden;
   color: #fff;
-  background: rgba(0, 0, 0, 0.82);
-  word-break: break-all;
+  background: rgba(0, 0, 0, 0.85);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.08s ease;
 }
-.ogp-card:hover::after {
+.ogp-card:hover .ogp-card-hover {
   opacity: 1;
+}
+.ogp-card-hover-desc {
+  font-size: calc(11px + var(--fs-delta, 0px));
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ogp-card-hover-url {
+  font-size: calc(11px + var(--fs-delta, 0px));
+  line-height: 1.35;
+  color: #9fd0ff;
+  word-break: break-all;
 }
 .ogp-card-thumb {
   flex: none;
