@@ -320,7 +320,10 @@ fn detect_meta_charset(bytes: &[u8]) -> Option<&'static encoding_rs::Encoding> {
     let head = &bytes[..bytes.len().min(4096)];
     let text = String::from_utf8_lossy(head).to_ascii_lowercase();
     let idx = text.find("charset=")?;
-    let rest = &text[idx + "charset=".len()..];
+    // `charset="shift-jis"` のようにクォートで囲まれる場合があるため先頭の空白・引用符を除去
+    let rest = text[idx + "charset=".len()..]
+        .trim_start()
+        .trim_start_matches(['"', '\'']);
     let label: String = rest
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
@@ -1205,11 +1208,37 @@ pub async fn submit_post_finalize_from_confirm(
 #[cfg(test)]
 mod tests {
     use super::{
-        cookie_names_for_url, normalize_5ch_url, parse_board_location, parse_confirm_submit_form,
-        parse_ogp, parse_post_form_tokens, probe_post_cookie_scope,
+        cookie_names_for_url, detect_meta_charset, normalize_5ch_url, parse_board_location,
+        parse_confirm_submit_form, parse_ogp, parse_post_form_tokens, probe_post_cookie_scope,
         resolve_dat_url_from_thread_url, resolve_subject_url_from_thread_url, seed_cookie,
     };
     use reqwest::cookie::Jar;
+
+    #[test]
+    fn detect_meta_charset_handles_quoted_and_bare_labels() {
+        // <meta charset="shift-jis"> のようにクォート付きでも Shift_JIS を検出する
+        assert_eq!(
+            detect_meta_charset(br#"<meta charset="shift-jis">"#),
+            Some(encoding_rs::SHIFT_JIS)
+        );
+        assert_eq!(
+            detect_meta_charset(br#"<meta charset='Shift_JIS'>"#),
+            Some(encoding_rs::SHIFT_JIS)
+        );
+        // 旧来の http-equiv 形式 (クォートなし) も従来どおり検出する
+        assert_eq!(
+            detect_meta_charset(
+                br#"<meta http-equiv="Content-Type" content="text/html; charset=EUC-JP">"#
+            ),
+            Some(encoding_rs::EUC_JP)
+        );
+        assert_eq!(
+            detect_meta_charset(br#"<meta charset="utf-8">"#),
+            Some(encoding_rs::UTF_8)
+        );
+        // charset 宣言なし → None
+        assert_eq!(detect_meta_charset(b"<html><head></head></html>"), None);
+    }
 
     #[test]
     fn parse_ogp_extracts_all_fields() {
