@@ -1621,6 +1621,10 @@ export default function App() {
   // ナビボタン(Top/New/続き/End/ジャンプ)等の明示的な移動時に立てる。
   // autoScrollToSelected が OFF でも、この操作では必ずスクロールさせるためのフラグ。
   const forceResponseScrollRef = useRef(false);
+  // スレ切替・復元で scrollToResponseNo により読書位置を復元した時刻。
+  // 直後の selectedResponse 変更による「選択レスへ自動スクロール」を抑制し、
+  // 位置復元スクロールと二重に走ってガクガクするのを防ぐ。
+  const lastRestoreScrollAtRef = useRef(0);
   const [lastFetchTime, setLastFetchTime] = useState<string | null>(null);
   const [newResponseStart, setNewResponseStart] = useState<number | null>(null);
   const threadFetchTimesRef = useRef<Record<string, string>>({});
@@ -2315,6 +2319,16 @@ export default function App() {
     const container = responseScrollRef.current;
     if (!container) return 0;
     const els = container.querySelectorAll<HTMLElement>("[data-response-no]");
+    if (els.length === 0) return 0;
+    // 実際に下方向へスクロールした状態 (scrollTop > 8) で最下部に到達しているときは、
+    // 先頭可視レスではなく最終レスを現在位置とする。先頭可視レス方式だと
+    // 「一番下まで読んで閉じた」ケースで復元位置が約1画面ぶん手前へずれるため。
+    // scrollTop > 8 の条件は、レス数が少なく内容がビューポートに収まる場合や
+    // タブ切替中の一時的な短縮状態 (scrollTop=0 で最下部扱いになる) を除外する。
+    if (container.scrollTop > 8 && container.scrollTop + container.clientHeight >= container.scrollHeight - 4) {
+      const last = els[els.length - 1];
+      return Number(last.dataset.responseNo) || 0;
+    }
     const containerTop = container.getBoundingClientRect().top;
     for (const el of els) {
       const rect = el.getBoundingClientRect();
@@ -2344,12 +2358,46 @@ export default function App() {
     } catch { /* ignore */ }
     return 0;
   };
+  const scrollAnchorSeqRef = useRef(0);
   const scrollToResponseNo = (no: number) => {
     if (no <= 1) return;
-    setTimeout(() => {
-      const el = responseScrollRef.current?.querySelector(`[data-response-no="${no}"]`);
-      if (el) el.scrollIntoView({ block: "start" });
-    }, 50);
+    const container = responseScrollRef.current;
+    if (!container) return;
+    // この直後 (同一 tick) に走る selectedResponse 変更の自動スクロールを抑制する
+    lastRestoreScrollAtRef.current = Date.now();
+    // 画像・OGP カードは遅延ロードされ、対象レスより上の高さが後から確定する
+    // (.response-scroll は overflow-anchor: none のためブラウザ側の補正が効かない)。
+    // 一度だけスクロールすると、上の要素が伸びた分だけ表示位置が手前へずれる。
+    // レイアウトが伸びるたびに対象レスを先頭へ再アンカーして位置ずれを補正する。
+    const seq = ++scrollAnchorSeqRef.current;
+    let cancelled = false;
+    let cleaned = false;
+    const onUserInput = () => { cancelled = true; };
+    // スクロールイベントはレイアウト変化でも発火するため、実入力イベントのみで中断判定する
+    container.addEventListener("wheel", onUserInput, { passive: true });
+    container.addEventListener("touchmove", onUserInput, { passive: true });
+    window.addEventListener("keydown", onUserInput);
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      container.removeEventListener("wheel", onUserInput);
+      container.removeEventListener("touchmove", onUserInput);
+      window.removeEventListener("keydown", onUserInput);
+    };
+    const delays = [50, 200, 450, 800, 1300, 2000];
+    delays.forEach((d, i) => {
+      const last = i === delays.length - 1;
+      setTimeout(() => {
+        // 手動スクロール、または別スレッドへの切替 (seq 更新) で以後の補正を止める
+        if (cancelled || scrollAnchorSeqRef.current !== seq) { cleanup(); return; }
+        const el = container.querySelector<HTMLElement>(`[data-response-no="${no}"]`);
+        if (el) {
+          const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
+          if (Math.abs(delta) > 1) container.scrollTop += delta;
+        }
+        if (last) cleanup();
+      }, d);
+    });
   };
   // レスを選択しつつ、autoScrollToSelected の設定に関わらず必ず表示位置までスクロールする。
   // Top/New/続き/End/ジャンプ など明示的な移動操作用。
@@ -5753,6 +5801,9 @@ export default function App() {
     // 明示的な移動操作 (Top/New/続き/End/ジャンプ) は autoScrollToSelected の設定に関わらず必ずスクロールする。
     const force = forceResponseScrollRef.current;
     forceResponseScrollRef.current = false;
+    // スレ切替・復元直後 (scrollToResponseNo が読書位置を復元する) は自動スクロールしない。
+    // 位置復元と二重に走ってガクガクするのを防ぐ (明示移動は force で従来どおり)。
+    if (!force && Date.now() - lastRestoreScrollAtRef.current < 300) return;
     if (!autoScrollToSelected && !force) return;
     if (!responseScrollRef.current) return;
     const block = responseScrollRef.current.querySelector<HTMLDivElement>(".response-block.selected");
