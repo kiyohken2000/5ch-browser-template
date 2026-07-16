@@ -2399,6 +2399,42 @@ export default function App() {
       }, d);
     });
   };
+  // 末尾へスクロールする。画像・OGP カードは遅延ロードされ、飛んだ直後は最下部が
+  // まだ下へ伸びていない (.response-scroll は overflow-anchor: none)。一度だけ
+  // scrollTop = scrollHeight としても本当の末尾に届かず、「一番下まで読んだ」判定
+  // (getVisibleResponseNo の最下部条件) を満たせずに再開位置が末尾にならない。
+  // scrollToResponseNo と同様にレイアウト確定まで数回再アンカーして末尾へ追従する。
+  const scrollResponsesToBottom = () => {
+    const container = responseScrollRef.current;
+    if (!container) return;
+    // この直後に走る selectedResponse 変更の自動スクロールを抑制する
+    lastRestoreScrollAtRef.current = Date.now();
+    const seq = ++scrollAnchorSeqRef.current;
+    let cancelled = false;
+    let cleaned = false;
+    const onUserInput = () => { cancelled = true; };
+    // 実際の手動スクロールでのみ中断する (レイアウト変化由来の scroll イベントは無視)
+    container.addEventListener("wheel", onUserInput, { passive: true });
+    container.addEventListener("touchmove", onUserInput, { passive: true });
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      container.removeEventListener("wheel", onUserInput);
+      container.removeEventListener("touchmove", onUserInput);
+    };
+    const jump = () => { container.scrollTop = container.scrollHeight; };
+    jump();
+    const delays = [50, 200, 450, 800, 1300, 2000];
+    delays.forEach((d, i) => {
+      const last = i === delays.length - 1;
+      setTimeout(() => {
+        // 手動スクロール、または別スレッドへの切替 (seq 更新) で以後の補正を止める
+        if (cancelled || scrollAnchorSeqRef.current !== seq) { cleanup(); return; }
+        jump();
+        if (last) cleanup();
+      }, d);
+    });
+  };
   // レスを選択しつつ、autoScrollToSelected の設定に関わらず必ず表示位置までスクロールする。
   // Top/New/続き/End/ジャンプ など明示的な移動操作用。
   const selectResponseAndScroll = (id: number) => {
@@ -5589,7 +5625,7 @@ export default function App() {
           if (responseScrollRef.current) responseScrollRef.current.scrollTop = 0;
           break;
         case "scrollBottom":
-          if (responseScrollRef.current) responseScrollRef.current.scrollTop = responseScrollRef.current.scrollHeight;
+          scrollResponsesToBottom();
           break;
         case "closeTab":
           if (activeTabIndex >= 0) closeTab(activeTabIndex);
@@ -8582,7 +8618,7 @@ export default function App() {
                     続き
                   </button>
                 )}
-                <button onClick={() => { if (visibleResponseItems.length > 0) selectResponseAndScroll(visibleResponseItems[visibleResponseItems.length - 1].id); }}>End</button>
+                <button onClick={() => { if (visibleResponseItems.length > 0) { setSelectedResponse(visibleResponseItems[visibleResponseItems.length - 1].id); scrollResponsesToBottom(); } }}>End</button>
                 <input
                   className="nav-jump-input"
                   placeholder=">>"
