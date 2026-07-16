@@ -7534,8 +7534,11 @@ export default function App() {
                       setThreadLastReadCount((prev) => ({ ...prev, [t.id]: t.res }));
                       if ("threadUrl" in t && typeof t.threadUrl === "string") {
                         const alreadyOpen = threadTabs.some((tab) => tab.threadUrl === t.threadUrl);
+                        // アクティブタブなら openThreadInTab 自身がフェッチする。ここで重ねて
+                        // フェッチすると2回目が「新着なし」と判定して新着マーカーを消してしまう。
+                        const isActiveTab = activeTabIndex >= 0 && threadTabs[activeTabIndex]?.threadUrl === t.threadUrl;
                         openThreadInTab(t.threadUrl, t.title);
-                        if (alreadyOpen) {
+                        if (alreadyOpen && !isActiveTab) {
                           void fetchResponsesFromCurrent(t.threadUrl, { keepSelection: true });
                         }
                         // persist read status
