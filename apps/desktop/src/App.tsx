@@ -1352,6 +1352,12 @@ export default function App() {
   const [recentPostedThreads, setRecentPostedThreads] = useState<RecentThread[]>([]);
   const [favNewCounts, setFavNewCounts] = useState<Map<string, number>>(new Map());
   const [favNewCountsFetched, setFavNewCountsFetched] = useState(false);
+  // 一括巡回 (お気に入り + 最近読んだ + 最近書き込んだ スレの新着判定)。
+  // メイン一覧の favNewCounts とは独立させ、URLキーで server(板一覧上のレス数) と read(既読数) を保持する。
+  // server===null は板一覧に存在しない (dat落ち) を表す。
+  const [patrolCounts, setPatrolCounts] = useState<Map<string, { server: number | null; read: number }>>(new Map());
+  const [patrolFetched, setPatrolFetched] = useState(false);
+  const [patrolLoading, setPatrolLoading] = useState(false);
   const [favSearchQuery, setFavSearchQuery] = useState("");
   const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string; resCount: number }[]>([]);
   const [boardSearchQuery, setBoardSearchQuery] = useState("");
@@ -2983,6 +2989,99 @@ export default function App() {
     setFavNewCountsFetched(true);
     setStatus(`${statusLabel} new-count loaded (${counts.size}/${threads.length})`);
   };
+
+  // 一括巡回: お気に入り・最近読んだ・最近書き込んだの3リストをまとめて重複排除し、
+  // 板ごとに fetch_thread_list を1回だけ叩いて新着(未読)を判定する。
+  // メイン一覧用の state (favNewCounts 等) は触らず patrolCounts のみ更新する。
+  const patrolAllSavedThreads = async () => {
+    if (!isTauriRuntime() || patrolLoading) return;
+    // 3リストを threadUrl(正規化) で重複排除
+    const union = new Map<string, string>(); // normalizedUrl -> 元のthreadUrl
+    for (const t of [...favorites.threads, ...recentOpenedThreads, ...recentPostedThreads]) {
+      const norm = normalizeThreadUrl(t.threadUrl);
+      if (!union.has(norm)) union.set(norm, t.threadUrl);
+    }
+    const targets = Array.from(union.values());
+    if (targets.length === 0) {
+      setStatus("巡回対象スレなし");
+      return;
+    }
+    setPatrolLoading(true);
+    setStatus(`一括巡回中... (${targets.length}件)`);
+    let allReadStatus: Record<string, Record<string, number>> = {};
+    try {
+      allReadStatus = await invoke<Record<string, Record<string, number>>>("load_read_status");
+    } catch {
+      console.warn("patrol: load_read_status failed");
+    }
+    // 板ごとにまとめる
+    const boardMap = new Map<string, string[]>();
+    for (const url of targets) {
+      const bUrl = getBoardUrlFromThreadUrl(url);
+      const arr = boardMap.get(bUrl) ?? [];
+      arr.push(url);
+      boardMap.set(bUrl, arr);
+    }
+    const next = new Map<string, { server: number | null; read: number }>();
+    await Promise.all(
+      Array.from(boardMap.entries()).map(async ([boardUrl, urls]) => {
+        let normalizedRowMap = new Map<string, number>();
+        try {
+          const rows = await invoke<ThreadListItem[]>("fetch_thread_list", {
+            threadUrl: boardUrl,
+            limit: null,
+          });
+          for (const row of rows) {
+            normalizedRowMap.set(normalizeThreadUrl(row.threadUrl), row.responseCount);
+          }
+        } catch {
+          console.warn(`patrol: fetch_thread_list failed for board: ${boardUrl}`);
+          normalizedRowMap = new Map(); // 板取得失敗時は全スレ server=null 扱い
+        }
+        const boardStatus = allReadStatus[boardUrl] ?? {};
+        for (const url of urls) {
+          const norm = normalizeThreadUrl(url);
+          const server = normalizedRowMap.has(norm) ? (normalizedRowMap.get(norm) as number) : null;
+          const read = boardStatus[getThreadKeyFromThreadUrl(url)] ?? 0;
+          const entry = { server, read };
+          next.set(url, entry);
+          next.set(norm, entry);
+        }
+      })
+    );
+    setPatrolCounts(next);
+    setPatrolFetched(true);
+    setPatrolLoading(false);
+    const updated = targets.filter((url) => {
+      const e = next.get(url);
+      return e && e.server != null && e.server - e.read > 0;
+    }).length;
+    setStatus(`一括巡回完了: 更新 ${updated}件 / ${targets.length}件`);
+  };
+
+  // 巡回結果から1スレの状態を返す ("new" = 未読あり, "datOchi" = 板一覧に無し, "read" = 既読, null = 未巡回)
+  const patrolThreadState = (threadUrl: string): "new" | "datOchi" | "read" | null => {
+    if (!patrolFetched) return null;
+    const e = patrolCounts.get(threadUrl) ?? patrolCounts.get(normalizeThreadUrl(threadUrl));
+    if (!e) return null;
+    if (e.server == null) return "datOchi";
+    return e.server - e.read > 0 ? "new" : "read";
+  };
+
+  // 巡回で更新ありと判定されたスレ数 (バッジ用)
+  const patrolUpdatedCount = useMemo(() => {
+    if (!patrolFetched) return 0;
+    const seen = new Set<string>();
+    let n = 0;
+    for (const t of [...favorites.threads, ...recentOpenedThreads, ...recentPostedThreads]) {
+      const norm = normalizeThreadUrl(t.threadUrl);
+      if (seen.has(norm)) continue;
+      seen.add(norm);
+      if (patrolThreadState(t.threadUrl) === "new") n++;
+    }
+    return n;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patrolFetched, patrolCounts, favorites.threads, recentOpenedThreads, recentPostedThreads]);
 
   const fetchFavNewCounts = async () => {
     await fetchSavedThreadCounts(favorites.threads, "favorites");
@@ -7385,6 +7484,20 @@ export default function App() {
             )
           ) : (
             <div className="fav-threads-list" ref={favThreadsRef} onScroll={onFavThreadsScroll}>
+              <div className="patrol-bar">
+                <button
+                  className="patrol-btn"
+                  onClick={() => { void patrolAllSavedThreads(); }}
+                  disabled={patrolLoading}
+                  title="お気に入り・最近読んだ・最近書き込んだスレをまとめて巡回し、新着を太赤字表示"
+                >
+                  <RefreshCw size={13} className={patrolLoading ? "patrol-spin" : ""} />
+                  {patrolLoading ? "巡回中..." : "一括巡回"}
+                  {patrolFetched && !patrolLoading && patrolUpdatedCount > 0 && (
+                    <span className="patrol-badge">{patrolUpdatedCount}</span>
+                  )}
+                </button>
+              </div>
               <input
                 className="fav-search"
                 value={favSearchQuery}
@@ -7408,7 +7521,7 @@ export default function App() {
                         title={ft.threadUrl}
                       >
                         <span className="fav-star active" onClick={(e) => { e.stopPropagation(); toggleFavoriteThread(ft); }}><Star size={12} /></span>
-                        {ft.title}
+                        <span className={`fav-thread-title ${patrolThreadState(ft.threadUrl) === "new" ? "patrol-new" : ""} ${patrolThreadState(ft.threadUrl) === "datOchi" ? "patrol-datochi" : ""}`}>{ft.title}</span>
                       </button>
                     </li>
                   ))}
@@ -7448,7 +7561,7 @@ export default function App() {
                               >
                                 <Star size={12} fill={isFav ? "currentColor" : "none"} />
                               </span>
-                              {rt.title}
+                              <span className={`fav-thread-title ${patrolThreadState(rt.threadUrl) === "new" ? "patrol-new" : ""} ${patrolThreadState(rt.threadUrl) === "datOchi" ? "patrol-datochi" : ""}`}>{rt.title}</span>
                             </button>
                             <span
                               className="recent-thread-remove"
@@ -7504,7 +7617,7 @@ export default function App() {
                               >
                                 <Star size={12} fill={isFav ? "currentColor" : "none"} />
                               </span>
-                              {rt.title}
+                              <span className={`fav-thread-title ${patrolThreadState(rt.threadUrl) === "new" ? "patrol-new" : ""} ${patrolThreadState(rt.threadUrl) === "datOchi" ? "patrol-datochi" : ""}`}>{rt.title}</span>
                             </button>
                             <span
                               className="recent-thread-remove"

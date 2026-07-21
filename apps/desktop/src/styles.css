@@ -2330,6 +2330,67 @@ button.search-history-btn:hover {
   color: #e6a817;
 }
 
+/* 一括巡回 ツールバー */
+.patrol-bar {
+  display: flex;
+  padding: 4px 6px 2px;
+}
+
+.patrol-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #f4f4f4;
+  color: #333;
+  cursor: pointer;
+}
+
+.patrol-btn:hover:not(:disabled) {
+  background: #e8e8e8;
+}
+
+.patrol-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.patrol-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: #cc3300;
+  border-radius: 8px;
+}
+
+.patrol-spin {
+  animation: patrol-spin 0.9s linear infinite;
+}
+
+@keyframes patrol-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 巡回結果のスレタイトル表現 (スレ一覧の新着 .has-unread-row と統一) */
+.fav-thread-title.patrol-new {
+  font-weight: 700;
+  color: #cc3300;
+}
+
+.fav-thread-title.patrol-datochi {
+  opacity: 0.4;
+}
+
 .recent-thread-item {
   position: relative;
 }
@@ -3734,6 +3795,17 @@ a.body-link-image:hover::after {
 }
 .dark .has-unread-row .thread-title-cell {
   color: #ff6644;
+}
+.dark .fav-thread-title.patrol-new {
+  color: #ff6644;
+}
+.dark .patrol-btn {
+  border-color: #555;
+  background: #2b2b2b;
+  color: #ddd;
+}
+.dark .patrol-btn:hover:not(:disabled) {
+  background: #383838;
 }
 .dark .response-viewer {
   background: #1e1e1e;
