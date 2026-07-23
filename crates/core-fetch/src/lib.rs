@@ -401,6 +401,265 @@ fn parse_ogp(url: &str, html: &str) -> OgpCard {
     }
 }
 
+// --------------------------------------------------------------------------
+// X (Twitter) ポストカード取得
+// --------------------------------------------------------------------------
+
+/// ポストに添付された画像1枚。`width`/`height` はアスペクト比確保 (レイアウトシフト防止) 用。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TweetPhoto {
+    pub url: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// X のポストを自前 DOM で「埋め込み風」に描画するためのデータ。
+/// x.com は通常の HTTP クライアントに OGP を返さないため `fetch_ogp` では取得できず、
+/// 公式埋め込み (widgets.js) が内部で叩くのと同じ syndication エンドポイントを使う。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TweetCard {
+    pub url: String,
+    pub id: String,
+    pub text: String,
+    pub author_name: String,
+    pub author_handle: String,
+    pub author_avatar: Option<String>,
+    pub is_verified: bool,
+    /// ISO8601 (例 `2026-07-20T04:09:19.000Z`)。表示整形はフロント側で行う。
+    pub created_at: Option<String>,
+    pub favorite_count: Option<u64>,
+    pub reply_count: Option<u64>,
+    pub photos: Vec<TweetPhoto>,
+    /// 動画/GIF が添付されている (ネイティブカードでは再生できないため導線表示に使う)。
+    pub has_video: bool,
+    /// 引用元ポストの要約 (あれば)。`(表示名, 本文)`。
+    pub quoted_author: Option<String>,
+    pub quoted_text: Option<String>,
+}
+
+/// X のポスト URL から status ID を取り出す。
+/// 対応: `x.com` / `twitter.com` (`www.` `mobile.` 付き)、`/i/web/status/<id>` 形式も含む。
+pub fn extract_tweet_id(url: &str) -> Option<String> {
+    let parsed = Url::parse(url).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return None;
+    }
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host);
+    let host = host.strip_prefix("mobile.").unwrap_or(host);
+    if host != "x.com" && host != "twitter.com" {
+        return None;
+    }
+    // 期待パス: /<user>/status/<id> または /i/web/status/<id>
+    let segments: Vec<&str> = parsed.path_segments()?.filter(|s| !s.is_empty()).collect();
+    let idx = segments
+        .iter()
+        .position(|s| *s == "status" || *s == "statuses")?;
+    let id = segments.get(idx + 1)?;
+    // クエリや `/photo/1` が後続してもここでは ID だけ取る
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some((*id).to_string())
+}
+
+/// syndication API が要求する `token` を生成する。
+/// 公式埋め込みと同じ算出式 `((id / 1e15) * PI).toString(36)` から `0` と `.` を除いたもの。
+/// (token が空だとレスポンスが `{}` になるため必須)
+fn syndication_token(id: &str) -> String {
+    const DIGITS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let n: f64 = id.parse().unwrap_or(0.0);
+    let v = ((n / 1e15) * std::f64::consts::PI).abs();
+
+    let mut int_part = v.trunc();
+    let mut out = String::new();
+    if int_part < 1.0 {
+        out.push('0');
+    }
+    let mut int_digits = Vec::new();
+    while int_part >= 1.0 {
+        int_digits.push(DIGITS[(int_part % 36.0) as usize] as char);
+        int_part = (int_part / 36.0).trunc();
+    }
+    out.extend(int_digits.iter().rev());
+
+    // 小数部を base36 で展開 (JS の Number#toString(36) 相当の桁数で十分)
+    let mut frac = v.fract();
+    for _ in 0..16 {
+        if frac == 0.0 {
+            break;
+        }
+        frac *= 36.0;
+        let d = frac.trunc();
+        out.push(DIGITS[(d as usize).min(35)] as char);
+        frac -= d;
+    }
+
+    let token: String = out.chars().filter(|c| *c != '0' && *c != '.').collect();
+    if token.is_empty() {
+        "a".to_string()
+    } else {
+        token
+    }
+}
+
+/// X のポストを取得してカード表示用データに変換する。
+/// `client` は timeout 設定済みのものを渡すこと。
+pub async fn fetch_tweet(client: &Client, url: &str) -> Result<TweetCard, FetchError> {
+    let id = extract_tweet_id(url).ok_or_else(|| FetchError::Parse("not a tweet url".into()))?;
+    let endpoint = format!(
+        "https://cdn.syndication.twimg.com/tweet-result?id={}&lang=ja&token={}",
+        id,
+        syndication_token(&id)
+    );
+    let resp = client.get(&endpoint).send().await?;
+    if !resp.status().is_success() {
+        return Err(FetchError::HttpStatus(resp.status()));
+    }
+    // 削除済み/非公開ポストでは JSON ではなく HTML のエラーページが返るため、
+    // ここでの parse 失敗は「カードを出さない」で正常扱いにする (呼び出し側で素リンクへフォールバック)。
+    let body = resp.text().await?;
+    let json: Value = serde_json::from_str(&body)
+        .map_err(|_| FetchError::Parse("tweet unavailable".into()))?;
+    parse_tweet(url, &id, &json)
+}
+
+/// syndication JSON からカードを組み立てる純粋関数 (ネットワーク不要・テスト対象)。
+fn parse_tweet(url: &str, id: &str, json: &Value) -> Result<TweetCard, FetchError> {
+    // 削除済みは `TweetTombstone`、token 欠落時は `{}` が返る
+    if json.get("__typename").and_then(Value::as_str) != Some("Tweet") {
+        return Err(FetchError::Parse("tweet unavailable".into()));
+    }
+    let user = json.get("user");
+    let author_name = user
+        .and_then(|u| u.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let author_handle = user
+        .and_then(|u| u.get("screen_name"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+
+    let photos = json
+        .get("photos")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|p| {
+                    let url = p.get("url").and_then(Value::as_str)?;
+                    Some(TweetPhoto {
+                        url: url.to_string(),
+                        width: p.get("width").and_then(Value::as_u64).unwrap_or(0) as u32,
+                        height: p.get("height").and_then(Value::as_u64).unwrap_or(0) as u32,
+                    })
+                })
+                .take(4)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let has_video = json
+        .get("mediaDetails")
+        .and_then(Value::as_array)
+        .is_some_and(|arr| {
+            arr.iter().any(|m| {
+                matches!(
+                    m.get("type").and_then(Value::as_str),
+                    Some("video") | Some("animated_gif")
+                )
+            })
+        });
+
+    let quoted = json.get("quoted_tweet");
+    let quoted_author = quoted
+        .and_then(|q| q.get("user"))
+        .and_then(|u| u.get("name"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let quoted_text = quoted
+        .and_then(|q| q.get("text"))
+        .and_then(Value::as_str)
+        .map(|t| tweet_display_text(t, quoted));
+
+    Ok(TweetCard {
+        url: url.to_string(),
+        id: id.to_string(),
+        text: tweet_display_text(
+            json.get("text").and_then(Value::as_str).unwrap_or_default(),
+            Some(json),
+        ),
+        author_name,
+        author_handle,
+        author_avatar: user
+            .and_then(|u| u.get("profile_image_url_https"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        is_verified: user
+            .and_then(|u| u.get("is_blue_verified"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            || user
+                .and_then(|u| u.get("verified"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        created_at: json
+            .get("created_at")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        favorite_count: json.get("favorite_count").and_then(Value::as_u64),
+        reply_count: json.get("conversation_count").and_then(Value::as_u64),
+        photos,
+        has_video,
+        quoted_author,
+        quoted_text,
+    })
+}
+
+/// 本文を表示用に整える。
+/// - 末尾に付く画像の t.co リンクを `display_text_range` で切り落とす
+/// - 本文中の t.co リンクを `entities.urls` の展開後 URL に置換する
+///
+/// `display_text_range` は UTF-16 コード単位のインデックスなので、`char` ではなく
+/// UTF-16 に変換してから切る (絵文字はサロゲートペアで2カウントされるため)。
+fn tweet_display_text(text: &str, source: Option<&Value>) -> String {
+    let mut out = text.to_string();
+
+    if let Some(range) = source
+        .and_then(|s| s.get("display_text_range"))
+        .and_then(Value::as_array)
+    {
+        let start = range.first().and_then(Value::as_u64).unwrap_or(0) as usize;
+        let end = range.get(1).and_then(Value::as_u64).map(|v| v as usize);
+        let units: Vec<u16> = out.encode_utf16().collect();
+        let end = end.unwrap_or(units.len()).min(units.len());
+        if start <= end {
+            out = String::from_utf16_lossy(&units[start..end]);
+        }
+    }
+
+    if let Some(urls) = source
+        .and_then(|s| s.get("entities"))
+        .and_then(|e| e.get("urls"))
+        .and_then(Value::as_array)
+    {
+        for u in urls {
+            let (Some(short), Some(expanded)) = (
+                u.get("url").and_then(Value::as_str),
+                u.get("expanded_url").and_then(Value::as_str),
+            ) else {
+                continue;
+            };
+            out = out.replace(short, expanded);
+        }
+    }
+
+    out.trim().to_string()
+}
+
 pub async fn fetch_bbsmenu_json(client: &Client) -> Result<Value, FetchError> {
     fetch_bbsmenu_from(client, BBSMENU_URL).await
 }
@@ -1208,9 +1467,10 @@ pub async fn submit_post_finalize_from_confirm(
 #[cfg(test)]
 mod tests {
     use super::{
-        cookie_names_for_url, detect_meta_charset, normalize_5ch_url, parse_board_location,
-        parse_confirm_submit_form, parse_ogp, parse_post_form_tokens, probe_post_cookie_scope,
-        resolve_dat_url_from_thread_url, resolve_subject_url_from_thread_url, seed_cookie,
+        cookie_names_for_url, detect_meta_charset, extract_tweet_id, normalize_5ch_url,
+        parse_board_location, parse_confirm_submit_form, parse_ogp, parse_post_form_tokens,
+        parse_tweet, probe_post_cookie_scope, resolve_dat_url_from_thread_url,
+        resolve_subject_url_from_thread_url, seed_cookie, syndication_token, Value,
     };
     use reqwest::cookie::Jar;
 
@@ -1287,6 +1547,108 @@ mod tests {
         assert!(card.description.is_none());
         assert!(card.image.is_none());
         assert!(card.site_name.is_none());
+    }
+
+    #[test]
+    fn extract_tweet_id_accepts_x_and_twitter_hosts() {
+        for url in [
+            "https://x.com/votepurchase/status/2079056030047338990",
+            "https://twitter.com/votepurchase/status/2079056030047338990",
+            "https://www.x.com/votepurchase/status/2079056030047338990?s=20",
+            "https://mobile.twitter.com/votepurchase/status/2079056030047338990",
+            "https://x.com/votepurchase/status/2079056030047338990/photo/1",
+            "https://x.com/i/web/status/2079056030047338990",
+        ] {
+            assert_eq!(
+                extract_tweet_id(url).as_deref(),
+                Some("2079056030047338990"),
+                "failed for {url}"
+            );
+        }
+    }
+
+    #[test]
+    fn extract_tweet_id_rejects_non_status_urls() {
+        for url in [
+            "https://x.com/votepurchase",
+            "https://example.com/status/123",
+            "https://x.com/votepurchase/status/abc",
+            "javascript:alert(1)",
+        ] {
+            assert!(extract_tweet_id(url).is_none(), "should reject {url}");
+        }
+    }
+
+    #[test]
+    fn syndication_token_is_non_empty_without_zero_or_dot() {
+        let token = syndication_token("2079056030047338990");
+        assert!(!token.is_empty());
+        assert!(!token.contains('0'));
+        assert!(!token.contains('.'));
+    }
+
+    #[test]
+    fn parse_tweet_extracts_author_text_and_photo() {
+        let json: Value = serde_json::from_str(
+            r#"{
+                "__typename": "Tweet",
+                "text": "禁煙600日超えたけど毎日吸いたくて毎日つらくて毎日泣いてる https://t.co/RFjF3njMQL",
+                "display_text_range": [0, 30],
+                "created_at": "2026-07-20T04:09:19.000Z",
+                "favorite_count": 6,
+                "conversation_count": 2,
+                "user": {
+                    "name": "votepurchase@",
+                    "screen_name": "votepurchase",
+                    "is_blue_verified": false,
+                    "profile_image_url_https": "https://pbs.twimg.com/profile_images/1/a_normal.jpg"
+                },
+                "photos": [
+                    { "url": "https://pbs.twimg.com/media/HNpKcKtbYAAKP9X.jpg", "width": 943, "height": 2048 }
+                ],
+                "mediaDetails": [{ "type": "photo" }]
+            }"#,
+        )
+        .expect("fixture json");
+        let card = parse_tweet("https://x.com/votepurchase/status/20", "20", &json)
+            .expect("should parse");
+        // display_text_range で末尾の画像 t.co リンクが落ちていること
+        assert_eq!(card.text, "禁煙600日超えたけど毎日吸いたくて毎日つらくて毎日泣いてる");
+        assert_eq!(card.author_name, "votepurchase@");
+        assert_eq!(card.author_handle, "votepurchase");
+        assert!(!card.is_verified);
+        assert_eq!(card.favorite_count, Some(6));
+        assert_eq!(card.photos.len(), 1);
+        assert_eq!(card.photos[0].width, 943);
+        assert!(!card.has_video);
+    }
+
+    #[test]
+    fn parse_tweet_expands_tco_links_and_flags_video() {
+        let json: Value = serde_json::from_str(
+            r#"{
+                "__typename": "Tweet",
+                "text": "見て https://t.co/abc",
+                "user": { "name": "n", "screen_name": "h" },
+                "entities": { "urls": [
+                    { "url": "https://t.co/abc", "expanded_url": "https://example.com/article" }
+                ]},
+                "mediaDetails": [{ "type": "video" }]
+            }"#,
+        )
+        .expect("fixture json");
+        let card = parse_tweet("https://x.com/h/status/1", "1", &json).expect("should parse");
+        assert_eq!(card.text, "見て https://example.com/article");
+        assert!(card.has_video);
+    }
+
+    #[test]
+    fn parse_tweet_rejects_tombstone_and_empty_payload() {
+        let tombstone: Value =
+            serde_json::from_str(r#"{"__typename":"TweetTombstone"}"#).expect("fixture");
+        assert!(parse_tweet("https://x.com/a/status/1", "1", &tombstone).is_err());
+        let empty: Value = serde_json::from_str("{}").expect("fixture");
+        assert!(parse_tweet("https://x.com/a/status/1", "1", &empty).is_err());
     }
 
     #[test]

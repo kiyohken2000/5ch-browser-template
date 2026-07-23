@@ -5,7 +5,7 @@ use core_fetch::{
     normalize_5ch_url, parse_confirm_submit_form, probe_post_cookie_scope, seed_cookie,
     submit_post_confirm, submit_post_confirm_with_html, submit_post_finalize_from_confirm,
     CreateThreadResult, OgpCard, PostConfirmResult, PostCookieReport, PostFinalizePreview,
-    PostFormTokens, PostSubmitResult, EX0CH_BBSMENU_URL,
+    PostFormTokens, PostSubmitResult, TweetCard, EX0CH_BBSMENU_URL,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -335,6 +335,34 @@ async fn fetch_ogp_card(url: String) -> Result<OgpCard, String> {
         .map_err(|e| e.to_string())?;
     if let Ok(json) = serde_json::to_string(&card) {
         let _ = core_store::save_ogp_cache(&url, &json);
+    }
+    Ok(card)
+}
+
+/// X (Twitter) のポストをカード表示用に取得する。
+/// x.com は通常の HTTP クライアントに OGP を返さないため `fetch_ogp_card` では取れず、
+/// 公式埋め込みが内部で使うのと同じ syndication エンドポイントから取得する。
+/// キャッシュは OGP と同じテーブルを `tweet:<id>` キーで共用する (7日 TTL)。
+#[tauri::command]
+async fn fetch_tweet_card(url: String) -> Result<TweetCard, String> {
+    let id = core_fetch::extract_tweet_id(&url).ok_or_else(|| "not a tweet url".to_string())?;
+    let cache_key = format!("tweet:{}", id);
+    if let Ok(Some(json)) = core_store::load_ogp_cache(&cache_key) {
+        if let Ok(card) = serde_json::from_str::<TweetCard>(&json) {
+            return Ok(card);
+        }
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (compatible; Ember/0.1)")
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let card = core_fetch::fetch_tweet(&client, &url)
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Ok(json) = serde_json::to_string(&card) {
+        let _ = core_store::save_ogp_cache(&cache_key, &json);
     }
     Ok(card)
 }
@@ -2545,6 +2573,7 @@ pub fn run() {
             fetch_thread_list,
             fetch_thread_responses_command,
             fetch_ogp_card,
+            fetch_tweet_card,
             debug_post_connectivity,
             probe_post_confirm_empty,
             probe_post_confirm,

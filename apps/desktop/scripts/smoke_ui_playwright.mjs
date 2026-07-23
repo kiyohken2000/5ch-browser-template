@@ -988,6 +988,31 @@ try {
   assert(patrolRules === 3, "CSS should have patrol button/badge/new-title rules");
   console.log("smoke-ui: patrol css ok");
 
+  // --- X ポストカード CSS rules exist (structural) ---
+  const tweetCardRules = await page.evaluate(() => {
+    const wanted = new Set([
+      ".tweet-card",
+      ".tweet-card-avatar",
+      ".tweet-card-text",
+      ".tweet-card-photos",
+      ".dark .tweet-card",
+    ]);
+    const found = new Set();
+    for (const sheet of document.styleSheets) {
+      try {
+        for (const rule of sheet.cssRules) {
+          if (!rule.selectorText) continue;
+          for (const w of wanted) {
+            if (rule.selectorText.includes(w)) found.add(w);
+          }
+        }
+      } catch {}
+    }
+    return found.size;
+  });
+  assert(tweetCardRules === 5, "CSS should have tweet card rules (light + dark)");
+  console.log("smoke-ui: tweet card css ok");
+
   // --- right-pane layout ---
   const rightPane = await page.$(".right-pane");
   assert(rightPane, "right-pane container should exist");

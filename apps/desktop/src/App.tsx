@@ -900,6 +900,12 @@ const extractYoutubeVideoId = (url: string): string | null => {
   const m = url.match(YOUTUBE_VIDEO_ID_RE);
   return m ? m[1] : null;
 };
+// X (Twitter) のポスト URL から status ID を取り出す (Rust 側 extract_tweet_id と同じ判定)。
+const TWEET_STATUS_RE = /^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/(?:[A-Za-z0-9_]+|i\/web)\/status(?:es)?\/(\d+)/i;
+const extractTweetId = (url: string): string | null => {
+  const m = url.match(TWEET_STATUS_RE);
+  return m ? m[1] : null;
+};
 const isMacPlatform =
   typeof navigator !== "undefined" && /Macintosh|Mac OS X/.test(navigator.userAgent);
 const launchYoutubePip = (videoId: string, fallbackUrl: string): void => {
@@ -943,7 +949,7 @@ const ogpDomainAllowed = (url: string, allow: string[], block: string[]): boolea
   return true;
 };
 
-const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
+const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
   let safe = html
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<a\s[^>]*>(.*?)<\/a>/gi, "$1")
@@ -1047,7 +1053,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   }
   // OGP カード用プレースホルダ。実データは非同期取得後に IntersectionObserver で
   // 埋め込む (App 内の ogp fill エフェクト)。YouTube はサムネ、5ch 内部リンク・画像は対象外。
-  if (opts?.ogpCards) {
+  if (opts?.ogpCards || opts?.tweetCards) {
     const ogpSlots: string[] = [];
     const seenUrls = new Set<string>();
     const linkRe = /<a class="body-link" href="([^"]+)"/g;
@@ -1058,8 +1064,17 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
       if (extractYoutubeVideoId(href)) continue;
       if (/^https?:\/\/[^/]*\.5ch\.(net|io)\//i.test(href)) continue;
       if (!ogpDomainAllowed(href, opts.ogpAllow ?? [], opts.ogpBlock ?? [])) continue;
-      seenUrls.add(href);
-      ogpSlots.push(`<div class="ogp-card-slot" data-ogp-url="${href}"></div>`);
+      // X のポストは syndication API から取れるので専用のポストカードにする。
+      // ポストカードが OFF のときは通常の OGP カードのスロットとして扱う (フォールバック)。
+      const tweetId = opts.tweetCards ? extractTweetId(href) : null;
+      if (tweetId) {
+        seenUrls.add(href);
+        ogpSlots.push(`<div class="ogp-card-slot tweet-card-slot" data-ogp-url="${href}" data-tweet-id="${tweetId}"></div>`);
+      } else {
+        if (!opts.ogpCards) continue;
+        seenUrls.add(href);
+        ogpSlots.push(`<div class="ogp-card-slot" data-ogp-url="${href}"></div>`);
+      }
       if (ogpSlots.length >= 4) break;
     }
     if (ogpSlots.length > 0) {
@@ -1068,7 +1083,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   }
   return { __html: safe };
 };
-const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
+const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
   let out = renderResponseBody(html, opts).__html;
   out = highlightEntriesPreservingTags(out, highlightWords);
   out = highlightHtmlPreservingTags(out, query);
@@ -1116,6 +1131,105 @@ const buildOgpCardHtml = (card: OgpCardData): string => {
     + (site ? `<span class="ogp-card-site">${site}</span>` : "")
     + `</span>`
     + hover
+    + `</a>`;
+};
+
+// X ポストカード (fetch_tweet_card コマンドの返却型)
+type TweetPhotoData = { url: string; width: number; height: number };
+type TweetCardData = {
+  url: string;
+  id: string;
+  text: string;
+  authorName: string;
+  authorHandle: string;
+  authorAvatar?: string | null;
+  isVerified: boolean;
+  createdAt?: string | null;
+  favoriteCount?: number | null;
+  replyCount?: number | null;
+  photos: TweetPhotoData[];
+  hasVideo: boolean;
+  quotedAuthor?: string | null;
+  quotedText?: string | null;
+};
+
+// 1.2万 -> "1.2万" のように日本語圏で読みやすい桁に丸める
+const formatTweetCount = (n: number): string => {
+  if (n >= 100000000) return `${(n / 100000000).toFixed(1).replace(/\.0$/, "")}億`;
+  if (n >= 10000) return `${(n / 10000).toFixed(1).replace(/\.0$/, "")}万`;
+  return String(n);
+};
+const formatTweetDate = (iso: string): string => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+};
+// 本文中の URL / @メンション / #ハッシュタグ をリンク風に装飾する。
+// 実際の遷移はカード全体のクリック委譲に任せるので、内側は span のままにしてネストした
+// アンカーを作らない (a の中に a は不正で、クリック判定も壊れる)。
+const decorateTweetText = (text: string): string =>
+  escapeOgpText(text)
+    .replace(/(https?:\/\/[^\s<]+)/g, '<span class="tweet-card-link">$1</span>')
+    .replace(/(^|[\s(])@([A-Za-z0-9_]{1,15})/g, '$1<span class="tweet-card-link">@$2</span>')
+    .replace(/(^|[\s(])(#[^\s<#]+)/g, '$1<span class="tweet-card-link">$2</span>')
+    .replace(/\n/g, "<br />");
+
+// ポストカードの innerHTML を生成。OGP カードと同じく a.body-link のクリック委譲で
+// 外部ブラウザに開く。画像は width/height からアスペクト比を先に確定させ、
+// 遅延ロードでも高さが後から変わらないようにする (既読アンカーのズレ防止)。
+const buildTweetCardHtml = (card: TweetCardData): string => {
+  const url = escapeOgpText(card.url);
+  const avatar = card.authorAvatar && /^https?:\/\//i.test(card.authorAvatar)
+    ? `<img class="tweet-card-avatar" src="${escapeOgpText(card.authorAvatar)}" loading="lazy" referrerpolicy="no-referrer" alt="" />`
+    : `<span class="tweet-card-avatar tweet-card-avatar-blank" aria-hidden="true"></span>`;
+  const badge = card.isVerified ? `<span class="tweet-card-badge" title="認証済み">✓</span>` : "";
+  const head = `<span class="tweet-card-head">`
+    + avatar
+    + `<span class="tweet-card-names">`
+    + `<span class="tweet-card-name">${escapeOgpText(card.authorName)}${badge}</span>`
+    + `<span class="tweet-card-handle">@${escapeOgpText(card.authorHandle)}</span>`
+    + `</span>`
+    + `<span class="tweet-card-logo" aria-hidden="true">𝕏</span>`
+    + `</span>`;
+
+  const body = card.text ? `<span class="tweet-card-text">${decorateTweetText(card.text)}</span>` : "";
+
+  const quote = card.quotedText
+    ? `<span class="tweet-card-quote">`
+      + (card.quotedAuthor ? `<span class="tweet-card-quote-author">${escapeOgpText(card.quotedAuthor)}</span>` : "")
+      + `<span class="tweet-card-quote-text">${escapeOgpText(card.quotedText)}</span>`
+      + `</span>`
+    : "";
+
+  const photos = card.photos.length > 0
+    ? `<span class="tweet-card-photos tweet-card-photos-${Math.min(card.photos.length, 4)}">`
+      + card.photos.map((p) => {
+        // width/height 属性 + aspect-ratio で読み込み前から領域を確保する
+        const ratio = p.width > 0 && p.height > 0 ? ` style="aspect-ratio:${p.width}/${p.height}"` : "";
+        const dim = p.width > 0 && p.height > 0 ? ` width="${p.width}" height="${p.height}"` : "";
+        return `<img class="tweet-card-photo" src="${escapeOgpText(p.url)}"${dim}${ratio} loading="lazy" referrerpolicy="no-referrer" alt="" />`;
+      }).join("")
+      + `</span>`
+    : "";
+
+  // ネイティブカードでは動画を再生できないので、X で開く導線であることを明示する
+  const video = card.hasVideo
+    ? `<span class="tweet-card-video">▶ 動画つきポスト（クリックで X を開く）</span>`
+    : "";
+
+  const metaParts: string[] = [];
+  if (typeof card.replyCount === "number" && card.replyCount > 0) metaParts.push(`💬 ${formatTweetCount(card.replyCount)}`);
+  if (typeof card.favoriteCount === "number" && card.favoriteCount > 0) metaParts.push(`♡ ${formatTweetCount(card.favoriteCount)}`);
+  if (card.createdAt) {
+    const d = formatTweetDate(card.createdAt);
+    if (d) metaParts.push(d);
+  }
+  const meta = metaParts.length > 0
+    ? `<span class="tweet-card-meta">${metaParts.map(escapeOgpText).join("<span class=\"tweet-card-dot\">·</span>")}</span>`
+    : "";
+
+  return `<a class="body-link tweet-card" href="${url}" target="_blank" rel="noopener">`
+    + head + body + quote + photos + video + meta
     + `</a>`;
 };
 
@@ -1309,6 +1423,12 @@ export default function App() {
   const [youtubeThumbsEnabled, setYoutubeThumbsEnabled] = useState(true);
   // OGP リンクカード。外部サイトへ通信が飛ぶためプライバシー配慮で既定 OFF。
   const [ogpCardsEnabled, setOgpCardsEnabled] = useState(false);
+  // X ポストカード。OGP とは独立トグル (x.com は OGP を返さないので、OGP カード ON
+  // だけでは X リンクは空のまま)。x.com / pbs.twimg.com へ通信が飛ぶため、
+  // OGP カードと同じくプライバシー配慮で既定 OFF。
+  const [tweetCardsEnabled, setTweetCardsEnabled] = useState(false);
+  const tweetCacheRef = useRef<Map<string, TweetCardData | null>>(new Map());
+  const tweetInflightRef = useRef<Map<string, Promise<TweetCardData | null>>>(new Map());
   // 取得済み OGP のキャッシュ (null = 取得失敗/データ無し)。再レンダー間で共有し再取得を防ぐ。
   const ogpCacheRef = useRef<Map<string, OgpCardData | null>>(new Map());
   // 取得中の URL → Promise。同一 URL の並行フェッチを1本にまとめる。
@@ -4158,9 +4278,34 @@ export default function App() {
   // 画面に入ったスロットだけ取得する (スレ内の全 URL へ一斉に通信しない)。
   // 取得結果は ogpCacheRef にキャッシュし、再レンダーで作り直されたスロットは即座に再充填する。
   useEffect(() => {
-    if (!ogpCardsEnabled) return;
+    if (!ogpCardsEnabled && !tweetCardsEnabled) return;
     const container = responseScrollRef.current;
     if (!container) return;
+
+    const fetchTweet = (url: string): Promise<TweetCardData | null> => {
+      const cache = tweetCacheRef.current;
+      if (cache.has(url)) return Promise.resolve(cache.get(url) ?? null);
+      const inflight = tweetInflightRef.current;
+      const existing = inflight.get(url);
+      if (existing) return existing;
+      if (!isTauriRuntime()) return Promise.resolve(null);
+      const p = invoke<TweetCardData>("fetch_tweet_card", { url })
+        .then((card) => {
+          cache.set(url, card);
+          return card;
+        })
+        .catch((err) => {
+          // 削除済み・非公開ポストはここに来る (素リンク表示のままにする)
+          console.warn("fetch_tweet_card failed", url, err);
+          cache.set(url, null);
+          return null;
+        })
+        .finally(() => {
+          inflight.delete(url);
+        });
+      inflight.set(url, p);
+      return p;
+    };
 
     const fetchCard = (url: string): Promise<OgpCardData | null> => {
       const cache = ogpCacheRef.current;
@@ -4205,6 +4350,27 @@ export default function App() {
           const url = slot.dataset.ogpUrl;
           if (!url) { slot.dataset.ogpState = "empty"; continue; }
           slot.dataset.ogpState = "loading";
+          if (slot.dataset.tweetId) {
+            void fetchTweet(url).then((card) => {
+              // 再レンダーでノードが差し替わっている可能性があるので生存確認
+              if (!slot.isConnected) return;
+              if (card) {
+                slot.innerHTML = buildTweetCardHtml(card);
+                slot.dataset.ogpState = "done";
+                return;
+              }
+              // 削除済み・非公開・取得失敗時は通常の OGP カードにフォールバックする。
+              // OGP カード自体が OFF なら素リンクのまま (スロットは非表示)。
+              if (!ogpCardsEnabled) {
+                slot.dataset.ogpState = "empty";
+                return;
+              }
+              void fetchCard(url).then((ogp) => {
+                if (slot.isConnected) fillSlot(slot, ogp);
+              });
+            });
+            continue;
+          }
           void fetchCard(url).then((card) => {
             // 再レンダーでノードが差し替わっている可能性があるので生存確認
             if (slot.isConnected) fillSlot(slot, card);
@@ -4219,7 +4385,7 @@ export default function App() {
     });
 
     return () => io.disconnect();
-  }, [ogpCardsEnabled, ogpDomainFilters, visibleResponseItems, responseSearchQuery, youtubeThumbsEnabled, imageSizeLimit, threadCategoryPanelOpen]);
+  }, [ogpCardsEnabled, tweetCardsEnabled, ogpDomainFilters, visibleResponseItems, responseSearchQuery, youtubeThumbsEnabled, imageSizeLimit, threadCategoryPanelOpen]);
 
   const handlePopupChainOver = (ev: ReactMouseEvent, nestedLevel?: number) => {
     const t = ev.target as HTMLElement;
@@ -5043,6 +5209,7 @@ export default function App() {
           thumbMaskForceOnStart?: boolean;
           youtubeThumbsEnabled?: boolean;
           ogpCardsEnabled?: boolean;
+          tweetCardsEnabled?: boolean;
           restoreSession?: boolean;
           autoRefreshInterval?: number;
           alwaysOnTop?: boolean;
@@ -5104,6 +5271,7 @@ export default function App() {
         }
         if (typeof parsed.youtubeThumbsEnabled === "boolean") setYoutubeThumbsEnabled(parsed.youtubeThumbsEnabled);
         if (typeof parsed.ogpCardsEnabled === "boolean") setOgpCardsEnabled(parsed.ogpCardsEnabled);
+        if (typeof parsed.tweetCardsEnabled === "boolean") setTweetCardsEnabled(parsed.tweetCardsEnabled);
         if (typeof parsed.restoreSession === "boolean") { setRestoreSession(parsed.restoreSession); restoreSessionRef.current = parsed.restoreSession; }
         if (typeof parsed.autoRefreshInterval === "number") setAutoRefreshInterval(parsed.autoRefreshInterval);
         if (typeof parsed.alwaysOnTop === "boolean") setAlwaysOnTop(parsed.alwaysOnTop);
@@ -5849,6 +6017,7 @@ export default function App() {
       thumbMaskForceOnStart,
       youtubeThumbsEnabled,
       ogpCardsEnabled,
+      tweetCardsEnabled,
       restoreSession,
       autoRefreshInterval,
       alwaysOnTop,
@@ -8233,7 +8402,7 @@ export default function App() {
                         )}
                       </span>
                     </div>
-                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}`} dangerouslySetInnerHTML={{ __html: (threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html) + (responseBodyBottomPad ? "<br><br>" : "") }} />
+                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}`} dangerouslySetInnerHTML={{ __html: (threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html) + (responseBodyBottomPad ? "<br><br>" : "") }} />
                     {responseTranslations[r.id] && (() => {
                       const tr = responseTranslations[r.id];
                       const langLabel = translationLangLabel(tr.lang);
@@ -10323,7 +10492,11 @@ export default function App() {
                   <input type="checkbox" checked={ogpCardsEnabled} onChange={(e) => setOgpCardsEnabled(e.target.checked)} />
                   <span>リンクをOGPカード表示（外部サイトへ通信します）</span>
                 </label>
-                {ogpCardsEnabled && (
+                <label className="settings-row">
+                  <input type="checkbox" checked={tweetCardsEnabled} onChange={(e) => setTweetCardsEnabled(e.target.checked)} />
+                  <span>X（Twitter）のポストをカード表示（x.comへ通信します）</span>
+                </label>
+                {(ogpCardsEnabled || tweetCardsEnabled) && (
                   <div className="settings-row">
                     <button className="ogp-domain-settings-btn" onClick={() => { setSettingsOpen(false); setOgpDomainPanelOpen(true); }}>
                       通信先ドメインを設定（{ogpDomainFilters.allow.length}許可 / {ogpDomainFilters.block.length}ブロック）

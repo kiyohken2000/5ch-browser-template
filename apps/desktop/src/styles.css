@@ -3290,6 +3290,191 @@ a.body-link-image:hover::after {
   text-overflow: ellipsis;
 }
 
+/* --- X (Twitter) ポストカード --------------------------------------------
+   公式埋め込み (widgets.js + iframe) は使わず、syndication API から取った
+   データを自前 DOM で描画する。画像は aspect-ratio で先に領域を確保するので
+   遅延ロードでも高さが後から変わらない (既読アンカーのズレ防止)。 */
+.tweet-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 400px;
+  padding: 7px 9px;
+  border: 1px solid #dcdcdc;
+  border-radius: 10px;
+  background: #ffffff;
+  text-decoration: none;
+  color: inherit;
+}
+.tweet-card:hover {
+  text-decoration: none;
+  border-color: #b8b8b8;
+  background: #f7f9fa;
+}
+.tweet-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tweet-card-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.tweet-card-avatar-blank {
+  display: inline-block;
+  background: #e2e2e2;
+}
+.tweet-card-names {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  line-height: 1.2;
+  overflow: hidden;
+}
+.tweet-card-name {
+  font-weight: 700;
+  font-size: calc(11px + var(--fs-delta, 0px));
+  color: #0f1419;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+  max-width: 55%;
+}
+.tweet-card-badge {
+  color: #1d9bf0;
+  margin-left: 2px;
+  font-size: calc(9px + var(--fs-delta, 0px));
+}
+.tweet-card-handle {
+  font-size: calc(10px + var(--fs-delta, 0px));
+  color: #536471;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.tweet-card-logo {
+  margin-left: auto;
+  font-size: calc(12px + var(--fs-delta, 0px));
+  color: #536471;
+  flex-shrink: 0;
+}
+.tweet-card-text {
+  font-size: calc(12px + var(--fs-delta, 0px));
+  line-height: 1.4;
+  color: #0f1419;
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* 長文ポストでレスが埋まらないよう4行で打ち切る (全文は X で開く) */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tweet-card-link {
+  color: #1d9bf0;
+}
+.tweet-card-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 6px;
+  border: 1px solid #e2e2e2;
+  border-radius: 6px;
+  font-size: calc(10px + var(--fs-delta, 0px));
+}
+.tweet-card-quote-author {
+  font-weight: 700;
+  color: #0f1419;
+}
+.tweet-card-quote-text {
+  color: #536471;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tweet-card-photos {
+  display: grid;
+  gap: 2px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.tweet-card-photos-1 { grid-template-columns: 1fr; }
+.tweet-card-photos-2,
+.tweet-card-photos-3,
+.tweet-card-photos-4 { grid-template-columns: 1fr 1fr; }
+.tweet-card-photo {
+  width: 100%;
+  height: auto;
+  /* 1枚だけのときは縦長画像でカードが極端に伸びないよう上限をかける */
+  max-height: 200px;
+  object-fit: cover;
+  display: block;
+  background: #eeeeee;
+}
+.tweet-card-photos-2 .tweet-card-photo,
+.tweet-card-photos-3 .tweet-card-photo,
+.tweet-card-photos-4 .tweet-card-photo {
+  max-height: 100px;
+}
+.tweet-card-video {
+  font-size: calc(10px + var(--fs-delta, 0px));
+  color: #536471;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: #f0f3f4;
+  align-self: flex-start;
+}
+.tweet-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: calc(10px + var(--fs-delta, 0px));
+  color: #536471;
+}
+.tweet-card-dot {
+  color: #a0a8ae;
+}
+
+.dark .tweet-card {
+  border-color: #333333;
+  background: #16181c;
+}
+.dark .tweet-card:hover {
+  border-color: #4a4a4a;
+  background: #1d1f23;
+}
+.dark .tweet-card-name,
+.dark .tweet-card-text,
+.dark .tweet-card-quote-author {
+  color: #e7e9ea;
+}
+.dark .tweet-card-handle,
+.dark .tweet-card-logo,
+.dark .tweet-card-quote-text,
+.dark .tweet-card-video,
+.dark .tweet-card-meta {
+  color: #8b98a5;
+}
+.dark .tweet-card-quote {
+  border-color: #333333;
+}
+.dark .tweet-card-video {
+  background: #22252a;
+}
+.dark .tweet-card-photo {
+  background: #22252a;
+}
+.dark .tweet-card-avatar-blank {
+  background: #33363b;
+}
+
 .be-icon {
   height: 18px;
   width: auto;
