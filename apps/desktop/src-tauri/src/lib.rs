@@ -342,11 +342,13 @@ async fn fetch_ogp_card(url: String) -> Result<OgpCard, String> {
 /// X (Twitter) のポストをカード表示用に取得する。
 /// x.com は通常の HTTP クライアントに OGP を返さないため `fetch_ogp_card` では取れず、
 /// 公式埋め込みが内部で使うのと同じ syndication エンドポイントから取得する。
-/// キャッシュは OGP と同じテーブルを `tweet:<id>` キーで共用する (7日 TTL)。
+/// キャッシュは OGP と同じテーブルを `tweet:v2:<id>` キーで共用する (7日 TTL)。
+/// `v2` は動画フィールド追加時のスキーマ更新用。古い `tweet:<id>` は動画情報を
+/// 持たないので、キーを変えて自然に無視させる。
 #[tauri::command]
 async fn fetch_tweet_card(url: String) -> Result<TweetCard, String> {
     let id = core_fetch::extract_tweet_id(&url).ok_or_else(|| "not a tweet url".to_string())?;
-    let cache_key = format!("tweet:{}", id);
+    let cache_key = format!("tweet:v2:{}", id);
     if let Ok(Some(json)) = core_store::load_ogp_cache(&cache_key) {
         if let Ok(card) = serde_json::from_str::<TweetCard>(&json) {
             return Ok(card);

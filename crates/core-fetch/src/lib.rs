@@ -432,8 +432,17 @@ pub struct TweetCard {
     pub favorite_count: Option<u64>,
     pub reply_count: Option<u64>,
     pub photos: Vec<TweetPhoto>,
-    /// 動画/GIF が添付されている (ネイティブカードでは再生できないため導線表示に使う)。
+    /// 動画/GIF が添付されている。
     pub has_video: bool,
+    /// 直接再生用の mp4 URL (最高ビットレートの variant)。取得できなければ None で導線表示にフォールバック。
+    #[serde(default)]
+    pub video_url: Option<String>,
+    /// 動画のポスター (サムネイル) 画像。
+    #[serde(default)]
+    pub video_poster: Option<String>,
+    /// animated_gif は無音ループ再生させる。
+    #[serde(default)]
+    pub is_gif: bool,
     /// 引用元ポストの要約 (あれば)。`(表示名, 本文)`。
     pub quoted_author: Option<String>,
     pub quoted_text: Option<String>,
@@ -562,17 +571,44 @@ fn parse_tweet(url: &str, id: &str, json: &Value) -> Result<TweetCard, FetchErro
         })
         .unwrap_or_default();
 
-    let has_video = json
+    // mediaDetails から動画/GIF を1件拾い、直接再生用の mp4 (最高ビットレート) と
+    // ポスター画像を取り出す。取得できなければ has_video のみ true にして導線表示にする。
+    let (has_video, is_gif, video_url, video_poster) = json
         .get("mediaDetails")
         .and_then(Value::as_array)
-        .is_some_and(|arr| {
-            arr.iter().any(|m| {
+        .and_then(|arr| {
+            arr.iter().find(|m| {
                 matches!(
                     m.get("type").and_then(Value::as_str),
                     Some("video") | Some("animated_gif")
                 )
             })
-        });
+        })
+        .map(|m| {
+            let is_gif = m.get("type").and_then(Value::as_str) == Some("animated_gif");
+            let poster = m
+                .get("media_url_https")
+                .and_then(Value::as_str)
+                .filter(|u| u.starts_with("https://") || u.starts_with("http://"))
+                .map(str::to_string);
+            let url = m
+                .get("video_info")
+                .and_then(|v| v.get("variants"))
+                .and_then(Value::as_array)
+                .and_then(|variants| {
+                    variants
+                        .iter()
+                        .filter(|v| {
+                            v.get("content_type").and_then(Value::as_str) == Some("video/mp4")
+                        })
+                        .max_by_key(|v| v.get("bitrate").and_then(Value::as_u64).unwrap_or(0))
+                        .and_then(|v| v.get("url").and_then(Value::as_str))
+                        .filter(|u| u.starts_with("https://") || u.starts_with("http://"))
+                        .map(str::to_string)
+                });
+            (true, is_gif, url, poster)
+        })
+        .unwrap_or((false, false, None, None));
 
     let quoted = json.get("quoted_tweet");
     let quoted_author = quoted
@@ -614,6 +650,9 @@ fn parse_tweet(url: &str, id: &str, json: &Value) -> Result<TweetCard, FetchErro
         reply_count: json.get("conversation_count").and_then(Value::as_u64),
         photos,
         has_video,
+        video_url,
+        video_poster,
+        is_gif,
         quoted_author,
         quoted_text,
     })
@@ -1633,13 +1672,25 @@ mod tests {
                 "entities": { "urls": [
                     { "url": "https://t.co/abc", "expanded_url": "https://example.com/article" }
                 ]},
-                "mediaDetails": [{ "type": "video" }]
+                "mediaDetails": [{
+                    "type": "video",
+                    "media_url_https": "https://pbs.twimg.com/thumb.jpg",
+                    "video_info": { "variants": [
+                        { "content_type": "application/x-mpegURL", "url": "https://video.twimg.com/x.m3u8" },
+                        { "content_type": "video/mp4", "bitrate": 832000, "url": "https://video.twimg.com/low.mp4" },
+                        { "content_type": "video/mp4", "bitrate": 2176000, "url": "https://video.twimg.com/high.mp4" }
+                    ]}
+                }]
             }"#,
         )
         .expect("fixture json");
         let card = parse_tweet("https://x.com/h/status/1", "1", &json).expect("should parse");
         assert_eq!(card.text, "見て https://example.com/article");
         assert!(card.has_video);
+        assert!(!card.is_gif);
+        // 最高ビットレートの mp4 が選ばれ、m3u8 は除外される
+        assert_eq!(card.video_url.as_deref(), Some("https://video.twimg.com/high.mp4"));
+        assert_eq!(card.video_poster.as_deref(), Some("https://pbs.twimg.com/thumb.jpg"));
     }
 
     #[test]

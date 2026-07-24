@@ -982,12 +982,31 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
       }
     );
   }
+  // twimg の動画直リンク (video.twimg.com/....mp4) はインライン再生する。
+  // 直リンク画像と同じく URL 自体はリンクとして残し、プレイヤーはサムネ行に追加する。
+  // <video> は referrerpolicy を持てないが、ページ全体を no-referrer にしてあるので
+  // twimg の referer 403 を回避できる。直リンクにはポスター画像が無いため、#t=0.1 の
+  // メディアフラグメントで先頭フレームをサムネ代わりに表示する (preload="metadata")。
+  if (!opts?.hideImages) {
+    safe = safe.replace(
+      /(?:(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)video\.twimg\.com|(?<!\S)video\.twimg\.com)\/[^\s<>&"\u0080-\uFFFF]+\.mp4(?:\?[^\s<>&"\u0080-\uFFFF]*(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*)?/gi,
+      (match) => {
+        const href = normalizeExternalUrl(match);
+        if (!href) return match;
+        collectedThumbs.push(`<video class="inline-video" src="${href}#t=0.1" controls preload="metadata" playsinline></video>`);
+        return `<a class="body-link" href="${href}" target="_blank" rel="noopener">${match}</a>`;
+      }
+    );
+  }
   // Linkify non-image URLs (must run after image thumb replacement)
   safe = safe.replace(
     /((?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"\u0080-\uFFFF]+(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"\u0080-\uFFFF]+(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*)/gi,
     (match) => {
       // Skip if already inside a thumb-link or img tag
       if (match.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i)) return match;
+      // Skip twimg 動画: 上で <video src="..."> に変換済みなので二重リンク化しない
+      // (hideImages 時は変換していないので通常リンクとして処理する)
+      if (!opts?.hideImages && /video\.twimg\.com\/[^\s"'<>]+\.mp4/i.test(match)) return match;
       const href = normalizeExternalUrl(match);
       if (!href) return match;
       return `<a class="body-link" href="${href}" target="_blank" rel="noopener">${match}</a>`;
@@ -1149,6 +1168,9 @@ type TweetCardData = {
   replyCount?: number | null;
   photos: TweetPhotoData[];
   hasVideo: boolean;
+  videoUrl?: string | null;
+  videoPoster?: string | null;
+  isGif?: boolean;
   quotedAuthor?: string | null;
   quotedText?: string | null;
 };
@@ -1212,8 +1234,9 @@ const buildTweetCardHtml = (card: TweetCardData): string => {
       + `</span>`
     : "";
 
-  // ネイティブカードでは動画を再生できないので、X で開く導線であることを明示する
-  const video = card.hasVideo
+  // mp4 が取れれば <video> でその場再生。取れない動画/GIF は X で開く導線を出す。
+  const playable = card.hasVideo && !!card.videoUrl && /^https?:\/\//i.test(card.videoUrl);
+  const videoLabel = card.hasVideo && !playable
     ? `<span class="tweet-card-video">▶ 動画つきポスト（クリックで X を開く）</span>`
     : "";
 
@@ -1228,9 +1251,23 @@ const buildTweetCardHtml = (card: TweetCardData): string => {
     ? `<span class="tweet-card-meta">${metaParts.map(escapeOgpText).join("<span class=\"tweet-card-dot\">·</span>")}</span>`
     : "";
 
-  return `<a class="body-link tweet-card" href="${url}" target="_blank" rel="noopener">`
-    + head + body + quote + photos + video + meta
+  // <video> はアンカー外の兄弟にする: a.body-link の中に入れるとクリック委譲に
+  // 奪われてコントロール操作 (再生/シーク) ができなくなるため。GIF は無音ループ自動再生。
+  let videoEl = "";
+  if (playable) {
+    const src = escapeOgpText(card.videoUrl as string);
+    const poster = card.videoPoster && /^https?:\/\//i.test(card.videoPoster)
+      ? ` poster="${escapeOgpText(card.videoPoster)}"` : "";
+    videoEl = card.isGif
+      ? `<video class="tweet-card-video-el" src="${src}"${poster} autoplay loop muted playsinline preload="metadata"></video>`
+      : `<video class="tweet-card-video-el" src="${src}"${poster} controls playsinline preload="none"></video>`;
+  }
+
+  const main = `<a class="body-link tweet-card-main" href="${url}" target="_blank" rel="noopener">`
+    + head + body + quote + photos + videoLabel + meta
     + `</a>`;
+
+  return `<span class="tweet-card">${main}${videoEl}</span>`;
 };
 
 // 名前 / ID 用: プレーンテキストを強調エントリ + 検索クエリでハイライト

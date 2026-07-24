@@ -3303,13 +3303,28 @@ a.body-link-image:hover::after {
   border: 1px solid #dcdcdc;
   border-radius: 10px;
   background: #ffffff;
+}
+.tweet-card:hover {
+  border-color: #b8b8b8;
+  background: #f7f9fa;
+}
+/* カード本体 (クリックで X を開く)。<video> は委譲を避けるためこの外側に置く */
+.tweet-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   text-decoration: none;
   color: inherit;
 }
-.tweet-card:hover {
+.tweet-card-main:hover {
   text-decoration: none;
-  border-color: #b8b8b8;
-  background: #f7f9fa;
+}
+.tweet-card-video-el {
+  width: 100%;
+  max-height: 260px;
+  border-radius: 10px;
+  background: #000000;
+  display: block;
 }
 .tweet-card-head {
   display: flex;
@@ -3473,6 +3488,16 @@ a.body-link-image:hover::after {
 }
 .dark .tweet-card-avatar-blank {
   background: #33363b;
+}
+
+/* twimg 動画直リンクのインライン再生プレイヤー */
+.inline-video {
+  display: block;
+  max-width: 400px;
+  max-height: 300px;
+  margin: 4px 0;
+  border-radius: 8px;
+  background: #000000;
 }
 
 .be-icon {

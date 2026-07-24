@@ -995,6 +995,8 @@ try {
       ".tweet-card-avatar",
       ".tweet-card-text",
       ".tweet-card-photos",
+      ".tweet-card-video-el",
+      ".inline-video",
       ".dark .tweet-card",
     ]);
     const found = new Set();
@@ -1010,7 +1012,7 @@ try {
     }
     return found.size;
   });
-  assert(tweetCardRules === 5, "CSS should have tweet card rules (light + dark)");
+  assert(tweetCardRules === 7, "CSS should have tweet card rules (light + dark + video + inline-video)");
   console.log("smoke-ui: tweet card css ok");
 
   // --- right-pane layout ---

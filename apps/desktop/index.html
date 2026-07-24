@@ -2,6 +2,11 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
+    <!-- 全サブリソースを no-referrer に固定する。画像は個別に referrerpolicy="no-referrer"
+         を付けているが、<video> は referrerpolicy 属性を持てないため。twimg の動画 CDN は
+         アプリのオリジン (tauri.localhost) を referer に含むリクエストを 403 で弾くので、
+         referer を送らないことで再生できるようにする。 -->
+    <meta name="referrer" content="no-referrer" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/png" href="/icon.png" />
