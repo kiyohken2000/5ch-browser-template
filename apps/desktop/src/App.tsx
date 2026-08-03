@@ -2598,6 +2598,24 @@ export default function App() {
       }, d);
     });
   };
+  // 先頭 (>>1) へスクロールする。Top ボタン/ショートカット用。
+  // scrollResponsesToBottom / scrollToResponseNo は最大 2 秒かけて末尾・対象レスへ
+  // くり返し再アンカーし続けるため、その進行中に Top を押しても引き戻されてしまう。
+  // seq を更新して進行中ループを打ち切り、選択が変わらないケースでも命令的に scrollTop=0
+  // まで動かす (selectedResponse 変更の effect 頼みだと同値 setState で発火せず効かない)。
+  const scrollResponsesToTop = (selectId: number | null) => {
+    const container = responseScrollRef.current;
+    if (!container) return;
+    // 進行中の末尾/アンカー再スクロールループを打ち切る (別スレ切替と同じ seq 更新)
+    scrollAnchorSeqRef.current++;
+    // この直後に走る selectedResponse 変更の自動スクロールと二重に動かない
+    lastRestoreScrollAtRef.current = Date.now();
+    if (selectId != null) {
+      forceResponseScrollRef.current = true;
+      setSelectedResponse(selectId);
+    }
+    container.scrollTop = 0;
+  };
   // レスを選択しつつ、autoScrollToSelected の設定に関わらず必ず表示位置までスクロールする。
   // Top/New/続き/End/ジャンプ など明示的な移動操作用。
   const selectResponseAndScroll = (id: number) => {
@@ -5926,7 +5944,7 @@ export default function App() {
           void fetchResponsesFromCurrent();
           break;
         case "scrollTop":
-          if (responseScrollRef.current) responseScrollRef.current.scrollTop = 0;
+          scrollResponsesToTop(null);
           break;
         case "scrollBottom":
           scrollResponsesToBottom();
@@ -8077,7 +8095,7 @@ export default function App() {
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  const p = clampMenuPosition(e.clientX, e.clientY, 160, 120);
+                  const p = clampMenuPosition(e.clientX, e.clientY, 160, 288);
                   setTabMenu({ x: p.x, y: p.y, tabIndex: i });
                 }}
                 onMouseDown={(e) => {
@@ -8912,7 +8930,7 @@ export default function App() {
                 <button className={`link-filter-btn ${responseLinkFilter === "mine" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "mine" ? "" : "mine")} title="自分のレスのみ"><User size={13} /></button>
               </span>
               <span className="nav-buttons">
-                <button onClick={() => { if (visibleResponseItems.length > 0) selectResponseAndScroll(visibleResponseItems[0].id); }}>Top</button>
+                <button onClick={() => { if (visibleResponseItems.length > 0) scrollResponsesToTop(visibleResponseItems[0].id); }}>Top</button>
                 {newResponseStart !== null && (
                   <button
                     className="nav-new-btn"
@@ -9951,6 +9969,22 @@ export default function App() {
             disabled={tabMenu.tabIndex !== activeTabIndex}
             title={tabMenu.tabIndex !== activeTabIndex ? "アクティブなタブのみコピー可能" : ""}
           >スレ全体をコピー</button>
+          <button onClick={() => {
+            const tab = threadTabs[tabMenu.tabIndex];
+            if (tab) {
+              const boardUrl = getBoardUrlFromThreadUrl(tab.threadUrl);
+              if (showCachedOnly) { setShowCachedOnly(false); setCachedThreadList([]); }
+              setShowFavoritesOnly(false);
+              setShowRecentOpenedOnly(false);
+              setShowRecentPostedOnly(false);
+              setSelectedBoard(boardUrl.split("/").filter(Boolean).pop() || "");
+              lastBoardUrlRef.current = boardUrl;
+              setLocationInput(boardUrl);
+              setThreadUrl(boardUrl);
+              void fetchThreadListFromCurrent(boardUrl);
+            }
+            setTabMenu(null);
+          }}>スレ一覧を更新</button>
           <button onClick={() => {
             const tab = threadTabs[tabMenu.tabIndex];
             if (tab) purgeThreadCache(tab.threadUrl);
