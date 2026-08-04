@@ -11,13 +11,19 @@
 
 | OS | 追加で必要なもの |
 |----|----------------|
-| Windows | Vulkan SDK (`winget install KhronosGroup.VulkanSDK` または `choco install vulkan-sdk`) — `VULKAN_SDK` env var が設定されていること / Ninja (`CMAKE_GENERATOR=Ninja`) / Long Path 有効化 / 必要に応じ `CARGO_TARGET_DIR=C:\t` で MAX_PATH 回避 |
+| Windows | Vulkan SDK (`winget install KhronosGroup.VulkanSDK` または `choco install vulkan-sdk`) — `VULKAN_SDK` env var が設定されていること / Ninja (`CMAKE_GENERATOR=Ninja`) / Long Path 有効化 / 必要に応じ `CARGO_TARGET_DIR=C:\t` で MAX_PATH 回避 / VS 2022 の再頒布ディレクトリ `VC\Redist\MSVC\<ver>\x64` (MSVC ランタイム同梱用、`EMBER_MSVC_REDIST_DIR` で上書き可) |
 | macOS | 不要 (Metal は CMake が自動検出) |
 | Linux | `apt install libvulkan-dev glslang-tools libclang-dev cmake` |
 
 > **vulkan-1.dll の同梱**: `scripts/release.sh` は Windows ZIP 作成時に `vulkan-1.dll` を `ember.exe` の隣に置いてバンドルする（Apache 2.0、`$VULKAN_SDK/Bin` または `C:\Windows\System32` から自動コピー）。これにより Vulkan Runtime 未インストール環境でも DLL not found エラーを回避する。**ただし** 実際の GPU ドライバが破損 / 旧世代 (NVIDIA Kepler 等) の場合は ICD 列挙でクラッシュするため、ランディングで「Vulkan 1.2+ 対応 GPU 必須」と告知している。
 >
 > **Apache 2.0 ライセンス同梱 (v0.0.168+)**: vulkan-1.dll の再配布には Apache 2.0 セクション 4 によりライセンス本文の同梱が必要。`apps/desktop/src-tauri/third_party_licenses/vulkan-loader/{LICENSE.txt,ATTRIBUTION.txt}` をリポジトリにコミット済で、`release.sh` がこれらを ZIP 内に `VULKAN-LOADER-LICENSE.txt` / `VULKAN-LOADER-ATTRIBUTION.txt` として配置する。ライセンスファイルが欠けていると `release.sh` は exit 1 する。手動ビルド時もこの 2 ファイルを ZIP に必ず含めること。
+>
+> **MSVC ランタイム DLL の同梱 (v0.0.216+)**: Rust は CRT を静的リンクするが、llama.cpp (C++/OpenMP、cmake ビルド) は `MSVCP140.dll` と `VCOMP140.DLL` を動的リンクする。これらは `ember.exe` の **PE import** なので、VC++ 再頒布可能パッケージ未導入のマシンでは `main()` に到達する前に OS ローダが失敗し、**アプリが一切起動しない**（Win11 のクリーン環境で報告あり。`data/logs/app.log` に `app started` が書かれないのが切り分けの目印）。`msvcp140.dll` はさらに `vcruntime140.dll` / `vcruntime140_1.dll` を要求するため、計 4 ファイルを同梱する。
+>
+> `release.sh` は VS 2022 の `VC\Redist\MSVC\<ver>\x64\{Microsoft.VC143.CRT,Microsoft.VC143.OpenMP}` から自動コピーする（`EMBER_MSVC_REDIST_DIR` で上書き可）。**`C:\Windows\System32` からコピーしてはいけない** — 再頒布が許諾されているのは Redist ディレクトリ配下のコピーのみ。Debug 版 (`*140d.dll`、`debug_nonredist\` 配下) は再頒布不可なので絶対に含めない。出所と条件は `third_party_licenses/msvc-runtime/ATTRIBUTION.txt` に記載し、ZIP 内に `MSVC-RUNTIME-ATTRIBUTION.txt` として配置する。
+>
+> なお app-local 配置した VC++ ランタイムは **Windows Update の対象外**。ランタイム側にセキュリティ修正が出た場合は Ember を再ビルド・再リリースして追随する必要がある。
 
 ## リリース手順（自動）
 
@@ -39,8 +45,8 @@ scripts/release.sh 0.0.50 "- サムネサイズ設定を追加
 
 1. バージョン更新（`package.json`, `tauri.conf.json`, `Cargo.toml`）
 2. 検証（`cargo check` + `npm run build` + smoke test）
-3. コミット & プッシュ（**固定ホワイトリスト方式** — `tauri.conf.json` / `Cargo.toml` / `lib.rs` / `capabilities/default.json` / `Cargo.lock` / `App.tsx` / `styles.css` / `pip.html`）
-4. Windows版 `npx tauri build` → `vulkan-1.dll` を `ember.exe` の隣にコピー → ZIP作成 → `out/` に配置
+3. コミット & プッシュ（**固定ホワイトリスト方式** — `tauri.conf.json` / `Cargo.toml` / `lib.rs` / `capabilities/default.json` / `Cargo.lock` / `App.tsx` / `styles.css` / `pip.html` / `third_party_licenses/` / `scripts/release.sh`）
+4. Windows版 `npx tauri build` → `vulkan-1.dll` と MSVC ランタイム 4 ファイルを `ember.exe` の隣にコピー → ZIP作成 → `out/` に配置
 
 > **ホワイトリスト注意**: `release.sh` の `git add` 対象は固定リスト。Rust 側で `lib.rs` 以外のファイル (新規モジュール等) を編集した時や、新規 crate を追加した時は **このリストに含まれずコミット漏れする**。リリース前に `git status` で取り残しを確認すること。
 >
@@ -125,13 +131,23 @@ cp "$VULKAN_SDK/Bin/vulkan-1.dll" .  # または cp /c/Windows/System32/vulkan-1
 cp apps/desktop/src-tauri/third_party_licenses/vulkan-loader/LICENSE.txt VULKAN-LOADER-LICENSE.txt
 cp apps/desktop/src-tauri/third_party_licenses/vulkan-loader/ATTRIBUTION.txt VULKAN-LOADER-ATTRIBUTION.txt
 
-powershell -Command "Compress-Archive -Path ember.exe,vulkan-1.dll,VULKAN-LOADER-LICENSE.txt,VULKAN-LOADER-ATTRIBUTION.txt -DestinationPath ember-win-x64.zip -Force"
+# v0.0.216+ : MSVC ランタイム 4 ファイルを同梱 (VC++ 再頒布可能パッケージ未導入環境で起動不能になる対策)
+#   REDIST は "<VS2022>/VC/Redist/MSVC/<ver>/x64"。System32 からコピーしないこと (再頒布許諾は Redist 配下のみ)
+cp "$REDIST/Microsoft.VC143.CRT/msvcp140.dll" .
+cp "$REDIST/Microsoft.VC143.CRT/vcruntime140.dll" .
+cp "$REDIST/Microsoft.VC143.CRT/vcruntime140_1.dll" .
+cp "$REDIST/Microsoft.VC143.OpenMP/vcomp140.dll" .
+cp apps/desktop/src-tauri/third_party_licenses/msvc-runtime/ATTRIBUTION.txt MSVC-RUNTIME-ATTRIBUTION.txt
+
+powershell -Command "Compress-Archive -Path ember.exe,vulkan-1.dll,msvcp140.dll,vcruntime140.dll,vcruntime140_1.dll,vcomp140.dll,VULKAN-LOADER-LICENSE.txt,VULKAN-LOADER-ATTRIBUTION.txt,MSVC-RUNTIME-ATTRIBUTION.txt -DestinationPath ember-win-x64.zip -Force"
 sha256sum ember-win-x64.zip && wc -c < ember-win-x64.zip
 ```
 
 > ZIP に `vulkan-1.dll` を含めないと、Vulkan Runtime 未導入環境のユーザーが AI 機能を使った瞬間に「vulkan-1.dll が見つかりません」で落ちる。Windows の DLL 検索順は exe ディレクトリが最優先なので、同梱で OK。
 >
 > Apache 2.0 (vulkan-1.dll のライセンス) は再配布時にライセンス本文同梱を要求する。`VULKAN-LOADER-LICENSE.txt` (Apache 2.0 本文) と `VULKAN-LOADER-ATTRIBUTION.txt` (出所・著作権表示) の 2 ファイルを必ず ZIP に含めること。
+>
+> MSVC ランタイム 4 ファイルを含めないと、VC++ 再頒布可能パッケージ未導入のマシンでは **AI 機能以前にアプリ自体が起動しない**（`MSVCP140.dll` / `VCOMP140.DLL` が `ember.exe` の PE import のため）。同梱後の依存確認は `llvm-objdump -p ember.exe | grep "DLL Name"` で、Windows 標準 DLL 以外が残っていないかを見る。
 
 ### 4. macOS ビルド
 
@@ -184,4 +200,5 @@ npx wrangler pages deploy dist --project-name ember-5ch --branch main --commit-d
 - `latest.json` にシークレット情報を含めない
 - **Windows ZIP には必ず `vulkan-1.dll` を同梱**（`scripts/release.sh` は自動同梱、手動ビルド時は忘れがち）
 - **Windows ZIP には必ず `VULKAN-LOADER-LICENSE.txt` と `VULKAN-LOADER-ATTRIBUTION.txt` を同梱** (Apache 2.0 セクション 4 の再配布要件。欠けるとライセンス違反)
+- **Windows ZIP には必ず MSVC ランタイム 4 ファイル (`msvcp140.dll` / `vcruntime140.dll` / `vcruntime140_1.dll` / `vcomp140.dll`) と `MSVC-RUNTIME-ATTRIBUTION.txt` を同梱**（欠けると VC++ 再頒布可能パッケージ未導入環境で起動不能。コピー元は VS の `VC\Redist\` 配下のみ、System32 と `debug_nonredist\` は不可）
 - **`ai-models.json` を編集した場合は landing デプロイ必須** — アプリ起動時にランディングから取得しているため、Pages に push しないと新カタログが配布されない
