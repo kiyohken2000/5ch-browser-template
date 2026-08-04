@@ -98,10 +98,12 @@ git add \
   "$TAURI_DIR/src/lib.rs" \
   "$TAURI_DIR/capabilities/default.json" \
   "$TAURI_DIR/ai-models.json" \
+  "$TAURI_DIR/third_party_licenses" \
   Cargo.lock \
   "$DESKTOP_DIR/src/App.tsx" \
   "$DESKTOP_DIR/src/styles.css" \
-  "$DESKTOP_DIR/public/pip.html"
+  "$DESKTOP_DIR/public/pip.html" \
+  "$ROOT_DIR/scripts/release.sh"
 
 # Only add files that have changes staged
 git diff --cached --quiet && { echo "No changes to commit"; exit 1; }
@@ -159,7 +161,57 @@ fi
 cp "$VULKAN_LICENSE_DIR/LICENSE.txt" "$TARGET_DIR/release/VULKAN-LOADER-LICENSE.txt"
 cp "$VULKAN_LICENSE_DIR/ATTRIBUTION.txt" "$TARGET_DIR/release/VULKAN-LOADER-ATTRIBUTION.txt"
 
-(cd "$TARGET_DIR/release" && powershell -Command "Compress-Archive -Path ember.exe,vulkan-1.dll,VULKAN-LOADER-LICENSE.txt,VULKAN-LOADER-ATTRIBUTION.txt -DestinationPath ember-win-x64.zip -Force")
+# Bundle the Microsoft Visual C++ Runtime DLLs. Rust links the CRT statically,
+# but llama.cpp (C++/OpenMP, built via cmake) links MSVCP140/VCOMP140
+# dynamically. These are PE imports of ember.exe, so the OS loader resolves
+# them before main() runs: on a machine without the VC++ Redistributable the
+# app fails to start at all (reported on a clean Win11 box — the user only saw
+# "起動しない" with no log line written). msvcp140.dll in turn imports
+# vcruntime140{,_1}.dll, hence four files.
+# App-local deployment of these redistributables is permitted by the Visual
+# Studio license terms — see third_party_licenses/msvc-runtime/ATTRIBUTION.txt.
+MSVC_REDIST_DIR="${EMBER_MSVC_REDIST_DIR:-}"
+if [[ -z "$MSVC_REDIST_DIR" ]]; then
+  for vs_base in "/c/Program Files/Microsoft Visual Studio/2022" \
+                 "/c/Program Files (x86)/Microsoft Visual Studio/2022"; do
+    [[ -d "$vs_base" ]] || continue
+    found=$(ls -d "$vs_base"/*/VC/Redist/MSVC/*/x64 2>/dev/null | sort -V | tail -1)
+    if [[ -n "$found" ]]; then
+      MSVC_REDIST_DIR="$found"
+      break
+    fi
+  done
+fi
+if [[ -z "$MSVC_REDIST_DIR" || ! -d "$MSVC_REDIST_DIR" ]]; then
+  echo "  ERROR: MSVC redistributable directory not found"
+  echo "         Expected: <VS 2022>/VC/Redist/MSVC/<version>/x64"
+  echo "         Override with EMBER_MSVC_REDIST_DIR=<path>"
+  exit 1
+fi
+echo "  Bundling MSVC runtime from: $MSVC_REDIST_DIR"
+# NOTE: never take these from C:\Windows\System32 — only the copies under the
+# Redist directory are the ones licensed for redistribution.
+for msvc_dll in \
+  "Microsoft.VC143.CRT/msvcp140.dll" \
+  "Microsoft.VC143.CRT/vcruntime140.dll" \
+  "Microsoft.VC143.CRT/vcruntime140_1.dll" \
+  "Microsoft.VC143.OpenMP/vcomp140.dll"; do
+  msvc_src="$MSVC_REDIST_DIR/$msvc_dll"
+  if [[ ! -f "$msvc_src" ]]; then
+    echo "  ERROR: redistributable not found: $msvc_src"
+    exit 1
+  fi
+  cp "$msvc_src" "$TARGET_DIR/release/$(basename "$msvc_dll")"
+done
+
+MSVC_LICENSE_DIR="$TAURI_DIR/third_party_licenses/msvc-runtime"
+if [[ ! -f "$MSVC_LICENSE_DIR/ATTRIBUTION.txt" ]]; then
+  echo "  ERROR: MSVC runtime attribution file missing at $MSVC_LICENSE_DIR"
+  exit 1
+fi
+cp "$MSVC_LICENSE_DIR/ATTRIBUTION.txt" "$TARGET_DIR/release/MSVC-RUNTIME-ATTRIBUTION.txt"
+
+(cd "$TARGET_DIR/release" && powershell -Command "Compress-Archive -Path ember.exe,vulkan-1.dll,msvcp140.dll,vcruntime140.dll,vcruntime140_1.dll,vcomp140.dll,VULKAN-LOADER-LICENSE.txt,VULKAN-LOADER-ATTRIBUTION.txt,MSVC-RUNTIME-ATTRIBUTION.txt -DestinationPath ember-win-x64.zip -Force")
 cp "$TARGET_DIR/release/ember-win-x64.zip" "$OUT_DIR/ember-win-x64.zip"
 
 WIN_SHA256=$(sha256sum "$OUT_DIR/ember-win-x64.zip" | awk '{print $1}')

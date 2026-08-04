@@ -1,0 +1,59 @@
+Microsoft Visual C++ Runtime (Redistributable DLLs)
+===================================================
+
+The following binaries bundled next to ember.exe are Microsoft Visual C++
+Runtime redistributable files:
+
+    msvcp140.dll        C++ Standard Library
+    vcruntime140.dll    C++ Runtime
+    vcruntime140_1.dll  C++ Runtime (exception handling)
+    vcomp140.dll        OpenMP Runtime
+
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+Why They Are Bundled
+--------------------
+
+Ember's Rust code links the C runtime statically, but the AI inference engine
+(llama.cpp) is C++ built with the MSVC toolchain and links the C++ standard
+library and the OpenMP runtime dynamically. These DLLs are PE imports of
+ember.exe, so the OS process loader resolves them before main() runs: without
+them the application fails to start at all on machines that do not have the
+"Microsoft Visual C++ 2015-2022 Redistributable (x64)" installed.
+
+License
+-------
+
+These files are "Distributable Code" under the Microsoft Visual Studio 2022
+license terms, which permit redistribution as part of a program that adds
+significant primary functionality:
+
+    https://visualstudio.microsoft.com/license-terms/
+
+They are copied verbatim from the redistributable directory of a Visual Studio
+2022 installation on the build machine:
+
+    VC\Redist\MSVC\<version>\x64\Microsoft.VC143.CRT
+    VC\Redist\MSVC\<version>\x64\Microsoft.VC143.OpenMP
+
+Application-local deployment (placing the DLLs in the application directory) is
+a deployment method documented and supported by Microsoft:
+
+    https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files
+
+Modifications
+-------------
+
+This project (Ember) does NOT modify these binaries in any way. Debug builds of
+the runtime (msvcp140d.dll and friends, shipped under debug_nonredist\) are NOT
+redistributable and are never bundled.
+
+Security Updates
+----------------
+
+Application-local copies of the Visual C++ Runtime are not serviced by Windows
+Update. If Microsoft publishes a security update for the Visual C++ Runtime,
+Ember has to be rebuilt and re-released to pick it up. Users who prefer a
+centrally serviced runtime can instead install the redistributable package:
+
+    https://aka.ms/vs/17/release/vc_redist.x64.exe
