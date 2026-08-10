@@ -119,6 +119,20 @@ function formatAiBytes(n: number): string {
   return `${n} B`;
 }
 
+// Best-effort prompt template for a model that is installed but absent from the
+// catalog — a retired entry, or a remote catalog fetch that failed. Catalog ids
+// are family-prefixed (e.g. "qwen35-9b-q4km", "gemma4-e4b-it-q4km"), so the
+// prefix identifies the turn format. Order matters: "gemma4" must be tested
+// before "gemma", and the hy-mt2 translation model maps to hunyuan.
+function aiTemplateFromModelId(id: string): string {
+  if (id.startsWith("hy-mt2")) return "hunyuan";
+  if (id.startsWith("gemma4")) return "gemma4";
+  if (id.startsWith("gemma")) return "gemma";
+  if (id.startsWith("qwen")) return "qwen";
+  if (id.startsWith("lfm2")) return "lfm2";
+  return "gemma";
+}
+
 function aiWrapTurn(template: string, role: "user" | "assistant", content: string): string {
   if (template === "qwen" || template === "chatml" || template === "lfm2") {
     return `<|im_start|>${role}\n${content}<|im_end|>\n`;
@@ -6799,7 +6813,13 @@ export default function App() {
   const aiActiveTemplate = (): string => {
     const id = aiStatus?.activeModelId;
     if (!id) return "gemma";
-    return aiCatalog?.models.find((m) => m.id === id)?.promptTemplate ?? "gemma";
+    const fromCatalog = aiCatalog?.models.find((m) => m.id === id)?.promptTemplate;
+    if (fromCatalog) return fromCatalog;
+    // The model is installed but no longer in the catalog (retired entry, or
+    // the remote catalog failed to load). Falling back to "gemma" would feed
+    // Gemma turn tokens to a Qwen/LFM2 model and wreck its output, so derive
+    // the family from the model id instead — ids are prefixed by family.
+    return aiTemplateFromModelId(id);
   };
 
   const aiStartSummary = () => {
