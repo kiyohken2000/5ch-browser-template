@@ -23,6 +23,22 @@ OUT_DIR="$ROOT_DIR/out"
 # used as a MAX_PATH workaround for the Vulkan build).
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT_DIR/target}"
 
+# Cap build parallelism for the Windows build (v0.0.217).
+#
+# The `cmake` crate passes $NUM_JOBS straight through as `cmake --build
+# --parallel` (cmake-0.1.58/src/lib.rs:884), and cargo sets NUM_JOBS from the
+# CPU count. On a 32-core / 32 GB box that means 32 concurrent MSVC processes
+# compiling llama.cpp's Vulkan shaders, and the cmake build reliably fails
+# there (hit twice on v0.0.217, in both the debug and release profiles).
+# Re-running the same cmake build at --parallel 6 succeeds every time.
+#
+# The exact failure mode was never captured — cargo swallows the build
+# script's stdout, and by the time cmake is re-run by hand enough targets are
+# already built that it no longer reproduces. Memory exhaustion is the likely
+# cause but is unconfirmed; what is confirmed is that the parallelism level is
+# the trigger. Raise EMBER_BUILD_JOBS on a machine with more headroom.
+BUILD_JOBS="${EMBER_BUILD_JOBS:-6}"
+
 if [[ $# -lt 2 ]]; then
   echo "Usage: $0 <version> <release-notes>"
   echo "Example: $0 0.0.50 '- feature A\n- feature B'"
@@ -100,6 +116,7 @@ git add \
   "$TAURI_DIR/ai-models.json" \
   "$TAURI_DIR/third_party_licenses" \
   Cargo.lock \
+  "$ROOT_DIR/crates" \
   "$DESKTOP_DIR/src/App.tsx" \
   "$DESKTOP_DIR/src/styles.css" \
   "$DESKTOP_DIR/public/pip.html" \
@@ -118,9 +135,9 @@ git push
 # 4. Windows build
 # --------------------------------------------------
 echo ""
-echo "[4/5] Windows build (npx tauri build)"
+echo "[4/5] Windows build (npx tauri build, jobs=${BUILD_JOBS})"
 
-(cd "$DESKTOP_DIR" && npx tauri build 2>&1 | tail -3)
+(cd "$DESKTOP_DIR" && CARGO_BUILD_JOBS="$BUILD_JOBS" npx tauri build 2>&1 | tail -3)
 
 # --------------------------------------------------
 # 5. Create Windows ZIP & copy to out/
