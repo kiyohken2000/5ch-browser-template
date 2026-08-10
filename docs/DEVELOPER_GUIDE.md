@@ -207,7 +207,7 @@ Ember の技術仕様・アーキテクチャ・開発手順をまとめたド�
   - Linux: `apt install cmake`
 - **Vulkan SDK** (Windows / Linux): `core-ai` の GPU バックエンドで必要 (macOS は Metal が CMake で自動検出されるため不要)
   - Windows: `winget install KhronosGroup.VulkanSDK` (~600 MB) — インストール後 `VULKAN_SDK` 環境変数が自動設定される
-  - Linux: `apt install libvulkan-dev glslang-tools`
+  - Linux: `apt install libvulkan-dev glslang-tools glslc spirv-headers`
 - **Ninja** (Windows 推奨): llama.cpp の `vulkan-shaders-gen` ExternalProject が MSBuild の custom-build race で稀に失敗するため、CI / ローカルとも Ninja を使う
   - Windows: `choco install ninja` または `winget install Ninja-build.Ninja` → `CMAKE_GENERATOR=Ninja`
 - **Windows Long Path 有効化**: llama.cpp の vulkan-shaders-gen が MAX_PATH を超えるパスをビルドするため必須

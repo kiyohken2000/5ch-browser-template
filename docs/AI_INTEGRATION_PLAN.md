@@ -462,7 +462,7 @@ macOS Metal (M2) vs Windows CPU 比較: Gemma3-1B で **≈14% 高速** (33 vs 2
    - `[target.'cfg(target_os = "macos")'.dependencies]` で実現
 2. ✅ **ビルド環境の前提追加**:
    - Windows: `winget install KhronosGroup.VulkanSDK` (~600 MB) + `VULKAN_SDK` 環境変数 (インストーラが自動設定)
-   - Linux: `apt install libvulkan-dev glslang-tools` (CI / release.yml 反映済み)
+   - Linux: `apt install libvulkan-dev glslang-tools glslc spirv-headers` (CI / release.yml 反映済み)
 3. ✅ **GitHub Actions 整備**: `.github/workflows/ci.yml` Windows ジョブに Vulkan SDK 導入 (chocolatey) + Long Path 有効化、Linux 両ジョブに libvulkan-dev / glslang-tools 追加。release.yml の Linux ジョブも同様
 4. ✅ **ランタイムフォールバック確認**: `Auto` の Vulkan デバイス検出は実機確認済み (上記検証結果)。非対応環境の CPU フォールバックは llama.cpp 内部挙動に依拠 (該当実機なしのため未検証、問題報告があれば再調査)
 5. ✅ **CPU / GPU 実行時切替**: `core-ai::InferenceBackend` enum (Auto / Gpu / Cpu) を追加、`complete_streaming` の引数として受け取り `LlamaModelParams::with_n_gpu_layers()` を制御

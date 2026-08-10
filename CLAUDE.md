@@ -37,7 +37,7 @@ Tauri App (ember)
 
 **Vulkan GPU バックエンド (Windows / Linux)**: `llama-cpp-2` の vulkan feature を有効化済み。追加要件:
 - **Windows**: `winget install KhronosGroup.VulkanSDK` (~600 MB DL) + Long Path 有効化 (`reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f` を admin で実行) + 必要に応じて `CARGO_TARGET_DIR=C:\t` で MAX_PATH 超え回避
-- **Linux**: `apt install libvulkan-dev glslang-tools` (CI で対応済み)
+- **Linux**: `apt install libvulkan-dev glslang-tools glslc spirv-headers` (CI で対応済み)
 - **macOS**: Metal (cmake が自動検出、追加導入なし)
 - 実行時は AI 設定パネルから CPU/GPU 切替可能 (`desktop.aiPrefs.v1.inferenceBackend`)
 

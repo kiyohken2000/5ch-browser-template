@@ -13,7 +13,7 @@
 |----|----------------|
 | Windows | Vulkan SDK (`winget install KhronosGroup.VulkanSDK` または `choco install vulkan-sdk`) — `VULKAN_SDK` env var が設定されていること / Ninja (`CMAKE_GENERATOR=Ninja`) / Long Path 有効化 / 必要に応じ `CARGO_TARGET_DIR=C:\t` で MAX_PATH 回避 / VS 2022 の再頒布ディレクトリ `VC\Redist\MSVC\<ver>\x64` (MSVC ランタイム同梱用、`EMBER_MSVC_REDIST_DIR` で上書き可) |
 | macOS | 不要 (Metal は CMake が自動検出) |
-| Linux | `apt install libvulkan-dev glslang-tools libclang-dev cmake` |
+| Linux | `apt install libvulkan-dev glslang-tools glslc spirv-headers libclang-dev cmake` |
 
 > **vulkan-1.dll の同梱**: `scripts/release.sh` は Windows ZIP 作成時に `vulkan-1.dll` を `ember.exe` の隣に置いてバンドルする（Apache 2.0、`$VULKAN_SDK/Bin` または `C:\Windows\System32` から自動コピー）。これにより Vulkan Runtime 未インストール環境でも DLL not found エラーを回避する。**ただし** 実際の GPU ドライバが破損 / 旧世代 (NVIDIA Kepler 等) の場合は ICD 列挙でクラッシュするため、ランディングで「Vulkan 1.2+ 対応 GPU 必須」と告知している。
 >
