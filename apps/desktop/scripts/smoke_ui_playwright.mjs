@@ -338,6 +338,33 @@ try {
   assert(ngListItemsAfter === 0, "NG list should be empty after removing word");
   console.log("smoke-ui: ng remove word ok");
 
+  // NG ID の自動削除: セレクタは ID セクションのヘッダーにあり、有効にすると
+  // 各エントリに残り日数バッジが出る
+  const ngExpireSelect = await page.$(".ng-expire-select");
+  assert(ngExpireSelect, "ID section header should have the auto-delete select");
+  await page.selectOption(".ng-panel-add select:not(.ng-mode-select)", "ids");
+  await page.fill(".ng-panel-add input", "TestNgId0");
+  await page.click(".ng-panel-add button:has-text('追加')");
+  await page.selectOption(".ng-expire-select", "7");
+  const expireBadges = await page.$$eval(".ng-expire-badge", (els) => els.map((el) => el.textContent));
+  assert(
+    expireBadges.includes("残り7日"),
+    `NG ID should show a remaining-days badge, got ${JSON.stringify(expireBadges)}`,
+  );
+  // 1 日未満は時間表示になる (登録直後なので残り 24 時間前後)
+  await page.selectOption(".ng-expire-select", "1");
+  const expireBadgesHours = await page.$$eval(".ng-expire-badge", (els) => els.map((el) => el.textContent));
+  assert(
+    expireBadgesHours.some((t) => /^残り\d+時間$/.test(t)),
+    `remaining under a day should be shown in hours, got ${JSON.stringify(expireBadgesHours)}`,
+  );
+  await page.selectOption(".ng-expire-select", "0");
+  const expireBadgesOff = await page.$$(".ng-expire-badge");
+  assert(expireBadgesOff.length === 0, "remaining-days badge should disappear when auto-delete is 無効");
+  await page.click(".ng-remove");
+  await page.selectOption(".ng-panel-add select:not(.ng-mode-select)", "words");
+  console.log("smoke-ui: ng id auto-expire ok");
+
   // switch to Highlight tab, add and remove a highlight word
   await page.click(".ng-panel-tabs button:has-text('ハイライト')");
   await page.fill(".ng-panel-add input", "testhlword");
@@ -1088,6 +1115,25 @@ try {
   await page.click(".compose-header button:has-text('閉じる')");
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: compose ai review button ok");
+
+  // --- NG ID 自動削除の設定が localStorage に永続化され、リロード後も復元される ---
+  // (リロードを挟むので必ず一番最後に置くこと)
+  await page.click("button[title='NGフィルタ']");
+  await page.waitForSelector(".ng-expire-select");
+  await page.selectOption(".ng-expire-select", "3");
+  await new Promise((r) => setTimeout(r, 100));
+  const expireDaysStored = await page.evaluate(() => localStorage.getItem("desktop.ngIdExpireDays.v1"));
+  assert(expireDaysStored === "3", `ngIdExpireDays should be saved to localStorage, got ${expireDaysStored}`);
+  await page.reload({ waitUntil: "load" });
+  // NG フィルタボタンはスレのタイトルバーにあるので、まずスレを開き直す
+  await page.waitForSelector(".threads tbody tr");
+  await page.click(".threads tbody tr:first-child");
+  await page.waitForSelector("button[title='NGフィルタ']");
+  await page.click("button[title='NGフィルタ']");
+  await page.waitForSelector(".ng-expire-select");
+  const expireDaysRestored = await page.$eval(".ng-expire-select", (el) => el.value);
+  assert(expireDaysRestored === "3", `ngIdExpireDays should be restored after reload, got ${expireDaysRestored}`);
+  console.log("smoke-ui: ng id auto-expire persistence ok");
 
   console.log("smoke-ui: ok");
 } finally {

@@ -1042,6 +1042,14 @@ enum NgEntry {
         disabled: bool,
         #[serde(default, rename = "excludeNo1", skip_serializing_if = "std::ops::Not::not")]
         exclude_no1: bool,
+        // フロント側が付ける "partial" | "exact"。ここに無いとラウンドトリップで
+        // 落ちてしまい、完全一致 NG が再起動のたびに部分一致へ戻る。
+        #[serde(default, rename = "match", skip_serializing_if = "Option::is_none")]
+        match_mode: Option<String>,
+        // 登録日時 (epoch ミリ秒)。NG ID の自動削除に使う。
+        // この機能より前に登録されたエントリは None のままで、自動削除の対象外。
+        #[serde(default, rename = "addedAt", skip_serializing_if = "Option::is_none")]
+        added_at: Option<i64>,
     },
 }
 
@@ -2668,7 +2676,28 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::is_5ch_login_target;
+    use super::{is_5ch_login_target, NgFilters};
+
+    // match / addedAt は Rust 側の構造体に無いと save 時に黙って捨てられる。
+    #[test]
+    fn ng_entry_roundtrip_keeps_match_and_added_at() {
+        let json = r#"{"ids":[{"value":"ABCdef00","mode":"hide","match":"exact","addedAt":1754870400000}]}"#;
+        let parsed: NgFilters = serde_json::from_str(json).expect("parse");
+        let out = serde_json::to_string(&parsed).expect("serialize");
+        assert!(out.contains(r#""match":"exact""#), "match dropped: {out}");
+        assert!(out.contains(r#""addedAt":1754870400000"#), "addedAt dropped: {out}");
+    }
+
+    // 旧バージョンで登録されたエントリは addedAt を持たない。付与せずそのまま残す
+    // (フロント側で「期限なし」= 自動削除の対象外として扱う)。
+    #[test]
+    fn ng_entry_without_added_at_stays_absent() {
+        let json = r#"{"ids":[{"value":"OLDentry0","mode":"hide"},"legacyString"]}"#;
+        let parsed: NgFilters = serde_json::from_str(json).expect("parse");
+        let out = serde_json::to_string(&parsed).expect("serialize");
+        assert!(!out.contains("addedAt"), "addedAt should not be invented: {out}");
+        assert!(out.contains("legacyString"), "plain string entry lost: {out}");
+    }
 
     #[test]
     fn is_5ch_login_target_matches_5ch_hosts() {

@@ -2665,6 +2665,48 @@ button.search-history-btn:hover {
   color: #fff;
 }
 
+.ng-expire-badge {
+  flex: none !important;
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: bold;
+  line-height: 1.2;
+  background: #6b7f8c;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.ng-expire-badge.ng-expire-none {
+  background: transparent;
+  color: #999999;
+  border: 1px solid #c8c8c8;
+  font-weight: normal;
+}
+
+.ng-expire-setting {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 4px;
+  font-size: 9px;
+  font-weight: normal;
+  color: var(--sub);
+  cursor: pointer;
+}
+
+/* 全有効 / 全無効 ボタン (16px) と高さを揃える */
+.ng-expire-select {
+  border: 1px solid #c0c0c0;
+  background: #f0f0f0;
+  color: #444;
+  font-size: 9px;
+  padding: 0 2px;
+  height: 16px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
 .ng-remove {
   flex: none !important;
   padding: 0 4px;
@@ -4193,6 +4235,15 @@ a.body-link-image:hover::after {
 }
 .dark .ng-toggle-all:hover {
   background: #4a4a4a;
+}
+.dark .ng-expire-select {
+  background: #3a3a3a;
+  color: var(--ink);
+  border-color: #555;
+}
+.dark .ng-expire-badge.ng-expire-none {
+  color: #8a8a8a;
+  border-color: #555;
 }
 .dark .ng-toggle-on {
   background: #2e7d32;

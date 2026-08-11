@@ -39,9 +39,14 @@ else
   # 旧バージョンが正当に残るファイルの除外リスト:
   #   - docs/                          : 履歴・計画ドキュメント (旧バージョン言及は正当)
   #   - apps/landing/public/latest.json: Phase 2 (release_finish.sh) まで旧リリースを指すのが正しい
+  #   - scripts/                       : 「この問題は v0.0.217 で踏んだ」といった経緯コメントが
+  #                                      正当に残る。スクリプトはバージョンを引数で受け取る作りで
+  #                                      ハードコードした版数を持たないため、更新漏れの検知対象外。
+  #                                      将来スクリプトに版数を直書きする場合はこの除外を見直すこと。
   EXCLUDES=(
     ':!docs/'
     ':!apps/landing/public/latest.json'
+    ':!scripts/'
   )
   LEAKS=$(git grep -nF "$OLD_VERSION" -- "${EXCLUDES[@]}" || true)
   if [[ -n "$LEAKS" ]]; then

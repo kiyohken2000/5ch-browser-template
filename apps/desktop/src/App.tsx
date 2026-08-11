@@ -318,7 +318,7 @@ type FavoriteBoard = { boardName: string; url: string };
 type FavoriteThread = { threadUrl: string; title: string; boardUrl: string };
 type RecentThread = FavoriteThread & { updatedAt: number };
 type FavoritesData = { boards: FavoriteBoard[]; threads: FavoriteThread[] };
-type NgEntry = { value: string; mode: "hide" | "hide-images"; disabled?: boolean; excludeNo1?: boolean; match?: "partial" | "exact" };
+type NgEntry = { value: string; mode: "hide" | "hide-images"; disabled?: boolean; excludeNo1?: boolean; match?: "partial" | "exact"; addedAt?: number };
 type NgFilters = { words: (string | NgEntry)[]; ids: (string | NgEntry)[]; names: (string | NgEntry)[]; thread_words: (string | NgEntry)[] };
 // 強調フィルタ (NGの逆): 指定ワード/ID/名前を強調表示
 type HlEntry = { value: string; color?: string; disabled?: boolean };
@@ -358,6 +358,10 @@ const ngEntryMode = (e: string | NgEntry): "hide" | "hide-images" => typeof e ==
 const ngEntryExcludeNo1 = (e: string | NgEntry): boolean => typeof e === "string" ? false : (e.excludeNo1 ?? false);
 const ngEntryDisabled = (e: string | NgEntry): boolean => typeof e === "string" ? false : (e.disabled ?? false);
 const ngEntryMatch = (e: string | NgEntry): "partial" | "exact" => typeof e === "string" ? "partial" : (e.match ?? "partial");
+// 登録日時。v0.0.218 より前に登録されたエントリは持たないので null を返す
+// (= NG ID 自動削除の対象外。既存の登録を後付けの基準で消さないため)。
+const ngEntryAddedAt = (e: string | NgEntry): number | null =>
+  typeof e === "string" || typeof e.addedAt !== "number" ? null : e.addedAt;
 // 強調フィルタの色プリセット (キーは CSS クラス .hl-c-<key> と対応)
 const HIGHLIGHT_COLORS: { key: string; label: string }[] = [
   { key: "yellow", label: "黄" },
@@ -503,6 +507,37 @@ const AUTO_REFRESH_ENABLED_KEY = "desktop.autoRefreshEnabled.v1";
 const POST_LOG_PREFS_KEY = "desktop.postLogPrefs.v1";
 const THREAD_CATEGORIES_KEY = "desktop.threadCategories.v2";
 const DISMISSED_UPDATE_VERSION_KEY = "desktop.dismissedUpdateVersion.v1";
+const NG_ID_EXPIRE_DAYS_KEY = "desktop.ngIdExpireDays.v1";
+// NG ID 自動削除の選択肢 (日数)。0 = 無効 (既定)。5ch の ID は日替わりなので
+// NG ID だけが際限なく溜まる。ワード / 名前は恒久的なものなので対象外。
+const NG_ID_EXPIRE_DAY_OPTIONS = [0, 1, 3, 7, 30];
+const NG_DAY_MS = 86400000;
+// 残り時間の表示。1 日未満は時間表示にする (1日設定だと「残り1日」のまま
+// 変化せず、あとどれくらいで消えるか分からないため)。
+// 切り上げなので実際の残り時間を下回らない = 「消えるまで最大このくらい」と読める。
+const formatNgExpiresIn = (remainingMs: number): string => {
+  if (remainingMs <= 0) return "期限切れ";
+  if (remainingMs < 3600000) return "残り1時間未満";
+  if (remainingMs < NG_DAY_MS) return `残り${Math.ceil(remainingMs / 3600000)}時間`;
+  return `残り${Math.ceil(remainingMs / NG_DAY_MS)}日`;
+};
+const formatNgAddedAt = (ts: number): string => {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+// 期限切れの NG ID の value 一覧。addedAt を持たない (= 旧バージョンで登録された)
+// エントリは対象外。
+const expiredNgIdValues = (ids: (string | NgEntry)[], days: number, now: number): string[] => {
+  if (days <= 0) return [];
+  const cutoff = now - days * NG_DAY_MS;
+  return ids
+    .filter((e) => {
+      const added = ngEntryAddedAt(e);
+      return added !== null && added <= cutoff;
+    })
+    .map(ngVal);
+};
 
 type ThreadCategory = {
   keyword: string;
@@ -1398,6 +1433,23 @@ export default function App() {
   });
   const [favorites, setFavorites] = useState<FavoritesData>({ boards: [], threads: [] });
   const [ngFilters, setNgFilters] = useState<NgFilters>({ words: [], ids: [], names: [], thread_words: [] });
+  const [ngIdExpireDays, setNgIdExpireDays] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(NG_ID_EXPIRE_DAYS_KEY);
+      if (raw === null) return 0;
+      const n = Number(raw);
+      return NG_ID_EXPIRE_DAY_OPTIONS.includes(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(NG_ID_EXPIRE_DAYS_KEY, String(ngIdExpireDays));
+    } catch (e) {
+      console.warn("desktop.ngIdExpireDays.v1 save failed", e);
+    }
+  }, [ngIdExpireDays]);
   const [highlightFilters, setHighlightFilters] = useState<HighlightFilters>({ words: [], ids: [], names: [] });
   // 手動「ここまで読んだ」マーカー: board_url -> thread_key -> response_no
   const [readMarker, setReadMarker] = useState<Record<string, Record<string, number>>>({});
@@ -2174,6 +2226,21 @@ export default function App() {
     }
   };
 
+  // 期限切れの NG ID を自動削除する。判定は「エントリごとの addedAt + 設定日数」
+  // なので、同じ設定でも登録が古いものから順に消えていく。
+  // 起動直後 (load_ng_filters の反映) / NG の追加・削除 / 設定変更 / NG パネルを
+  // 開いた時に走る。削除後は対象が無くなるので 1 回で収束する。
+  // アプリを起動しっぱなしで NG を一切触らない間は判定が走らないため、その場合は
+  // 次に NG を操作するか NG パネルを開いた時点でまとめて削除される。
+  useEffect(() => {
+    const expired = expiredNgIdValues(ngFilters.ids, ngIdExpireDays, Date.now());
+    if (expired.length === 0) return;
+    const gone = new Set(expired);
+    void persistNgFilters({ ...ngFilters, ids: ngFilters.ids.filter((e) => !gone.has(ngVal(e))) });
+    // 黙って消えると「NG が効かなくなった」と誤解されるので必ず通知する
+    setStatus(`期限切れのNG IDを${expired.length}件削除しました`);
+  }, [ngFilters, ngIdExpireDays, ngPanelOpen]);
+
   const loadOgpDomainFilters = async () => {
     if (!isTauriRuntime()) return;
     try {
@@ -2339,7 +2406,7 @@ export default function App() {
     }
     const entry: string | NgEntry = type === "thread_words"
       ? trimmed
-      : { value: trimmed, mode: mode ?? ngAddMode, ...(match === "exact" ? { match: "exact" } : {}) };
+      : { value: trimmed, mode: mode ?? ngAddMode, ...(match === "exact" ? { match: "exact" } : {}), addedAt: Date.now() };
     void persistNgFilters({ ...ngFilters, [type]: [...ngFilters[type], entry] });
     setStatus(`added NG ${type}: ${trimmed}`);
   };
@@ -2348,7 +2415,8 @@ export default function App() {
     const lines = ngBulkText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
     if (lines.length === 0) return;
     const existing = new Set(ngFilters[ngInputType].map(ngVal));
-    const newEntries: NgEntry[] = lines.filter(v => !existing.has(v)).map(v => ({ value: v, mode: ngAddMode }));
+    const addedAt = Date.now();
+    const newEntries: NgEntry[] = lines.filter(v => !existing.has(v)).map(v => ({ value: v, mode: ngAddMode, addedAt }));
     if (newEntries.length === 0) { setStatus("全て既登録済みです"); return; }
     void persistNgFilters({ ...ngFilters, [ngInputType]: [...ngFilters[ngInputType], ...newEntries] });
     setStatus(`${newEntries.length}件登録しました`);
@@ -9573,12 +9641,33 @@ export default function App() {
               <div key={type} className="ng-list-section">
                 <h4 className="ng-section-header">
                   <span>{type === "words" ? "ワード" : type === "ids" ? "ID" : "名前"} ({ngFilters[type].filter(e => !ngEntryDisabled(e)).length}/{ngFilters[type].length})</span>
-                  {ngFilters[type].length > 0 && (
-                    <span className="ng-section-actions">
-                      <button className="ng-toggle-all" onClick={() => setNgSectionDisabled(type, false)}>全有効</button>
-                      <button className="ng-toggle-all" onClick={() => setNgSectionDisabled(type, true)}>全無効</button>
-                    </span>
-                  )}
+                  <span className="ng-section-actions">
+                    {type === "ids" && (
+                      <label
+                        className="ng-expire-setting"
+                        title="登録から指定日数が経過したNG IDを自動削除します (この機能より前に登録したものは登録日時が無いため対象外)"
+                      >
+                        自動削除
+                        <select
+                          className="ng-expire-select"
+                          value={ngIdExpireDays}
+                          onChange={(e) => setNgIdExpireDays(Number(e.target.value))}
+                        >
+                          <option value={0}>無効</option>
+                          <option value={1}>1日</option>
+                          <option value={3}>3日</option>
+                          <option value={7}>7日</option>
+                          <option value={30}>30日</option>
+                        </select>
+                      </label>
+                    )}
+                    {ngFilters[type].length > 0 && (
+                      <>
+                        <button className="ng-toggle-all" onClick={() => setNgSectionDisabled(type, false)}>全有効</button>
+                        <button className="ng-toggle-all" onClick={() => setNgSectionDisabled(type, true)}>全無効</button>
+                      </>
+                    )}
+                  </span>
                 </h4>
                 {ngFilters[type].length === 0 ? (
                   <span className="ng-empty">(なし)</span>
@@ -9590,6 +9679,8 @@ export default function App() {
                       const off = ngEntryDisabled(entry);
                       const exNo1 = ngEntryExcludeNo1(entry);
                       const isExact = ngEntryMatch(entry) === "exact";
+                      const addedAt = ngEntryAddedAt(entry);
+                      const expiresAt = addedAt === null ? null : addedAt + ngIdExpireDays * NG_DAY_MS;
                       return (
                         <li key={v} className={off ? "ng-disabled" : ""}>
                           <button
@@ -9610,7 +9701,15 @@ export default function App() {
                             title={exNo1 ? ">>1を除外中 (クリックで解除)" : ">>1には適用しない (クリックで有効)"}
                           >{exNo1 ? ">>1除外ON" : ">>1除外OFF"}</button>
                           {isExact && <span className="ng-match-badge" title="完全一致 (本文NG)">完全</span>}
-                          <span className="ng-val" title={v}>{v}</span>
+                          {type === "ids" && ngIdExpireDays > 0 && (
+                            expiresAt === null
+                              ? <span className="ng-expire-badge ng-expire-none" title="登録日時が記録されていないため自動削除の対象外です">期限なし</span>
+                              : <span
+                                  className="ng-expire-badge"
+                                  title={`${formatNgAddedAt(addedAt as number)} に登録\n${formatNgAddedAt(expiresAt)} 以降に削除`}
+                                >{formatNgExpiresIn(expiresAt - Date.now())}</span>
+                          )}
+                          <span className="ng-val" title={addedAt === null ? v : `${v}\n${formatNgAddedAt(addedAt)} に登録`}>{v}</span>
                           <button className="ng-remove" onClick={() => removeNgEntry(type, v)}>×</button>
                         </li>
                       );
