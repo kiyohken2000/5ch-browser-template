@@ -432,6 +432,27 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: sortable thread headers ok");
 
+  // --- 作成日時 (Since) カラム ---
+  const sinceCells = await page.$$eval(".threads tbody .since-cell", (els) => els.map((el) => el.textContent));
+  assert(sinceCells.length >= 1, "thread rows should render the 作成日時 column");
+  assert(
+    sinceCells.every((t) => /^\d{2}\/\d{2}\/\d{2} \d{2}:\d{2}$/.test(t)),
+    `作成日時 should render as YY/MM/DD HH:MM, got ${JSON.stringify(sinceCells)}`,
+  );
+  const sinceTitle = await page.$eval(".threads tbody .since-cell", (el) => el.getAttribute("title"));
+  assert(sinceTitle && sinceTitle.includes("に作成"), `作成日時 cell should have a full-date tooltip, got ${sinceTitle}`);
+  await page.click(".threads th:has-text('作成日時')");
+  await new Promise((r) => setTimeout(r, 100));
+  const sinceHeaderText = await page.$eval(".threads th:has-text('作成日時')", (el) => el.textContent);
+  assert(
+    sinceHeaderText.includes("▲") || sinceHeaderText.includes("▼"),
+    "clicking the 作成日時 header should sort by thread creation time",
+  );
+  // 既定のソート (番号) に戻す
+  await sortableHeaders[0].click();
+  await new Promise((r) => setTimeout(r, 100));
+  console.log("smoke-ui: thread since column ok");
+
   // --- thread tabs ---
 
   // dismiss any open menu by clicking the shell element
@@ -1134,6 +1155,37 @@ try {
   const expireDaysRestored = await page.$eval(".ng-expire-select", (el) => el.value);
   assert(expireDaysRestored === "3", `ngIdExpireDays should be restored after reload, got ${expireDaysRestored}`);
   console.log("smoke-ui: ng id auto-expire persistence ok");
+
+  // --- スレ一覧フィルタが保存され、「起動時に…復元」設定でリロード後も戻る ---
+  // (リロードを挟むので必ず一番最後に置くこと)
+  await page.click(".title-split-toggle");
+  await page.waitForSelector(".title-split-menu");
+  await page.click(".title-split-menu button:has-text('最近開いたスレ')");
+  await new Promise((r) => setTimeout(r, 100));
+  const filterModeStored = await page.evaluate(() => localStorage.getItem("desktop.threadFilterMode.v1"));
+  assert(filterModeStored === "recent-opened", `thread filter mode should be saved, got ${filterModeStored}`);
+  // 復元は restoreSession (「起動時に前回のタブ・板・スレ一覧フィルタを復元」) に
+  // 相乗りしている。このテストハーネスは冒頭の addInitScript で layoutPrefs を
+  // 毎回消してレイアウトを既定値に固定しているので、設定画面で入れてもリロードで
+  // 消える。後から登録した initScript は先の削除より後に走るため、ここで直接入れる。
+  await page.addInitScript(() => {
+    localStorage.setItem("desktop.layoutPrefs.v1", JSON.stringify({ restoreSession: true }));
+  });
+  await page.reload({ waitUntil: "load" });
+  await page.waitForSelector(".title-split-main");
+  const restoredFilterTitle = await page.$eval(".title-split-main", (el) => el.getAttribute("title"));
+  assert(
+    restoredFilterTitle.includes("最近開いたスレ表示中"),
+    `thread filter should be restored after reload, got ${restoredFilterTitle}`,
+  );
+  const restoredFilterActive = await page.$eval(".title-split-main", (el) => el.classList.contains("active-toggle"));
+  assert(restoredFilterActive, "restored thread filter button should be highlighted");
+  // フィルタを解除して元の状態に戻す
+  await page.click(".title-split-main");
+  await new Promise((r) => setTimeout(r, 100));
+  const filterModeCleared = await page.evaluate(() => localStorage.getItem("desktop.threadFilterMode.v1"));
+  assert(filterModeCleared === "", `clearing the filter should persist an empty mode, got ${filterModeCleared}`);
+  console.log("smoke-ui: thread filter restore ok");
 
   console.log("smoke-ui: ok");
 } finally {

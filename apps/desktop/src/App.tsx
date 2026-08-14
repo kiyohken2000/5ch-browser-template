@@ -358,8 +358,9 @@ const ngEntryMode = (e: string | NgEntry): "hide" | "hide-images" => typeof e ==
 const ngEntryExcludeNo1 = (e: string | NgEntry): boolean => typeof e === "string" ? false : (e.excludeNo1 ?? false);
 const ngEntryDisabled = (e: string | NgEntry): boolean => typeof e === "string" ? false : (e.disabled ?? false);
 const ngEntryMatch = (e: string | NgEntry): "partial" | "exact" => typeof e === "string" ? "partial" : (e.match ?? "partial");
-// 登録日時。v0.0.218 より前に登録されたエントリは持たないので null を返す
-// (= NG ID 自動削除の対象外。既存の登録を後付けの基準で消さないため)。
+// 登録日時。NG ID 自動削除の導入より前に登録されたエントリは持たないので null を返す
+// (= 自動削除の対象外。既存の登録を後付けの基準で消さないため)。
+// 導入バージョンは docs/BRUSHUP_PLAN.md の [N17] 参照。
 const ngEntryAddedAt = (e: string | NgEntry): number | null =>
   typeof e === "string" || typeof e.addedAt !== "number" ? null : e.addedAt;
 // 強調フィルタの色プリセット (キーは CSS クラス .hl-c-<key> と対応)
@@ -413,11 +414,12 @@ const DEFAULT_COL_WIDTHS: Record<string, number> = {
   unread: 36,
   lastFetch: 120,
   speed: 54,
+  since: 104,
 };
 const COL_RESIZE_HANDLE_PX = 5;
-type ThreadColKey = "fetched" | "id" | "datNumber" | "title" | "res" | "read" | "unread" | "lastFetch" | "speed";
-type ToggleableThreadColKey = "fetched" | "datNumber" | "title" | "res" | "read" | "unread" | "lastFetch" | "speed";
-const DEFAULT_THREAD_COL_ORDER: ThreadColKey[] = ["fetched", "id", "title", "res", "read", "unread", "lastFetch", "speed", "datNumber"];
+type ThreadColKey = "fetched" | "id" | "datNumber" | "title" | "res" | "read" | "unread" | "lastFetch" | "speed" | "since";
+type ToggleableThreadColKey = "fetched" | "datNumber" | "title" | "res" | "read" | "unread" | "lastFetch" | "speed" | "since";
+const DEFAULT_THREAD_COL_ORDER: ThreadColKey[] = ["fetched", "id", "title", "res", "read", "unread", "lastFetch", "speed", "since", "datNumber"];
 const THREAD_COL_LABELS: Record<ThreadColKey, string> = {
   fetched: "!",
   id: "番号",
@@ -428,8 +430,9 @@ const THREAD_COL_LABELS: Record<ThreadColKey, string> = {
   unread: "新着",
   lastFetch: "最終取得",
   speed: "勢い",
+  since: "作成日時",
 };
-const DEFAULT_COL_VISIBLE: Record<ToggleableThreadColKey, boolean> = { fetched: true, datNumber: true, title: true, res: true, read: true, unread: true, lastFetch: true, speed: true };
+const DEFAULT_COL_VISIBLE: Record<ToggleableThreadColKey, boolean> = { fetched: true, datNumber: true, title: true, res: true, read: true, unread: true, lastFetch: true, speed: true, since: true };
 type GestureActionId =
   | "none"
   | "prevTab"
@@ -508,6 +511,10 @@ const POST_LOG_PREFS_KEY = "desktop.postLogPrefs.v1";
 const THREAD_CATEGORIES_KEY = "desktop.threadCategories.v2";
 const DISMISSED_UPDATE_VERSION_KEY = "desktop.dismissedUpdateVersion.v1";
 const NG_ID_EXPIRE_DAYS_KEY = "desktop.ngIdExpireDays.v1";
+// スレ一覧フィルタ (お気に入り / 最近開いた / 最近書き込んだ) の選択状態。
+// "" は「フィルタなし = 板のスレ一覧」。dat落ちキャッシュは板依存で起動時に
+// 再取得が要るため対象外。
+const THREAD_FILTER_MODE_KEY = "desktop.threadFilterMode.v1";
 // NG ID 自動削除の選択肢 (日数)。0 = 無効 (既定)。5ch の ID は日替わりなので
 // NG ID だけが際限なく溜まる。ワード / 名前は恒久的なものなので対象外。
 const NG_ID_EXPIRE_DAY_OPTIONS = [0, 1, 3, 7, 30];
@@ -744,6 +751,38 @@ const normalizeThreadColOrder = (order?: string[]): ThreadColKey[] => {
     if (!next.includes(key)) next.push(key);
   }
   return next;
+};
+
+type SavedThreadFilterMode = "favorites" | "recent-opened" | "recent-posted";
+// 前回終了時のスレ一覧フィルタ。復元するかどうかは設定
+// 「起動時に前回のタブ・板・スレ一覧フィルタを復元」(layoutPrefs の restoreSession)
+// に相乗りする。restoreSession は起動直後の同期的な復元処理で使われるので、
+// ここでも layoutPrefs を直接読む。
+const readRestoredThreadFilterMode = (): SavedThreadFilterMode | null => {
+  try {
+    const rawPrefs = localStorage.getItem(LAYOUT_PREFS_KEY);
+    if (!rawPrefs) return null;
+    const prefs = JSON.parse(rawPrefs) as { restoreSession?: boolean };
+    if (prefs.restoreSession !== true) return null;
+    const mode = localStorage.getItem(THREAD_FILTER_MODE_KEY);
+    return mode === "favorites" || mode === "recent-opened" || mode === "recent-posted" ? mode : null;
+  } catch {
+    return null;
+  }
+};
+
+// スレ作成日時 (いわゆる Since)。dat 番号がスレ作成時刻の UNIX 秒なので、
+// 一覧の取得結果から算出済みの createdAt をそのまま表示するだけで済む。
+// 一覧の列幅に収めるため年は下2桁。秒までの表示はツールチップ側に回す。
+const formatSince = (ts: number): string => {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getFullYear() % 100)}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+const formatSinceFull = (ts: number): string => {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} に作成`;
 };
 
 const normalizeThreadTitleForSearch = (title: string): string => {
@@ -1567,10 +1606,14 @@ export default function App() {
   const [favRecentPostedExpanded, setFavRecentPostedExpanded] = useState(() => {
     try { return localStorage.getItem(FAV_RECENT_POSTED_EXPANDED_KEY) === "1"; } catch { return false; }
   });
+  // 前回終了時のスレ一覧フィルタ。復元しない設定なら null。
+  const [restoredThreadFilter] = useState<SavedThreadFilterMode | null>(readRestoredThreadFilterMode);
+  // 起動時の板一覧読み込みが終わったか (復元したフィルタの取得を待たせるために使う)
+  const [startupBoardFetchDone, setStartupBoardFetchDone] = useState(false);
   const [showCachedOnly, setShowCachedOnly] = useState(false);
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  const [showRecentOpenedOnly, setShowRecentOpenedOnly] = useState(false);
-  const [showRecentPostedOnly, setShowRecentPostedOnly] = useState(false);
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(restoredThreadFilter === "favorites");
+  const [showRecentOpenedOnly, setShowRecentOpenedOnly] = useState(restoredThreadFilter === "recent-opened");
+  const [showRecentPostedOnly, setShowRecentPostedOnly] = useState(restoredThreadFilter === "recent-posted");
   const [recentOpenedThreads, setRecentOpenedThreads] = useState<RecentThread[]>([]);
   const [recentPostedThreads, setRecentPostedThreads] = useState<RecentThread[]>([]);
   const [favNewCounts, setFavNewCounts] = useState<Map<string, number>>(new Map());
@@ -1637,14 +1680,14 @@ export default function App() {
   });
   const threadSortPersistEnabledRef = useRef(threadSortPersistEnabled);
   threadSortPersistEnabledRef.current = threadSortPersistEnabled;
-  const [threadSortKey, setThreadSortKey] = useState<"fetched" | "id" | "datNumber" | "title" | "res" | "got" | "new" | "lastFetch" | "speed">(() => {
+  const [threadSortKey, setThreadSortKey] = useState<"fetched" | "id" | "datNumber" | "title" | "res" | "got" | "new" | "lastFetch" | "speed" | "since">(() => {
     try {
       const persistEnabled = localStorage.getItem(THREAD_SORT_PERSIST_KEY) === "true";
       if (!persistEnabled) return "id";
       const raw = localStorage.getItem(THREAD_SORT_PREFS_KEY);
       if (!raw) return "id";
       const parsed = JSON.parse(raw) as { key?: string; asc?: boolean };
-      const valid = ["fetched", "id", "datNumber", "title", "res", "got", "new", "lastFetch", "speed"] as const;
+      const valid = ["fetched", "id", "datNumber", "title", "res", "got", "new", "lastFetch", "speed", "since"] as const;
       if (parsed.key && (valid as readonly string[]).includes(parsed.key)) {
         return parsed.key as typeof valid[number];
       }
@@ -1763,6 +1806,23 @@ export default function App() {
       console.warn("desktop.threadSortPrefs.v1 save failed", e);
     }
   }, [threadSortPersistEnabled, threadSortKey, threadSortAsc]);
+  // スレ一覧フィルタの選択状態は常に保存しておく。復元するかどうかは
+  // 「起動時に前回のタブと板を復元」で決まるので、設定を後から有効にしたときにも
+  // 直前の状態から復元できる。
+  useEffect(() => {
+    const mode: SavedThreadFilterMode | "" = showFavoritesOnly
+      ? "favorites"
+      : showRecentOpenedOnly
+      ? "recent-opened"
+      : showRecentPostedOnly
+      ? "recent-posted"
+      : "";
+    try {
+      localStorage.setItem(THREAD_FILTER_MODE_KEY, mode);
+    } catch (e) {
+      console.warn("desktop.threadFilterMode.v1 save failed", e);
+    }
+  }, [showFavoritesOnly, showRecentOpenedOnly, showRecentPostedOnly]);
   // Clear the compose translation when the compose window closes. If a compose
   // translation is in flight, cancel it so late-arriving tokens don't repopulate
   // a hidden state. Order matters: drop the ref first so the token handler
@@ -2896,7 +2956,7 @@ export default function App() {
     setSelectedResponse(1);
   };
 
-  const toggleThreadSort = (key: "fetched" | "id" | "datNumber" | "title" | "res" | "got" | "new" | "lastFetch" | "speed") => {
+  const toggleThreadSort = (key: "fetched" | "id" | "datNumber" | "title" | "res" | "got" | "new" | "lastFetch" | "speed" | "since") => {
     if (threadSortKey === key) {
       setThreadSortAsc((prev) => !prev);
     } else {
@@ -3044,8 +3104,10 @@ export default function App() {
     setStatus(`thread target updated: ${next}`);
   };
 
-  const fetchThreadListFromCurrent = async (targetThreadUrl?: string) => {
-    setShowFavoritesOnly(false);
+  // keepFilter: 起動時の板復元のように「板のスレ一覧は裏で読み込むが、表示中の
+  // スレ一覧フィルタは維持したい」場合に立てる。
+  const fetchThreadListFromCurrent = async (targetThreadUrl?: string, opts?: { keepFilter?: boolean }) => {
+    if (!opts?.keepFilter) setShowFavoritesOnly(false);
     const url = (targetThreadUrl ?? threadUrl).trim();
     if (!url) return;
     if (!isTauriRuntime()) {
@@ -3343,6 +3405,28 @@ export default function App() {
   const fetchFavNewCounts = async () => {
     await fetchSavedThreadCounts(favorites.threads, "favorites");
   };
+
+  // 起動時にスレ一覧フィルタを復元した場合、対象リストの読み込みが終わってから
+  // 1 回だけレス数を取得する (取得しないと「レス」「新着」列が埋まらない)。
+  // メニューからフィルタを有効にしたときと同じ処理を、復元時にも一度だけ通す。
+  // 既読数マップ (threadReadMap / threadLastReadCount) は板一覧と共有なので、
+  // 起動時の板読み込みが終わるのを待たないと後から上書きされて数字がずれる。
+  // リストが空のままなら取得するものが無いので何もしない。
+  const restoredFilterFetchRef = useRef<SavedThreadFilterMode | null>(restoredThreadFilter);
+  useEffect(() => {
+    const mode = restoredFilterFetchRef.current;
+    if (!mode) return;
+    if (!startupBoardFetchDone) return;
+    const list = mode === "favorites"
+      ? favorites.threads
+      : mode === "recent-opened"
+      ? recentOpenedThreads
+      : recentPostedThreads;
+    if (list.length === 0) return;
+    restoredFilterFetchRef.current = null;
+    void fetchSavedThreadCounts(list, mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startupBoardFetchDone, favorites.threads, recentOpenedThreads, recentPostedThreads]);
 
   const fetchResponsesFromCurrent = async (targetThreadUrl?: string, opts?: { keepSelection?: boolean; resetScroll?: boolean }) => {
     const url = (targetThreadUrl ?? threadUrl).trim();
@@ -3961,8 +4045,11 @@ export default function App() {
   const composeMailValue = composeSage ? "sage" : composeMail;
   const boardItems = ["お気に入り", "ニュース", "ソフトウェア", "ネットワーク", "NGT (テスト)"];
   const fallbackThreadItems = [
-    { id: 1, title: "プローブスレッド", res: 999, got: 24, speed: 2.5, lastLoad: "14:42", lastPost: "14:44", threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1/", createdAt: 0},
-    { id: 2, title: "認証テスト", res: 120, got: 8, speed: 0.8, lastLoad: "13:08", lastPost: "13:09", threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/2/", createdAt: 0 },
+    // Tauri ランタイム外 (web プレビュー / スモークテスト) のプレースホルダ。
+    // スレキーは実際の 5ch と同じく作成時刻の UNIX 秒にしてあり、dat番号 / 作成日時
+    // カラムが実データと同じ見え方になる。
+    { id: 1, title: "プローブスレッド", res: 999, got: 24, speed: 2.5, lastLoad: "14:42", lastPost: "14:44", threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1754870400/", createdAt: 1754870400000 },
+    { id: 2, title: "認証テスト", res: 120, got: 8, speed: 0.8, lastLoad: "13:08", lastPost: "13:09", threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1755043200/", createdAt: 1755043200000 },
   ];
   const favThreadUrls = useMemo(() => new Set(favorites.threads.map((t) => t.threadUrl)), [favorites.threads]);
   const selectedSavedThreads = showRecentOpenedOnly
@@ -4074,6 +4161,7 @@ export default function App() {
         cmp = la.localeCompare(lb);
       }
       else if (threadSortKey === "speed") cmp = a.speed - b.speed;
+      else if (threadSortKey === "since") cmp = a.createdAt - b.createdAt;
       return threadSortAsc ? cmp : -cmp;
     });
     cachedSortOrderRef.current = visibleThreadItems.map((t) => t.threadUrl);
@@ -4098,9 +4186,9 @@ export default function App() {
         </th>
       );
     }
-    const isLeftResize = colKey === "res" || colKey === "read" || colKey === "unread" || colKey === "lastFetch" || colKey === "speed" || colKey === "datNumber";
+    const isLeftResize = colKey === "res" || colKey === "read" || colKey === "unread" || colKey === "lastFetch" || colKey === "speed" || colKey === "since" || colKey === "datNumber";
     const resizeSide: "left" | "right" = isLeftResize ? "left" : "right";
-    const sortKey: "fetched" | "id" | "datNumber" | "res" | "got" | "new" | "lastFetch" | "speed" = colKey === "read"
+    const sortKey: "fetched" | "id" | "datNumber" | "res" | "got" | "new" | "lastFetch" | "speed" | "since" = colKey === "read"
       ? "got"
       : colKey === "unread"
       ? "new"
@@ -4172,6 +4260,14 @@ export default function App() {
               background: t.speed >= 20 ? "rgba(200,40,40,0.25)" : t.speed >= 5 ? "rgba(200,120,40,0.2)" : "rgba(200,80,40,0.15)",
             }} />
             <span className="speed-val">{t.speed.toFixed(1)}</span>
+          </td>
+        );
+      case "since":
+        // createdAt は dat 番号から算出するので、dat 番号を取れないスレ (フォールバック
+        // 表示など) だけ 0 になる。その場合は "-" を出す。
+        return (
+          <td key={colKey} className="since-cell" title={t.createdAt > 0 ? formatSinceFull(t.createdAt) : undefined}>
+            {t.createdAt > 0 ? formatSince(t.createdAt) : "-"}
           </td>
         );
     }
@@ -5534,8 +5630,15 @@ export default function App() {
       setLocationInput(lb.url);
       setThreadUrl(lb.url);
       lastBoardUrlRef.current = lb.url;
-      void fetchThreadListFromCurrent(lb.url);
+      // keepFilter: スレ一覧フィルタを復元している場合に、板の読み込みで
+      // フィルタが解除されないようにする (フィルタ無しなら元々 no-op)。
+      // 既読数のマップは板と復元フィルタで共有なので、板の読み込みが終わってから
+      // フィルタ側の取得を走らせる (下の restoredFilterFetchRef の useEffect)。
+      void fetchThreadListFromCurrent(lb.url, { keepFilter: true })
+        .finally(() => setStartupBoardFetchDone(true));
       pendingLastBoardRef.current = null;
+    } else {
+      setStartupBoardFetchDone(true);
     }
     // Restore thread tabs
     if (restoreSessionRef.current) try {
@@ -7297,6 +7400,7 @@ export default function App() {
               ["unread", "新着"],
               ["lastFetch", "最終取得"],
               ["speed", "勢い"],
+              ["since", "作成日時"],
               ["datNumber", "dat番号"],
             ] as [ToggleableThreadColKey, string][]).map(([key, label]) => ({
               text: `${threadColVisible[key] ? "\u2713 " : "　"}${label}`,
@@ -10648,7 +10752,7 @@ export default function App() {
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={restoreSession} onChange={(e) => setRestoreSession(e.target.checked)} />
-                  <span>起動時に前回のタブと板を復元</span>
+                  <span title="スレ一覧フィルタ (お気に入り / 最近開いた / 最近書き込んだ) の選択状態も復元します">起動時に前回のタブ・板・スレ一覧フィルタを復元</span>
                 </label>
                 <label className="settings-row">
                   <span>画像サイズ制限 (KB)</span>

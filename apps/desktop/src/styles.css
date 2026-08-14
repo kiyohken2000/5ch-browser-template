@@ -1383,6 +1383,13 @@ li.fav-drag-over {
   white-space: nowrap;
 }
 
+/* スレ作成日時。最終取得と同じ「日時系カラム」の見た目に揃える */
+.since-cell {
+  font-size: calc(10px + var(--fs-delta, 0px));
+  color: var(--sub);
+  white-space: nowrap;
+}
+
 .thread-title-cell {
   max-width: 0;
   overflow: hidden;
