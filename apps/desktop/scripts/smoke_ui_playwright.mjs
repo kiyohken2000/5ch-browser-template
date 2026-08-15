@@ -338,6 +338,34 @@ try {
   assert(ngListItemsAfter === 0, "NG list should be empty after removing word");
   console.log("smoke-ui: ng remove word ok");
 
+  // NG モードの 3 段トグル (非表示 → 画像 → あぼーん) と、あぼーん表示
+  // プレースホルダの >>2 (「BE/UPLIFT/どんぐりログイン確認済み」) に当てる
+  await page.selectOption(".ng-panel-add .ng-mode-select", "abone");
+  await page.fill(".ng-panel-add input", "UPLIFT");
+  await page.click(".ng-panel-add button:has-text('追加')");
+  const ngModeLabel = await page.$eval(".ng-list li .ng-mode-label", (el) => el.textContent);
+  assert(ngModeLabel === "あぼーん", `entry added in abone mode should show あぼーん, got ${ngModeLabel}`);
+  const aboneBody = await page.$eval('.response-block.abone-block[data-response-no="2"] .response-body', (el) => el.textContent);
+  assert(aboneBody === "あぼーん", `abone body should read あぼーん, got ${aboneBody}`);
+  // レス番が飛ばないこと (あぼーんの狙い) — >>2 が一覧に残っている
+  const aboneNos = await page.$$eval(".response-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+  assert(aboneNos.includes("2"), `abone should keep the response number in place, got ${JSON.stringify(aboneNos)}`);
+  // バッジをクリックすると あぼーん → 非表示 → 画像 → あぼーん と回る
+  await page.click(".ng-list li .ng-mode-label");
+  const ngModeHide = await page.$eval(".ng-list li .ng-mode-label", (el) => el.textContent);
+  assert(ngModeHide === "非表示", `abone should cycle to 非表示, got ${ngModeHide}`);
+  const hiddenNos = await page.$$eval(".response-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+  assert(!hiddenNos.includes("2"), `非表示 should drop the response entirely, got ${JSON.stringify(hiddenNos)}`);
+  await page.click(".ng-list li .ng-mode-label");
+  const ngModeImg = await page.$eval(".ng-list li .ng-mode-label", (el) => el.textContent);
+  assert(ngModeImg === "画像", `非表示 should cycle to 画像, got ${ngModeImg}`);
+  await page.click(".ng-list li .ng-mode-label");
+  const ngModeBack = await page.$eval(".ng-list li .ng-mode-label", (el) => el.textContent);
+  assert(ngModeBack === "あぼーん", `画像 should cycle back to あぼーん, got ${ngModeBack}`);
+  await page.click(".ng-remove");
+  await page.selectOption(".ng-panel-add .ng-mode-select", "hide");
+  console.log("smoke-ui: ng abone mode ok");
+
   // NG ID の自動削除: セレクタは ID セクションのヘッダーにあり、有効にすると
   // 各エントリに残り日数バッジが出る
   const ngExpireSelect = await page.$(".ng-expire-select");

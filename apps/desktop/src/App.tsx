@@ -318,7 +318,10 @@ type FavoriteBoard = { boardName: string; url: string };
 type FavoriteThread = { threadUrl: string; title: string; boardUrl: string };
 type RecentThread = FavoriteThread & { updatedAt: number };
 type FavoritesData = { boards: FavoriteBoard[]; threads: FavoriteThread[] };
-type NgEntry = { value: string; mode: "hide" | "hide-images"; disabled?: boolean; excludeNo1?: boolean; match?: "partial" | "exact"; addedAt?: number };
+// NG の適用方法。hide = レスごと消す / hide-images = 画像だけ消す /
+// abone = レス番と枠は残して中身を「あぼーん」に置き換える (レス番が飛ばない)
+type NgMode = "hide" | "hide-images" | "abone";
+type NgEntry = { value: string; mode: NgMode; disabled?: boolean; excludeNo1?: boolean; match?: "partial" | "exact"; addedAt?: number };
 type NgFilters = { words: (string | NgEntry)[]; ids: (string | NgEntry)[]; names: (string | NgEntry)[]; thread_words: (string | NgEntry)[] };
 // 強調フィルタ (NGの逆): 指定ワード/ID/名前を強調表示
 type HlEntry = { value: string; color?: string; disabled?: boolean };
@@ -354,7 +357,18 @@ const isImageHashBlocked = (hash: string, filter: NgImageFilter): boolean => {
   return false;
 };
 const ngVal = (e: string | NgEntry): string => typeof e === "string" ? e : e.value;
-const ngEntryMode = (e: string | NgEntry): "hide" | "hide-images" => typeof e === "string" ? "hide" : e.mode;
+const ngEntryMode = (e: string | NgEntry): NgMode => typeof e === "string" ? "hide" : e.mode;
+// NG バッジのクリックで回す順番と、その表示
+const NG_MODE_CYCLE: NgMode[] = ["hide", "hide-images", "abone"];
+const NG_MODE_LABELS: Record<NgMode, string> = { hide: "非表示", "hide-images": "画像", abone: "あぼーん" };
+const NG_MODE_CLASSES: Record<NgMode, string> = { hide: "ng-mode-hide", "hide-images": "ng-mode-img", abone: "ng-mode-abone" };
+const NG_MODE_HINTS: Record<NgMode, string> = {
+  hide: "非表示 (レスごと消す)",
+  "hide-images": "画像NG (画像だけ消す)",
+  abone: "あぼーん (レス番を残して中身だけ消す)",
+};
+// あぼーんしたレスの本文・名前・日時の代わりに出す文字列
+const ABONE_TEXT = "あぼーん";
 const ngEntryExcludeNo1 = (e: string | NgEntry): boolean => typeof e === "string" ? false : (e.excludeNo1 ?? false);
 const ngEntryDisabled = (e: string | NgEntry): boolean => typeof e === "string" ? false : (e.disabled ?? false);
 const ngEntryMatch = (e: string | NgEntry): "partial" | "exact" => typeof e === "string" ? "partial" : (e.match ?? "partial");
@@ -1497,7 +1511,7 @@ export default function App() {
   const [imageContextMenu, setImageContextMenu] = useState<{ x: number; y: number; url: string } | null>(null);
   const [youtubeContextMenu, setYoutubeContextMenu] = useState<{ x: number; y: number; url: string } | null>(null);
   const [ngImagePanelOpen, setNgImagePanelOpen] = useState(false);
-  const [ngAddMode, setNgAddMode] = useState<"hide" | "hide-images">("hide");
+  const [ngAddMode, setNgAddMode] = useState<NgMode>("hide");
   const [threadNgOpen, setThreadNgOpen] = useState(false);
   const [threadNgInput, setThreadNgInput] = useState("");
   const [threadCategories, setThreadCategories] = useState<ThreadCategory[]>(() => {
@@ -2457,7 +2471,7 @@ export default function App() {
     });
   };
 
-  const addNgEntry = (type: "words" | "ids" | "names" | "thread_words", value: string, mode?: "hide" | "hide-images", match?: "partial" | "exact") => {
+  const addNgEntry = (type: "words" | "ids" | "names" | "thread_words", value: string, mode?: NgMode, match?: "partial" | "exact") => {
     const trimmed = value.trim();
     if (!trimmed) return;
     if (ngFilters[type].some((e) => ngVal(e) === trimmed)) {
@@ -2517,7 +2531,8 @@ export default function App() {
       [type]: ngFilters[type].map((e) => {
         if (ngVal(e) !== value) return e;
         const base = typeof e === "string" ? { value: e, mode: "hide" as const } : e;
-        const next: "hide" | "hide-images" = ngEntryMode(e) === "hide" ? "hide-images" : "hide";
+        // 非表示 → 画像 → あぼーん → 非表示 … と回す
+        const next = NG_MODE_CYCLE[(NG_MODE_CYCLE.indexOf(ngEntryMode(e)) + 1) % NG_MODE_CYCLE.length];
         return { ...base, mode: next };
       }),
     });
@@ -2556,10 +2571,15 @@ export default function App() {
     return target.toLowerCase().includes(pattern.toLowerCase());
   };
 
-  const getNgResult = (resp: { name: string; time: string; text: string; responseNo?: number }): null | "hide" | "hide-images" => {
+  // 複数の NG に一致したときは強い方を採用する (hide > abone > hide-images)。
+  // hide は最強なので、呼び出し側は見つけた時点で return してよい。
+  const strongerNgMode = (current: NgMode | null, next: NgMode): NgMode =>
+    current === null || next === "abone" ? next : current;
+
+  const getNgResult = (resp: { name: string; time: string; text: string; responseNo?: number }): NgMode | null => {
     if (ngFilters.words.length === 0 && ngFilters.ids.length === 0 && ngFilters.names.length === 0) return null;
     const isNo1 = resp.responseNo === 1;
-    let result: null | "hide" | "hide-images" = null;
+    let result: NgMode | null = null;
     let plainBody: string | null = null;
     for (const w of ngFilters.words) {
       if (ngEntryDisabled(w)) continue;
@@ -2572,7 +2592,7 @@ export default function App() {
       if (ngMatch(ngVal(w), wTarget, wMatch)) {
         const m = ngEntryMode(w);
         if (m === "hide") return "hide";
-        result = "hide-images";
+        result = strongerNgMode(result, m);
       }
     }
     for (const n of ngFilters.names) {
@@ -2581,7 +2601,7 @@ export default function App() {
       if (ngMatch(ngVal(n), resp.name)) {
         const m = ngEntryMode(n);
         if (m === "hide") return "hide";
-        result = "hide-images";
+        result = strongerNgMode(result, m);
       }
     }
     if (ngFilters.ids.length > 0) {
@@ -2593,7 +2613,7 @@ export default function App() {
           if (idMatch[1] === ngVal(entry)) {
             const m = ngEntryMode(entry);
             if (m === "hide") return "hide";
-            result = "hide-images";
+            result = strongerNgMode(result, m);
           }
         }
       }
@@ -4360,7 +4380,7 @@ export default function App() {
     return map;
   })();
 
-  const ngResultMap = new Map<number, "hide" | "hide-images">();
+  const ngResultMap = new Map<number, NgMode>();
   for (const r of responseItems) {
     const result = getNgResult({ name: r.name, time: r.time, text: r.text, responseNo: r.id });
     if (result) ngResultMap.set(r.id, result);
@@ -4677,8 +4697,10 @@ export default function App() {
   };
 
   const renderPopupHeader = (resp: typeof responseItems[number]) => {
-    const id = extractId(resp.time);
-    const date = formatResponseDate(resp.time);
+    // あぼーん指定のレスは、ポップアップでも本文欄と同じく中身を伏せる
+    const abone = ngResultMap.get(resp.id) === "abone";
+    const id = abone ? null : extractId(resp.time);
+    const date = abone ? ABONE_TEXT : formatResponseDate(resp.time);
     const refs = backRefMap.get(resp.id);
     return (
       <div className="anchor-popup-header">
@@ -4696,7 +4718,7 @@ export default function App() {
         >
           {resp.id}
         </span>{" "}
-        {resp.name}{" "}
+        {abone ? ABONE_TEXT : resp.name}{" "}
         <time>{date}</time>
         {id ? (
           <span
@@ -4715,6 +4737,12 @@ export default function App() {
       </div>
     );
   };
+
+  // ポップアップ (アンカー / 逆参照 / ID) の本文。あぼーん指定のレスは中身を出さない
+  const renderPopupBody = (resp: typeof responseItems[number]) =>
+    ngResultMap.get(resp.id) === "abone"
+      ? <div className="anchor-popup-body abone-body">{ABONE_TEXT}</div>
+      : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { youtubeThumbs: youtubeThumbsEnabled })} />;
 
   const goFromLocationInput = () => {
     const next = rewrite5chNet(locationInput.trim());
@@ -8559,6 +8587,42 @@ export default function App() {
                 const idHlColor = id ? hlIdEntries.find((e) => id.toLowerCase().includes(e.value.toLowerCase()))?.color : undefined;
                 const isNew = newResponseStart !== null && r.id >= newResponseStart;
                 const isFirstNew = isNew && r.id === newResponseStart;
+                // あぼーん: レス番だけ残して名前・日時・ID・本文は出さない。
+                // レス番が飛ばないので「>>N が抜けている」と悩まずに済む。
+                // レス番クリックのメニュー (NG 追加や再表示) は通常レスと同じく使える。
+                if (ngResultMap.get(r.id) === "abone") {
+                  return (
+                    <Fragment key={r.id}>
+                      {isFirstNew && (
+                        <div className="new-response-separator">
+                          <span>ここから新着</span>
+                        </div>
+                      )}
+                      <div
+                        data-response-no={r.id}
+                        className={`response-block abone-block ${selectedResponse === r.id ? "selected" : ""}`}
+                        onClick={() => setSelectedResponse(r.id)}
+                      >
+                        <div className="response-header">
+                          <span className="response-no" onClick={(e) => onResponseNoClick(e, r.id)}>
+                            {r.id}
+                          </span>
+                          <span className="response-name">{ABONE_TEXT}</span>
+                          <span className="response-header-right">
+                            {isNew && <span className="response-new-marker">New!</span>}
+                            <span className="response-date">{ABONE_TEXT}</span>
+                          </span>
+                        </div>
+                        <div className="response-body abone-body">{ABONE_TEXT}</div>
+                      </div>
+                      {r.id === currentReadMarker && (
+                        <div className="read-marker-separator">
+                          <span>ここまで読んだ</span>
+                        </div>
+                      )}
+                    </Fragment>
+                  );
+                }
                 return (
                   <Fragment key={r.id}>
                   {isFirstNew && (
@@ -9698,7 +9762,7 @@ export default function App() {
             <button onClick={() => setNgPanelOpen(false)}>閉じる</button>
           </header>
           <div className="ng-panel-tabs">
-            <button className={ngPanelTab === "ng" ? "active-toggle" : ""} onClick={() => setNgPanelTab("ng")}>NG (非表示)</button>
+            <button className={ngPanelTab === "ng" ? "active-toggle" : ""} onClick={() => setNgPanelTab("ng")}>NG (非表示/あぼーん)</button>
             <button className={ngPanelTab === "highlight" ? "active-toggle" : ""} onClick={() => setNgPanelTab("highlight")}>ハイライト (強調)</button>
           </div>
           {ngPanelTab === "ng" && (<>
@@ -9719,9 +9783,10 @@ export default function App() {
               }}
               placeholder={ngInputType === "words" ? "NGワード (/正規表現/も可)" : ngInputType === "ids" ? "NG IDを入力" : "NG名前 (/正規表現/も可)"}
             />
-            <select value={ngAddMode} onChange={(e) => setNgAddMode(e.target.value as "hide" | "hide-images")} className="ng-mode-select">
+            <select value={ngAddMode} onChange={(e) => setNgAddMode(e.target.value as NgMode)} className="ng-mode-select">
               <option value="hide">非表示</option>
               <option value="hide-images">画像NG</option>
+              <option value="abone">あぼーん</option>
             </select>
             <button onClick={() => { addNgEntry(ngInputType, ngInput); setNgInput(""); }}>追加</button>
             <button className={ngBulkOpen ? "active-toggle" : ""} onClick={() => setNgBulkOpen(v => !v)}>一括</button>
@@ -9793,11 +9858,11 @@ export default function App() {
                             title={off ? "クリックで有効化" : "クリックで無効化"}
                           >{off ? "OFF" : "ON"}</button>
                           <button
-                            className={`ng-mode-label ${mode === "hide-images" ? "ng-mode-img" : "ng-mode-hide"}`}
+                            className={`ng-mode-label ${NG_MODE_CLASSES[mode] ?? NG_MODE_CLASSES.hide}`}
                             onClick={() => toggleNgEntryMode(type, v)}
-                            title={mode === "hide-images" ? "画像NG (クリックで非表示に切替)" : "非表示 (クリックで画像NGに切替)"}
+                            title={`${NG_MODE_HINTS[mode] ?? NG_MODE_HINTS.hide} — クリックで${NG_MODE_LABELS[NG_MODE_CYCLE[(NG_MODE_CYCLE.indexOf(mode) + 1) % NG_MODE_CYCLE.length]]}に切替`}
                           >
-                            {mode === "hide-images" ? "画像" : "非表示"}
+                            {NG_MODE_LABELS[mode] ?? NG_MODE_LABELS.hide}
                           </button>
                           <button
                             className={`ng-toggle ${exNo1 ? "ng-toggle-on" : "ng-toggle-off"}`}
@@ -10317,7 +10382,7 @@ export default function App() {
             {popupResps.map((popupResp) => (
               <div key={popupResp.id}>
                 {renderPopupHeader(popupResp)}
-                <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(popupResp.text, { youtubeThumbs: youtubeThumbsEnabled })} />
+                {renderPopupBody(popupResp)}
               </div>
             ))}
           </div>
@@ -10346,7 +10411,7 @@ export default function App() {
               return (
                 <div key={refNo} className="back-ref-popup-item">
                   {renderPopupHeader(refResp)}
-                  <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(refResp.text, { youtubeThumbs: youtubeThumbsEnabled })} />
+                  {renderPopupBody(refResp)}
                 </div>
               );
             })}
@@ -10394,7 +10459,7 @@ export default function App() {
             {nestedResps.map((nestedResp) => (
               <div key={nestedResp.id}>
                 {renderPopupHeader(nestedResp)}
-                <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(nestedResp.text, { youtubeThumbs: youtubeThumbsEnabled })} />
+                {renderPopupBody(nestedResp)}
               </div>
             ))}
           </div>
@@ -10462,7 +10527,9 @@ export default function App() {
                   {replyCount > 0 && (
                     <span className="id-popup-reply-count" title={`${replyCount}件のレスがついています`}>▼{replyCount}</span>
                   )}
-                  <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled })} />
+                  {ngResultMap.get(r.id) === "abone"
+                    ? <span className="id-popup-text abone-body">{ABONE_TEXT}</span>
+                    : <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled })} />}
                 </div>
                 );
               })}

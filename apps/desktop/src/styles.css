@@ -1142,6 +1142,18 @@ li.fav-drag-over {
   word-break: break-word;
 }
 
+/* あぼーん: レス番だけ残して中身を伏せた状態。読み飛ばせるよう控えめな見た目にする */
+.response-block.abone-block {
+  opacity: 0.55;
+}
+.response-block.abone-block:hover {
+  opacity: 0.8;
+}
+.abone-body {
+  color: var(--sub);
+  font-style: italic;
+}
+
 .response-body.aa {
   font-family: "Saitamaar", "IPAMonaPGothic", "Mona", "MS PGothic", "ＭＳ Ｐゴシック", monospace;
   line-height: 1.2;
@@ -2660,6 +2672,14 @@ button.search-history-btn:hover {
 }
 .ng-mode-img:hover {
   background: #b8901c;
+}
+.ng-mode-abone {
+  background: #7b5cd6;
+  color: #fff;
+  border-color: #6748bd;
+}
+.ng-mode-abone:hover {
+  background: #6748bd;
 }
 .ng-match-badge {
   flex: none !important;
@@ -5371,6 +5391,19 @@ a.body-link-image:hover::after {
 .shell.glass .ng-panel button.ng-mode-label.ng-mode-img:hover,
 .shell.glass.dark .ng-panel button.ng-mode-label.ng-mode-img:hover {
   background: #b8901c;
+}
+.shell.glass .ng-panel button.ng-mode-label.ng-mode-abone,
+.shell.glass.dark .ng-panel button.ng-mode-label.ng-mode-abone {
+  background: #7b5cd6;
+  border-color: #6748bd;
+  color: #fff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+.shell.glass .ng-panel button.ng-mode-label.ng-mode-abone:hover,
+.shell.glass.dark .ng-panel button.ng-mode-label.ng-mode-abone:hover {
+  background: #6748bd;
 }
 
 .shell.glass .settings-panel input[type="text"],

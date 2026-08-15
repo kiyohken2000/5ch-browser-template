@@ -563,6 +563,19 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 
 **対象ファイル**: `apps/desktop/src/App.tsx`、`apps/desktop/src/styles.css`、`apps/desktop/scripts/smoke_ui_playwright.mjs`
 
+### [N20] NG の「あぼーん」表示 — ステータス: ✅ 完了 (2026-08-15)
+
+**背景**: 「NG 対象レスを『NG』とか『あぼーん』表示できないか。非表示だとレス番が飛ぶ」というユーザー要望。従来の NG は 2 モード(`hide` = レスごと削除 / `hide-images` = 画像だけ削除)で、`hide` ではレス番が飛んで「>>N が抜けている」と読み手が混乱する。
+
+**変更内容**:
+1. `NgMode` に `abone` を追加(`"hide" | "hide-images" | "abone"`)。NG パネルのモードバッジのクリックを **非表示 → 画像 → あぼーん → 非表示** の巡回に変更(`NG_MODE_CYCLE`)。追加時のモード選択にも「あぼーん」を追加。
+2. あぼーんのレスはレス番と枠を残し、名前 / 日時 / ID / 本文を「あぼーん」に置換。`visibleResponseItems` から落とさないのでレス番が飛ばない。レス番クリックのメニューは通常レスと同じく使える。
+3. アンカー / 逆参照 / ネスト / ID の各ポップアップでも中身を伏せる(`renderPopupBody`・`renderPopupHeader` で分岐)。本文欄だけ伏せてポップアップから読めてしまう、という穴を塞ぐ。
+4. 複数の NG に一致したときの優先度は **hide > abone > hide-images**(`strongerNgMode`)。強い方を採用するので、既存ユーザーの `hide` の挙動は一切変わらない。
+5. 既存の登録済みエントリは `mode` を持つのでそのまま。移行処理は不要。
+
+**対象ファイル**: `apps/desktop/src/App.tsx`、`apps/desktop/src/styles.css`、`apps/desktop/scripts/smoke_ui_playwright.mjs`
+
 ---
 
 ### 却下・取り下げ分(再提案しないこと)
