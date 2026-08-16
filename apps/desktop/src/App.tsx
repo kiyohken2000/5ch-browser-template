@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEventHandler,
   type MouseEvent as ReactMouseEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -618,6 +619,8 @@ type ResizeDragState =
   | { mode: "response-rows"; startY: number; startThreadPx: number; responseLayoutHeight: number }
   | { mode: "col-resize"; colKey: string; startX: number; startWidth: number; reverse: boolean };
 type PaneLayoutMode = "classic" | "river";
+// ヘッダのドラッグで移動できるパネル (NGフィルタ / スレ一覧NGワード / 画像NG / レス分類)
+type DraggablePanelKey = "ng" | "threadNg" | "ngImage" | "threadCategory";
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 const upsertRecentThread = (list: RecentThread[], entry: RecentThread): RecentThread[] =>
@@ -1532,12 +1535,28 @@ export default function App() {
     }
   }, [threadCategories]);
   const [threadCategoryPanelOpen, setThreadCategoryPanelOpen] = useState(false);
-  const [threadCategoryPanelPos, setThreadCategoryPanelPos] = useState<{ x: number; y: number } | null>(null);
-  const threadCategoryPanelDragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
   const [categoryAddKeyword, setCategoryAddKeyword] = useState("");
   const [categoryAddColor, setCategoryAddColor] = useState<string>("yellow");
   const [threadCategoryFilter, setThreadCategoryFilter] = useState<string | null>(null);
   const [ngPanelOpen, setNgPanelOpen] = useState(false);
+  // ヘッダを掴んで動かせるパネル。書き込みウィンドウと同じ操作感にする
+  const [panelPositions, setPanelPositions] = useState<Partial<Record<DraggablePanelKey, { x: number; y: number }>>>({});
+  const panelDragRef = useRef<{ key: DraggablePanelKey; startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
+  // 動かしていないパネルは CSS の既定位置 (left/bottom) のままにする
+  const panelPosStyle = (key: DraggablePanelKey): CSSProperties => {
+    const pos = panelPositions[key];
+    return pos ? { left: pos.x, top: pos.y, right: "auto", bottom: "auto" } : {};
+  };
+  // ヘッダ内のボタン等を押したときはドラッグ開始しない (閉じるボタンが効かなくなるため)
+  const startPanelDrag = (key: DraggablePanelKey) => (e: ReactMouseEvent<HTMLElement>) => {
+    if ((e.target as HTMLElement).closest("button, input, select, textarea")) return;
+    e.preventDefault();
+    const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+    panelDragRef.current = { key, startX: e.clientX, startY: e.clientY, startPosX: rect.left, startPosY: rect.top };
+    setPanelPositions((prev) => (prev[key] ? prev : { ...prev, [key]: { x: rect.left, y: rect.top } }));
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "move";
+  };
   const [showBoardButtons, setShowBoardButtons] = useState(false);
   const [toolBarVisible, setToolBarVisible] = useState(true);
   const [responseNavBarVisible, setResponseNavBarVisible] = useState(true);
@@ -5947,12 +5966,13 @@ export default function App() {
         });
         return;
       }
-      const tcdrag = threadCategoryPanelDragRef.current;
-      if (tcdrag) {
-        setThreadCategoryPanelPos({
-          x: tcdrag.startPosX + (event.clientX - tcdrag.startX),
-          y: tcdrag.startPosY + (event.clientY - tcdrag.startY),
-        });
+      const pdrag = panelDragRef.current;
+      if (pdrag) {
+        const pos = {
+          x: pdrag.startPosX + (event.clientX - pdrag.startX),
+          y: pdrag.startPosY + (event.clientY - pdrag.startY),
+        };
+        setPanelPositions((prev) => ({ ...prev, [pdrag.key]: pos }));
         return;
       }
       const cresize = composeResizeRef.current;
@@ -6039,8 +6059,8 @@ export default function App() {
         document.body.style.cursor = "";
         return;
       }
-      if (threadCategoryPanelDragRef.current) {
-        threadCategoryPanelDragRef.current = null;
+      if (panelDragRef.current) {
+        panelDragRef.current = null;
         document.body.style.userSelect = "";
         document.body.style.cursor = "";
         return;
@@ -9589,25 +9609,9 @@ export default function App() {
           className="ng-panel thread-cat-panel"
           role="dialog"
           aria-label="レス分類"
-          style={threadCategoryPanelPos ? { left: threadCategoryPanelPos.x, top: threadCategoryPanelPos.y, right: "auto", bottom: "auto" } : {}}
+          style={panelPosStyle("threadCategory")}
         >
-          <header
-            className="ng-panel-header thread-cat-panel-header"
-            onMouseDown={(e) => {
-              if ((e.target as HTMLElement).closest("button")) return;
-              e.preventDefault();
-              const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
-              threadCategoryPanelDragRef.current = {
-                startX: e.clientX,
-                startY: e.clientY,
-                startPosX: rect.left,
-                startPosY: rect.top,
-              };
-              if (!threadCategoryPanelPos) setThreadCategoryPanelPos({ x: rect.left, y: rect.top });
-              document.body.style.userSelect = "none";
-              document.body.style.cursor = "move";
-            }}
-          >
+          <header className="ng-panel-header ng-panel-drag-header" onMouseDown={startPanelDrag("threadCategory")}>
             <strong>レス分類</strong>
             <span className="ng-panel-count">{threadCategories.length}語</span>
             {threadCategoryFilter && (
@@ -9699,8 +9703,8 @@ export default function App() {
         </section>
       )}
       {threadNgOpen && (
-        <section className="ng-panel thread-ng-panel" role="dialog" aria-label="スレ一覧NGワード">
-          <header className="ng-panel-header">
+        <section className="ng-panel thread-ng-panel" role="dialog" aria-label="スレ一覧NGワード" style={panelPosStyle("threadNg")}>
+          <header className="ng-panel-header ng-panel-drag-header" onMouseDown={startPanelDrag("threadNg")}>
             <strong>スレ一覧NGワード</strong>
             <span className="ng-panel-count">{ngFilters.thread_words.length}語</span>
             <button onClick={() => setThreadNgOpen(false)}>閉じる</button>
@@ -9745,8 +9749,8 @@ export default function App() {
         </section>
       )}
       {ngPanelOpen && (
-        <section className="ng-panel" role="dialog" aria-label="NGフィルタ">
-          <header className="ng-panel-header">
+        <section className="ng-panel" role="dialog" aria-label="NGフィルタ" style={panelPosStyle("ng")}>
+          <header className="ng-panel-header ng-panel-drag-header" onMouseDown={startPanelDrag("ng")}>
             <strong>{ngPanelTab === "ng" ? "NGフィルタ" : "ハイライト"}</strong>
             <span className="ng-panel-count">
               {ngPanelTab === "ng"
@@ -10005,8 +10009,8 @@ export default function App() {
         </section>
       )}
       {ngImagePanelOpen && (
-        <section className="ng-panel ng-image-panel" role="dialog" aria-label="画像NG">
-          <header className="ng-panel-header">
+        <section className="ng-panel ng-image-panel" role="dialog" aria-label="画像NG" style={panelPosStyle("ngImage")}>
+          <header className="ng-panel-header ng-panel-drag-header" onMouseDown={startPanelDrag("ngImage")}>
             <strong>画像NG</strong>
             <span className="ng-panel-count">
               {ngImageFilter.entries.filter((e) => !e.disabled).length}/{ngImageFilter.entries.length}

@@ -405,6 +405,39 @@ try {
   console.log("smoke-ui: highlight tab add/remove ok");
   await page.click(".ng-panel-tabs button:has-text('NG')");
 
+  // ヘッダを掴んでパネルを移動できる (書き込みウィンドウと同じ操作感)
+  const ngDragHeader = await page.$(".ng-panel .ng-panel-drag-header");
+  assert(ngDragHeader, "NG panel header should be draggable");
+  const readNgPanelPos = () => page.$eval(".ng-panel", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y };
+  });
+  const ngPosBefore = await readNgPanelPos();
+  const ngHeaderBox = await ngDragHeader.boundingBox();
+  const grabX = ngHeaderBox.x + 12; // ボタンではなくタイトル側を掴む
+  const grabY = ngHeaderBox.y + ngHeaderBox.height / 2;
+  await page.mouse.move(grabX, grabY);
+  await page.mouse.down();
+  await page.mouse.move(grabX + 60, grabY - 40, { steps: 5 });
+  await page.mouse.up();
+  const ngPosAfter = await readNgPanelPos();
+  assert(
+    Math.abs(ngPosAfter.x - ngPosBefore.x - 60) <= 2 && Math.abs(ngPosAfter.y - ngPosBefore.y + 40) <= 2,
+    `NG panel should follow the drag, moved ${ngPosAfter.x - ngPosBefore.x},${ngPosAfter.y - ngPosBefore.y}`,
+  );
+  // ヘッダのボタンからはドラッグを始めない (閉じるボタン等が効かなくなるため)
+  const ngHeaderBtnBox = await (await page.$(".ng-panel .ng-panel-drag-header button:has-text('全有効')")).boundingBox();
+  await page.mouse.move(ngHeaderBtnBox.x + ngHeaderBtnBox.width / 2, ngHeaderBtnBox.y + ngHeaderBtnBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(ngHeaderBtnBox.x + ngHeaderBtnBox.width / 2, ngHeaderBtnBox.y + ngHeaderBtnBox.height / 2 + 30, { steps: 3 });
+  await page.mouse.up();
+  const ngPosAfterBtnDrag = await readNgPanelPos();
+  assert(
+    ngPosAfterBtnDrag.x === ngPosAfter.x && ngPosAfterBtnDrag.y === ngPosAfter.y,
+    "dragging from a header button should not move the panel",
+  );
+  console.log("smoke-ui: ng panel drag ok");
+
   // close NG panel
   await page.click(".ng-panel-header button:has-text('閉じる')");
   const ngPanelAfterClose = await page.$(".ng-panel");

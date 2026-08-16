@@ -2474,6 +2474,18 @@ button.search-history-btn:hover {
   margin-left: auto;
 }
 
+/* ヘッダを掴んでパネルを動かせる場合の見た目 (書き込みウィンドウと同じ) */
+.ng-panel-drag-header {
+  cursor: move;
+  user-select: none;
+}
+
+.ng-panel-drag-header button,
+.ng-panel-drag-header input,
+.ng-panel-drag-header select {
+  cursor: pointer;
+}
+
 .ng-panel-count {
   font-size: 11px;
   color: var(--sub);
@@ -2858,15 +2870,6 @@ button.search-history-btn:hover {
 
 .thread-cat-panel {
   grid-template-rows: auto auto 1fr;
-}
-
-.thread-cat-panel-header {
-  cursor: move;
-  user-select: none;
-}
-
-.thread-cat-panel-header button {
-  cursor: pointer;
 }
 
 .thread-cat-panel .ng-panel-add {

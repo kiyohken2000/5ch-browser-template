@@ -578,6 +578,21 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 
 ---
 
+### [N21] NG 系パネルのドラッグ移動 — ステータス: ✅ 完了 (2026-08-16)
+
+**背景**: 「NG フィルタウィンドウも書き込みウィンドウみたいに移動できるようにしてほしい」というユーザー要望。NG 系パネルは `position: fixed` の固定位置(左下)で、下に隠れたレスを確認しながら NG を編集できなかった。
+
+**変更内容**:
+1. パネル移動の仕組みを汎用化。`DraggablePanelKey`(`ng` / `threadNg` / `ngImage` / `threadCategory`)をキーにした `panelPositions` + `panelDragRef` の 1 組で全パネルを扱う。ヘッダに `panelPosStyle(key)` と `startPanelDrag(key)` を渡すだけで移動可能になる。
+2. 移動対象は **NG フィルタ / スレ一覧 NG ワード / 画像 NG** の 3 つ。既にドラッグできた「レス分類」パネルも個別実装(`threadCategoryPanelPos` / `threadCategoryPanelDragRef`)を廃してこの仕組みに統合。
+3. ヘッダ内の `button` / `input` / `select` / `textarea` を押したときはドラッグを開始しない。閉じるボタン等が効かなくなるのを防ぐ。
+4. 未移動のパネルは CSS の既定位置(`left` / `bottom`)のまま。掴んだ時点で現在の実座標を初期値に採る。カーソル表示は `.ng-panel-drag-header`(旧 `.thread-cat-panel-header`)に集約。
+5. 位置は実行中のみ保持し、永続化しない(書き込みウィンドウと同じ挙動)。
+
+**対象ファイル**: `apps/desktop/src/App.tsx`、`apps/desktop/src/styles.css`、`apps/desktop/scripts/smoke_ui_playwright.mjs`
+
+---
+
 ### 却下・取り下げ分(再提案しないこと)
 
 - [N9] スレ閲覧履歴 — ☑ 実装済みだった(App.tsx に閲覧履歴・書き込み履歴リスト UI が既存)
