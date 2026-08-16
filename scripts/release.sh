@@ -49,6 +49,37 @@ VERSION="$1"
 RELEASE_NOTES="$2"
 TAG="v${VERSION}"
 
+VALIDATE_LOG="$ROOT_DIR/out/validate-${VERSION}.log"
+mkdir -p "$ROOT_DIR/out"
+
+# 検証ステップの実行。以前は `cmd 2>&1 | tail -1` と書いていたが、これだと
+# 失敗したときに理由になる行がすべて捨てられて最後の1行しか残らない。
+# (v0.0.220 / v0.0.221 では smoke test のクラッシュ末尾行だけが出ていた)
+# 全文はログに残し、成功時は最後の1行、失敗時は末尾30行を出してから中断する。
+run_validation() {
+  local label="$1"
+  shift
+  {
+    echo "===== ${label} ====="
+  } >> "$VALIDATE_LOG"
+  local start_line
+  start_line=$(($(wc -l < "$VALIDATE_LOG") + 1))
+  # `if cmd; then ... fi` の後の $? は if 文自体の値 (0) になってしまうので、
+  # 失敗した本体の終了コードはここで直接受ける
+  local code=0
+  "$@" >> "$VALIDATE_LOG" 2>&1 || code=$?
+  if [[ $code -eq 0 ]]; then
+    tail -1 "$VALIDATE_LOG"
+    return 0
+  fi
+  echo ""
+  echo "  ERROR: ${label} failed (exit ${code})"
+  echo "  --- ${VALIDATE_LOG} (last 30 lines) ---"
+  tail -n +"$start_line" "$VALIDATE_LOG" | tail -30 | sed 's/^/  /'
+  echo "  --- full log: ${VALIDATE_LOG} ---"
+  exit "$code"
+}
+
 echo "============================================"
 echo " Ember Release ${TAG} — Phase 1"
 echo "============================================"
@@ -87,17 +118,19 @@ echo "  Cargo.toml:      $(grep '^version' "$TAURI_DIR/Cargo.toml" | head -1 | x
 echo ""
 echo "[2/5] Validating..."
 
+> "$VALIDATE_LOG"
+
 echo "  cargo check..."
-cargo check --workspace 2>&1 | tail -1
+run_validation "cargo check" cargo check --workspace
 
 echo "  version leak check..."
 bash "$ROOT_DIR/scripts/check_version_leaks.sh" "$OLD_VERSION" "$VERSION"
 
 echo "  npm build..."
-(cd "$DESKTOP_DIR" && npm run build 2>&1 | tail -1)
+(cd "$DESKTOP_DIR" && run_validation "npm build" npm run build)
 
 echo "  smoke test..."
-(cd "$DESKTOP_DIR" && npm run test:smoke-ui 2>&1 | tail -1)
+(cd "$DESKTOP_DIR" && run_validation "smoke test" npm run test:smoke-ui)
 
 # --------------------------------------------------
 # 3. Commit & push

@@ -50,6 +50,8 @@ scripts/release.sh 0.0.50 "- サムネサイズ設定を追加
 
 > **ホワイトリスト注意**: `release.sh` の `git add` 対象は固定リスト。Rust 側で `lib.rs` 以外のファイル (新規モジュール等) を編集した時や、新規 crate を追加した時は **このリストに含まれずコミット漏れする**。リリース前に `git status` で取り残しを確認すること。
 >
+> **検証ログ**: 検証ステップ (`cargo check` / `npm run build` / smoke test) の全出力は `out/validate-<version>.log` に残る。コンソールには成功時は最後の1行だけ、失敗時は末尾30行を出してリリースを中断する。
+>
 > **vulkan-1.dll が見つからない場合**: ビルドマシンに Vulkan SDK / Vulkan Runtime が入っていない可能性が高い。`scripts/release.sh` は `$VULKAN_SDK/Bin/vulkan-1.dll` → `C:\Windows\System32\vulkan-1.dll` の順に探し、両方無いと exit 1 する。Vulkan Runtime をインストールするか、Vulkan SDK を導入する。
 
 ### Mac版ビルド（Phase 1 完了後に実施）
