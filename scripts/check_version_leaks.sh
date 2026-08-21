@@ -43,10 +43,13 @@ else
   #                                      正当に残る。スクリプトはバージョンを引数で受け取る作りで
   #                                      ハードコードした版数を持たないため、更新漏れの検知対象外。
   #                                      将来スクリプトに版数を直書きする場合はこの除外を見直すこと。
+  #   - apps/desktop/scripts/          : 上と同じ理由 (ビルド/テスト用スクリプト)。v0.0.222 で
+  #                                      run_smoke_ui.ps1 の経緯コメントが誤検知したため追加。
   EXCLUDES=(
     ':!docs/'
     ':!apps/landing/public/latest.json'
     ':!scripts/'
+    ':!apps/desktop/scripts/'
   )
   LEAKS=$(git grep -nF "$OLD_VERSION" -- "${EXCLUDES[@]}" || true)
   if [[ -n "$LEAKS" ]]; then
