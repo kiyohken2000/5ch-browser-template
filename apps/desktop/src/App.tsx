@@ -1619,6 +1619,11 @@ export default function App() {
   const [autoScrollToSelected, setAutoScrollToSelected] = useState(true);
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
   const [autoScrollSpeed, setAutoScrollSpeed] = useState(40);
+  // スレ一覧のホイールスクロールを「1ノッチ = N行」に固定するか (既定 OFF = OS任せの従来動作)。
+  // OS 既定のホイール量はペイン高さと無関係な固定ピクセルなので、ペインを狭くすると
+  // 1ノッチでほぼ1ページ飛んでしまう。ON にすると行単位に揃い、表示行数を超えない。
+  const [wheelRowScrollEnabled, setWheelRowScrollEnabled] = useState(false);
+  const [wheelScrollRows, setWheelScrollRows] = useState(3);
   const [nextThreadCandidates, setNextThreadCandidates] = useState<{ threadUrl: string; title: string; responseCount: number; threadKey: string; score: number }[]>([]);
   const [nextThreadSearching, setNextThreadSearching] = useState(false);
   const [nextThreadSearched, setNextThreadSearched] = useState(false);
@@ -5503,6 +5508,8 @@ export default function App() {
           titleClickRefresh?: boolean;
           autoScrollSpeed?: number;
           autoScrollToSelected?: boolean;
+          wheelRowScrollEnabled?: boolean;
+          wheelScrollRows?: number;
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
         if (typeof parsed.threadPanePx === "number") {
@@ -5571,6 +5578,10 @@ export default function App() {
         if (typeof parsed.responseBodyBottomPad === "boolean") setResponseBodyBottomPad(parsed.responseBodyBottomPad);
         if (typeof parsed.titleClickRefresh === "boolean") setTitleClickRefresh(parsed.titleClickRefresh);
         if (typeof parsed.autoScrollSpeed === "number" && parsed.autoScrollSpeed > 0) setAutoScrollSpeed(parsed.autoScrollSpeed);
+        if (typeof parsed.wheelRowScrollEnabled === "boolean") setWheelRowScrollEnabled(parsed.wheelRowScrollEnabled);
+        if (typeof parsed.wheelScrollRows === "number" && parsed.wheelScrollRows > 0) {
+          setWheelScrollRows(Math.max(1, Math.min(20, Math.round(parsed.wheelScrollRows))));
+        }
         if (typeof parsed.autoScrollToSelected === "boolean") setAutoScrollToSelected(parsed.autoScrollToSelected);
       } catch { /* ignore */ }
     };
@@ -6319,12 +6330,14 @@ export default function App() {
       titleClickRefresh,
       autoScrollSpeed,
       autoScrollToSelected,
+      wheelRowScrollEnabled,
+      wheelScrollRows,
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed, autoScrollToSelected]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -6464,6 +6477,43 @@ export default function App() {
       container.removeEventListener("wheel", onWheel);
     };
   }, [autoScrollEnabled, autoScrollSpeed, activeTabIndex]);
+
+  // スレ一覧のホイールスクロールを行単位に揃える (設定 OFF のときは何もせず OS 既定のまま)。
+  // OS 既定のホイール量は「Windowsのスクロール行数 x 固定px」でペイン高さと無関係なため、
+  // スレ一覧を狭くすると1ノッチでほぼ1ページ分飛んでしまう。ON のときは 1ノッチ =
+  // wheelScrollRows 行に固定し、さらに表示領域を超えないようクランプする。
+  useEffect(() => {
+    if (!wheelRowScrollEnabled) return;
+    const container = threadListScrollRef.current;
+    if (!container) return;
+    const onWheel = (event: WheelEvent) => {
+      // 拡大縮小 (Ctrl) や横スクロール操作には手を出さない
+      if (event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.deltaY === 0) return;
+      // タッチパッドの慣性スクロールは細かい delta の連続で来る。これを1ノッチ扱いすると
+      // 逆に飛びすぎるので、ホイール1段相当 (>=40px) か行/ページ単位の入力だけを対象にする。
+      if (event.deltaMode === 0 && Math.abs(event.deltaY) < 40) return;
+      const max = container.scrollHeight - container.clientHeight;
+      if (max <= 0) return;
+      // 文字サイズ設定で行高が変わるので実 DOM から取得する
+      const row = container.querySelector("tbody tr") as HTMLElement | null;
+      const rowHeight = row && row.offsetHeight > 0 ? row.offsetHeight : 22;
+      // 表示行数を超えて飛ばない (狭いペインで1ページ飛ぶのを防ぐ) ように上限を掛ける。
+      // ヘッダは sticky で常に居座るので、その分は表示領域から除く
+      const head = container.querySelector("thead") as HTMLElement | null;
+      const viewport = container.clientHeight - (head?.offsetHeight ?? 0);
+      const limit = Math.max(rowHeight, viewport - rowHeight);
+      const step = Math.min(rowHeight * wheelScrollRows, limit);
+      const next = Math.max(0, Math.min(max, container.scrollTop + (event.deltaY > 0 ? step : -step)));
+      if (next === container.scrollTop) return;
+      event.preventDefault();
+      container.scrollTop = next;
+    };
+    container.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      container.removeEventListener("wheel", onWheel);
+    };
+  }, [wheelRowScrollEnabled, wheelScrollRows]);
 
   // --- AI: catalog / status loading -------------------------------------
   const refreshAiStatus = async () => {
@@ -10768,6 +10818,16 @@ export default function App() {
                   <span>オートスクロール速度 (px/秒)</span>
                   <input type="number" value={autoScrollSpeed} min={5} max={500} onChange={(e) => setAutoScrollSpeed(Math.max(5, Math.min(500, Number(e.target.value) || 40)))} />
                 </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={wheelRowScrollEnabled} onChange={(e) => setWheelRowScrollEnabled(e.target.checked)} />
+                  <span title="OFF のときは OS 既定のスクロール量。ON にするとホイール1段で指定行数だけ動き、スレ一覧を狭くしても表示行数を超えて飛びません">スレ一覧のホイールスクロールを行単位にする</span>
+                </label>
+                {wheelRowScrollEnabled && (
+                  <label className="settings-row">
+                    <span>ホイール1段あたりの行数 (スレ一覧)</span>
+                    <input type="number" value={wheelScrollRows} min={1} max={20} onChange={(e) => setWheelScrollRows(Math.max(1, Math.min(20, Math.round(Number(e.target.value) || 3))))} />
+                  </label>
+                )}
                 <label className="settings-row">
                   <input type="checkbox" checked={alwaysOnTop} onChange={(e) => setAlwaysOnTop(e.target.checked)} />
                   <span>ウィンドウを最前面に固定</span>

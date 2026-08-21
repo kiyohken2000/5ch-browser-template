@@ -984,6 +984,23 @@ try {
   assert(legends.some((l) => l.includes("Ronin")), `settings should have Ronin/BE section, got ${legends}`);
   assert(legends.includes("データフォルダ"), `settings should have データフォルダ section, got ${legends}`);
   assert(legends.includes("情報"), `settings should have 情報 section, got ${legends}`);
+  // ホイールスクロール行数の設定 (既定 OFF、ON のときだけ行数入力が出る)
+  const wheelRowToggle = await page.$('.settings-body label:has-text("スレ一覧のホイールスクロールを行単位にする") input[type="checkbox"]');
+  assert(wheelRowToggle, "settings should have wheel row scroll toggle");
+  assert(!(await wheelRowToggle.isChecked()), "wheel row scroll should default to off");
+  assert(
+    !(await page.$('.settings-body label:has-text("ホイール1段あたりの行数")')),
+    "wheel row count input should be hidden while the toggle is off",
+  );
+  await wheelRowToggle.check();
+  await new Promise((r) => setTimeout(r, 100));
+  const wheelRowInput = await page.$('.settings-body label:has-text("ホイール1段あたりの行数") input[type="number"]');
+  assert(wheelRowInput, "wheel row count input should appear when the toggle is on");
+  assert((await wheelRowInput.inputValue()) === "3", "wheel row count should default to 3");
+  await wheelRowToggle.uncheck();
+  await new Promise((r) => setTimeout(r, 100));
+  console.log("smoke-ui: wheel row scroll setting ok");
+
   // OGP link card toggle exists in settings
   const ogpToggleLabel = await page.$('.settings-body label:has-text("OGPカード")');
   assert(ogpToggleLabel, "settings should have OGP card display toggle");
