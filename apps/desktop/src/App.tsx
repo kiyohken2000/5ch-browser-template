@@ -2150,16 +2150,44 @@ export default function App() {
     });
   };
 
-  const persistReadStatus = async (boardUrl: string, threadKey: string, lastReadNo: number) => {
-    if (!isTauriRuntime()) return;
-    try {
-      const current = await invoke<Record<string, Record<string, number>>>("load_read_status");
-      if (!current[boardUrl]) current[boardUrl] = {};
-      current[boardUrl][threadKey] = lastReadNo;
-      await invoke("save_read_status", { status: current });
-    } catch {
-      // ignore persistence errors
-    }
+  // read_status.json への保存は load → 変更 → save の読み書きなので、複数タブの
+  // 自動更新や巡回が重なると後勝ちで他スレの既読が巻き戻る。書き込みを直列化し、
+  // さらに既読位置を前進のみに制限して取りこぼしを防ぐ。
+  // (スレ単位の既読解除は purge_thread_cache 側で該当キーを直接削除している)
+  const readStatusQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const persistReadStatus = (boardUrl: string, threadKey: string, lastReadNo: number): Promise<void> => {
+    if (!isTauriRuntime()) return Promise.resolve();
+    const next = readStatusQueueRef.current.then(async () => {
+      try {
+        const current = await invoke<Record<string, Record<string, number>>>("load_read_status");
+        if (!current[boardUrl]) current[boardUrl] = {};
+        if (lastReadNo <= (current[boardUrl][threadKey] ?? 0)) return;
+        current[boardUrl][threadKey] = lastReadNo;
+        await invoke("save_read_status", { status: current });
+      } catch (e) {
+        console.warn("save_read_status failed", e);
+      }
+    });
+    readStatusQueueRef.current = next;
+    return next;
+  };
+
+  // 1スレの既読位置を消す (キャッシュ削除時)。persistReadStatus は前進のみなので、
+  // 巻き戻しはこちらで明示的に行う。同じキューに載せて読み書き競合を避ける。
+  const clearReadStatus = (boardUrl: string, threadKey: string): Promise<void> => {
+    if (!isTauriRuntime()) return Promise.resolve();
+    const next = readStatusQueueRef.current.then(async () => {
+      try {
+        const current = await invoke<Record<string, Record<string, number>>>("load_read_status");
+        if (!current[boardUrl] || current[boardUrl][threadKey] == null) return;
+        delete current[boardUrl][threadKey];
+        await invoke("save_read_status", { status: current });
+      } catch (e) {
+        console.warn("save_read_status failed", e);
+      }
+    });
+    readStatusQueueRef.current = next;
+    return next;
   };
 
   const loadReadMarkers = async () => {
@@ -2707,6 +2735,29 @@ export default function App() {
     } catch { /* ignore */ }
     return 0;
   };
+  // タブを閉じる / 切り替えるときの読書位置保存。
+  //  - アクティブタブは DOM から現在位置を取れる。裏タブの DOM は表示されていないため
+  //    getVisibleResponseNo() はアクティブタブの位置を返してしまうので、切替時に記録した
+  //    tabCache の scrollResponseNo を使う。
+  //  - 栞 (bookmark) もスクロール位置と同じ値で保存する。以前は selectedResponse で
+  //    上書きしていたため、レスを1つも選択せずに読んだスレはタブを閉じた時点で
+  //    栞が >>1 に巻き戻り、次に開くと先頭から表示されていた。
+  //  - getVisibleResponseNo() の 0 は「位置を特定できなかった」(未描画など)、1 は
+  //    「先頭を表示している」。0 のときは保存済みの値を壊さないよう何もしない。
+  //    1 は永続側 (scrollPos / bookmark) では 0 と区別できないので保存しないが、
+  //    メモリ上のタブキャッシュには記録し、先頭に戻したタブが戻ってきたときに
+  //    古い位置へ飛ばされないようにする。
+  const saveTabReadPosition = (url: string, isActive: boolean) => {
+    const cached = tabCacheRef.current.get(url);
+    const no = isActive ? getVisibleResponseNo() : (cached?.scrollResponseNo ?? 0);
+    if (isActive && cached) {
+      cached.selectedResponse = selectedResponse;
+      if (no > 0) cached.scrollResponseNo = no;
+    }
+    if (no <= 1) return;
+    saveScrollPos(url, no);
+    saveBookmark(url, no);
+  };
   const scrollAnchorSeqRef = useRef(0);
   const scrollToResponseNo = (no: number) => {
     if (no <= 1) return;
@@ -2915,10 +2966,9 @@ export default function App() {
     const closing = threadTabs[index];
     closedTabsRef.current.push({ threadUrl: closing.threadUrl, title: closing.title });
     if (closedTabsRef.current.length > 20) closedTabsRef.current.shift();
-    if (index === activeTabIndex) {
-      saveBookmark(closing.threadUrl, selectedResponse);
-      saveScrollPos(closing.threadUrl);
-    }
+    // 裏タブ (中クリック / 非アクティブタブの ×) も保存する。以前はアクティブタブしか
+    // 保存しておらず、裏タブを閉じると読書位置が失われて次回先頭から表示されていた。
+    saveTabReadPosition(closing.threadUrl, index === activeTabIndex);
     tabCacheRef.current.delete(closing.threadUrl);
     const nextTabs = threadTabs.filter((_, i) => i !== index);
     setThreadTabs(nextTabs);
@@ -2951,13 +3001,7 @@ export default function App() {
   const onTabClick = (index: number) => {
     if (index === activeTabIndex) return;
     if (activeTabIndex >= 0 && activeTabIndex < threadTabs.length) {
-      const curUrl = threadTabs[activeTabIndex].threadUrl;
-      const cached = tabCacheRef.current.get(curUrl);
-      if (cached) {
-        cached.selectedResponse = selectedResponse;
-        cached.scrollResponseNo = getVisibleResponseNo();
-        saveScrollPos(curUrl);
-      }
+      saveTabReadPosition(threadTabs[activeTabIndex].threadUrl, true);
     }
     setActiveTabIndex(index);
     const tab = threadTabs[index];
@@ -2978,9 +3022,12 @@ export default function App() {
   const closeOtherTabs = (keepIndex: number) => {
     const kept = threadTabs[keepIndex];
     if (!kept) return;
-    for (const tab of threadTabs) {
-      if (tab.threadUrl !== kept.threadUrl) tabCacheRef.current.delete(tab.threadUrl);
-    }
+    // 閉じるタブの読書位置を保存してから捨てる (以前は保存せずに破棄していた)
+    threadTabs.forEach((tab, i) => {
+      if (tab.threadUrl === kept.threadUrl) return;
+      saveTabReadPosition(tab.threadUrl, i === activeTabIndex);
+      tabCacheRef.current.delete(tab.threadUrl);
+    });
     setThreadTabs([kept]);
     setActiveTabIndex(0);
     const cached = tabCacheRef.current.get(kept.threadUrl);
@@ -2993,6 +3040,8 @@ export default function App() {
   };
 
   const closeAllTabs = () => {
+    // 全タブぶんの読書位置を保存してから捨てる (以前は保存せずに破棄していた)
+    threadTabs.forEach((tab, i) => saveTabReadPosition(tab.threadUrl, i === activeTabIndex));
     tabCacheRef.current.clear();
     setThreadTabs([]);
     setActiveTabIndex(-1);
@@ -3540,18 +3589,40 @@ export default function App() {
       setLastFetchTime(timeStr);
       threadFetchTimesRef.current[url] = timeStr;
       try { localStorage.setItem(THREAD_FETCH_TIMES_KEY, JSON.stringify(threadFetchTimesRef.current)); } catch { /* ignore */ }
+      // 既読位置はスレ一覧に載っているかどうかに関わらず永続化する。以前は現在読み込み中の
+      // 板の一覧 (fetchedThreads) に一致する行がある場合のみ保存していたため、お気に入り・
+      // 最近読んだ・セッション復元・URL 直接入力から開いたスレは最後まで読んでも
+      // read_status.json が更新されず、タブを閉じると未読に戻っていた。
+      const normalizedUrl = normalizeThreadUrl(url);
+      const boardUrl = getBoardUrlFromThreadUrl(url);
+      const threadKey = getThreadKeyFromThreadUrl(url);
+      if (threadKey) void persistReadStatus(boardUrl, threadKey, rows.length);
+
       // Update thread list read counts and response count
-      const threadListIndex = fetchedThreads.findIndex((ft) => ft.threadUrl === url);
-      if (threadListIndex >= 0) {
-        const tid = threadListIndex + 1;
+      // URL は表記ゆれ (末尾スラッシュ有無・5ch.net 表記) があるので正規化して突き合わせる
+      const threadListIndex = fetchedThreads.findIndex(
+        (ft) => ft.threadUrl === url || normalizeThreadUrl(ft.threadUrl) === normalizedUrl
+      );
+      if (threadListIndex >= 0 && rows.length > fetchedThreads[threadListIndex].responseCount) {
+        setFetchedThreads((prev) => prev.map((ft, i) => i === threadListIndex ? { ...ft, responseCount: rows.length } : ft));
+      }
+      // 一覧に表示中の行の既読数を更新する。threadReadMap / threadLastReadCount のキーは
+      // 「今表示しているリストでの並び順 (index + 1)」なので、保存リスト表示中は
+      // fetchedThreads ではなくそのリスト側の index を使う。
+      const sameThread = (u: string) => normalizeThreadUrl(u) === normalizedUrl;
+      const listIndex = showCachedOnly
+        ? cachedThreadList.findIndex((ct) => sameThread(ct.threadUrl))
+        : showRecentOpenedOnly
+        ? recentOpenedThreads.findIndex((ft) => sameThread(ft.threadUrl))
+        : showRecentPostedOnly
+        ? recentPostedThreads.findIndex((ft) => sameThread(ft.threadUrl))
+        : showFavoritesOnly
+        ? favorites.threads.findIndex((ft) => sameThread(ft.threadUrl))
+        : threadListIndex;
+      if (listIndex >= 0) {
+        const tid = listIndex + 1;
         setThreadReadMap((prev) => ({ ...prev, [tid]: true }));
         setThreadLastReadCount((prev) => ({ ...prev, [tid]: rows.length }));
-        if (rows.length > fetchedThreads[threadListIndex].responseCount) {
-          setFetchedThreads((prev) => prev.map((ft, i) => i === threadListIndex ? { ...ft, responseCount: rows.length } : ft));
-        }
-        const ft = fetchedThreads[threadListIndex];
-        const boardUrl = getBoardUrlFromThreadUrl(url);
-        void persistReadStatus(boardUrl, ft.threadKey, rows.length);
       }
       if (prevCount > 0 && rows.length > prevCount) {
         setNewResponseStart(prevCount + 1);
@@ -4941,19 +5012,11 @@ export default function App() {
       setThreadLastReadCount((prev) => { const next = { ...prev }; delete next[threadId]; return next; });
     }
     // clear persisted read status
+    // スレキーはパス固定 (parts[3]) ではなく getThreadKeyFromThreadUrl で取る。
+    // ex0ch のようにマウントパス配下に test/read.cgi がある URL でキーがずれるため。
     const bUrl = getBoardUrlFromThreadUrl(url);
-    try {
-      const parts = new URL(url).pathname.split("/").filter(Boolean);
-      const tKey = parts.length >= 4 ? parts[3] : "";
-      if (tKey) {
-        invoke<Record<string, Record<string, number>>>("load_read_status").then((current) => {
-          if (current[bUrl] && current[bUrl][tKey] != null) {
-            delete current[bUrl][tKey];
-            invoke("save_read_status", { status: current }).catch((e) => console.warn("save_read_status error", e));
-          }
-        }).catch((e) => console.warn("load_read_status error", e));
-      }
-    } catch { /* invalid url — skip */ }
+    const tKey = getThreadKeyFromThreadUrl(url);
+    if (tKey) void clearReadStatus(bUrl, tKey);
     setStatus("キャッシュから削除しました");
   };
 
