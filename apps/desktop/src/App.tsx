@@ -2901,17 +2901,38 @@ export default function App() {
         setNewResponseStart(cached.newResponseStart ?? null);
         scrollToResponseNo(cached.scrollResponseNo ?? loadScrollPos(url));
       } else if (isTauriRuntime()) {
+        // メモリ上のタブキャッシュが無い状態で既存タブを開き直す経路。
+        // WebView の再読み込み (右クリック→「最新の情報に更新」) 直後や、起動時のタブ復元後は
+        // アクティブタブ以外のキャッシュが空なのでここに来る。SQLite から読み直すだけで
+        // 栞も読書位置も復元していなかったため、必ず先頭に戻っていた。
+        const bm = loadBookmark(url);
+        const savedNo = loadScrollPos(url);
         invoke<string | null>("load_thread_cache", { threadUrl: url }).then((json) => {
+          let restored = false;
           if (json) {
             try {
               const rows = JSON.parse(json) as ThreadResponseItem[];
               if (rows.length > 0) {
+                // 選択の更新はレス差し替えと同じバッチで行う。先に選択だけ変えると
+                // 前のタブのレス一覧に対して自動スクロールが走ってしまう。
                 setFetchedResponses(rows);
-                tabCacheRef.current.set(url, { responses: rows, selectedResponse: 1 });
+                setSelectedResponse(bm ?? 1);
+                tabCacheRef.current.set(url, {
+                  responses: rows,
+                  selectedResponse: bm ?? 1,
+                  scrollResponseNo: savedNo > 1 ? savedNo : undefined,
+                });
+                if (savedNo > 1) scrollToResponseNo(savedNo);
+                restored = true;
               }
-            } catch { /* ignore */ }
+            } catch (e) { console.warn("load_thread_cache parse failed", e); }
           }
-        }).catch(() => {});
+          // ローカルキャッシュが無いときは前のタブのレスが残ったままになるので取得し直す
+          if (!restored) void fetchResponsesFromCurrent(url);
+        }).catch((e) => {
+          console.warn("load_thread_cache failed", e);
+          void fetchResponsesFromCurrent(url);
+        });
       }
       setThreadUrl(url);
       setLocationInput(url);
@@ -2992,7 +3013,13 @@ export default function App() {
     if (cached) {
       setFetchedResponses(cached.responses);
       setSelectedResponse(cached.selectedResponse);
-      scrollToResponseNo(cached.scrollResponseNo ?? 0);
+      // メモリ上に位置が無ければ永続化した読書位置へ戻す (?? 0 だと先頭のままだった)
+      scrollToResponseNo(cached.scrollResponseNo ?? loadScrollPos(tab.threadUrl));
+    } else {
+      // タブ復元直後などキャッシュが無い場合。取得側で読書位置まで復元される
+      setFetchedResponses([]);
+      setSelectedResponse(loadBookmark(tab.threadUrl) ?? 1);
+      void fetchResponsesFromCurrent(tab.threadUrl);
     }
     setThreadUrl(tab.threadUrl);
     setLocationInput(tab.threadUrl);
@@ -3009,10 +3036,11 @@ export default function App() {
     if (cached) {
       setFetchedResponses(cached.responses);
       setSelectedResponse(cached.selectedResponse);
-      scrollToResponseNo(cached.scrollResponseNo ?? 0);
+      // メモリ上に位置が無ければ永続化した読書位置へ戻す (?? 0 だと先頭のままだった)
+      scrollToResponseNo(cached.scrollResponseNo ?? loadScrollPos(tab.threadUrl));
     } else {
       setFetchedResponses([]);
-      setSelectedResponse(1);
+      setSelectedResponse(loadBookmark(tab.threadUrl) ?? 1);
       void fetchResponsesFromCurrent(tab.threadUrl);
     }
     setThreadUrl(tab.threadUrl);
@@ -3028,12 +3056,23 @@ export default function App() {
       saveTabReadPosition(tab.threadUrl, i === activeTabIndex);
       tabCacheRef.current.delete(tab.threadUrl);
     });
+    const wasActiveUrl = activeTabIndex >= 0 && activeTabIndex < threadTabs.length
+      ? threadTabs[activeTabIndex].threadUrl
+      : null;
     setThreadTabs([kept]);
     setActiveTabIndex(0);
     const cached = tabCacheRef.current.get(kept.threadUrl);
     if (cached) {
       setFetchedResponses(cached.responses);
       setSelectedResponse(cached.selectedResponse);
+      // 表示中でなかったタブを残した場合は読書位置も復元する (以前は先頭のままだった)
+      if (kept.threadUrl !== wasActiveUrl) {
+        scrollToResponseNo(cached.scrollResponseNo ?? loadScrollPos(kept.threadUrl));
+      }
+    } else if (kept.threadUrl !== wasActiveUrl) {
+      setFetchedResponses([]);
+      setSelectedResponse(loadBookmark(kept.threadUrl) ?? 1);
+      void fetchResponsesFromCurrent(kept.threadUrl);
     }
     setThreadUrl(kept.threadUrl);
     setLocationInput(kept.threadUrl);
@@ -5282,6 +5321,28 @@ export default function App() {
       }
     }, 300);
   };
+  // WebView の再読み込み (右クリック→「最新の情報に更新」) やアプリ終了で離脱する直前に、
+  // 300ms デバウンス待ちの読書位置を取りこぼさないよう同期的に書き出す。
+  useEffect(() => {
+    const flush = () => {
+      if (scrollSaveTimerRef.current) {
+        clearTimeout(scrollSaveTimerRef.current);
+        scrollSaveTimerRef.current = null;
+      }
+      const url = threadUrl.trim();
+      if (!url) return;
+      const no = getVisibleResponseNo();
+      if (no <= 1) return;
+      saveScrollPos(url, no);
+      saveBookmark(url, no);
+    };
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+    };
+  }, [threadUrl]);
 
   const beginResponseRowResize = (event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -5781,15 +5842,24 @@ export default function App() {
                   if (json) {
                     const responses = JSON.parse(json) as ThreadResponseItem[];
                     const bm = loadBookmark(activeTab.threadUrl);
+                    const savedNo = loadScrollPos(activeTab.threadUrl);
                     tabCacheRef.current.set(activeTab.threadUrl, {
                       responses,
                       selectedResponse: bm ?? 1,
+                      scrollResponseNo: savedNo > 1 ? savedNo : undefined,
                     });
                     setFetchedResponses(responses);
-                    if (bm) selectResponseAndScroll(bm);
+                    // 画像・OGP は遅延ロードで位置がずれるため、復元は再アンカー付きの
+                    // scrollToResponseNo を優先する (栞しか無いときだけ選択スクロール)
+                    if (savedNo > 1) {
+                      setSelectedResponse(bm ?? savedNo);
+                      scrollToResponseNo(savedNo);
+                    } else if (bm) {
+                      selectResponseAndScroll(bm);
+                    }
                   }
                 })
-                .catch(() => {});
+                .catch((e) => console.warn("load_thread_cache failed", e));
             }
           }
         }
