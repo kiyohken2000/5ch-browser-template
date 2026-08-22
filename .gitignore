@@ -37,3 +37,10 @@ _temp_*
 
 # Lock file
 apps/desktop/pnpm-lock.yaml
+
+# Cloudflare wrangler local cache (account id / build cache — machine local)
+.wrangler/
+
+# Playwright run artifacts
+test-results/
+apps/desktop/test-results/

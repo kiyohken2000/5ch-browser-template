@@ -45,17 +45,33 @@ jobs:
       - name: Install Vulkan SDK (core-ai GGML_VULKAN backend)
         shell: pwsh
         run: |
-          # Chocolatey's community feed occasionally returns 503; retry so a
-          # transient outage doesn't fail the whole Windows job.
-          $ok = $false
+          # Chocolatey's community feed occasionally returns 503/504. Retrying alone
+          # was not enough: on 2026-08-21 the feed stayed down for the whole ~5 min
+          # retry window (3x 504) and the job failed. Retry first, then fall back to
+          # LunarG's official installer, which does not touch the chocolatey feed.
+          $vk = $null
           for ($i = 1; $i -le 3; $i++) {
             choco install vulkan-sdk -y --no-progress
-            if (Test-Path 'C:\VulkanSDK') { $ok = $true; break }
-            Write-Host "Vulkan SDK install failed (attempt $i/3), retrying in 15s..."
+            if (Test-Path 'C:\VulkanSDK') {
+              $vk = (Get-ChildItem 'C:\VulkanSDK' -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
+              break
+            }
+            Write-Host "Vulkan SDK install via chocolatey failed (attempt $i/3), retrying in 15s..."
             Start-Sleep -Seconds 15
           }
-          if (-not $ok) { throw "Vulkan SDK install failed after 3 attempts" }
-          $vk = (Get-ChildItem 'C:\VulkanSDK' -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
+          if (-not $vk) {
+            Write-Host "chocolatey feed unavailable - falling back to the LunarG installer"
+            $exe = Join-Path $env:RUNNER_TEMP 'vulkan_sdk.exe'
+            Invoke-WebRequest -Uri 'https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe' -OutFile $exe
+            $root = 'C:\VulkanSDK\lunarg-latest'
+            & $exe --root $root --accept-licenses --default-answer --confirm-command install
+            if ($LASTEXITCODE -ne 0) { throw "LunarG installer exited with $LASTEXITCODE" }
+            $vk = $root
+          }
+          # glslc is what llama.cpp's vulkan-shaders-gen actually invokes. If it is
+          # missing the SDK is only half installed, and cargo check would fail much
+          # later with a far less obvious error.
+          if (-not (Test-Path "$vk\Bin\glslc.exe")) { throw "Vulkan SDK install incomplete (no Bin\glslc.exe): $vk" }
           echo "VULKAN_SDK=$vk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           echo "$vk\Bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           Write-Host "Installed Vulkan SDK at $vk"
@@ -68,7 +84,22 @@ jobs:
           # cargo --jobs 1 can't suppress (MSBuild parallelizes custom build steps within
           # a single project regardless of /m:1). Switching to Ninja generator sidesteps
           # the bug entirely.
+          # Same chocolatey feed caveat as the Vulkan SDK step above: fall back to the
+          # upstream release zip so one feed outage cannot take out the whole job.
           choco install ninja -y --no-progress
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            Write-Host "chocolatey feed unavailable - falling back to the ninja-build release zip"
+            $zip = Join-Path $env:RUNNER_TEMP 'ninja-win.zip'
+            $dir = 'C:\ninja'
+            Invoke-WebRequest -Uri 'https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip' -OutFile $zip
+            Expand-Archive -Path $zip -DestinationPath $dir -Force
+            if (-not (Test-Path "$dir\ninja.exe")) { throw "ninja fallback install failed" }
+            echo $dir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            # The failed choco run left $LASTEXITCODE non-zero, and GitHub's pwsh
+            # wrapper exits with it at the end of the step - reset it or the
+            # successful fallback would still be reported as a failure.
+            $global:LASTEXITCODE = 0
+          }
 
       - name: Setup MSVC dev environment (for Ninja + cl.exe)
         # Ninja generator doesn't auto-setup INCLUDE/LIB/PATH for MSVC like the
