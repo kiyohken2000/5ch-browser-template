@@ -1664,6 +1664,9 @@ export default function App() {
   const [patrolLoading, setPatrolLoading] = useState(false);
   const [favSearchQuery, setFavSearchQuery] = useState("");
   const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string; resCount: number }[]>([]);
+  // 保存ログ一覧 (全板) を表示中かどうか。false のときは従来どおり現在の板の dat落ちのみ。
+  // showCachedOnly が false の間は参照しないので、解除時にリセットしなくてよい。
+  const [cacheListAllBoards, setCacheListAllBoards] = useState(false);
   const [boardSearchQuery, setBoardSearchQuery] = useState("");
   const [responsesLoading, setResponsesLoading] = useState(false);
   const [ngInput, setNgInput] = useState("");
@@ -5034,8 +5037,52 @@ export default function App() {
     }
   };
 
+  // 保存済みログ (cache.db の thread_cache) をスレ一覧ペインに出す。
+  // allBoards=false: 従来の「dat落ちキャッシュ」= 今開いている板のうち、現在のスレ一覧に
+  //   載っていないものだけ。allBoards=true: 板を横断した全件で、板を開いていなくても使える。
+  const openCacheList = (allBoards: boolean) => {
+    if (!isTauriRuntime()) return;
+    const extractBoardName = (url: string): string => {
+      try {
+        const parts = new URL(url).pathname.split("/").filter(Boolean);
+        if (parts.length >= 3 && parts[0] === "test" && parts[1] === "read.cgi") return parts[2];
+        return parts[0] || "";
+      } catch { return ""; }
+    };
+    invoke<[string, string, number][]>("load_all_cached_threads").then((list) => {
+      const currentBoard = extractBoardName(threadUrl);
+      const activeUrls = new Set(fetchedThreads.map((t) => t.threadUrl));
+      const target = allBoards
+        ? list
+        : list
+            .filter(([url]) => extractBoardName(url) === currentBoard)
+            .filter(([url]) => !activeUrls.has(url));
+      setCachedThreadList(target.map(([threadUrl, title, count]) => {
+        const displayTitle = title && title.trim() !== "" ? title : (() => {
+          try {
+            const parts = new URL(threadUrl).pathname.split("/").filter(Boolean);
+            return parts[parts.length - 1] || threadUrl;
+          } catch { return threadUrl; }
+        })();
+        // 板をまたぐ一覧では板名が分からないと選べないので、タイトルの頭に付ける
+        // (スレ一覧に板の列が無いため)
+        const board = allBoards ? extractBoardName(threadUrl) : "";
+        return { threadUrl, title: board ? `[${board}] ${displayTitle}` : displayTitle, resCount: count };
+      }));
+      setCacheListAllBoards(allBoards);
+      setShowCachedOnly(true);
+      setShowFavoritesOnly(false);
+      setShowRecentOpenedOnly(false);
+      setShowRecentPostedOnly(false);
+      if (allBoards) setStatus(`保存ログ ${target.length}件`);
+    }).catch((e) => {
+      console.warn("load_all_cached_threads failed", e);
+      setStatus("保存ログの一覧取得に失敗しました");
+    });
+  };
+
   const purgeThreadCache = (url: string) => {
-    invoke("delete_thread_cache", { threadUrl: url }).catch(() => {});
+    invoke("delete_thread_cache", { threadUrl: url }).catch((e) => console.warn("delete_thread_cache failed", e));
     // close tab
     const tabIdx = threadTabs.findIndex((t) => t.threadUrl === url);
     if (tabIdx >= 0) closeTab(tabIdx);
@@ -5056,11 +5103,31 @@ export default function App() {
     const bUrl = getBoardUrlFromThreadUrl(url);
     const tKey = getThreadKeyFromThreadUrl(url);
     if (tKey) void clearReadStatus(bUrl, tKey);
+    // 保存ログ一覧を見ながら消せるよう、一覧の行も即座に取り除く。
+    // threadReadMap / threadLastReadCount のキーは「一覧での index + 1」なので、
+    // 行を詰めたぶん後続の id をずらさないと既読マークが1行ずれる。
+    const cacheIdx = cachedThreadList.findIndex((ct) => ct.threadUrl === url);
+    if (cacheIdx >= 0) {
+      const removedId = cacheIdx + 1;
+      setCachedThreadList((prev) => prev.filter((ct) => ct.threadUrl !== url));
+      const shiftIds = <T,>(m: Record<number, T>): Record<number, T> => {
+        const next: Record<number, T> = {};
+        for (const [k, v] of Object.entries(m)) {
+          const id = Number(k);
+          if (id === removedId) continue;
+          next[id > removedId ? id - 1 : id] = v;
+        }
+        return next;
+      };
+      setThreadReadMap(shiftIds);
+      setThreadLastReadCount(shiftIds);
+      setSelectedThread((prev) => (prev != null && prev > removedId ? prev - 1 : prev));
+    }
     setStatus("キャッシュから削除しました");
   };
 
   const clearThreadCacheOnly = (url: string) => {
-    invoke("delete_thread_cache", { threadUrl: url }).catch(() => {});
+    invoke("delete_thread_cache", { threadUrl: url }).catch((e) => console.warn("delete_thread_cache failed", e));
     tabCacheRef.current.delete(url);
     delete threadFetchTimesRef.current[url];
     try { localStorage.setItem(THREAD_FETCH_TIMES_KEY, JSON.stringify(threadFetchTimesRef.current)); } catch { /* ignore */ }
@@ -7866,7 +7933,7 @@ export default function App() {
                 setThreadFilterMenuOpen((v) => !v);
               }
             }}
-            title={showCachedOnly ? "dat落ちキャッシュ表示中 (クリックで解除)" : showFavoritesOnly ? "お気に入りスレ表示中 (クリックで解除)" : showRecentOpenedOnly ? `最近開いたスレ表示中 (${recentOpenedThreads.length}/${MAX_RECENT_THREADS}, クリックで解除)` : showRecentPostedOnly ? `最近書き込んだスレ表示中 (${recentPostedThreads.length}/${MAX_RECENT_THREADS}, クリックで解除)` : "スレ一覧フィルタ"}
+            title={showCachedOnly ? (cacheListAllBoards ? `保存ログ一覧表示中 (${cachedThreadList.length}件, クリックで解除)` : "dat落ちキャッシュ表示中 (クリックで解除)") : showFavoritesOnly ? "お気に入りスレ表示中 (クリックで解除)" : showRecentOpenedOnly ? `最近開いたスレ表示中 (${recentOpenedThreads.length}/${MAX_RECENT_THREADS}, クリックで解除)` : showRecentPostedOnly ? `最近書き込んだスレ表示中 (${recentPostedThreads.length}/${MAX_RECENT_THREADS}, クリックで解除)` : "スレ一覧フィルタ"}
           >{showCachedOnly ? <Save size={14} /> : showFavoritesOnly ? <Star size={14} /> : showRecentOpenedOnly ? <History size={14} /> : showRecentPostedOnly ? <Pencil size={14} /> : <ClipboardList size={14} />}</button>
           <button
             className="title-action-btn title-split-toggle"
@@ -7878,37 +7945,14 @@ export default function App() {
             <div className="title-split-menu">
               <button onClick={() => {
                 setThreadFilterMenuOpen(false);
-                if (showCachedOnly) { setShowCachedOnly(false); setCachedThreadList([]); return; }
-                if (isTauriRuntime()) {
-                  invoke<[string, string, number][]>("load_all_cached_threads").then((list) => {
-                    const extractBoardName = (url: string): string => {
-                      try {
-                        const parts = new URL(url).pathname.split("/").filter(Boolean);
-                        if (parts.length >= 3 && parts[0] === "test" && parts[1] === "read.cgi") return parts[2];
-                        return parts[0] || "";
-                      } catch { return ""; }
-                    };
-                    const currentBoard = extractBoardName(threadUrl);
-                    const activeUrls = new Set(fetchedThreads.map((t) => t.threadUrl));
-                    const datOchiList = list
-                      .filter(([url]) => extractBoardName(url) === currentBoard)
-                      .filter(([url]) => !activeUrls.has(url));
-                    setCachedThreadList(datOchiList.map(([threadUrl, title, count]) => {
-                      const displayTitle = title && title.trim() !== "" ? title : (() => {
-                        try {
-                          const parts = new URL(threadUrl).pathname.split("/").filter(Boolean);
-                          return parts[parts.length - 1] || threadUrl;
-                        } catch { return threadUrl; }
-                      })();
-                      return { threadUrl, title: displayTitle, resCount: count };
-                    }));
-                    setShowCachedOnly(true);
-                    setShowFavoritesOnly(false);
-                    setShowRecentOpenedOnly(false);
-                    setShowRecentPostedOnly(false);
-                  }).catch(() => {});
-                }
-              }}>{showCachedOnly ? "\u2713 " : ""}dat落ちキャッシュ</button>
+                if (showCachedOnly && !cacheListAllBoards) { setShowCachedOnly(false); setCachedThreadList([]); return; }
+                openCacheList(false);
+              }}>{showCachedOnly && !cacheListAllBoards ? "\u2713 " : ""}dat落ちキャッシュ</button>
+              <button onClick={() => {
+                setThreadFilterMenuOpen(false);
+                if (showCachedOnly && cacheListAllBoards) { setShowCachedOnly(false); setCachedThreadList([]); return; }
+                openCacheList(true);
+              }}>{showCachedOnly && cacheListAllBoards ? "\u2713 " : ""}保存ログ一覧 (全板)</button>
               <button onClick={() => {
                 setThreadFilterMenuOpen(false);
                 const willEnable = !showFavoritesOnly;
