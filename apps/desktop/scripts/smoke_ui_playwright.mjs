@@ -1215,6 +1215,26 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: compose ai review button ok");
 
+  // --- 保存ログ一覧 (全板) がスレ一覧フィルタのメニューに並んでいる ---
+  // 一覧の中身は Tauri IPC (load_all_cached_threads) 依存なので、ブラウザ環境では
+  // 項目が既存の「dat落ちキャッシュ」と並んで出ていることだけを検証する。
+  await page.click(".title-split-toggle");
+  await page.waitForSelector(".title-split-menu");
+  const filterMenuLabels = await page.$$eval(".title-split-menu button", (els) =>
+    els.map((el) => el.textContent.trim()),
+  );
+  assert(
+    filterMenuLabels.some((t) => t.includes("dat落ちキャッシュ")),
+    `filter menu should keep dat落ちキャッシュ, got ${filterMenuLabels.join(" / ")}`,
+  );
+  assert(
+    filterMenuLabels.some((t) => t.includes("保存ログ一覧")),
+    `filter menu should have 保存ログ一覧, got ${filterMenuLabels.join(" / ")}`,
+  );
+  await page.click(".title-split-toggle");
+  await new Promise((r) => setTimeout(r, 100));
+  console.log("smoke-ui: cache log list menu ok");
+
   // --- NG ID 自動削除の設定が localStorage に永続化され、リロード後も復元される ---
   // (リロードを挟むので必ず一番最後に置くこと)
   await page.click("button[title='NGフィルタ']");

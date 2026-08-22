@@ -43,9 +43,29 @@ try {
     $failure = "dev server startup timeout (20s, http://127.0.0.1:1420)"
   }
 } finally {
-  if ($proc -and -not $proc.HasExited) {
-    Stop-Process -Id $proc.Id -Force
+  # Killing the cmd.exe wrapper leaves the npm / vite node.exe children alive, and
+  # they keep the inherited stdout pipe open. To the caller (release.sh, or an agent
+  # capturing output) the test then looks hung even though it already finished.
+  # So walk the process tree of what we started and kill the descendants too.
+  # Enumerate BEFORE killing: once the parent is gone the links can't be followed.
+  if ($proc) {
+    $tree = @($proc.Id)
+    for ($depth = 0; $depth -lt 5; $depth++) {
+      $children = @(Get-CimInstance Win32_Process | Where-Object {
+        $tree -contains $_.ParentProcessId -and $tree -notcontains $_.ProcessId
+      })
+      if ($children.Count -eq 0) { break }
+      $tree += $children.ProcessId
+    }
+    # Deepest first: killing a parent first can leave its children reparented.
+    # Note: $pid is a PowerShell automatic variable, so it can't be the loop var.
+    [array]::Reverse($tree)
+    foreach ($treeProcId in $tree) {
+      Stop-Process -Id $treeProcId -Force -ErrorAction SilentlyContinue
+    }
   }
+  # Backstop for anything the tree walk missed. cmd.exe only, so an unrelated
+  # process listening on the same port is never touched.
   $leftovers = Get-CimInstance Win32_Process | Where-Object {
     $_.Name -ieq "cmd.exe" -and (
       $_.CommandLine -match "vite --port 1420" -or
