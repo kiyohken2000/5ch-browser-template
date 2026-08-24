@@ -23,14 +23,16 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
     const today = new Date().toISOString().slice(0, 10);
     waitUntil(
       (async () => {
-        const keys = ["latest:app:total", `latest:app:${today}`];
-        for (const key of keys) {
-          try {
-            const current = parseInt((await env.COUNTER.get(key)) ?? "0", 10);
-            await env.COUNTER.put(key, String(current + 1));
-          } catch (e) {
-            console.warn("kv counter failed", key, e);
-          }
+        // KV の無料枠は write 1,000/日。以前は日次キーと累計キー
+        // ("latest:app:total") の両方を更新していたため更新チェック 1 回で
+        // 2 write を消費し、上限の半分に達していた。日次キーのみに絞る。
+        // 累計は stats.ts が日次キーを合算して返すので、値としては失われない。
+        const key = `latest:app:${today}`;
+        try {
+          const current = parseInt((await env.COUNTER.get(key)) ?? "0", 10);
+          await env.COUNTER.put(key, String(current + 1));
+        } catch (e) {
+          console.warn("kv counter failed", key, e);
         }
       })()
     );
