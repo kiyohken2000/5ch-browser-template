@@ -20,7 +20,11 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const isBrowser = /^Mozilla\//i.test(ua);
 
   if (env.COUNTER && !isBrowser) {
-    const today = new Date().toISOString().slice(0, 10);
+    // Workers のタイムゾーンは UTC 固定なので、日本時間 (UTC+9) にずらした
+    // 時刻から日付を取る。JST は DST がないため固定オフセットで正確。
+    const today = new Date(Date.now() + 9 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
     waitUntil(
       (async () => {
         // KV の無料枠は write 1,000/日。以前は日次キーと累計キー

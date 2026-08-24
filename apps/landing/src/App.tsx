@@ -178,7 +178,7 @@ export default function App() {
     }
     return days
       .sort((a, b) => (a.date < b.date ? 1 : -1))
-      .slice(0, 30);
+      .slice(0, 5);
   }, [stats]);
 
   const statsTotal = useMemo(() => {
@@ -1005,7 +1005,7 @@ export default function App() {
         <section className="reveal stats-section">
           <h2>自動更新チェック数</h2>
           <p className="muted small">
-            Ember クライアントが <code>/latest.json</code> を取得した回数（UTC 日付）。
+            Ember クライアントが <code>/latest.json</code> を取得した回数（日本時間）。
           </p>
           {statsStatus === "loading" ? (
             <p className="muted small">読み込み中…</p>
@@ -1016,7 +1016,7 @@ export default function App() {
               <table className="stats-table">
                 <thead>
                   <tr>
-                    <th>日付 (UTC)</th>
+                    <th>日付 (JST)</th>
                     <th>件数</th>
                   </tr>
                 </thead>
