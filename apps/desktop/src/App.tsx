@@ -2221,8 +2221,14 @@ export default function App() {
     });
   };
 
-  const loadReadStatusForBoard = async (boardUrl: string, threads: ThreadListItem[]) => {
+  const loadReadStatusForBoard = async (rawUrl: string, threads: ThreadListItem[]) => {
     if (!isTauriRuntime()) return;
+    // 「スレ一覧を更新」ボタンや自動更新は、スレを開いている間は threadUrl (= スレのURL)
+    // をそのまま渡してくる。read_status.json のキーは板URLなので、スレURLで引くと必ず
+    // 空になり、既読の ● と既読数が一覧から消えていた。スレURLのときだけ板URLへ寄せる。
+    // 板URLは無変換で通す (マウントパス付きの板URLを getBoardUrlFromThreadUrl に通すと
+    // 板名が落ちるため)。
+    const boardUrl = parseThreadPath(rawUrl) ? getBoardUrlFromThreadUrl(rawUrl) : rawUrl;
     try {
       const all = await invoke<Record<string, Record<string, number>>>("load_read_status");
       const boardStatus = all[boardUrl] ?? {};
