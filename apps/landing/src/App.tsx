@@ -181,10 +181,13 @@ export default function App() {
       .slice(0, 5);
   }, [stats]);
 
-  const statsTotal = useMemo(() => {
+  // 表に出しているのは直近 5 日だけなので、合計もその 5 日分に揃える。
+  // 全期間の累計 (stats["latest:app:total"]) を出すと、表の各行と桁が
+  // 合わず「件数がおかしい」と見えてしまうため使わない。
+  const statsRecentTotal = useMemo(() => {
     if (!stats) return null;
-    return stats["latest:app:total"] ?? 0;
-  }, [stats]);
+    return statsRows.reduce((sum, row) => sum + row.count, 0);
+  }, [stats, statsRows]);
 
   const statsMax = useMemo(
     () => statsRows.reduce((max, row) => Math.max(max, row.count), 0),
@@ -1009,7 +1012,7 @@ export default function App() {
           </p>
           {statsStatus === "loading" ? (
             <p className="muted small">読み込み中…</p>
-          ) : statsStatus === "error" || statsTotal === null ? (
+          ) : statsStatus === "error" || statsRecentTotal === null ? (
             <p className="muted small">統計を取得できませんでした。</p>
           ) : (
             <div className="stats-table-wrap">
@@ -1022,8 +1025,8 @@ export default function App() {
                 </thead>
                 <tbody>
                   <tr className="stats-totals-row">
-                    <th scope="row">累計</th>
-                    <td>{statsTotal.toLocaleString()}</td>
+                    <th scope="row">直近5日合計</th>
+                    <td>{statsRecentTotal.toLocaleString()}</td>
                   </tr>
                   {showDailyStats && (
                     statsRows.length === 0 ? (
