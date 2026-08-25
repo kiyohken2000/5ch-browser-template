@@ -2314,6 +2314,9 @@ button.search-history-btn:hover {
   gap: 2px;
   padding: 4px;
   min-width: 160px;
+  /* 画面より背の高いメニューは切り落とさずスクロールさせる */
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
 }
 
 .thread-menu button {
@@ -2322,8 +2325,6 @@ button.search-history-btn:hover {
 
 .response-menu {
   min-width: 220px;
-  max-height: calc(100vh - 16px);
-  overflow-y: auto;
 }
 
 .response-menu button {

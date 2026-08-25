@@ -6,11 +6,13 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type Dispatch,
   type KeyboardEventHandler,
   type MouseEvent as ReactMouseEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type UIEventHandler,
   type RefObject,
+  type SetStateAction,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -629,6 +631,22 @@ const clampMenuPosition = (x: number, y: number, width: number, height: number) 
   x: clamp(x, MENU_EDGE_PADDING, Math.max(MENU_EDGE_PADDING, window.innerWidth - width - MENU_EDGE_PADDING)),
   y: clamp(y, MENU_EDGE_PADDING, Math.max(MENU_EDGE_PADDING, window.innerHeight - height - MENU_EDGE_PADDING)),
 });
+// メニューを実測サイズで再クランプ — clampMenuPosition に渡す推定サイズより実際が
+// 大きいと下端・右端が画面外に出て見切れるため、マウント直後に実寸で測り直して寄せる。
+function useMenuReclamp<T extends { x: number; y: number }>(
+  menu: T | null,
+  setMenu: Dispatch<SetStateAction<T | null>>,
+  ref: { current: HTMLElement | null },
+) {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!menu || !el) return;
+    const maxTop = Math.max(MENU_EDGE_PADDING, window.innerHeight - el.offsetHeight - MENU_EDGE_PADDING);
+    const maxLeft = Math.max(MENU_EDGE_PADDING, window.innerWidth - el.offsetWidth - MENU_EDGE_PADDING);
+    if (menu.y <= maxTop && menu.x <= maxLeft) return;
+    setMenu((m) => (m ? { ...m, x: Math.min(m.x, maxLeft), y: Math.min(m.y, maxTop) } : m));
+  }, [menu, setMenu, ref]);
+}
 const isTauriRuntime = () =>
   typeof window !== "undefined" && Boolean((globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
 const isTypingTarget = (target: EventTarget | null) => {
@@ -1512,7 +1530,9 @@ export default function App() {
   const [ngImageFilter, setNgImageFilter] = useState<NgImageFilter>({ entries: [], threshold: 10 });
   const ngImageHashCacheRef = useRef(new Map<string, string | "pending" | "error">());
   const [imageContextMenu, setImageContextMenu] = useState<{ x: number; y: number; url: string } | null>(null);
+  const imageContextMenuRef = useRef<HTMLDivElement>(null);
   const [youtubeContextMenu, setYoutubeContextMenu] = useState<{ x: number; y: number; url: string } | null>(null);
+  const youtubeContextMenuRef = useRef<HTMLDivElement>(null);
   const [ngImagePanelOpen, setNgImagePanelOpen] = useState(false);
   const [ngAddMode, setNgAddMode] = useState<NgMode>("hide");
   const [threadNgOpen, setThreadNgOpen] = useState(false);
@@ -1765,6 +1785,7 @@ export default function App() {
   const [threadReadMap, setThreadReadMap] = useState<Record<number, boolean>>({ 1: false, 2: true });
   const [threadLastReadCount, setThreadLastReadCount] = useState<Record<number, number>>({});
   const [threadMenu, setThreadMenu] = useState<{ x: number; y: number; threadId: number } | null>(null);
+  const threadMenuRef = useRef<HTMLDivElement>(null);
   const [responseMenu, setResponseMenu] = useState<{ x: number; y: number; responseId: number } | null>(null);
   const responseMenuRef = useRef<HTMLDivElement>(null);
   const [aaOverrides, setAaOverrides] = useState<Map<number, boolean>>(new Map());
@@ -1786,6 +1807,7 @@ export default function App() {
   const tabDragRef = useRef<{ srcIndex: number; startX: number } | null>(null);
   const tabDragOverRef = useRef<number | null>(null);
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tabIndex: number } | null>(null);
+  const tabMenuRef = useRef<HTMLDivElement>(null);
   const [threadTitlePopup, setThreadTitlePopup] = useState<{ x: number; y: number; title: string } | null>(null);
   const threadTitleHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [responseReloadMenuOpen, setResponseReloadMenuOpen] = useState(false);
@@ -1915,10 +1937,13 @@ export default function App() {
   };
   const idPopupCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [idMenu, setIdMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  const idMenuRef = useRef<HTMLDivElement>(null);
   const [beMenu, setBeMenu] = useState<{ x: number; y: number; beNumber: string } | null>(null);
+  const beMenuRef = useRef<HTMLDivElement>(null);
   const anchorPopupCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [backRefPopup, setBackRefPopup] = useState<{ x: number; y: number; anchorTop: number; responseIds: number[]; z?: number } | null>(null);
   const [watchoiMenu, setWatchoiMenu] = useState<{ x: number; y: number; watchoi: string } | null>(null);
+  const watchoiMenuRef = useRef<HTMLDivElement>(null);
   const [composePos, setComposePos] = useState<{ x: number; y: number } | null>(null);
   const [composeSize, setComposeSize] = useState<{ w: number; h: number } | null>(null);
   const composeDragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
@@ -1967,6 +1992,7 @@ export default function App() {
   const lastTypingConfettiTsRef = useRef(0);
   const [searchHistoryDropdown, setSearchHistoryDropdown] = useState<{ type: "thread" | "response" } | null>(null);
   const [searchHistoryMenu, setSearchHistoryMenu] = useState<{ x: number; y: number; type: "thread" | "response"; word: string } | null>(null);
+  const searchHistoryMenuRef = useRef<HTMLDivElement>(null);
   const [authConfig, setAuthConfig] = useState<AuthConfig>({
     upliftEmail: "", upliftPassword: "", beEmail: "", bePassword: "", autoLoginBe: false, autoLoginUplift: false,
   });
@@ -5011,15 +5037,16 @@ export default function App() {
     setThreadMenu(null);
   };
 
-  // メニューを実測高さで再クランプ — 項目数が多く下端がはみ出す場合に上へ寄せる
-  useLayoutEffect(() => {
-    if (!responseMenu || !responseMenuRef.current) return;
-    const h = responseMenuRef.current.offsetHeight;
-    const maxTop = Math.max(MENU_EDGE_PADDING, window.innerHeight - h - MENU_EDGE_PADDING);
-    if (responseMenu.y > maxTop) {
-      setResponseMenu((m) => (m ? { ...m, y: maxTop } : m));
-    }
-  }, [responseMenu]);
+  // 各メニューを実測サイズで再クランプ — 項目数が多く画面外にはみ出す場合に内側へ寄せる
+  useMenuReclamp(responseMenu, setResponseMenu, responseMenuRef);
+  useMenuReclamp(threadMenu, setThreadMenu, threadMenuRef);
+  useMenuReclamp(tabMenu, setTabMenu, tabMenuRef);
+  useMenuReclamp(watchoiMenu, setWatchoiMenu, watchoiMenuRef);
+  useMenuReclamp(idMenu, setIdMenu, idMenuRef);
+  useMenuReclamp(beMenu, setBeMenu, beMenuRef);
+  useMenuReclamp(imageContextMenu, setImageContextMenu, imageContextMenuRef);
+  useMenuReclamp(youtubeContextMenu, setYoutubeContextMenu, youtubeContextMenuRef);
+  useMenuReclamp(searchHistoryMenu, setSearchHistoryMenu, searchHistoryMenuRef);
 
   const markThreadRead = (threadId: number, value: boolean) => {
     setThreadReadMap((prev) => ({ ...prev, [threadId]: value }));
@@ -10295,7 +10322,7 @@ export default function App() {
         </div>
       )}
       {threadMenu && (
-        <div className="thread-menu" style={{ left: threadMenu.x, top: threadMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div ref={threadMenuRef} className="thread-menu" style={{ left: threadMenu.x, top: threadMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => markThreadRead(threadMenu.threadId, true)}>既読にする</button>
           <button onClick={() => markThreadRead(threadMenu.threadId, false)}>未読にする</button>
           <button onClick={() => void copyThreadUrl(threadMenu.threadId)}>スレURLをコピー</button>
@@ -10432,13 +10459,13 @@ export default function App() {
         </div>
       )}
       {imageContextMenu && (
-        <div className="thread-menu image-context-menu" style={{ left: imageContextMenu.x, top: imageContextMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div ref={imageContextMenuRef} className="thread-menu image-context-menu" style={{ left: imageContextMenu.x, top: imageContextMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { void addNgImageFromUrl(imageContextMenu.url); setImageContextMenu(null); }}>この画像をNG登録</button>
           <button onClick={() => { setNgImagePanelOpen(true); setImageContextMenu(null); }}>画像NG一覧を開く</button>
         </div>
       )}
       {youtubeContextMenu && (
-        <div className="thread-menu image-context-menu" style={{ left: youtubeContextMenu.x, top: youtubeContextMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div ref={youtubeContextMenuRef} className="thread-menu image-context-menu" style={{ left: youtubeContextMenu.x, top: youtubeContextMenu.y }} onClick={(e) => e.stopPropagation()}>
           {!isMacPlatform && (
             <button onClick={() => {
               const url = youtubeContextMenu.url;
@@ -10468,7 +10495,7 @@ export default function App() {
         </div>
       )}
       {tabMenu && (
-        <div className="thread-menu tab-menu" style={{ left: tabMenu.x, top: tabMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div ref={tabMenuRef} className="thread-menu tab-menu" style={{ left: tabMenu.x, top: tabMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { closeTab(tabMenu.tabIndex); setTabMenu(null); }}>タブを閉じる</button>
           <button onClick={() => { closeOtherTabs(tabMenu.tabIndex); setTabMenu(null); }} disabled={threadTabs.length <= 1}>
             他のタブを閉じる
@@ -10518,7 +10545,7 @@ export default function App() {
         </div>
       )}
       {watchoiMenu && (
-        <div className="thread-menu" style={{ left: watchoiMenu.x, top: watchoiMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div ref={watchoiMenuRef} className="thread-menu" style={{ left: watchoiMenu.x, top: watchoiMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { addNgEntry("names", watchoiMenu.watchoi); setWatchoiMenu(null); }}>ワッチョイをNG</button>
           {(() => {
             const code = watchoiMenu.watchoi.split(/\s+/).pop() || "";
@@ -10538,14 +10565,14 @@ export default function App() {
         </div>
       )}
       {idMenu && (
-        <div className="thread-menu" style={{ left: idMenu.x, top: idMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div ref={idMenuRef} className="thread-menu" style={{ left: idMenu.x, top: idMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { void navigator.clipboard.writeText(`ID:${idMenu.id}`); setStatus("IDをコピーしました"); setIdMenu(null); }}>このIDをコピー</button>
           <button onClick={() => { addNgEntry("ids", idMenu.id); setIdMenu(null); }}>NGIDに追加</button>
           <button onClick={() => { addHighlightEntry("ids", idMenu.id); setIdMenu(null); }}>IDをハイライト</button>
         </div>
       )}
       {beMenu && (
-        <div className="thread-menu" style={{ left: beMenu.x, top: beMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div ref={beMenuRef} className="thread-menu" style={{ left: beMenu.x, top: beMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => {
             const url = `https://be.5ch.io/user/${beMenu.beNumber}`;
             if (isTauriRuntime()) {
@@ -10578,7 +10605,7 @@ export default function App() {
         </div>
       )}
       {searchHistoryMenu && (
-        <div className="thread-menu" style={{ left: searchHistoryMenu.x, top: searchHistoryMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div ref={searchHistoryMenuRef} className="thread-menu" style={{ left: searchHistoryMenu.x, top: searchHistoryMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { removeSearchHistory(searchHistoryMenu.type, searchHistoryMenu.word); setSearchHistoryMenu(null); }}>削除</button>
         </div>
       )}
