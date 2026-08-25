@@ -10548,7 +10548,10 @@ export default function App() {
         <div ref={watchoiMenuRef} className="thread-menu" style={{ left: watchoiMenu.x, top: watchoiMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { addNgEntry("names", watchoiMenu.watchoi); setWatchoiMenu(null); }}>ワッチョイをNG</button>
           {(() => {
-            const code = watchoiMenu.watchoi.split(/\s+/).pop() || "";
+            // ワッチョイコードを取り出す — IP表示板 (例 "ワッチョイ bfcf-6QSn [101.128.161.32]") では
+            // 末尾トークンがIPになるため、空白区切りではなく xxxx-yyyy 形式を正規表現で探す
+            const codeMatch = watchoiMenu.watchoi.match(/(?:^|\s)([0-9A-Za-z]+-[0-9A-Za-z+/-]+)(?=\s|$)/);
+            const code = codeMatch ? codeMatch[1] : "";
             const parts = code.split("-");
             if (parts.length >= 2) {
               const front = parts[0];
