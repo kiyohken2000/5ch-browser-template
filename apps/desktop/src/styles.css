@@ -1266,10 +1266,14 @@ li.fav-drag-over {
 }
 .id-popup-item {
   display: flex;
+  align-items: flex-start;
   gap: 6px;
   cursor: pointer;
   padding: 2px 4px;
   border-bottom: 1px solid #e8e8e8;
+}
+.id-popup-item > .response-viewer-no {
+  flex: none;
 }
 .id-popup-item:hover {
   background: #e8f0ff;
@@ -1282,10 +1286,12 @@ li.fav-drag-over {
   white-space: nowrap;
 }
 .id-popup-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* 幅が足りないときは省略せず右端で折り返す (URL 等の長い連続文字も含む) */
   flex: 1;
+  min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   font-size: calc(11px + var(--fs-delta, 0px));
 }
 .search-hit {
