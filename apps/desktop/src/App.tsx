@@ -500,6 +500,7 @@ const DEFAULT_GESTURE_BINDINGS: Record<string, GestureActionId> = {
 };
 const COMPOSE_PREFS_KEY = "desktop.composePrefs.v1";
 const NAME_HISTORY_KEY = "desktop.nameHistory.v1";
+const BOARD_NAMES_KEY = "desktop.boardNames.v1";
 const BOOKMARK_KEY = "desktop.bookmarks.v1";
 const BOARD_CACHE_KEY = "desktop.boardCategories.v1";
 const EXPANDED_CATS_KEY = "desktop.expandedCategories.v1";
@@ -1464,6 +1465,10 @@ export default function App() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeName, setComposeName] = useState("");
   const [nameHistory, setNameHistory] = useState<string[]>([]);
+  // 板ごとに記憶した名前欄の値 (キー: 板URL)。描画には使わないので ref で保持する
+  const boardNamesRef = useRef<Record<string, string>>({});
+  // 名前欄をユーザーが自分で書き換えたか。書き換えた名前は板を移っても勝手に差し替えない
+  const composeNameEditedRef = useRef(false);
   const [composeMail, setComposeMail] = useState("");
   const [composeSage, setComposeSage] = useState(false);
   const [composeBody, setComposeBody] = useState("");
@@ -3959,6 +3964,7 @@ export default function App() {
           body: postedBody,
         });
         setComposeBody("");
+        rememberBoardName(getBoardUrlFromThreadUrl(postTargetUrl), composeName);
         if (composeName.trim()) {
           setNameHistory((prev) => {
             const next = [composeName.trim(), ...prev.filter((n) => n !== composeName.trim())].slice(0, 20);
@@ -4005,6 +4011,20 @@ export default function App() {
     } catch {
       return url;
     }
+  };
+  // 板ごとの名前欄。未登録の板は null。空文字は「名前なしで登録済み」を意味する
+  const getBoardName = (boardUrl: string): string | null => {
+    if (!boardUrl) return null;
+    const saved = boardNamesRef.current[boardUrl];
+    return typeof saved === "string" ? saved : null;
+  };
+  const rememberBoardName = (boardUrl: string, name: string) => {
+    if (!boardUrl) return;
+    const trimmed = name.trim();
+    if (boardNamesRef.current[boardUrl] === trimmed) return;
+    const next = { ...boardNamesRef.current, [boardUrl]: trimmed };
+    boardNamesRef.current = next;
+    try { localStorage.setItem(BOARD_NAMES_KEY, JSON.stringify(next)); } catch { /* ignore */ }
   };
   const normalizeThreadTitle = (title: string, url: string): string => {
     const raw = decodeHtmlEntities((title || "").trim());
@@ -4132,6 +4152,7 @@ export default function App() {
           mail: newThreadMail,
           body: newThreadBody,
         });
+        rememberBoardName(boardUrl, newThreadName);
         if (newThreadName.trim()) {
           setNameHistory((prev) => {
             const next = [newThreadName.trim(), ...prev.filter((n) => n !== newThreadName.trim())].slice(0, 20);
@@ -5202,8 +5223,32 @@ export default function App() {
     return `${base.endsWith("/") ? base : `${base}/`}${responseId}`;
   };
 
-  const appendComposeQuote = (line: string) => {
+  // 書き込み欄を開く。投稿先の板に記憶した名前があれば名前欄に入れる (未登録の板は直近使った名前のまま)
+  const openCompose = (opts?: { keepBody?: boolean }) => {
+    composeNameEditedRef.current = false;
+    const targetUrl = threadTabs[activeTabIndex]?.threadUrl ?? threadUrl;
+    if (targetUrl) {
+      const saved = getBoardName(getBoardUrlFromThreadUrl(targetUrl));
+      if (saved !== null) setComposeName(saved);
+    }
     setComposeOpen(true);
+    if (!opts?.keepBody) {
+      setComposePos(null);
+      setComposeBody("");
+      setComposeResult(null);
+    }
+  };
+
+  const openNewThreadDialog = () => {
+    if (threadUrl) {
+      const saved = getBoardName(getBoardUrlFromThreadUrl(threadUrl));
+      if (saved !== null) setNewThreadName(saved);
+    }
+    setShowNewThreadDialog(true);
+  };
+
+  const appendComposeQuote = (line: string) => {
+    openCompose({ keepBody: true });
     setComposeBody((prev) => (prev.trim().length === 0 ? `${line}\n` : `${prev}\n${line}\n`));
   };
 
@@ -5642,10 +5687,7 @@ export default function App() {
       }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "e") {
         e.preventDefault();
-        setComposeOpen(true);
-        setComposePos(null);
-        setComposeBody("");
-        setComposeResult(null);
+        openCompose();
         return;
       }
       if (e.key.toLowerCase() === "r" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
@@ -5831,6 +5873,19 @@ export default function App() {
           const nh = localStorage.getItem(NAME_HISTORY_KEY);
           if (nh) setNameHistory(JSON.parse(nh));
         } catch { /* ignore */ }
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const bn = localStorage.getItem(BOARD_NAMES_KEY);
+      if (bn) {
+        const parsed = JSON.parse(bn) as Record<string, unknown>;
+        const map: Record<string, string> = {};
+        for (const [key, value] of Object.entries(parsed)) {
+          if (typeof value === "string") map[key] = value;
+        }
+        boardNamesRef.current = map;
       }
     } catch {
       // ignore
@@ -6620,6 +6675,21 @@ export default function App() {
       invoke("set_always_on_top", { onTop: alwaysOnTop }).catch(() => {});
     }
   }, [alwaysOnTop]);
+
+  // 書き込み欄の投稿先は常にアクティブタブなので、開いたままタブを切り替えると板が変わる
+  const composeTargetBoardUrl = useMemo(() => {
+    const targetUrl = threadTabs[activeTabIndex]?.threadUrl ?? threadUrl;
+    return targetUrl ? getBoardUrlFromThreadUrl(targetUrl) : "";
+  }, [threadTabs, activeTabIndex, threadUrl]);
+
+  // 板が変わったら名前欄もその板の名前に差し替える。ただし手入力した名前は消さない
+  useEffect(() => {
+    if (!composeOpen || !composeTargetBoardUrl) return;
+    if (composeNameEditedRef.current) return;
+    const saved = getBoardName(composeTargetBoardUrl);
+    if (saved === null || saved === composeName) return;
+    setComposeName(saved);
+  }, [composeOpen, composeTargetBoardUrl, composeName]);
 
   useEffect(() => {
     localStorage.setItem(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeName, mail: composeMail, sage: composeSage, fontSize: composeFontSize }));
@@ -7690,7 +7760,7 @@ export default function App() {
             { text: "スレ取得", action: () => fetchThreadListFromCurrent() },
             { text: "レス取得", action: () => fetchResponsesFromCurrent() },
             { text: "sep" },
-            { text: "書き込み", action: () => { setComposeOpen(true); setComposePos(null); setComposeBody(""); setComposeResult(null); } },
+            { text: "書き込み", action: () => openCompose() },
             { text: "sep" },
             { text: "設定", action: () => setSettingsOpen(true) },
             { text: "AI 設定", action: () => setAiSettingsOpen(true) },
@@ -7952,7 +8022,7 @@ export default function App() {
             void fetchThreadListFromCurrent();
           }
         }} title="スレ一覧を更新"><RefreshCw size={14} /></button>
-        <button className="title-action-btn" onClick={() => setShowNewThreadDialog(true)} title="スレ立て"><FilePenLine size={14} /></button>
+        <button className="title-action-btn" onClick={() => openNewThreadDialog()} title="スレ立て"><FilePenLine size={14} /></button>
         <div className="title-split-wrap" onClick={(e) => e.stopPropagation()}>
           <button
             className={`title-action-btn title-split-main ${(showCachedOnly || showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly) ? "active-toggle" : ""}`}
@@ -8515,7 +8585,7 @@ export default function App() {
                     </div>
                   )}
                 </div>
-                <button className="title-action-btn" onClick={() => { setComposeOpen(true); setComposePos(null); setComposeBody(""); setComposeResult(null); }} title="書き込み"><Pencil size={14} /></button>
+                <button className="title-action-btn" onClick={() => openCompose()} title="書き込み"><Pencil size={14} /></button>
                 <button className="title-action-btn" onClick={() => {
                   const tab = threadTabs[activeTabIndex];
                   if (tab) toggleFavoriteThread({ threadUrl: tab.threadUrl, title: tab.title });
@@ -9630,7 +9700,7 @@ export default function App() {
           <div className="compose-grid">
             <label>
               名前
-              <input value={composeName} onChange={(e) => setComposeName(e.target.value)} list="name-history-list" />
+              <input value={composeName} onChange={(e) => { composeNameEditedRef.current = true; setComposeName(e.target.value); }} list="name-history-list" />
               <datalist id="name-history-list">
                 {nameHistory.map((n) => <option key={n} value={n} />)}
               </datalist>

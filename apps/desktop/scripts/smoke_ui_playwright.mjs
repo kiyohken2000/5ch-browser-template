@@ -1285,6 +1285,62 @@ try {
   assert(filterModeCleared === "", `clearing the filter should persist an empty mode, got ${filterModeCleared}`);
   console.log("smoke-ui: thread filter restore ok");
 
+  // --- 板ごとに記憶した名前欄が、投稿先の板に追従する ---
+  // 保存は投稿成功時 (Tauri IPC 必須) なのでブラウザ環境では検証できない。
+  // localStorage にタブと板ごとの名前を仕込み、復元・追従だけを検証する。
+  // (リロードを挟むので必ず一番最後に置くこと)
+  await page.evaluate(() => {
+    localStorage.setItem("desktop.boardNames.v1", JSON.stringify({
+      "https://rio2016.5ch.io/base/": "板A太郎",
+      "https://rio2016.5ch.io/news4vip/": "板B太郎",
+    }));
+    localStorage.setItem("desktop.threadTabs.v1", JSON.stringify({
+      tabs: [
+        { threadUrl: "https://rio2016.5ch.io/test/read.cgi/base/1111111111/", title: "板Aのスレ" },
+        { threadUrl: "https://rio2016.5ch.io/test/read.cgi/news4vip/2222222222/", title: "板Bのスレ" },
+      ],
+      activeIndex: 0,
+    }));
+  });
+  await page.reload({ waitUntil: "load" });
+  await page.waitForSelector(".thread-tab:not(.placeholder)");
+  const nameTabs = await page.$$(".thread-tab:not(.placeholder)");
+  assert(nameTabs.length >= 2, `restored tabs should be 2, got ${nameTabs.length}`);
+
+  // 書き込み欄を開くと、いま見ている板の名前が入る
+  await page.click("button[title='書き込み']");
+  await page.waitForSelector(".compose-grid input");
+  const nameOnBoardA = await page.$eval(".compose-grid input", (el) => el.value);
+  assert(nameOnBoardA === "板A太郎", `compose name should come from board A, got ${nameOnBoardA}`);
+
+  // 開いたままタブを切り替えると投稿先の板が変わるので、名前欄も追従する
+  await nameTabs[1].click();
+  await new Promise((r) => setTimeout(r, 200));
+  const nameOnBoardB = await page.$eval(".compose-grid input", (el) => el.value);
+  assert(nameOnBoardB === "板B太郎", `compose name should follow to board B, got ${nameOnBoardB}`);
+
+  // 手入力した名前は板を移っても勝手に差し替えない
+  await page.fill(".compose-grid input", "手入力した名前");
+  await nameTabs[0].click();
+  await new Promise((r) => setTimeout(r, 200));
+  const nameAfterManualEdit = await page.$eval(".compose-grid input", (el) => el.value);
+  assert(
+    nameAfterManualEdit === "手入力した名前",
+    `manually typed name should survive a board change, got ${nameAfterManualEdit}`,
+  );
+  await page.click(".compose-header button:last-child");
+
+  // スレ立てダイアログの名前欄にも同じ板の名前が入る
+  await page.click("button[title='スレ立て']");
+  await page.waitForSelector(".settings-panel input[list='name-history-list-newthread']");
+  const newThreadNameValue = await page.$eval(
+    ".settings-panel input[list='name-history-list-newthread']",
+    (el) => el.value,
+  );
+  assert(newThreadNameValue === "板A太郎", `new thread name should come from board A, got ${newThreadNameValue}`);
+  await page.click(".settings-panel .settings-header button");
+  console.log("smoke-ui: per-board compose name ok");
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {
