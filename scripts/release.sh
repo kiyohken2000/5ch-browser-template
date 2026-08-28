@@ -51,6 +51,8 @@ TAG="v${VERSION}"
 
 VALIDATE_LOG="$ROOT_DIR/out/validate-${VERSION}.log"
 mkdir -p "$ROOT_DIR/out"
+# 検証ログは失敗時の原因調査にしか使わないので、過去バージョンの分は毎回捨てる
+rm -f "$ROOT_DIR"/out/validate-*.log
 
 # 検証ステップの実行。以前は `cmd 2>&1 | tail -1` と書いていたが、これだと
 # 失敗したときに理由になる行がすべて捨てられて最後の1行しか残らない。
@@ -131,6 +133,10 @@ echo "  npm build..."
 
 echo "  smoke test..."
 (cd "$DESKTOP_DIR" && run_validation "smoke test" npm run test:smoke-ui)
+
+# ここまで来たら全検証が通っているのでログは不要。
+# (失敗時は run_validation が末尾30行を出して exit するため、ここには到達せずログが残る)
+rm -f "$VALIDATE_LOG"
 
 # --------------------------------------------------
 # 3. Commit & push
