@@ -1612,6 +1612,8 @@ export default function App() {
   const [typingConfettiEnabled, setTypingConfettiEnabled] = useState(false);
   const [imageSizeLimit, setImageSizeLimit] = useState(0); // KB, 0 = unlimited
   const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState(false);
+  // ID のマウスオーバーで同一 ID のレスをポップアップするか。既定は表示する
+  const [idPopupEnabled, setIdPopupEnabled] = useState(true);
   const [hoverPreviewDelay, setHoverPreviewDelay] = useState(0);
   const hoverPreviewDelayRef = useRef(0);
   hoverPreviewDelayRef.current = hoverPreviewDelay;
@@ -4859,6 +4861,7 @@ export default function App() {
     }
     const idEl = t.closest<HTMLElement>(".popup-id-trigger");
     if (idEl) {
+      if (!idPopupEnabled) return;
       if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; }
       const id = idEl.getAttribute("data-popup-id") || "";
       if (id) {
@@ -5752,6 +5755,7 @@ export default function App() {
           typingConfettiEnabled?: boolean;
           imageSizeLimit?: number;
           hoverPreviewEnabled?: boolean;
+          idPopupEnabled?: boolean;
           lastBoard?: { boardName: string; url: string };
           hoverPreviewDelay?: number;
           thumbSize?: number;
@@ -5810,6 +5814,7 @@ export default function App() {
         if (typeof parsed.typingConfettiEnabled === "boolean") setTypingConfettiEnabled(parsed.typingConfettiEnabled);
         if (typeof parsed.imageSizeLimit === "number") setImageSizeLimit(parsed.imageSizeLimit);
         if (typeof parsed.hoverPreviewEnabled === "boolean") setHoverPreviewEnabled(parsed.hoverPreviewEnabled);
+        if (typeof parsed.idPopupEnabled === "boolean") setIdPopupEnabled(parsed.idPopupEnabled);
         if (parsed.lastBoard && typeof parsed.lastBoard.boardName === "string" && typeof parsed.lastBoard.url === "string") {
           pendingLastBoardRef.current = parsed.lastBoard;
         }
@@ -6596,6 +6601,7 @@ export default function App() {
       typingConfettiEnabled,
       imageSizeLimit,
       hoverPreviewEnabled,
+      idPopupEnabled,
       lastBoard: lastBoardUrlRef.current ? { boardName: selectedBoard, url: lastBoardUrlRef.current } : undefined,
       hoverPreviewDelay,
       thumbSize,
@@ -6625,7 +6631,7 @@ export default function App() {
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -9036,6 +9042,7 @@ export default function App() {
                               setIdMenu({ x: p.x, y: p.y, id });
                             }}
                             onMouseEnter={(e) => {
+                              if (!idPopupEnabled) return;
                               if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; }
                               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                               const right = Math.max(8, window.innerWidth - rect.right);
@@ -11211,6 +11218,10 @@ export default function App() {
                     </button>
                   </div>
                 )}
+                <label className="settings-row">
+                  <input type="checkbox" checked={idPopupEnabled} onChange={(e) => { setIdPopupEnabled(e.target.checked); if (!e.target.checked) setIdPopup(null); }} />
+                  <span>IDのマウスオーバーで同一IDのレスをポップアップ</span>
+                </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={hoverPreviewEnabled} onChange={(e) => setHoverPreviewEnabled(e.target.checked)} />
                   <span>画像ホバープレビュー</span>

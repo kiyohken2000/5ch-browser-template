@@ -1001,6 +1001,32 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: wheel row scroll setting ok");
 
+  // IDホバーポップアップの設定 (既定 ON、切り替えは layoutPrefs に永続化される)
+  const idPopupToggle = await page.$('.settings-body label:has-text("IDのマウスオーバーで同一IDのレスをポップアップ") input[type="checkbox"]');
+  assert(idPopupToggle, "settings should have ID hover popup toggle");
+  assert(await idPopupToggle.isChecked(), "ID hover popup should default to on");
+  await idPopupToggle.uncheck();
+  await new Promise((r) => setTimeout(r, 150));
+  const idPopupPrefOff = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").idPopupEnabled;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(idPopupPrefOff === false, `ID hover popup off should persist, got ${idPopupPrefOff}`);
+  await idPopupToggle.check();
+  await new Promise((r) => setTimeout(r, 150));
+  const idPopupPrefOn = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").idPopupEnabled;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(idPopupPrefOn === true, `ID hover popup on should persist, got ${idPopupPrefOn}`);
+  console.log("smoke-ui: id hover popup setting ok");
+
   // OGP link card toggle exists in settings
   const ogpToggleLabel = await page.$('.settings-body label:has-text("OGPカード")');
   assert(ogpToggleLabel, "settings should have OGP card display toggle");
