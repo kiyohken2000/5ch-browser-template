@@ -1471,6 +1471,10 @@ export default function App() {
   const composeNameEditedRef = useRef(false);
   // ON のとき名前欄を記憶しない (開くたびに空、板ごとの名前も入力履歴も使わない)
   const [composeForgetName, setComposeForgetName] = useState(false);
+  // 「記憶した名前を削除」の確認待ち状態 (2段階クリックで誤操作を防ぐ)
+  const [nameClearArmed, setNameClearArmed] = useState(false);
+  // 削除完了メッセージ。数秒で自動的に消す
+  const [nameClearMsg, setNameClearMsg] = useState("");
   const [composeMail, setComposeMail] = useState("");
   const [composeSage, setComposeSage] = useState(false);
   const [composeBody, setComposeBody] = useState("");
@@ -4030,6 +4034,20 @@ export default function App() {
     boardNamesRef.current = next;
     try { localStorage.setItem(BOARD_NAMES_KEY, JSON.stringify(next)); } catch { /* ignore */ }
   };
+  // 記憶した名前 (板ごとの名前・入力履歴・前回の名前) をまとめて消す
+  const clearRememberedNames = () => {
+    boardNamesRef.current = {};
+    composeNameEditedRef.current = false;
+    setNameHistory([]);
+    setComposeName("");
+    setNewThreadName("");
+    try {
+      localStorage.removeItem(BOARD_NAMES_KEY);
+      localStorage.removeItem(NAME_HISTORY_KEY);
+    } catch (e) {
+      console.warn("failed to clear remembered names", e);
+    }
+  };
   const normalizeThreadTitle = (title: string, url: string): string => {
     const raw = decodeHtmlEntities((title || "").trim());
     if (raw) return raw;
@@ -6090,6 +6108,12 @@ export default function App() {
   }, [authSaveMsg]);
 
   useEffect(() => {
+    if (!nameClearMsg) return;
+    const timer = window.setTimeout(() => setNameClearMsg(""), 3000);
+    return () => window.clearTimeout(timer);
+  }, [nameClearMsg]);
+
+  useEffect(() => {
     if (!tabsRestoredRef.current) return;
     try {
       localStorage.setItem(THREAD_TABS_KEY, JSON.stringify({ tabs: threadTabs, activeIndex: activeTabIndex }));
@@ -6719,6 +6743,11 @@ export default function App() {
     if (saved === null || saved === composeName) return;
     setComposeName(saved);
   }, [composeOpen, composeTargetBoardUrl, composeName, composeForgetName]);
+
+  // 設定を閉じたら「記憶した名前を削除」の確認待ちは取り消す
+  useEffect(() => {
+    if (!settingsOpen) setNameClearArmed(false);
+  }, [settingsOpen]);
 
   useEffect(() => {
     localStorage.setItem(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeForgetName ? "" : composeName, mail: composeMail, sage: composeSage, fontSize: composeFontSize, forgetName: composeForgetName }));
@@ -11280,6 +11309,19 @@ export default function App() {
                   <span>名前を記憶しない</span>
                   <span className="settings-hint">開くたびに名前欄を空にする</span>
                 </label>
+                <div className="settings-row">
+                  <span>記憶した名前</span>
+                  {nameClearArmed ? (
+                    <>
+                      <button type="button" onClick={() => { clearRememberedNames(); setNameClearArmed(false); setStatus("記憶した名前を削除しました"); setNameClearMsg("削除しました"); }}>本当に削除する</button>
+                      <button type="button" onClick={() => setNameClearArmed(false)}>キャンセル</button>
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => setNameClearArmed(true)}>記憶した名前を削除</button>
+                  )}
+                  <span className="settings-hint">板ごとの名前・入力履歴・前回の名前をまとめて消す</span>
+                </div>
+                {nameClearMsg && <div className="settings-row"><span>{nameClearMsg}</span></div>}
                 <label className="settings-row">
                   <span>書き込み文字サイズ</span>
                   <input type="number" value={composeFontSize} min={10} max={24} onChange={(e) => setComposeFontSize(Number(e.target.value))} />

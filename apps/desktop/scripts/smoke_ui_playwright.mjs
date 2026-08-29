@@ -1361,6 +1361,7 @@ try {
       "https://rio2016.5ch.io/base/": "板A太郎",
       "https://rio2016.5ch.io/news4vip/": "板B太郎",
     }));
+    localStorage.setItem("desktop.nameHistory.v1", JSON.stringify(["板A太郎", "板B太郎"]));
     localStorage.setItem("desktop.threadTabs.v1", JSON.stringify({
       tabs: [
         { threadUrl: "https://rio2016.5ch.io/test/read.cgi/base/1111111111/", title: "板Aのスレ" },
@@ -1444,6 +1445,58 @@ try {
   );
   await page.click(".settings-panel .settings-header button");
   console.log("smoke-ui: forget compose name ok");
+
+  // --- 記憶した名前を削除 ---
+  const fileMenuForNameClear = await page.$('.menu-item:has-text("ファイル")');
+  await fileMenuForNameClear.click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("設定")');
+  await page.waitForSelector(".settings-panel");
+  const clearNameBtn = await page.$('.settings-body button:has-text("記憶した名前を削除")');
+  assert(clearNameBtn, "settings should have the clear-remembered-names button");
+  // 1回目のクリックでは消さず、確認待ちになる
+  await clearNameBtn.click();
+  await new Promise((r) => setTimeout(r, 100));
+  assert(
+    await page.$('.settings-body button:has-text("本当に削除する")'),
+    "the first click should only arm the confirmation",
+  );
+  assert(
+    await page.evaluate(() => localStorage.getItem("desktop.boardNames.v1") !== null),
+    "board names should survive the first click",
+  );
+  // キャンセルで元に戻る
+  await page.click('.settings-body button:has-text("キャンセル")');
+  await new Promise((r) => setTimeout(r, 100));
+  assert(
+    await page.$('.settings-body button:has-text("記憶した名前を削除")'),
+    "cancel should return the button to its initial label",
+  );
+  // 2回目のクリック → 確定で削除
+  await page.click('.settings-body button:has-text("記憶した名前を削除")');
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.settings-body button:has-text("本当に削除する")');
+  await new Promise((r) => setTimeout(r, 200));
+  const clearedNames = await page.evaluate(() => ({
+    boardNames: localStorage.getItem("desktop.boardNames.v1"),
+    nameHistory: localStorage.getItem("desktop.nameHistory.v1"),
+    composeName: JSON.parse(localStorage.getItem("desktop.composePrefs.v1")).name,
+  }));
+  assert(clearedNames.boardNames === null, `board names should be cleared, got ${clearedNames.boardNames}`);
+  assert(clearedNames.nameHistory === null, `name history should be cleared, got ${clearedNames.nameHistory}`);
+  assert(clearedNames.composeName === "", `compose name should be cleared, got ${clearedNames.composeName}`);
+  assert(
+    await page.$('.settings-body button:has-text("記憶した名前を削除")'),
+    "the button should return to its initial label after clearing",
+  );
+  assert(
+    await page.$('.settings-body .settings-row:has-text("削除しました")'),
+    "clearing should show a completion message",
+  );
+  // 完了メッセージは数秒で自動的に消える
+  await page.waitForSelector('.settings-body .settings-row:has-text("削除しました")', { state: "detached", timeout: 6000 });
+  await page.click(".settings-panel .settings-header button");
+  console.log("smoke-ui: clear remembered names ok");
 
   console.log("smoke-ui: ok");
 } finally {
