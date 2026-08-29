@@ -1322,6 +1322,54 @@ fn load_layout_prefs() -> Result<String, String> {
     }
 }
 
+/// `data/<name>.json` へのパス。ユーザーが手で開いて編集する前提のファイルなので
+/// 名前は英数字と `_` に限定し、パス区切りを混ぜられないようにする。
+fn ui_json_relative_path(name: &str) -> Result<String, String> {
+    let valid = !name.is_empty()
+        && name.len() <= 64
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if !valid {
+        return Err(format!("invalid ui json name: {name}"));
+    }
+    Ok(format!("{name}.json"))
+}
+
+/// UI 状態を `data/<name>.json` に整形して保存する。文字列のまま渡すと
+/// エスケープされた 1 行になって手で読めないので、値としてパースしてから書く。
+#[tauri::command]
+fn save_ui_json(name: String, json: String) -> Result<(), String> {
+    let path = ui_json_relative_path(&name)?;
+    let value: serde_json::Value = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    core_store::save_json(&path, &value).map_err(|e| e.to_string())
+}
+
+/// `data/<name>.json` を読む。ファイルが無いときだけ空文字を返し、それ以外の
+/// 失敗はエラーにする (呼び出し側が「消された」と誤認して副本を消さないように)。
+#[tauri::command]
+fn load_ui_json(name: String) -> Result<String, String> {
+    let path = ui_json_relative_path(&name)?;
+    match core_store::load_json::<serde_json::Value>(&path) {
+        Ok(value) => Ok(value.to_string()),
+        Err(core_store::StoreError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(String::new())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// `data/<name>.json` を削除する。既に無い場合も成功扱いにする。
+#[tauri::command]
+fn delete_ui_json(name: String) -> Result<(), String> {
+    let path = core_store::portable_data_dir()
+        .map_err(|e| e.to_string())?
+        .join(ui_json_relative_path(&name)?);
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 #[tauri::command]
 async fn login_with_config(target: String, be_email: String, be_password: String, uplift_email: String, uplift_password: String) -> Result<Vec<LoginOutcome>, String> {
     let _ = core_store::append_log(&format!(
@@ -2615,6 +2663,9 @@ pub fn run() {
             login_with_config,
             save_layout_prefs,
             load_layout_prefs,
+            save_ui_json,
+            load_ui_json,
+            delete_ui_json,
             create_thread_command,
             save_thread_cache,
             load_thread_cache,
@@ -2676,7 +2727,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_5ch_login_target, NgFilters};
+    use super::{is_5ch_login_target, ui_json_relative_path, NgFilters};
 
     // match / addedAt は Rust 側の構造体に無いと save 時に黙って捨てられる。
     #[test]
@@ -2697,6 +2748,16 @@ mod tests {
         let out = serde_json::to_string(&parsed).expect("serialize");
         assert!(!out.contains("addedAt"), "addedAt should not be invented: {out}");
         assert!(out.contains("legacyString"), "plain string entry lost: {out}");
+    }
+
+    // data/<name>.json は手編集前提のファイルなので、名前欄からデータフォルダの
+    // 外へ出られないことを確かめる。
+    #[test]
+    fn ui_json_relative_path_rejects_path_separators() {
+        assert_eq!(ui_json_relative_path("board_names").unwrap(), "board_names.json");
+        for bad in ["", "../secret", "a/b", r"a\b", "a.b", "name with space", &"x".repeat(65)] {
+            assert!(ui_json_relative_path(bad).is_err(), "should reject: {bad}");
+        }
     }
 
     #[test]

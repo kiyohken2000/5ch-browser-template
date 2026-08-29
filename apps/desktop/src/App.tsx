@@ -533,6 +533,26 @@ const NG_ID_EXPIRE_DAYS_KEY = "desktop.ngIdExpireDays.v1";
 // "" は「フィルタなし = 板のスレ一覧」。dat落ちキャッシュは板依存で起動時に
 // 再取得が要るため対象外。
 const THREAD_FILTER_MODE_KEY = "desktop.threadFilterMode.v1";
+// localStorage に置いていた UI 状態のうち、ユーザーが手で開いて書き換えたり
+// 消したりしたくなるものは data/<file>.json を実体にする。localStorage 側は
+// 同期的に読める副本として残し (Tauri なしのスモークテストもこれで動く)、
+// 起動時に bootstrapUiJson() がファイルの内容を流し込む。
+const UI_JSON_FILES: Record<string, string> = {
+  [BOARD_NAMES_KEY]: "board_names",
+  [NAME_HISTORY_KEY]: "name_history",
+  [COMPOSE_PREFS_KEY]: "compose_prefs",
+  [BOOKMARK_KEY]: "bookmarks",
+  [MY_POSTS_KEY]: "my_posts",
+  [THREAD_CATEGORIES_KEY]: "thread_categories",
+  [SEARCH_HISTORY_KEY]: "search_history",
+  [RECENT_OPENED_THREADS_KEY]: "recent_opened_threads",
+  [RECENT_POSTED_THREADS_KEY]: "recent_posted_threads",
+  [THREAD_TABS_KEY]: "thread_tabs",
+};
+// 旧バージョンの localStorage から data/*.json へ移し終えたかどうか。移行前は
+// ファイルが無くても localStorage を残すが、移行後にファイルが無ければ
+// 「ユーザーが消した」とみなして副本も落とす。
+const UI_JSON_MIGRATED_KEY = "desktop.uiJsonMigrated.v1";
 // NG ID 自動削除の選択肢 (日数)。0 = 無効 (既定)。5ch の ID は日替わりなので
 // NG ID だけが際限なく溜まる。ワード / 名前は恒久的なものなので対象外。
 const NG_ID_EXPIRE_DAY_OPTIONS = [0, 1, 3, 7, 30];
@@ -650,6 +670,102 @@ function useMenuReclamp<T extends { x: number; y: number }>(
 }
 const isTauriRuntime = () =>
   typeof window !== "undefined" && Boolean((globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+
+// 名前欄のように 1 打鍵ごとに変わる状態があるので、ファイル書き込みはキー単位で
+// まとめる。読書位置の保存と同じ間隔にし、離脱時は flushUiJson() で取りこぼさない。
+const UI_JSON_WRITE_DELAY_MS = 300;
+const uiJsonPending = new Map<string, string>();
+const uiJsonTimers = new Map<string, number>();
+
+const cancelUiJsonWrite = (file: string) => {
+  const timer = uiJsonTimers.get(file);
+  if (timer !== undefined) {
+    window.clearTimeout(timer);
+    uiJsonTimers.delete(file);
+  }
+  uiJsonPending.delete(file);
+};
+
+// 保留中の書き込みを実行する。file を省略すると全件。
+const flushUiJson = (file?: string) => {
+  for (const target of file ? [file] : [...uiJsonPending.keys()]) {
+    const payload = uiJsonPending.get(target);
+    cancelUiJsonWrite(target);
+    if (payload === undefined) continue;
+    void invoke("save_ui_json", { name: target, json: payload }).catch((e) => {
+      console.warn(`save_ui_json ${target} failed`, e);
+    });
+  }
+};
+
+// UI 状態を localStorage と data/<file>.json の両方へ書く。ファイル側は非同期かつ
+// デバウンスされるので、同期的に読む既存コードのために localStorage も必ず更新する。
+const saveUiJson = (key: string, payload: string) => {
+  try {
+    localStorage.setItem(key, payload);
+  } catch (e) {
+    console.warn(`failed to save ${key}`, e);
+  }
+  const file = UI_JSON_FILES[key];
+  if (!file || !isTauriRuntime()) return;
+  cancelUiJsonWrite(file);
+  uiJsonPending.set(file, payload);
+  uiJsonTimers.set(file, window.setTimeout(() => flushUiJson(file), UI_JSON_WRITE_DELAY_MS));
+};
+
+// UI 状態を localStorage と data/<file>.json の両方から消す。
+const removeUiJson = (key: string) => {
+  try {
+    localStorage.removeItem(key);
+  } catch (e) {
+    console.warn(`failed to remove ${key}`, e);
+  }
+  const file = UI_JSON_FILES[key];
+  if (!file || !isTauriRuntime()) return;
+  cancelUiJsonWrite(file);
+  void invoke("delete_ui_json", { name: file }).catch((e) => {
+    console.warn(`delete_ui_json ${file} failed`, e);
+  });
+};
+
+// data/<file>.json の内容を localStorage へ流し込む。App を描画する前に
+// main.tsx から呼ぶので、以降は既存の同期的な localStorage 読み出しが
+// そのままファイルの内容を見ることになる。
+export async function bootstrapUiJson(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  // WebView の再読み込みやアプリ終了でデバウンス待ちの書き込みを落とさない。
+  window.addEventListener("pagehide", () => flushUiJson());
+  window.addEventListener("beforeunload", () => flushUiJson());
+  let migrated = false;
+  try {
+    migrated = localStorage.getItem(UI_JSON_MIGRATED_KEY) === "1";
+  } catch (e) {
+    console.warn("failed to read the ui json migration flag", e);
+  }
+  for (const [key, file] of Object.entries(UI_JSON_FILES)) {
+    try {
+      const raw = await invoke<string>("load_ui_json", { name: file });
+      if (raw) {
+        localStorage.setItem(key, raw);
+      } else if (!migrated) {
+        // 旧バージョンからの初回起動。localStorage 側をファイルへ書き出す。
+        const legacy = localStorage.getItem(key);
+        if (legacy) await invoke("save_ui_json", { name: file, json: legacy });
+      } else {
+        // 移行済みなのにファイルが無い = ユーザーが消した。副本も落とす。
+        localStorage.removeItem(key);
+      }
+    } catch (e) {
+      // 読めなかっただけかもしれないので localStorage 側はそのまま残す。
+      console.warn(`bootstrapUiJson ${file} failed`, e);
+    }
+  }
+  try {
+    localStorage.setItem(UI_JSON_MIGRATED_KEY, "1");
+  } catch (e) {
+    console.warn("failed to save the ui json migration flag", e);
+  }
+}
 const isTypingTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName.toLowerCase();
@@ -1559,11 +1675,7 @@ export default function App() {
     }
   });
   useEffect(() => {
-    try {
-      localStorage.setItem(THREAD_CATEGORIES_KEY, JSON.stringify(threadCategories));
-    } catch (e) {
-      console.warn("desktop.threadCategories.v1 save failed", e);
-    }
+    saveUiJson(THREAD_CATEGORIES_KEY, JSON.stringify(threadCategories));
   }, [threadCategories]);
   const [threadCategoryPanelOpen, setThreadCategoryPanelOpen] = useState(false);
   const [categoryAddKeyword, setCategoryAddKeyword] = useState("");
@@ -2068,7 +2180,7 @@ export default function App() {
         const list = prev[pending.threadUrl] ?? [];
         if (list.includes(matched.responseNo)) return prev;
         const next = { ...prev, [pending.threadUrl]: [...list, matched.responseNo] };
-        try { localStorage.setItem(MY_POSTS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+        saveUiJson(MY_POSTS_KEY, JSON.stringify(next));
         return next;
       });
     }
@@ -2727,7 +2839,7 @@ export default function App() {
       const raw = localStorage.getItem(BOOKMARK_KEY);
       const data: Record<string, number> = raw ? JSON.parse(raw) : {};
       data[url] = responseNo;
-      localStorage.setItem(BOOKMARK_KEY, JSON.stringify(data));
+      saveUiJson(BOOKMARK_KEY, JSON.stringify(data));
     } catch { /* ignore */ }
   };
 
@@ -3976,7 +4088,7 @@ export default function App() {
         if (!composeForgetName && composeName.trim()) {
           setNameHistory((prev) => {
             const next = [composeName.trim(), ...prev.filter((n) => n !== composeName.trim())].slice(0, 20);
-            try { localStorage.setItem(NAME_HISTORY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+            saveUiJson(NAME_HISTORY_KEY, JSON.stringify(next));
             return next;
           });
         }
@@ -4032,7 +4144,7 @@ export default function App() {
     if (boardNamesRef.current[boardUrl] === trimmed) return;
     const next = { ...boardNamesRef.current, [boardUrl]: trimmed };
     boardNamesRef.current = next;
-    try { localStorage.setItem(BOARD_NAMES_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    saveUiJson(BOARD_NAMES_KEY, JSON.stringify(next));
   };
   // 記憶した名前 (板ごとの名前・入力履歴・前回の名前) をまとめて消す
   const clearRememberedNames = () => {
@@ -4042,8 +4154,8 @@ export default function App() {
     setComposeName("");
     setNewThreadName("");
     try {
-      localStorage.removeItem(BOARD_NAMES_KEY);
-      localStorage.removeItem(NAME_HISTORY_KEY);
+      removeUiJson(BOARD_NAMES_KEY);
+      removeUiJson(NAME_HISTORY_KEY);
     } catch (e) {
       console.warn("failed to clear remembered names", e);
     }
@@ -4068,7 +4180,7 @@ export default function App() {
     };
     setRecentOpenedThreads((prev) => {
       const next = upsertRecentThread(prev, entry);
-      try { localStorage.setItem(RECENT_OPENED_THREADS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      saveUiJson(RECENT_OPENED_THREADS_KEY, JSON.stringify(next));
       return next;
     });
   };
@@ -4082,7 +4194,7 @@ export default function App() {
     };
     setRecentPostedThreads((prev) => {
       const next = upsertRecentThread(prev, entry);
-      try { localStorage.setItem(RECENT_POSTED_THREADS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      saveUiJson(RECENT_POSTED_THREADS_KEY, JSON.stringify(next));
       return next;
     });
   };
@@ -4107,7 +4219,7 @@ export default function App() {
     const prev = recentOpenedThreads;
     const next = prev.filter((t) => t.threadUrl !== target);
     setRecentOpenedThreads(next);
-    try { localStorage.setItem(RECENT_OPENED_THREADS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    saveUiJson(RECENT_OPENED_THREADS_KEY, JSON.stringify(next));
     if (showRecentOpenedOnly) remapSavedThreadCounts(prev, next);
   };
   const removeRecentPostedThread = (url: string) => {
@@ -4115,7 +4227,7 @@ export default function App() {
     const prev = recentPostedThreads;
     const next = prev.filter((t) => t.threadUrl !== target);
     setRecentPostedThreads(next);
-    try { localStorage.setItem(RECENT_POSTED_THREADS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    saveUiJson(RECENT_POSTED_THREADS_KEY, JSON.stringify(next));
     if (showRecentPostedOnly) remapSavedThreadCounts(prev, next);
   };
 
@@ -4178,7 +4290,7 @@ export default function App() {
         if (!composeForgetName && newThreadName.trim()) {
           setNameHistory((prev) => {
             const next = [newThreadName.trim(), ...prev.filter((n) => n !== newThreadName.trim())].slice(0, 20);
-            try { localStorage.setItem(NAME_HISTORY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+            saveUiJson(NAME_HISTORY_KEY, JSON.stringify(next));
             return next;
           });
         }
@@ -5010,7 +5122,7 @@ export default function App() {
   const searchHistoryRef = useRef({ thread: threadSearchHistory, response: responseSearchHistory });
   searchHistoryRef.current = { thread: threadSearchHistory, response: responseSearchHistory };
   const persistSearchHistory = (thread: string[], response: string[]) => {
-    try { localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify({ thread, response })); } catch { /* ignore */ }
+    saveUiJson(SEARCH_HISTORY_KEY, JSON.stringify({ thread, response }));
   };
   const addSearchHistory = (type: "thread" | "response", word: string) => {
     const trimmed = word.trim();
@@ -6115,9 +6227,7 @@ export default function App() {
 
   useEffect(() => {
     if (!tabsRestoredRef.current) return;
-    try {
-      localStorage.setItem(THREAD_TABS_KEY, JSON.stringify({ tabs: threadTabs, activeIndex: activeTabIndex }));
-    } catch { /* ignore */ }
+    saveUiJson(THREAD_TABS_KEY, JSON.stringify({ tabs: threadTabs, activeIndex: activeTabIndex }));
   }, [threadTabs, activeTabIndex]);
 
 
@@ -6750,7 +6860,7 @@ export default function App() {
   }, [settingsOpen]);
 
   useEffect(() => {
-    localStorage.setItem(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeForgetName ? "" : composeName, mail: composeMail, sage: composeSage, fontSize: composeFontSize, forgetName: composeForgetName }));
+    saveUiJson(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeForgetName ? "" : composeName, mail: composeMail, sage: composeSage, fontSize: composeFontSize, forgetName: composeForgetName }));
   }, [composeName, composeMail, composeSage, composeFontSize, composeForgetName]);
 
   useEffect(() => {

@@ -97,7 +97,8 @@ Ember の技術仕様・アーキテクチャ・開発手順をまとめたド�
 - **Tauri IPC 通信**: `@tauri-apps/api/core` の `invoke()` でRustバックエンドを呼び出し
 - **WEB/Tauri 二重動作**: `isTauriRuntime()` でランタイム判定し、WEB表示時はフェッチ系を抑止
 - **永続化**:
-  - `localStorage`: レイアウト設定、フォントサイズ、ダークモード、書き込み設定、栞、名前履歴
+  - `localStorage`: レイアウト設定、フォントサイズ、ダークモード、表示状態
+  - `data/*.json` (`save_ui_json`): 記憶した名前、栞、名前履歴、書き込み設定など手で編集したいもの
   - `core-store` (Tauri IPC): お気に入り、NGフィルタ、既読状態、認証設定
   - `SQLite` (core-store): スレ本文キャッシュ（dat落ちスレの保持）
 - **ダークモード**: タイトルバー連動（Tauri `set_window_theme`）、全UI要素対応
@@ -468,14 +469,45 @@ npm run check:latest:strict  # 厳密検証（SHA256チェックなど）
 
 ### localStorage（フロントエンド）
 
+UI の内部状態のみ。実体は WebView2 / WKWebView の LevelDB なので**手では編集できない**。
+ユーザーが消したり書き換えたりしたくなるデータは下の「手編集できる UI 状態」に移してある。
+
 | キー | 内容 |
 |-----|------|
-| `desktop.layoutPrefs.v1` | ペインサイズ、フォントサイズ、ダークモード |
-| `desktop.composePrefs.v1` | 書き込み名前、メール、sage |
-| `desktop.bookmarks.v1` | 栞（スレURL → レス番号） |
-| `desktop.nameHistory.v1` | 過去使用した名前履歴（最大20件） |
-| `desktop.scrollPos.v1` | スレ表示位置（スレURL → レス番号） |
-| `desktop.newThreadDialogSize` | スレ立てダイアログサイズ |
+| `desktop.layoutPrefs.v1` | ペインサイズ、フォントサイズ、ダークモード（`layout_prefs.json` にも二重保存） |
+| `desktop.scrollPositions.v1` | スレ表示位置（スレURL → レス番号） |
+| `desktop.newThreadDialogSize.v1` | スレ立てダイアログサイズ |
+| `desktop.threadFetchTimes.v1` | スレごとの最終取得時刻 |
+| `desktop.boardCategories.v1` | 板一覧のキャッシュ |
+| `desktop.aiPrefs.v1` | 推論バックエンド、翻訳の有効/無効 |
+| その他 | 板ペインのタブ、スクロール位置、展開状態、ソート設定などの表示状態 |
+
+### 手編集できる UI 状態（`data/*.json`）
+
+`save_ui_json` / `load_ui_json` / `delete_ui_json` の汎用コマンドで `data/<name>.json` に保存する。
+書き込みは 300ms デバウンス（`pagehide` / `beforeunload` でフラッシュ）。
+localStorage 側は同期的に読める副本として残り、起動時に `bootstrapUiJson()`（`main.tsx` から
+React の描画前に呼ぶ）がファイルの内容を流し込む。
+
+- ファイルがあれば、その内容で localStorage を上書きする
+- 移行フラグ `desktop.uiJsonMigrated.v1` が未設定なら、localStorage 側を初回だけファイルへ書き出す
+- 移行済みでファイルが無ければ「ユーザーが消した」とみなし、localStorage の副本も削除する
+- 読み込みに失敗した場合はファイルが無い扱いにせず、localStorage をそのまま残す
+
+| ファイル | localStorage キー | 内容 |
+|---------|------------------|------|
+| `board_names.json` | `desktop.boardNames.v1` | 板ごとに記憶した書き込み名 |
+| `name_history.json` | `desktop.nameHistory.v1` | 名前欄の入力候補（最大20件） |
+| `compose_prefs.json` | `desktop.composePrefs.v1` | 書き込みの名前・メール・sage・文字サイズ |
+| `bookmarks.json` | `desktop.bookmarks.v1` | 栞（スレURL → レス番号） |
+| `my_posts.json` | `desktop.myPosts.v1` | 自分のレス（スレURL → レス番号） |
+| `thread_categories.json` | `desktop.threadCategories.v2` | スレ一覧の色分けキーワード |
+| `search_history.json` | `desktop.searchHistory.v1` | スレ検索・レス検索の履歴 |
+| `recent_opened_threads.json` | `desktop.recentOpenedThreads.v1` | 最近開いたスレ |
+| `recent_posted_threads.json` | `desktop.recentPostedThreads.v1` | 最近書き込んだスレ |
+| `thread_tabs.json` | `desktop.threadTabs.v1` | 開いているスレタブとアクティブ位置 |
+
+> ファイル名は英数字と `_` に限定して検証する（`ui_json_relative_path`）。データフォルダの外は指せない。
 
 ### core-store（Tauri IPC 経由 JSON ファイル）
 
