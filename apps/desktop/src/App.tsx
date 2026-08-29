@@ -5772,6 +5772,7 @@ export default function App() {
           gestureBindings?: Record<string, GestureActionId>;
           threadAgeColorEnabled?: boolean;
           composeSize?: { w: number; h: number };
+          composePos?: { x: number; y: number };
           threadColVisible?: Record<string, boolean>;
           threadColOrder?: string[];
           responseBodyBottomPad?: boolean;
@@ -5844,6 +5845,16 @@ export default function App() {
         }
         if (typeof parsed.threadAgeColorEnabled === "boolean") setThreadAgeColorEnabled(parsed.threadAgeColorEnabled);
         if (parsed.composeSize && typeof parsed.composeSize.w === "number" && typeof parsed.composeSize.h === "number") setComposeSize(parsed.composeSize);
+        if (parsed.composePos && typeof parsed.composePos.x === "number" && typeof parsed.composePos.y === "number") {
+          // 解像度やウィンドウサイズが変わってもヘッダーを掴めるように、画面内へ補正して復元する
+          const cw = typeof parsed.composeSize?.w === "number" ? parsed.composeSize.w : 560;
+          const maxX = Math.max(0, window.innerWidth - Math.min(cw, 160));
+          const maxY = Math.max(0, window.innerHeight - 32);
+          setComposePos({
+            x: Math.min(Math.max(0, parsed.composePos.x), maxX),
+            y: Math.min(Math.max(0, parsed.composePos.y), maxY),
+          });
+        }
         if (parsed.threadColVisible && typeof parsed.threadColVisible === "object") setThreadColVisible((prev) => ({ ...prev, ...parsed.threadColVisible }));
         if (Array.isArray(parsed.threadColOrder)) setThreadColOrder(normalizeThreadColOrder(parsed.threadColOrder));
         if (typeof parsed.responseBodyBottomPad === "boolean") setResponseBodyBottomPad(parsed.responseBodyBottomPad);
@@ -6618,6 +6629,7 @@ export default function App() {
       gestureBindings,
       threadAgeColorEnabled,
       composeSize: composeSize ?? undefined,
+      composePos: composePos ?? undefined,
       threadColVisible,
       threadColOrder,
       responseBodyBottomPad,
@@ -6631,7 +6643,7 @@ export default function App() {
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, composePos, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -9701,7 +9713,7 @@ export default function App() {
             <span className="compose-target" title={threadTabs[activeTabIndex]?.threadUrl ?? threadUrl}>
               {threadTabs[activeTabIndex]?.title ?? threadUrl}
             </span>
-            <button className="compose-header-icon" title="サイズをリセット" onClick={() => { setComposeSize(null); setComposePos(null); }}><RotateCcw size={14} /></button>
+            <button className="compose-header-icon" title="サイズと位置をリセット" onClick={() => { setComposeSize(null); setComposePos(null); }}><RotateCcw size={14} /></button>
             <button onClick={() => { setComposeOpen(false); setComposeResult(null); setUploadPanelOpen(false); setUploadResults([]); setEmojiPickerTarget((t) => (t === "compose" ? null : t)); }}>閉じる</button>
           </header>
           <div className="compose-grid">

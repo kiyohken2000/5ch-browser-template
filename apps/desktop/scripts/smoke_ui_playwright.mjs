@@ -675,6 +675,28 @@ try {
   await page.waitForSelector(".compose-window");
   const composeHeader = await page.$(".compose-header");
   assert(composeHeader, "compose window should have draggable header");
+
+  // ヘッダーをドラッグすると位置が layoutPrefs に永続化される
+  const headerBox = await composeHeader.boundingBox();
+  assert(headerBox, "compose header should have a bounding box");
+  await page.mouse.move(headerBox.x + headerBox.width / 2, headerBox.y + headerBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(headerBox.x + headerBox.width / 2 - 60, headerBox.y + headerBox.height / 2 - 40, { steps: 5 });
+  await page.mouse.up();
+  await new Promise((r) => setTimeout(r, 150));
+  const composePos = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").composePos;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(
+    composePos && typeof composePos.x === "number" && typeof composePos.y === "number",
+    `compose window position should persist, got ${JSON.stringify(composePos)}`,
+  );
+  console.log("smoke-ui: compose window position persistence ok");
+
   await page.click(".compose-header button:has-text('閉じる')");
   console.log("smoke-ui: draggable compose ok");
 
