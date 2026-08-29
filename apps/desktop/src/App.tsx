@@ -5236,7 +5236,8 @@ export default function App() {
     }
     setComposeOpen(true);
     if (!opts?.keepBody) {
-      setComposePos(null);
+      // 位置 (composePos) はここでリセットしない — 前回動かした位置を保持する。
+      // 既定位置に戻すのはヘッダーの「サイズと位置をリセット」ボタン。
       setComposeBody("");
       setComposeResult(null);
     }

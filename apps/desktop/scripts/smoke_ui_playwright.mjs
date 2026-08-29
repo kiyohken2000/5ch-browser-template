@@ -697,6 +697,25 @@ try {
   );
   console.log("smoke-ui: compose window position persistence ok");
 
+  // 閉じて開き直しても位置は既定位置に戻らない (openCompose が位置をリセットしない)
+  const draggedBox = await page.$eval(".compose-window", (el) => {
+    const r = el.getBoundingClientRect();
+    return { left: Math.round(r.left), top: Math.round(r.top) };
+  });
+  await page.click(".compose-header button:has-text('閉じる')");
+  await page.waitForSelector(".compose-window", { state: "detached" });
+  await page.click(".thread-title-actions button[title='書き込み']");
+  await page.waitForSelector(".compose-window");
+  const reopenedBox = await page.$eval(".compose-window", (el) => {
+    const r = el.getBoundingClientRect();
+    return { left: Math.round(r.left), top: Math.round(r.top) };
+  });
+  assert(
+    reopenedBox.left === draggedBox.left && reopenedBox.top === draggedBox.top,
+    `compose window should reopen at the dragged position, got ${JSON.stringify(reopenedBox)} expected ${JSON.stringify(draggedBox)}`,
+  );
+  console.log("smoke-ui: compose window position kept on reopen ok");
+
   await page.click(".compose-header button:has-text('閉じる')");
   console.log("smoke-ui: draggable compose ok");
 
