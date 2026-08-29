@@ -1469,6 +1469,8 @@ export default function App() {
   const boardNamesRef = useRef<Record<string, string>>({});
   // 名前欄をユーザーが自分で書き換えたか。書き換えた名前は板を移っても勝手に差し替えない
   const composeNameEditedRef = useRef(false);
+  // ON のとき名前欄を記憶しない (開くたびに空、板ごとの名前も入力履歴も使わない)
+  const [composeForgetName, setComposeForgetName] = useState(false);
   const [composeMail, setComposeMail] = useState("");
   const [composeSage, setComposeSage] = useState(false);
   const [composeBody, setComposeBody] = useState("");
@@ -3966,8 +3968,8 @@ export default function App() {
           body: postedBody,
         });
         setComposeBody("");
-        rememberBoardName(getBoardUrlFromThreadUrl(postTargetUrl), composeName);
-        if (composeName.trim()) {
+        if (!composeForgetName) rememberBoardName(getBoardUrlFromThreadUrl(postTargetUrl), composeName);
+        if (!composeForgetName && composeName.trim()) {
           setNameHistory((prev) => {
             const next = [composeName.trim(), ...prev.filter((n) => n !== composeName.trim())].slice(0, 20);
             try { localStorage.setItem(NAME_HISTORY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
@@ -4154,8 +4156,8 @@ export default function App() {
           mail: newThreadMail,
           body: newThreadBody,
         });
-        rememberBoardName(boardUrl, newThreadName);
-        if (newThreadName.trim()) {
+        if (!composeForgetName) rememberBoardName(boardUrl, newThreadName);
+        if (!composeForgetName && newThreadName.trim()) {
           setNameHistory((prev) => {
             const next = [newThreadName.trim(), ...prev.filter((n) => n !== newThreadName.trim())].slice(0, 20);
             try { localStorage.setItem(NAME_HISTORY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
@@ -5229,10 +5231,14 @@ export default function App() {
   // 書き込み欄を開く。投稿先の板に記憶した名前があれば名前欄に入れる (未登録の板は直近使った名前のまま)
   const openCompose = (opts?: { keepBody?: boolean }) => {
     composeNameEditedRef.current = false;
-    const targetUrl = threadTabs[activeTabIndex]?.threadUrl ?? threadUrl;
-    if (targetUrl) {
-      const saved = getBoardName(getBoardUrlFromThreadUrl(targetUrl));
-      if (saved !== null) setComposeName(saved);
+    if (composeForgetName) {
+      setComposeName("");
+    } else {
+      const targetUrl = threadTabs[activeTabIndex]?.threadUrl ?? threadUrl;
+      if (targetUrl) {
+        const saved = getBoardName(getBoardUrlFromThreadUrl(targetUrl));
+        if (saved !== null) setComposeName(saved);
+      }
     }
     setComposeOpen(true);
     if (!opts?.keepBody) {
@@ -5244,7 +5250,9 @@ export default function App() {
   };
 
   const openNewThreadDialog = () => {
-    if (threadUrl) {
+    if (composeForgetName) {
+      setNewThreadName("");
+    } else if (threadUrl) {
       const saved = getBoardName(getBoardUrlFromThreadUrl(threadUrl));
       if (saved !== null) setNewThreadName(saved);
     }
@@ -5881,8 +5889,9 @@ export default function App() {
     try {
       const composeRaw = localStorage.getItem(COMPOSE_PREFS_KEY);
       if (composeRaw) {
-        const cp = JSON.parse(composeRaw) as { name?: string; mail?: string; sage?: boolean; fontSize?: number };
-        if (typeof cp.name === "string") setComposeName(cp.name);
+        const cp = JSON.parse(composeRaw) as { name?: string; mail?: string; sage?: boolean; fontSize?: number; forgetName?: boolean };
+        if (typeof cp.forgetName === "boolean") setComposeForgetName(cp.forgetName);
+        if (typeof cp.name === "string" && !cp.forgetName) setComposeName(cp.name);
         if (typeof cp.fontSize === "number") setComposeFontSize(cp.fontSize);
         if (typeof cp.mail === "string") setComposeMail(cp.mail);
         if (typeof cp.sage === "boolean") setComposeSage(cp.sage);
@@ -6704,15 +6713,16 @@ export default function App() {
   // 板が変わったら名前欄もその板の名前に差し替える。ただし手入力した名前は消さない
   useEffect(() => {
     if (!composeOpen || !composeTargetBoardUrl) return;
+    if (composeForgetName) return;
     if (composeNameEditedRef.current) return;
     const saved = getBoardName(composeTargetBoardUrl);
     if (saved === null || saved === composeName) return;
     setComposeName(saved);
-  }, [composeOpen, composeTargetBoardUrl, composeName]);
+  }, [composeOpen, composeTargetBoardUrl, composeName, composeForgetName]);
 
   useEffect(() => {
-    localStorage.setItem(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeName, mail: composeMail, sage: composeSage, fontSize: composeFontSize }));
-  }, [composeName, composeMail, composeSage, composeFontSize]);
+    localStorage.setItem(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeForgetName ? "" : composeName, mail: composeMail, sage: composeSage, fontSize: composeFontSize, forgetName: composeForgetName }));
+  }, [composeName, composeMail, composeSage, composeFontSize, composeForgetName]);
 
   useEffect(() => {
     if (suppressThreadScrollRef.current) {
@@ -11257,6 +11267,18 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={composeSage} onChange={(e) => setComposeSage(e.target.checked)} />
                   <span>sage</span>
+                </label>
+                <label className="settings-row">
+                  <input
+                    type="checkbox"
+                    checked={composeForgetName}
+                    onChange={(e) => {
+                      setComposeForgetName(e.target.checked);
+                      if (e.target.checked) { setComposeName(""); setNewThreadName(""); }
+                    }}
+                  />
+                  <span>名前を記憶しない</span>
+                  <span className="settings-hint">開くたびに名前欄を空にする</span>
                 </label>
                 <label className="settings-row">
                   <span>書き込み文字サイズ</span>

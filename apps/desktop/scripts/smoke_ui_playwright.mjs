@@ -1408,6 +1408,43 @@ try {
   await page.click(".settings-panel .settings-header button");
   console.log("smoke-ui: per-board compose name ok");
 
+  // --- 名前を記憶しない ---
+  const fileMenuForForgetName = await page.$('.menu-item:has-text("ファイル")');
+  await fileMenuForForgetName.click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("設定")');
+  await page.waitForSelector(".settings-panel");
+  const forgetNameToggle = await page.$('.settings-body label:has-text("名前を記憶しない") input[type="checkbox"]');
+  assert(forgetNameToggle, "settings should have the forget-name toggle");
+  assert(!(await forgetNameToggle.isChecked()), "forget-name should default to off");
+  await forgetNameToggle.check();
+  await new Promise((r) => setTimeout(r, 200));
+  const forgetPrefs = JSON.parse(await page.evaluate(() => localStorage.getItem("desktop.composePrefs.v1")));
+  assert(forgetPrefs.forgetName === true, `forgetName should be persisted, got ${forgetPrefs.forgetName}`);
+  assert(forgetPrefs.name === "", `name should not be persisted while forgetName is on, got ${forgetPrefs.name}`);
+  await page.click(".settings-panel .settings-header button");
+  await new Promise((r) => setTimeout(r, 100));
+
+  // 板ごとに名前を記憶していても、ON のあいだは名前欄が空で開く
+  await page.click("button[title='書き込み']");
+  await page.waitForSelector(".compose-grid input");
+  const forgottenName = await page.$eval(".compose-grid input", (el) => el.value);
+  assert(forgottenName === "", `compose name should be empty while forgetName is on, got ${forgottenName}`);
+  await page.click(".compose-header button:last-child");
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click("button[title='スレ立て']");
+  await page.waitForSelector(".settings-panel input[list='name-history-list-newthread']");
+  const forgottenNewThreadName = await page.$eval(
+    ".settings-panel input[list='name-history-list-newthread']",
+    (el) => el.value,
+  );
+  assert(
+    forgottenNewThreadName === "",
+    `new thread name should be empty while forgetName is on, got ${forgottenNewThreadName}`,
+  );
+  await page.click(".settings-panel .settings-header button");
+  console.log("smoke-ui: forget compose name ok");
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {
