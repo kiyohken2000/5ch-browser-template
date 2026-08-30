@@ -97,8 +97,9 @@ Ember の技術仕様・アーキテクチャ・開発手順をまとめたド�
 - **Tauri IPC 通信**: `@tauri-apps/api/core` の `invoke()` でRustバックエンドを呼び出し
 - **WEB/Tauri 二重動作**: `isTauriRuntime()` でランタイム判定し、WEB表示時はフェッチ系を抑止
 - **永続化**:
-  - `localStorage`: レイアウト設定、フォントサイズ、ダークモード、表示状態
-  - `data/*.json` (`save_ui_json`): 記憶した名前、栞、名前履歴、書き込み設定など手で編集したいもの
+  - `localStorage`: スクロール位置、ペインの開閉など UI の内部状態のみ
+  - `layout_prefs.json`: レイアウト、フォントサイズ、ダークモードなど設定画面の大半
+  - `settings.json` / `data/*.json` (`save_ui_json`): 記憶した名前、栞、名前履歴、書き込み設定など手で編集したいもの
   - `core-store` (Tauri IPC): お気に入り、NGフィルタ、既読状態、認証設定
   - `SQLite` (core-store): スレ本文キャッシュ（dat落ちスレの保持）
 - **ダークモード**: タイトルバー連動（Tauri `set_window_theme`）、全UI要素対応
@@ -479,8 +480,18 @@ UI の内部状態のみ。実体は WebView2 / WKWebView の LevelDB なので*
 | `desktop.newThreadDialogSize.v1` | スレ立てダイアログサイズ |
 | `desktop.threadFetchTimes.v1` | スレごとの最終取得時刻 |
 | `desktop.boardCategories.v1` | 板一覧のキャッシュ |
-| `desktop.aiPrefs.v1` | 推論バックエンド、翻訳の有効/無効 |
 | その他 | 板ペインのタブ、スクロール位置、展開状態、ソート設定などの表示状態 |
+
+### 設定画面の項目（`layout_prefs.json`）
+
+設定画面の見た目・表示・動作まわり（ダークモード、フォント、ペイン、サムネ、OGP、
+ホバープレビュー、自動更新間隔、マウスジェスチャなど約45項目）は `desktop.layoutPrefs.v1`
+にまとめて持ち、`save_layout_prefs` で `layout_prefs.json` にも書く。
+
+`save_layout_prefs` は受け取った文字列を `serde_json::Value` にパースしてから書くので、
+ファイルは整形済みの JSON になり手で編集できる。`load_layout_prefs` は値が
+`Value::String` だった場合を旧形式（JSON 文字列を素通しで保存していた頃のファイル）
+として扱うので、古いファイルもそのまま読める。次の保存で新形式に書き直される。
 
 ### 手編集できる UI 状態（`data/*.json`）
 
@@ -508,6 +519,27 @@ React の描画前に呼ぶ）がファイルの内容を流し込む。
 | `thread_tabs.json` | `desktop.threadTabs.v1` | 開いているスレタブとアクティブ位置 |
 
 > ファイル名は英数字と `_` に限定して検証する（`ui_json_relative_path`）。データフォルダの外は指せない。
+
+### まとめて持つ設定（`settings.json`）
+
+1 項目ずつファイルに分けるほどでもない設定は `data/settings.json` に 1 つにまとめる。
+`UI_JSON_SETTINGS_FIELDS`（フィールド名 → localStorage キー）が対応表で、書き込みは
+`saveUiSetting()`、起動時の読み込みは `bootstrapUiSettings()`。localStorage 側は文字列だが、
+ファイル側は真偽値・数値・オブジェクトとして書き出すのでそのまま読んで書き換えられる。
+
+| フィールド | localStorage キー | 内容 |
+|-----------|------------------|------|
+| `threadSortPersistEnabled` | `desktop.threadSortPersistEnabled.v1` | ソート状態を記憶するか |
+| `autoRefreshPersistEnabled` | `desktop.autoRefreshPersistEnabled.v1` | 自動更新の状態を記憶するか |
+| `postLogPrefs` | `desktop.postLogPrefs.v1` | 書き込みログを保存するか |
+| `ngIdExpireDays` | `desktop.ngIdExpireDays.v1` | NG ID の自動削除日数（0 = 無効） |
+| `ex0chEnabled` | `desktop.ex0chEnabled.v1` | ex0ch の板を一覧に含めるか |
+| `aiPrefs` | `desktop.aiPrefs.v1` | 推論バックエンド、翻訳の有効/無効 |
+
+ファイル単位ではなくフィールド単位で有無を見る。フィールドを消すとその設定だけ既定値に戻る。
+`settings.json` は `core_store::init_portable_layout()` が空の `{}` で作るため、
+移行済みかどうかは専用の `desktop.uiJsonSettingsMigrated.v1` で判定する
+（`desktop.uiJsonMigrated.v1` を使うと、初回から「フィールドが消された」と誤判定してしまう）。
 
 ### core-store（Tauri IPC 経由 JSON ファイル）
 

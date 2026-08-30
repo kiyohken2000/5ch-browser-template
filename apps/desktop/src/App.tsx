@@ -553,6 +553,21 @@ const UI_JSON_FILES: Record<string, string> = {
 // ファイルが無くても localStorage を残すが、移行後にファイルが無ければ
 // 「ユーザーが消した」とみなして副本も落とす。
 const UI_JSON_MIGRATED_KEY = "desktop.uiJsonMigrated.v1";
+// 1 項目ずつファイルにするほどでもない設定は data/settings.json にまとめる。
+// フィールド名 -> localStorage キー。localStorage 側は文字列だが、ファイル側は
+// 真偽値・数値・オブジェクトとして書き出すので、そのまま読んで書き換えられる。
+const UI_JSON_SETTINGS_FILE = "settings";
+const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
+  threadSortPersistEnabled: THREAD_SORT_PERSIST_KEY,
+  autoRefreshPersistEnabled: AUTO_REFRESH_PERSIST_KEY,
+  postLogPrefs: POST_LOG_PREFS_KEY,
+  ngIdExpireDays: NG_ID_EXPIRE_DAYS_KEY,
+  ex0chEnabled: EX0CH_ENABLED_KEY,
+  aiPrefs: AI_PREFS_KEY,
+};
+// settings.json は core-store が空の {} を作るので、UI_JSON_MIGRATED_KEY とは
+// 別の印が要る。これが無い間はファイルにフィールドが無くても localStorage を消さない。
+const UI_JSON_SETTINGS_MIGRATED_KEY = "desktop.uiJsonSettingsMigrated.v1";
 // NG ID 自動削除の選択肢 (日数)。0 = 無効 (既定)。5ch の ID は日替わりなので
 // NG ID だけが際限なく溜まる。ワード / 名前は恒久的なものなので対象外。
 const NG_ID_EXPIRE_DAY_OPTIONS = [0, 1, 3, 7, 30];
@@ -698,6 +713,12 @@ const flushUiJson = (file?: string) => {
   }
 };
 
+const scheduleUiJsonWrite = (file: string, payload: string) => {
+  cancelUiJsonWrite(file);
+  uiJsonPending.set(file, payload);
+  uiJsonTimers.set(file, window.setTimeout(() => flushUiJson(file), UI_JSON_WRITE_DELAY_MS));
+};
+
 // UI 状態を localStorage と data/<file>.json の両方へ書く。ファイル側は非同期かつ
 // デバウンスされるので、同期的に読む既存コードのために localStorage も必ず更新する。
 const saveUiJson = (key: string, payload: string) => {
@@ -708,9 +729,35 @@ const saveUiJson = (key: string, payload: string) => {
   }
   const file = UI_JSON_FILES[key];
   if (!file || !isTauriRuntime()) return;
-  cancelUiJsonWrite(file);
-  uiJsonPending.set(file, payload);
-  uiJsonTimers.set(file, window.setTimeout(() => flushUiJson(file), UI_JSON_WRITE_DELAY_MS));
+  scheduleUiJsonWrite(file, payload);
+};
+
+// data/settings.json に入る設定を 1 項目書き換える。ファイルは全項目まとめて
+// 書き直すので、localStorage を更新してから全フィールドを集め直す。
+const saveUiSetting = (key: string, payload: string) => {
+  try {
+    localStorage.setItem(key, payload);
+  } catch (e) {
+    console.warn(`failed to save ${key}`, e);
+  }
+  if (!isTauriRuntime()) return;
+  const merged: Record<string, unknown> = {};
+  for (const [field, storageKey] of Object.entries(UI_JSON_SETTINGS_FIELDS)) {
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(storageKey);
+    } catch (e) {
+      console.warn(`failed to read ${storageKey}`, e);
+    }
+    if (raw === null) continue;
+    try {
+      merged[field] = JSON.parse(raw);
+    } catch {
+      // 真偽値でも数値でもない素の文字列。そのまま持たせる。
+      merged[field] = raw;
+    }
+  }
+  scheduleUiJsonWrite(UI_JSON_SETTINGS_FILE, JSON.stringify(merged));
 };
 
 // UI 状態を localStorage と data/<file>.json の両方から消す。
@@ -764,6 +811,60 @@ export async function bootstrapUiJson(): Promise<void> {
     localStorage.setItem(UI_JSON_MIGRATED_KEY, "1");
   } catch (e) {
     console.warn("failed to save the ui json migration flag", e);
+  }
+  await bootstrapUiSettings();
+}
+
+// data/settings.json の各フィールドを localStorage へ配る。1 ファイルに複数の
+// 設定が入っているので、ファイル単位ではなくフィールド単位で有無を判定する。
+async function bootstrapUiSettings(): Promise<void> {
+  let migrated = false;
+  try {
+    migrated = localStorage.getItem(UI_JSON_SETTINGS_MIGRATED_KEY) === "1";
+  } catch (e) {
+    console.warn("failed to read the ui settings migration flag", e);
+  }
+  let stored: Record<string, unknown> = {};
+  try {
+    const raw = await invoke<string>("load_ui_json", { name: UI_JSON_SETTINGS_FILE });
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      stored = parsed as Record<string, unknown>;
+    }
+  } catch (e) {
+    // 読めなかっただけかもしれないので localStorage 側はそのまま残す。
+    console.warn("bootstrapUiSettings load failed", e);
+    return;
+  }
+  const merged: Record<string, unknown> = {};
+  for (const [field, key] of Object.entries(UI_JSON_SETTINGS_FIELDS)) {
+    try {
+      if (Object.prototype.hasOwnProperty.call(stored, field)) {
+        const value = stored[field];
+        localStorage.setItem(key, typeof value === "string" ? value : JSON.stringify(value));
+        merged[field] = value;
+      } else if (!migrated) {
+        // 旧バージョンからの初回起動。localStorage 側をファイルへ書き出す。
+        const legacy = localStorage.getItem(key);
+        if (legacy === null) continue;
+        try {
+          merged[field] = JSON.parse(legacy);
+        } catch {
+          merged[field] = legacy;
+        }
+      } else {
+        // 移行済みなのにフィールドが無い = ユーザーが消した。副本も落とす。
+        localStorage.removeItem(key);
+      }
+    } catch (e) {
+      console.warn(`bootstrapUiSettings ${field} failed`, e);
+    }
+  }
+  try {
+    await invoke("save_ui_json", { name: UI_JSON_SETTINGS_FILE, json: JSON.stringify(merged) });
+    localStorage.setItem(UI_JSON_SETTINGS_MIGRATED_KEY, "1");
+  } catch (e) {
+    console.warn("bootstrapUiSettings save failed", e);
   }
 }
 const isTypingTarget = (target: EventTarget | null) => {
@@ -1645,11 +1746,7 @@ export default function App() {
     }
   });
   useEffect(() => {
-    try {
-      localStorage.setItem(NG_ID_EXPIRE_DAYS_KEY, String(ngIdExpireDays));
-    } catch (e) {
-      console.warn("desktop.ngIdExpireDays.v1 save failed", e);
-    }
+    saveUiSetting(NG_ID_EXPIRE_DAYS_KEY, String(ngIdExpireDays));
   }, [ngIdExpireDays]);
   const [highlightFilters, setHighlightFilters] = useState<HighlightFilters>({ words: [], ids: [], names: [] });
   // 手動「ここまで読んだ」マーカー: board_url -> thread_key -> response_no
@@ -1720,11 +1817,7 @@ export default function App() {
   const postLogEnabledRef = useRef(postLogEnabled);
   postLogEnabledRef.current = postLogEnabled;
   useEffect(() => {
-    try {
-      localStorage.setItem(POST_LOG_PREFS_KEY, JSON.stringify({ enabled: postLogEnabled }));
-    } catch (e) {
-      console.warn("failed to save postLogPrefs", e);
-    }
+    saveUiSetting(POST_LOG_PREFS_KEY, JSON.stringify({ enabled: postLogEnabled }));
   }, [postLogEnabled]);
   const [composeSubmitKey, setComposeSubmitKey] = useState<"shift" | "ctrl">("shift");
   const [typingConfettiEnabled, setTypingConfettiEnabled] = useState(false);
@@ -1973,18 +2066,10 @@ export default function App() {
   const [aiInferenceBackend, setAiInferenceBackend] = useState<AiInferenceBackend>(loadAiInferenceBackend);
   const [translationEnabled, setTranslationEnabled] = useState<boolean>(loadTranslationEnabled);
   useEffect(() => {
-    try {
-      localStorage.setItem(AI_PREFS_KEY, JSON.stringify({ inferenceBackend: aiInferenceBackend, translationEnabled }));
-    } catch (e) {
-      console.warn("desktop.aiPrefs.v1 save failed", e);
-    }
+    saveUiSetting(AI_PREFS_KEY, JSON.stringify({ inferenceBackend: aiInferenceBackend, translationEnabled }));
   }, [aiInferenceBackend, translationEnabled]);
   useEffect(() => {
-    try {
-      localStorage.setItem(THREAD_SORT_PERSIST_KEY, String(threadSortPersistEnabled));
-    } catch (e) {
-      console.warn("desktop.threadSortPersistEnabled.v1 save failed", e);
-    }
+    saveUiSetting(THREAD_SORT_PERSIST_KEY, String(threadSortPersistEnabled));
   }, [threadSortPersistEnabled]);
   useEffect(() => {
     if (!threadSortPersistEnabled) return;
@@ -2298,7 +2383,7 @@ export default function App() {
   const toggleEx0chEnabled = () => {
     setEx0chEnabled((prev) => {
       const next = !prev;
-      try { localStorage.setItem(EX0CH_ENABLED_KEY, String(next)); } catch { /* ignore */ }
+      saveUiSetting(EX0CH_ENABLED_KEY, String(next));
       void fetchBoardCategories(next);
       return next;
     });
@@ -6902,11 +6987,12 @@ export default function App() {
   }, [autoRefreshEnabled, autoRefreshInterval, threadUrl]);
 
   useEffect(() => {
+    saveUiSetting(AUTO_REFRESH_PERSIST_KEY, autoRefreshPersistEnabled ? "true" : "false");
+    if (autoRefreshPersistEnabled) return;
     try {
-      localStorage.setItem(AUTO_REFRESH_PERSIST_KEY, autoRefreshPersistEnabled ? "true" : "false");
-      if (!autoRefreshPersistEnabled) localStorage.removeItem(AUTO_REFRESH_ENABLED_KEY);
+      localStorage.removeItem(AUTO_REFRESH_ENABLED_KEY);
     } catch (e) {
-      console.warn("desktop.autoRefreshPersistEnabled.v1 save failed", e);
+      console.warn("desktop.autoRefreshEnabled.v1 remove failed", e);
     }
   }, [autoRefreshPersistEnabled]);
 

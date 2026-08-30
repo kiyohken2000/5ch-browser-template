@@ -1311,13 +1311,18 @@ fn save_auth_config(config: AuthConfig) -> Result<(), String> {
 
 #[tauri::command]
 fn save_layout_prefs(prefs: String) -> Result<(), String> {
-    core_store::save_json("layout_prefs.json", &prefs).map_err(|e| e.to_string())
+    // 文字列のまま渡すとエスケープされた 1 行になって手で読めないので、
+    // 値としてパースしてから書く。
+    let value: serde_json::Value = serde_json::from_str(&prefs).map_err(|e| e.to_string())?;
+    core_store::save_json("layout_prefs.json", &value).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn load_layout_prefs() -> Result<String, String> {
-    match core_store::load_json::<String>("layout_prefs.json") {
-        Ok(data) => Ok(data),
+    match core_store::load_json::<serde_json::Value>("layout_prefs.json") {
+        // 旧形式。JSON 文字列がそのまま値として入っている。
+        Ok(serde_json::Value::String(data)) => Ok(data),
+        Ok(value) => Ok(value.to_string()),
         Err(_) => Ok(String::new()),
     }
 }
