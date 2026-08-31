@@ -412,6 +412,12 @@ type ThreadTab = {
 const stripHtmlForMatch = (html: string): string =>
   html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, " ").trim();
 
+// 5ch は Be ログイン中の書き込みに Be アイコン (sssp://img.5ch.io/ico/xxx.gif) を
+// 本文の先頭へ差し込む。送信した本文側には無いので、自分のレスの照合ではこれを
+// 落とした形でも比較する。
+const stripBeIconPrefix = (text: string): string =>
+  text.replace(/^sssp:\/\/\S+\.(?:gif|png|jpe?g)\s*/i, "");
+
 // 書き込み後に自分のレスを本文で照合するときの部分一致ガード。完全一致が取れない
 // 場合だけ使うフォールバックなので、短い文字列の包含 (他人の短文レスが自分の本文に
 // 含まれるケース) は弾き、長さが十分あって かつ 近いものだけ自分のレスとみなす。
@@ -2265,22 +2271,30 @@ export default function App() {
     // 自分のレスは必ず末尾側にあるため新しい順に見て、完全一致を最優先する。
     const candidates = fetchedResponses
       .slice(pending.prevCount)
-      .map((r) => ({ res: r, stripped: stripHtmlForMatch(r.body || "") }))
+      .map((r) => {
+        const stripped = stripHtmlForMatch(r.body || "");
+        // Be アイコン付きの形と外した形の両方で照合する。外した形だけにすると、
+        // 本文が sssp:// で始まる書き込みを取り違える。
+        return { res: r, texts: [stripped, stripBeIconPrefix(stripped)] };
+      })
       .reverse();
     let matched: ThreadResponseItem | null = null;
     for (const c of candidates) {
-      if (c.stripped === normalizedBody) { matched = c.res; break; }
+      if (c.texts.includes(normalizedBody)) { matched = c.res; break; }
     }
     if (!matched) {
       // 5ch 側で末尾が削られる等のズレ用のフォールバック。
       for (const c of candidates) {
-        if (!c.stripped.includes(normalizedBody) && !normalizedBody.includes(c.stripped)) continue;
-        const shorter = Math.min(c.stripped.length, normalizedBody.length);
-        const longer = Math.max(c.stripped.length, normalizedBody.length);
-        if (shorter < MY_POST_MIN_PARTIAL_LEN) continue;
-        if (shorter / longer < MY_POST_MIN_PARTIAL_RATIO) continue;
-        matched = c.res;
-        break;
+        for (const t of c.texts) {
+          if (!t.includes(normalizedBody) && !normalizedBody.includes(t)) continue;
+          const shorter = Math.min(t.length, normalizedBody.length);
+          const longer = Math.max(t.length, normalizedBody.length);
+          if (shorter < MY_POST_MIN_PARTIAL_LEN) continue;
+          if (shorter / longer < MY_POST_MIN_PARTIAL_RATIO) continue;
+          matched = c.res;
+          break;
+        }
+        if (matched) break;
       }
     }
     if (matched) {
