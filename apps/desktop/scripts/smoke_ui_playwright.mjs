@@ -1406,7 +1406,57 @@ try {
     (el) => el.value,
   );
   assert(newThreadNameValue === "板A太郎", `new thread name should come from board A, got ${newThreadNameValue}`);
-  await page.click(".settings-panel .settings-header button");
+  const newThreadBoardA = await page.$eval(".new-thread-target", (el) => el.textContent);
+  assert(
+    newThreadBoardA.includes("/base/"),
+    `new thread target board should be board A, got ${newThreadBoardA}`,
+  );
+
+  // 開いたまま板 (タブ) を切り替えると投稿先も名前欄も追従する
+  await nameTabs[1].click();
+  await new Promise((r) => setTimeout(r, 200));
+  const newThreadBoardB = await page.$eval(".new-thread-target", (el) => el.textContent);
+  assert(
+    newThreadBoardB.includes("/news4vip/"),
+    `new thread target board should follow to board B, got ${newThreadBoardB}`,
+  );
+  const newThreadNameOnB = await page.$eval(
+    ".settings-panel input[list='name-history-list-newthread']",
+    (el) => el.value,
+  );
+  assert(newThreadNameOnB === "板B太郎", `new thread name should follow to board B, got ${newThreadNameOnB}`);
+
+  // 手入力した名前は板を移っても勝手に差し替えない
+  await page.fill(".settings-panel input[list='name-history-list-newthread']", "スレ立て手入力");
+  await nameTabs[0].click();
+  await new Promise((r) => setTimeout(r, 200));
+  const newThreadNameAfterEdit = await page.$eval(
+    ".settings-panel input[list='name-history-list-newthread']",
+    (el) => el.value,
+  );
+  assert(
+    newThreadNameAfterEdit === "スレ立て手入力",
+    `manually typed new thread name should survive a board change, got ${newThreadNameAfterEdit}`,
+  );
+
+  // スレ立ては書き込みと同じ浮遊ウィンドウ: 背景を覆うオーバーレイが無く、ヘッダーで動かせる
+  assert(
+    !(await page.$(".lightbox-overlay")),
+    "new thread window should not be modal (no lightbox overlay)",
+  );
+  const newThreadHeader = await page.$(".new-thread-window .new-thread-header");
+  assert(newThreadHeader, "new thread window should have a draggable header");
+  const ntBox = await newThreadHeader.boundingBox();
+  await page.mouse.move(ntBox.x + 20, ntBox.y + ntBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(ntBox.x - 80, ntBox.y - 40, { steps: 5 });
+  await page.mouse.up();
+  const ntPos = JSON.parse(await page.evaluate(() => localStorage.getItem("desktop.newThreadDialogPos.v1")));
+  assert(
+    ntPos && typeof ntPos.x === "number" && typeof ntPos.y === "number",
+    `dragging the new thread window should persist its position, got ${JSON.stringify(ntPos)}`,
+  );
+  await page.click(".new-thread-window .settings-header button:last-child");
   console.log("smoke-ui: per-board compose name ok");
 
   // --- 名前を記憶しない ---
@@ -1443,7 +1493,7 @@ try {
     forgottenNewThreadName === "",
     `new thread name should be empty while forgetName is on, got ${forgottenNewThreadName}`,
   );
-  await page.click(".settings-panel .settings-header button");
+  await page.click(".new-thread-window .settings-header button:last-child");
   console.log("smoke-ui: forget compose name ok");
 
   // --- 記憶した名前を削除 ---

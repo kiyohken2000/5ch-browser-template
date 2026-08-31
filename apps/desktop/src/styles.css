@@ -3767,6 +3767,28 @@ a.body-link-image:hover::after {
 .settings-header button {
   margin-left: auto;
 }
+/* スレ立ては書き込みウィンドウと同じ浮遊パネル。背景を暗転させないので、
+   スレを立てながら前スレのレスを読んで URL をコピーできる。 */
+.new-thread-window {
+  position: fixed;
+  /* 書き込みウィンドウ (right 20 / bottom 28) と同時に開いても重ならないようずらす */
+  right: 44px;
+  bottom: 52px;
+  max-height: none;
+  z-index: 31;
+}
+.new-thread-header {
+  cursor: move;
+}
+/* .settings-header button の margin-left:auto を打ち消し、
+   リセットアイコンだけを右寄せの起点にする */
+.new-thread-header button {
+  margin-left: 0;
+}
+.new-thread-header .compose-header-icon {
+  margin-left: auto;
+}
+
 .settings-body {
   padding: 8px 12px;
   overflow-y: auto;
