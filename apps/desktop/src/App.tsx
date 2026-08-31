@@ -412,6 +412,12 @@ type ThreadTab = {
 const stripHtmlForMatch = (html: string): string =>
   html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, " ").trim();
 
+// 書き込み後に自分のレスを本文で照合するときの部分一致ガード。完全一致が取れない
+// 場合だけ使うフォールバックなので、短い文字列の包含 (他人の短文レスが自分の本文に
+// 含まれるケース) は弾き、長さが十分あって かつ 近いものだけ自分のレスとみなす。
+const MY_POST_MIN_PARTIAL_LEN = 8;
+const MY_POST_MIN_PARTIAL_RATIO = 0.8;
+
 const MIN_BOARD_PANE_PX = 160;
 const MIN_THREAD_PANE_PX = 120;
 const MIN_RESPONSE_PANE_PX = 360;
@@ -2255,16 +2261,34 @@ export default function App() {
     if (fetchedResponses.length <= pending.prevCount) return;
     pendingMyPostRef.current = null;
     const normalizedBody = pending.body.replace(/\s+/g, " ").trim();
-    const newResponses = fetchedResponses.slice(pending.prevCount);
-    const matched = newResponses.find((r) => {
-      const stripped = stripHtmlForMatch(r.body || "");
-      return stripped === normalizedBody || stripped.includes(normalizedBody) || normalizedBody.includes(stripped);
-    });
+    // 送信から再取得までの間に他人のレスが挟まるので、この候補列には自分以外も入る。
+    // 自分のレスは必ず末尾側にあるため新しい順に見て、完全一致を最優先する。
+    const candidates = fetchedResponses
+      .slice(pending.prevCount)
+      .map((r) => ({ res: r, stripped: stripHtmlForMatch(r.body || "") }))
+      .reverse();
+    let matched: ThreadResponseItem | null = null;
+    for (const c of candidates) {
+      if (c.stripped === normalizedBody) { matched = c.res; break; }
+    }
+    if (!matched) {
+      // 5ch 側で末尾が削られる等のズレ用のフォールバック。
+      for (const c of candidates) {
+        if (!c.stripped.includes(normalizedBody) && !normalizedBody.includes(c.stripped)) continue;
+        const shorter = Math.min(c.stripped.length, normalizedBody.length);
+        const longer = Math.max(c.stripped.length, normalizedBody.length);
+        if (shorter < MY_POST_MIN_PARTIAL_LEN) continue;
+        if (shorter / longer < MY_POST_MIN_PARTIAL_RATIO) continue;
+        matched = c.res;
+        break;
+      }
+    }
     if (matched) {
+      const myNo = matched.responseNo;
       setMyPosts((prev) => {
         const list = prev[pending.threadUrl] ?? [];
-        if (list.includes(matched.responseNo)) return prev;
-        const next = { ...prev, [pending.threadUrl]: [...list, matched.responseNo] };
+        if (list.includes(myNo)) return prev;
+        const next = { ...prev, [pending.threadUrl]: [...list, myNo] };
         saveUiJson(MY_POSTS_KEY, JSON.stringify(next));
         return next;
       });
