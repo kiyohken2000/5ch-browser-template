@@ -159,6 +159,8 @@ git add \
   "$DESKTOP_DIR/src/App.tsx" \
   "$DESKTOP_DIR/src/styles.css" \
   "$DESKTOP_DIR/public/pip.html" \
+  "$DESKTOP_DIR/scripts/smoke_ui_playwright.mjs" \
+  "$TAURI_DIR/icons" \
   "$ROOT_DIR/scripts/release.sh"
 
 # Only add files that have changes staged
