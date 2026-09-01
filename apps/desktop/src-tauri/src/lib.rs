@@ -2029,6 +2029,12 @@ struct DataDirInfo {
     is_custom: bool,
     /// True when EMBER_DATA_DIR is set — GUI changes are disabled in that case.
     env_override: bool,
+    /// 本来の保存先に書き込めず自動退避したときの「書けなかったフォルダ」。
+    /// 退避していなければ None。
+    fallback_from: Option<String>,
+    /// 現在の保存先に実際に書き込めるか。false のときは設定・既読・ウィンドウ位置が
+    /// どれも保存されないので、設定画面で警告を出す。
+    writable: bool,
 }
 
 #[tauri::command]
@@ -2043,6 +2049,9 @@ fn get_data_dir_info() -> Result<DataDirInfo, String> {
         pointer_dir: pointer.as_ref().map(|p| p.to_string_lossy().to_string()),
         is_custom: pointer.is_some() && !env_override,
         env_override,
+        fallback_from: core_store::data_dir_fallback_from()
+            .map(|p| p.to_string_lossy().to_string()),
+        writable: core_store::data_dir_writable(),
     })
 }
 
@@ -2536,7 +2545,12 @@ pub fn run() {
         }
     }
 
-    let _ = core_store::init_portable_layout();
+    // 保存先を作れないと設定・既読・ウィンドウ位置がどれも保存されないまま
+    // アプリだけ動いてしまう。ここまで来て失敗しているならログにも書けないので
+    // 標準エラーへ出す (設定画面には get_data_dir_info の writable で出る)。
+    if let Err(e) = core_store::init_portable_layout() {
+        eprintln!("init_portable_layout failed: {e}");
+    }
     let _ = core_store::append_log("app started");
 
     // Safe-mode toggle (v0.0.164–v0.0.166 attempt) was removed in v0.0.167:

@@ -3256,6 +3256,17 @@ a.body-link-image:hover::after {
   margin-left: 4px;
 }
 
+/* 保存先に書き込めない状態は、気付かないと設定も既読も消え続けるので目立たせる */
+.settings-hint.data-dir-warning {
+  color: #cc3300;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.dark .settings-hint.data-dir-warning {
+  color: #ff6644;
+}
+
 .body-link {
   color: #0066cc;
   text-decoration: none;

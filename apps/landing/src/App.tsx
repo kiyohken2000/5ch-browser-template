@@ -759,9 +759,14 @@ export default function App() {
               </div>
               <ol className="install-steps">
                 <li><code>ember-win-x64.zip</code> をダウンロード</li>
-                <li>ZIPを展開して <code>ember.exe</code> を実行</li>
+                <li>ZIPを<strong>書き込みできる場所</strong>（ドキュメント・デスクトップなど）に展開して <code>ember.exe</code> を実行</li>
                 <li>板一覧を取得して利用開始</li>
               </ol>
+              <p className="note">
+                設定・お気に入り・既読・ウィンドウ位置は <code>ember.exe</code> と同じ場所の <code>data</code> フォルダに保存します。
+                <code>C:\Program Files</code> など書き込み権限のない場所に置いた場合はユーザーフォルダへ自動的に退避しますが、
+                最初から書き込みできる場所へ展開するのが確実です（管理者として実行する必要はありません）。
+              </p>
               <p className="note">更新時はアプリ終了後、<code>ember.exe</code> を新しいものに上書きしてください。</p>
               <details className="install-warning">
                 <summary>

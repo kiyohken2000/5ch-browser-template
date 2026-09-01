@@ -2083,6 +2083,8 @@ export default function App() {
     pointerDir: string | null;
     isCustom: boolean;
     envOverride: boolean;
+    fallbackFrom: string | null;
+    writable: boolean;
   } | null>(null);
   const [dataDirMsg, setDataDirMsg] = useState<string | null>(null);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
@@ -7291,6 +7293,8 @@ export default function App() {
         pointerDir: string | null;
         isCustom: boolean;
         envOverride: boolean;
+        fallbackFrom: string | null;
+        writable: boolean;
       }>("get_data_dir_info");
       setDataDirInfo(info);
     } catch (e) {
@@ -11782,6 +11786,20 @@ export default function App() {
                       </button>
                     </span>
                   </div>
+                  {dataDirInfo && !dataDirInfo.writable && (
+                    <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                      <span className="settings-hint data-dir-warning">
+                        ⚠ この保存先に書き込めません。お気に入り・NG・既読・ウィンドウ位置が保存されません。書き込みできるフォルダへ変更してください。
+                      </span>
+                    </div>
+                  )}
+                  {dataDirInfo?.fallbackFrom && (
+                    <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                      <span className="settings-hint" style={{ lineHeight: 1.5, wordBreak: "break-all" }}>
+                        {dataDirInfo.fallbackFrom} に書き込めなかったため、この場所へ自動的に切り替えました。アプリ本体を書き込みできるフォルダへ移すと、元の配置に戻ります。
+                      </span>
+                    </div>
+                  )}
                   {dataDirInfo && !dataDirInfo.envOverride && (() => {
                     const nextDir = dataDirInfo.pointerDir ?? dataDirInfo.defaultDir;
                     if (nextDir === dataDirInfo.currentDir) return null;

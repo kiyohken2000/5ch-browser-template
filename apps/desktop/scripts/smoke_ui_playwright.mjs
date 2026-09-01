@@ -1106,6 +1106,28 @@ try {
   await page.click('.gesture-config-panel .shortcuts-header button:has-text("閉じる")');
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: mouse gesture customization ok");
+  // データフォルダ: 保存先に書き込めないときの警告表示。
+  // 実際の判定は Tauri 側 (get_data_dir_info) なので、静的 dist では
+  // dataDirInfo が null のまま = 警告を出さないことだけ確認する。
+  const dataDirWarning = await page.$(".settings-body .data-dir-warning");
+  assert(!dataDirWarning, "data dir warning should stay hidden without tauri runtime");
+  const dataDirPath = await page.$eval(
+    '.settings-body fieldset:has(legend:text-is("データフォルダ")) .settings-row span:has-text("現在の保存先") + span span',
+    (el) => el.textContent?.trim(),
+  );
+  assert(dataDirPath === "—", `data dir path should be a placeholder without tauri, got ${dataDirPath}`);
+  const dataDirWarningCss = await page.evaluate(() => {
+    for (const sheet of Array.from(document.styleSheets)) {
+      try {
+        for (const rule of Array.from(sheet.cssRules)) {
+          if (rule.cssText?.includes(".data-dir-warning")) return true;
+        }
+      } catch { /* cross-origin sheet */ }
+    }
+    return false;
+  });
+  assert(dataDirWarningCss, "data dir warning CSS should exist in stylesheet");
+  console.log("smoke-ui: data dir warning ok");
   // close settings
   await page.click('.settings-header button:has-text("閉じる")');
   await new Promise((r) => setTimeout(r, 100));
