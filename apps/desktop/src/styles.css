@@ -644,6 +644,11 @@ li.fav-drag-over {
 .image-gallery-thumb-wrap:hover::after {
   opacity: 1;
 }
+/* サイズ制限のプレースホルダにはプレビューできないので、ホバーヒントも出さない */
+.image-gallery-thumb-wrap:has(.thumb-gate-loading)::after,
+.image-gallery-thumb-wrap:has(.thumb-gate-blocked)::after {
+  content: none;
+}
 .image-gallery-thumb {
   max-width: 100%;
   max-height: 140px;
@@ -834,6 +839,10 @@ li.fav-drag-over {
   gap: 4px;
   align-items: baseline;
   white-space: nowrap;
+}
+/* 「日付・IDを名前の隣に表示」: 右端への押し出しをやめ、名前に続けて並べる */
+.shell.meta-inline .response-header-right {
+  margin-left: 0;
 }
 
 .response-name {

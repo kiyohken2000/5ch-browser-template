@@ -1548,6 +1548,67 @@ try {
   await page.click(".settings-panel .settings-header button");
   console.log("smoke-ui: clear remembered names ok");
 
+  // --- 画像一覧サブペインと画像サイズ制限 ---
+  // WEB ランタイムでは取得済みレスが無いため一覧は空。ここで見られるのは
+  // 「サイズ制限を入れても一覧が壊れない / 制限値が保存される」ところまでで、
+  // 実際のサイズ判定は HEAD リクエストが要るのでスモークでは検証できない。
+  const galleryToggle = await page.$('button[title="画像一覧"]');
+  assert(galleryToggle, "thread title bar should have the image gallery toggle");
+  await galleryToggle.click();
+  await new Promise((r) => setTimeout(r, 150));
+  assert(await page.$(".image-gallery-pane"), "image gallery toggle should open the gallery pane");
+  const galleryHeader = await page.$eval(".image-gallery-header", (el) => el.textContent);
+  assert(galleryHeader.includes("画像一覧"), `gallery header should read 画像一覧, got ${galleryHeader}`);
+  assert(await page.$(".image-gallery-empty"), "gallery should show the empty state without fetched responses");
+
+  const fileMenuForImageLimit = await page.$('.menu-item:has-text("ファイル")');
+  await fileMenuForImageLimit.click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("設定")');
+  await page.waitForSelector(".settings-panel");
+  const imageLimitInput = await page.$('.settings-row:has-text("画像サイズ制限") input[type="number"]');
+  assert(imageLimitInput, "settings should have the image size limit input");
+  await imageLimitInput.fill("200");
+  await new Promise((r) => setTimeout(r, 300));
+  const savedImageLimit = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1")).imageSizeLimit,
+  );
+  assert(savedImageLimit === 200, `image size limit should persist, got ${savedImageLimit}`);
+  await page.click(".settings-panel .settings-header button");
+  await new Promise((r) => setTimeout(r, 150));
+  assert(await page.$(".image-gallery-pane"), "gallery pane should survive turning the size limit on");
+  assert(
+    !(await page.$(".image-gallery-pane .thumb-gate-loading, .image-gallery-pane .thumb-gate-blocked")),
+    "an empty gallery should not render size-gate placeholders",
+  );
+  await page.click('button[title="画像一覧"]');
+  await new Promise((r) => setTimeout(r, 100));
+  assert(!(await page.$(".image-gallery-pane")), "toggling again should close the gallery pane");
+  console.log("smoke-ui: image gallery size limit ok");
+
+  // --- 日付・IDを名前の隣に表示 ---
+  const metaRightDefault = await page.$eval(".response-header-right", (el) => getComputedStyle(el).marginLeft);
+  assert(metaRightDefault !== "0px", `date/ID should be right-aligned by default, got margin-left ${metaRightDefault}`);
+  const fileMenuForMeta = await page.$('.menu-item:has-text("ファイル")');
+  await fileMenuForMeta.click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("設定")');
+  await page.waitForSelector(".settings-panel");
+  const metaInlineRow = await page.$('.settings-row:has-text("日付・IDを名前の隣に表示") input[type="checkbox"]');
+  assert(metaInlineRow, "settings should have the inline date/ID checkbox");
+  assert(!(await metaInlineRow.isChecked()), "inline date/ID should default to off");
+  await metaInlineRow.check();
+  await new Promise((r) => setTimeout(r, 300));
+  await page.click(".settings-panel .settings-header button");
+  await new Promise((r) => setTimeout(r, 150));
+  const metaInlineMargin = await page.$eval(".response-header-right", (el) => getComputedStyle(el).marginLeft);
+  assert(metaInlineMargin === "0px", `inline mode should drop the auto margin, got ${metaInlineMargin}`);
+  const savedMetaInline = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1")).responseMetaInline,
+  );
+  assert(savedMetaInline === true, `inline date/ID setting should persist, got ${savedMetaInline}`);
+  console.log("smoke-ui: inline date/id ok");
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

@@ -1650,6 +1650,10 @@ const extractImageUrls = (html: string): string[] => {
   }))];
 };
 
+// 画像サイズ制限の表示用。本文プレビューと画像一覧サブペインで同じ文言にする
+const formatImageByteSize = (size: number): string =>
+  size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)}MB` : `${Math.round(size / 1024)}KB`;
+
 const extractWatchoi = (name: string): string | null => {
   const m = name.match(/[(（]([^)）]+)[)）]\s*$/);
   if (!m) return null;
@@ -1853,6 +1857,10 @@ export default function App() {
   const [composeSubmitKey, setComposeSubmitKey] = useState<"shift" | "ctrl">("shift");
   const [typingConfettiEnabled, setTypingConfettiEnabled] = useState(false);
   const [imageSizeLimit, setImageSizeLimit] = useState(0); // KB, 0 = unlimited
+  // 画像一覧サブペイン用: HEAD で調べた URL→バイト数 (null = 不明)。本文と同じサイズ制限を掛けるために使う
+  const [imageSizeMap, setImageSizeMap] = useState<Record<string, number | null>>({});
+  // サイズ制限で隠した画像を個別に表示する (本文の「クリックで表示」と同じ扱い)
+  const [revealedGalleryImages, setRevealedGalleryImages] = useState<Set<string>>(new Set());
   const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState(false);
   // ID のマウスオーバーで同一 ID のレスをポップアップするか。既定は表示する
   const [idPopupEnabled, setIdPopupEnabled] = useState(true);
@@ -1883,6 +1891,8 @@ export default function App() {
   const [ogpDomainTab, setOgpDomainTab] = useState<"allow" | "block">("allow");
   const [ogpDomainInput, setOgpDomainInput] = useState("");
   const [responseBodyBottomPad, setResponseBodyBottomPad] = useState(false);
+  // 日付・IDを右端ではなく名前の隣に置く。ペインが広いと右端まで視線を動かす必要があるため
+  const [responseMetaInline, setResponseMetaInline] = useState(false);
   const [titleClickRefresh, setTitleClickRefresh] = useState(false);
   // レス選択時にそのレスを表示領域内へ自動スクロールするか (既定 ON = 従来動作)
   const [autoScrollToSelected, setAutoScrollToSelected] = useState(true);
@@ -2353,8 +2363,7 @@ export default function App() {
           delete gate.dataset.gateSrc;
           delete gate.dataset.sizeLimit;
           if (size !== null && size > limitBytes) {
-            const sizeStr = size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)}MB` : `${Math.round(size / 1024)}KB`;
-            gate.innerHTML = `<span class="thumb-gate-blocked" data-reveal-src="${src}">サイズ制限 (${sizeStr}) により非表示 — クリックで表示</span>`;
+            gate.innerHTML = `<span class="thumb-gate-blocked" data-reveal-src="${src}">サイズ制限 (${formatImageByteSize(size)}) により非表示 — クリックで表示</span>`;
           } else {
             gate.innerHTML = `<img class="response-thumb" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="" />`;
           }
@@ -4967,6 +4976,30 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchedResponses, ngFilters]);
 
+  // 画像一覧サブペインにも本文と同じサイズ制限を掛ける。
+  // HEAD の結果は本文側 (imageSizeCacheRef) と共有するので、同じ URL へ二重にリクエストしない。
+  // 一覧を閉じている間や制限が 0 のときは何も送らない。
+  useEffect(() => {
+    if (!imageGalleryOpen || imageSizeLimit <= 0) return;
+    let cancelled = false;
+    const cache = imageSizeCacheRef.current;
+    for (const { url } of galleryImages) {
+      let sizePromise = cache.get(url);
+      if (!sizePromise) {
+        sizePromise = fetch(url, { method: "HEAD" }).then((res) => {
+          const cl = res.headers.get("content-length");
+          return cl ? parseInt(cl, 10) : null;
+        }).catch(() => null);
+        cache.set(url, sizePromise);
+      }
+      void sizePromise.then((size) => {
+        if (cancelled) return;
+        setImageSizeMap((prev) => (url in prev && prev[url] === size ? prev : { ...prev, [url]: size }));
+      }).catch((e) => console.warn("image size check failed", e));
+    }
+    return () => { cancelled = true; };
+  }, [imageGalleryOpen, imageSizeLimit, galleryImages]);
+
   // Build back-reference map: responseNo → list of responseNos that reference it
   const backRefMap = (() => {
     const map = new Map<number, number[]>();
@@ -6068,6 +6101,7 @@ export default function App() {
           threadColVisible?: Record<string, boolean>;
           threadColOrder?: string[];
           responseBodyBottomPad?: boolean;
+          responseMetaInline?: boolean;
           titleClickRefresh?: boolean;
           autoScrollSpeed?: number;
           autoScrollToSelected?: boolean;
@@ -6150,6 +6184,7 @@ export default function App() {
         if (parsed.threadColVisible && typeof parsed.threadColVisible === "object") setThreadColVisible((prev) => ({ ...prev, ...parsed.threadColVisible }));
         if (Array.isArray(parsed.threadColOrder)) setThreadColOrder(normalizeThreadColOrder(parsed.threadColOrder));
         if (typeof parsed.responseBodyBottomPad === "boolean") setResponseBodyBottomPad(parsed.responseBodyBottomPad);
+        if (typeof parsed.responseMetaInline === "boolean") setResponseMetaInline(parsed.responseMetaInline);
         if (typeof parsed.titleClickRefresh === "boolean") setTitleClickRefresh(parsed.titleClickRefresh);
         if (typeof parsed.autoScrollSpeed === "number" && parsed.autoScrollSpeed > 0) setAutoScrollSpeed(parsed.autoScrollSpeed);
         if (typeof parsed.wheelRowScrollEnabled === "boolean") setWheelRowScrollEnabled(parsed.wheelRowScrollEnabled);
@@ -6951,6 +6986,7 @@ export default function App() {
       threadColVisible,
       threadColOrder,
       responseBodyBottomPad,
+      responseMetaInline,
       titleClickRefresh,
       autoScrollSpeed,
       autoScrollToSelected,
@@ -6961,7 +6997,7 @@ export default function App() {
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, composePos, threadColVisible, threadColOrder, responseBodyBottomPad, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, composePos, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -8085,7 +8121,7 @@ export default function App() {
 
   return (
     <div
-      className={`shell${darkMode ? " dark" : ""}${glassMode ? " glass" : ""}${glassMode && glassUltraLite ? " glass-ultra-lite" : ""}${glassMode && !glassUltraLite && glassLite ? " glass-lite" : ""}${thumbMaskEnabled ? " thumb-masked" : ""}`}
+      className={`shell${darkMode ? " dark" : ""}${glassMode ? " glass" : ""}${glassMode && glassUltraLite ? " glass-ultra-lite" : ""}${glassMode && !glassUltraLite && glassLite ? " glass-lite" : ""}${thumbMaskEnabled ? " thumb-masked" : ""}${responseMetaInline ? " meta-inline" : ""}`}
       style={{ fontFamily: fontFamily ? `"Backslash", ${fontFamily}` : undefined, gridTemplateRows: [
         "26px",
         toolBarVisible ? "32px" : null,
@@ -9498,11 +9534,18 @@ export default function App() {
                   {galleryImages.length === 0 && (
                     <div className="image-gallery-empty">画像なし</div>
                   )}
-                  {galleryImages.map((img, i) => (
+                  {galleryImages.map((img, i) => {
+                    // 制限が有効な間はサイズが分かるまで出さない。分かってから超過判定する
+                    const imgSize = imageSizeMap[img.url];
+                    const gated = imageSizeLimit > 0 && !revealedGalleryImages.has(img.url);
+                    const sizeChecking = gated && imgSize === undefined;
+                    const sizeBlocked = gated && typeof imgSize === "number" && imgSize > imageSizeLimit * 1024;
+                    return (
                     <div key={`${img.responseNo}-${i}`} className="image-gallery-item">
                       <div
                         className="image-gallery-thumb-wrap"
                         onMouseMove={(e) => {
+                          if (sizeChecking || sizeBlocked) return;
                           if (!e.ctrlKey && !hoverPreviewEnabled) return;
                           showHoverPreview(img.url);
                         }}
@@ -9518,6 +9561,11 @@ export default function App() {
                           }, 300);
                         }}
                         onClick={() => {
+                          if (sizeChecking) return;
+                          if (sizeBlocked) {
+                            setRevealedGalleryImages((prev) => new Set(prev).add(img.url));
+                            return;
+                          }
                           if (isTauriRuntime()) {
                             void invoke("open_external_url", { url: img.url }).catch(() => window.open(img.url, "_blank"));
                           } else {
@@ -9525,7 +9573,13 @@ export default function App() {
                           }
                         }}
                       >
-                        <img className="image-gallery-thumb" src={img.url} loading="lazy" alt="" />
+                        {sizeChecking ? (
+                          <span className="thumb-gate-loading">画像を確認中…</span>
+                        ) : sizeBlocked ? (
+                          <span className="thumb-gate-blocked">サイズ制限 ({formatImageByteSize(imgSize as number)}) により非表示 — クリックで表示</span>
+                        ) : (
+                          <img className="image-gallery-thumb" src={img.url} loading="lazy" alt="" />
+                        )}
                       </div>
                       <span
                         className="image-gallery-resno"
@@ -9550,7 +9604,8 @@ export default function App() {
                         &gt;&gt;{img.responseNo}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -11515,6 +11570,10 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={responseBodyBottomPad} onChange={(e) => setResponseBodyBottomPad(e.target.checked)} />
                   <span>レス本文の末尾に空行を追加</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={responseMetaInline} onChange={(e) => setResponseMetaInline(e.target.checked)} />
+                  <span title="オフのときはレスペインの右端に寄せます">日付・IDを名前の隣に表示</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={titleClickRefresh} onChange={(e) => setTitleClickRefresh(e.target.checked)} />

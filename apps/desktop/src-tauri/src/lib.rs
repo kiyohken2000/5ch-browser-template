@@ -1217,6 +1217,21 @@ type ReadStatusMap = HashMap<String, HashMap<String, u32>>;
 fn load_read_status() -> Result<ReadStatusMap, String> {
     match core_store::load_json::<ReadStatusMap>("read_status.json") {
         Ok(data) => Ok(data),
+        // JSON が壊れていた場合。ここで黙って空マップを返すと、次にスレを読んだ
+        // ときの保存が「空 + 1 件」で全体を上書きし、全板の既読が二度と戻らない。
+        // 壊れたファイルを退避してから空で続行し、ログに残す。
+        Err(core_store::StoreError::Json(e)) => {
+            let moved = core_store::quarantine_broken_json("read_status.json");
+            let _ = core_store::append_log(&format!(
+                "load_read_status: broken json ({}) -> {}",
+                e,
+                moved
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "quarantine failed".into()),
+            ));
+            Ok(HashMap::new())
+        }
+        // 未作成 (初回起動) など。これは異常ではないので触らない。
         Err(_) => Ok(HashMap::new()),
     }
 }

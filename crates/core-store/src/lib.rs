@@ -192,14 +192,64 @@ pub fn init_portable_layout() -> Result<PathBuf, StoreError> {
     Ok(data_dir)
 }
 
+/// 同じディレクトリの一時ファイルへ書いてから rename する。`fs::write` は先に
+/// 本体を 0 バイトへ切り詰めるので、書き込み中にアプリが落ちると壊れた JSON が
+/// 残り、次回の読み込みが失敗して既読やお気に入りが丸ごと消える。rename は
+/// 同一ボリューム内ならアトミックなので、途中で落ちても元のファイルが残る。
+/// (fsync はしていない。プロセスが死ぬケースは rename だけで防げる一方、
+///  read_status.json や layout_prefs.json は書き込み頻度が高く、毎回の
+///  ディスクフラッシュは体感に響くため。)
 pub fn save_json<T: Serialize>(relative_path: &str, value: &T) -> Result<(), StoreError> {
     let path = portable_data_dir()?.join(relative_path);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
 
-    fs::write(path, serde_json::to_vec_pretty(value)?)?;
+    let bytes = serde_json::to_vec_pretty(value)?;
+    write_atomic(&path, &bytes)
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+    let tmp = sibling_path(path, ".tmp");
+    fs::write(&tmp, bytes)?;
+    // Windows でも MOVEFILE_REPLACE_EXISTING 相当なので既存ファイルを置き換えられる
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e.into());
+    }
     Ok(())
+}
+
+/// `foo.json` に対する `foo.json<suffix>` のパス。拡張子を置き換えると
+/// `foo.json` と `foo.txt` が同じ一時ファイル名になってしまうため、
+/// ファイル名の末尾に足す。
+fn sibling_path(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .map(|n| n.to_os_string())
+        .unwrap_or_default();
+    name.push(suffix);
+    path.with_file_name(name)
+}
+
+/// 壊れて読めなかった JSON を `<name>.bak` へ退避し、本体を消す。
+/// 呼び出し側が「読めなければ空データ」で続けると、次の保存でその空データが
+/// 上書き保存されて中身が完全に失われる。退避しておけば手で復旧できる。
+/// 退避できたときだけ退避先のパスを返す。
+pub fn quarantine_broken_json(relative_path: &str) -> Option<PathBuf> {
+    let path = portable_data_dir().ok()?.join(relative_path);
+    quarantine_path(&path)
+}
+
+fn quarantine_path(path: &Path) -> Option<PathBuf> {
+    if !path.exists() {
+        return None;
+    }
+    let bak = sibling_path(path, ".bak");
+    match fs::rename(path, &bak) {
+        Ok(()) => Some(bak),
+        Err(_) => None,
+    }
 }
 
 pub fn load_json<T: DeserializeOwned>(relative_path: &str) -> Result<T, StoreError> {
@@ -359,6 +409,53 @@ mod tests {
         let bad = file.join("subdir");
         assert!(!dir_is_usable(&bad));
         let _ = fs::remove_file(&file);
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ember_store_{}_{}", tag, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn sibling_path_appends_to_full_file_name() {
+        // 拡張子を置き換えると read_status.json と read_status.txt が
+        // 同じ一時ファイル名になってしまうので、末尾に足していることを確認する
+        let p = Path::new("/data/read_status.json");
+        assert_eq!(sibling_path(p, ".tmp"), PathBuf::from("/data/read_status.json.tmp"));
+        assert_eq!(sibling_path(p, ".bak"), PathBuf::from("/data/read_status.json.bak"));
+    }
+
+    #[test]
+    fn write_atomic_replaces_existing_and_leaves_no_temp() {
+        let dir = temp_dir("atomic");
+        let path = dir.join("read_status.json");
+        write_atomic(&path, b"{\"a\":1}").unwrap();
+        write_atomic(&path, b"{\"b\":2}").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{\"b\":2}");
+        assert!(!sibling_path(&path, ".tmp").exists(), "temp file must not be left behind");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn quarantine_path_moves_broken_file_aside() {
+        let dir = temp_dir("quarantine");
+        let path = dir.join("read_status.json");
+        fs::write(&path, b"{ broken").unwrap();
+        let moved = quarantine_path(&path).expect("should have quarantined");
+        assert_eq!(moved, sibling_path(&path, ".bak"));
+        // 本体が残っていると、次の保存で空データが上書きされたことに気づけない
+        assert!(!path.exists());
+        assert_eq!(fs::read_to_string(&moved).unwrap(), "{ broken");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn quarantine_path_is_noop_when_file_is_missing() {
+        let dir = temp_dir("quarantine_missing");
+        assert!(quarantine_path(&dir.join("read_status.json")).is_none());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
