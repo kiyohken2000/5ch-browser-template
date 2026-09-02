@@ -9,6 +9,7 @@ import {
   type Dispatch,
   type KeyboardEventHandler,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type UIEventHandler,
   type RefObject,
@@ -1823,7 +1824,8 @@ export default function App() {
     return pos ? { left: pos.x, top: pos.y, right: "auto", bottom: "auto" } : {};
   };
   // ヘッダ内のボタン等を押したときはドラッグ開始しない (閉じるボタンが効かなくなるため)
-  const startPanelDrag = (key: DraggablePanelKey) => (e: ReactMouseEvent<HTMLElement>) => {
+  const startPanelDrag = (key: DraggablePanelKey) => (e: ReactPointerEvent<HTMLElement>) => {
+    if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button, input, select, textarea")) return;
     e.preventDefault();
     const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
@@ -2072,6 +2074,10 @@ export default function App() {
   const [responseReloadMenuOpen, setResponseReloadMenuOpen] = useState(false);
   const [threadFilterMenuOpen, setThreadFilterMenuOpen] = useState(false);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  // サブメニューは以前 CSS の :hover だけで開いていたため、ホバーの無いタッチ環境から
+  // 到達できなかった。クリックでも開けるよう開いている項目名を保持する (ホバーは従来通り)。
+  const [openSubmenu, setOpenSubmenu] = useState<string | null>(null);
+  useEffect(() => { setOpenSubmenu(null); }, [openMenu]);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [gestureListOpen, setGestureListOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -2085,6 +2091,7 @@ export default function App() {
     envOverride: boolean;
     fallbackFrom: string | null;
     writable: boolean;
+    webviewDir: string | null;
   } | null>(null);
   const [dataDirMsg, setDataDirMsg] = useState<string | null>(null);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
@@ -2590,7 +2597,7 @@ export default function App() {
   };
 
   const favDragOverIndexRef = useRef<number | null>(null);
-  const onFavItemMouseDown = (e: React.MouseEvent, type: "board" | "thread", index: number, containerSelector: string) => {
+  const onFavItemPointerDown = (e: React.PointerEvent, type: "board" | "thread", index: number, containerSelector: string) => {
     if (e.button !== 0) return;
     favDragRef.current = { type, srcIndex: index, startY: e.clientY };
     favDragOverIndexRef.current = null;
@@ -2619,8 +2626,9 @@ export default function App() {
       }
     };
     const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       const drag = favDragRef.current;
       const dst = favDragOverIndexRef.current;
       favDragRef.current = null;
@@ -2639,8 +2647,9 @@ export default function App() {
         void persistFavorites({ ...favorites, threads: arr });
       }
     };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
   };
 
   const isFavoriteBoard = (url: string) => favorites.boards.some((b) => b.url === url);
@@ -4707,7 +4716,7 @@ export default function App() {
           if (resizeSide === "left" && e.clientX <= r.left + COL_RESIZE_HANDLE_PX) return;
           toggleThreadSort(sortKey);
         }}
-        onMouseDown={(e) => beginColResize(colKey, resizeSide, e)}
+        onPointerDown={(e) => beginColResize(colKey, resizeSide, e)}
         onDoubleClick={(e) => resetColWidth(colKey, resizeSide, e)}
         onMouseMove={(e) => colResizeCursor(resizeSide, e)}
         title={colKey === "fetched"
@@ -5776,7 +5785,8 @@ export default function App() {
     setStatus("layout reset");
   };
 
-  const beginHorizontalResize = (mode: "board-thread" | "thread-response", event: ReactMouseEvent<HTMLDivElement>) => {
+  const beginHorizontalResize = (mode: "board-thread" | "thread-response", event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
     event.preventDefault();
     resizeDragRef.current = {
       mode,
@@ -5830,7 +5840,8 @@ export default function App() {
     };
   }, [threadUrl]);
 
-  const beginResponseRowResize = (event: ReactMouseEvent<HTMLDivElement>) => {
+  const beginResponseRowResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
     event.preventDefault();
     if (paneLayoutMode === "river") {
       resizeDragRef.current = {
@@ -5862,7 +5873,8 @@ export default function App() {
     event.currentTarget.style.cursor = inHandle ? "col-resize" : "";
   };
 
-  const beginColResize = (colKey: string, side: "left" | "right", event: React.MouseEvent<HTMLTableCellElement>) => {
+  const beginColResize = (colKey: string, side: "left" | "right", event: ReactPointerEvent<HTMLTableCellElement>) => {
+    if (event.button !== 0) return;
     const rect = event.currentTarget.getBoundingClientRect();
     if (side === "right" && event.clientX < rect.right - COL_RESIZE_HANDLE_PX) return;
     if (side === "left" && event.clientX > rect.left + COL_RESIZE_HANDLE_PX) return;
@@ -6609,7 +6621,10 @@ export default function App() {
       }
       if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
     };
-    const onMouseMove = (event: MouseEvent) => {
+    // mousemove / mouseup ではなく pointermove / pointerup を購読する。タッチのドラッグは
+    // マウスイベントを一切合成しないため、mouse 系のままだと指では何も動かせなかった。
+    // PointerEvent は MouseEvent を継承しているので clientX/clientY の扱いは従来どおり。
+    const onPointerMove = (event: MouseEvent) => {
       const cdrag = composeDragRef.current;
       if (cdrag) {
         setComposePos({
@@ -6717,7 +6732,9 @@ export default function App() {
       }
     };
 
-    const onMouseUp = () => {
+    // pointerup に加えて pointercancel でも終了させる。タッチではブラウザがジェスチャを
+    // 引き取った時点で pointercancel だけが飛び、pointerup が来ないことがある。
+    const onPointerUp = () => {
       if (composeDragRef.current) {
         composeDragRef.current = null;
         document.body.style.userSelect = "";
@@ -6766,8 +6783,9 @@ export default function App() {
       if (hoverPreviewImgRef.current) hoverPreviewImgRef.current.style.transform = `scale(${next / 100})`;
     };
 
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
     window.addEventListener("wheel", onWheel, { passive: false });
 
     // Save window size on resize (debounced) — skip while maximized
@@ -6793,8 +6811,9 @@ export default function App() {
 
     return () => {
       closeHoverPreview();
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
       window.removeEventListener("wheel", onWheel as EventListener);
       window.removeEventListener("resize", onResize);
       clearTimeout(resizeTimer);
@@ -7306,6 +7325,7 @@ export default function App() {
         envOverride: boolean;
         fallbackFrom: string | null;
         writable: boolean;
+        webviewDir: string | null;
       }>("get_data_dir_info");
       setDataDirInfo(info);
     } catch (e) {
@@ -8257,8 +8277,15 @@ export default function App() {
                     <div key={i} className="menu-sep" />
                   ) : "submenu" in item && item.submenu ? (
                     <div key={item.text} className="menu-submenu-wrap">
-                      <button className="menu-submenu-trigger">{item.text} ▶</button>
-                      <div className="menu-submenu">
+                      <button
+                        className="menu-submenu-trigger"
+                        aria-expanded={openSubmenu === item.text}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenSubmenu((prev) => (prev === item.text ? null : item.text));
+                        }}
+                      >{item.text} ▶</button>
+                      <div className={`menu-submenu${openSubmenu === item.text ? " open" : ""}`}>
                         {(item.submenu as { text: string; action?: () => void; keepOpen?: boolean }[]).map((sub) => (
                           <button key={sub.text} onClick={(e) => { e.stopPropagation(); sub.action?.(); if (!sub.keepOpen) setOpenMenu(null); }}>{sub.text}</button>
                         ))}
@@ -8519,7 +8546,7 @@ export default function App() {
               key={b.url}
               className={`board-btn${selectedBoard === b.boardName ? " selected" : ""}${boardBtnDragIndex !== null && boardBtnDragIndex !== i ? " board-btn-drop-target" : ""}`}
               onClick={() => { if (boardBtnDragRef.current) return; selectBoard(b); }}
-              onMouseDown={(e) => {
+              onPointerDown={(e) => {
                 if (e.button !== 0) return;
                 boardBtnDragRef.current = { srcIndex: i, startX: e.clientX };
                 boardBtnDragOverRef.current = null;
@@ -8544,8 +8571,9 @@ export default function App() {
                   }
                 };
                 const onUp = () => {
-                  window.removeEventListener("mousemove", onMove);
-                  window.removeEventListener("mouseup", onUp);
+                  window.removeEventListener("pointermove", onMove);
+                  window.removeEventListener("pointerup", onUp);
+                  window.removeEventListener("pointercancel", onUp);
                   const src = boardBtnDragRef.current?.srcIndex ?? null;
                   const dst = boardBtnDragOverRef.current;
                   boardBtnDragRef.current = null;
@@ -8562,8 +8590,9 @@ export default function App() {
                     return updated;
                   });
                 };
-                window.addEventListener("mousemove", onMove);
-                window.addEventListener("mouseup", onUp);
+                window.addEventListener("pointermove", onMove);
+                window.addEventListener("pointerup", onUp);
+                window.addEventListener("pointercancel", onUp);
               }}
               title={b.boardName}
             >
@@ -8622,7 +8651,7 @@ export default function App() {
                             <button
                               className={`board-item ${selectedBoard === b.boardName ? "selected" : ""}`}
                               onClick={() => { if (favDragRef.current) return; selectBoard(b); }}
-                              onMouseDown={(e) => onFavItemMouseDown(e, "board", i, ".fav-board-list")}
+                              onPointerDown={(e) => onFavItemPointerDown(e, "board", i, ".fav-board-list")}
                               title={b.url}
                             >
                               <span className="fav-star active" onClick={(e) => { e.stopPropagation(); toggleFavoriteBoard(b); }}><Star size={12} /></span>
@@ -8721,7 +8750,7 @@ export default function App() {
                           openThreadInTab(ft.threadUrl, ft.title);
                           setStatus(`loading fav thread: ${ft.title}`);
                         }}
-                        onMouseDown={(e) => onFavItemMouseDown(e, "thread", i, ".fav-thread-list")}
+                        onPointerDown={(e) => onFavItemPointerDown(e, "thread", i, ".fav-thread-list")}
                         title={ft.threadUrl}
                       >
                         <span className="fav-star active" onClick={(e) => { e.stopPropagation(); toggleFavoriteThread(ft); }}><Star size={12} /></span>
@@ -8852,7 +8881,7 @@ export default function App() {
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize boards pane"
-          onMouseDown={(e) => beginHorizontalResize("board-thread", e)}
+          onPointerDown={(e) => beginHorizontalResize("board-thread", e)}
           onClick={(e) => e.stopPropagation()}
         />
         )}
@@ -8935,7 +8964,7 @@ export default function App() {
           role="separator"
           aria-orientation={paneLayoutMode === "river" ? "vertical" : "horizontal"}
           aria-label={paneLayoutMode === "river" ? "Resize threads pane" : "Resize threads and responses"}
-          onMouseDown={beginResponseRowResize}
+          onPointerDown={beginResponseRowResize}
           onClick={(e) => e.stopPropagation()}
         />
         )}
@@ -9078,7 +9107,7 @@ export default function App() {
                   const p = clampMenuPosition(e.clientX, e.clientY, 160, 288);
                   setTabMenu({ x: p.x, y: p.y, tabIndex: i });
                 }}
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
                   if (e.button === 1) { e.preventDefault(); return; }
                   if (e.button !== 0) return;
                   tabDragRef.current = { srcIndex: i, startX: e.clientX };
@@ -9104,8 +9133,9 @@ export default function App() {
                     }
                   };
                   const onUp = () => {
-                    window.removeEventListener("mousemove", onMove);
-                    window.removeEventListener("mouseup", onUp);
+                    window.removeEventListener("pointermove", onMove);
+                    window.removeEventListener("pointerup", onUp);
+                    window.removeEventListener("pointercancel", onUp);
                     const src = tabDragRef.current?.srcIndex ?? null;
                     const dst = tabDragOverRef.current;
                     tabDragRef.current = null;
@@ -9121,8 +9151,9 @@ export default function App() {
                     });
                     setActiveTabIndex((prev) => src === prev ? dst : src < prev && dst >= prev ? prev - 1 : src > prev && dst <= prev ? prev + 1 : prev);
                   };
-                  window.addEventListener("mousemove", onMove);
-                  window.addEventListener("mouseup", onUp);
+                  window.addEventListener("pointermove", onMove);
+                  window.addEventListener("pointerup", onUp);
+                  window.addEventListener("pointercancel", onUp);
                 }}
                 title={tab.title || tab.threadUrl}
               >
@@ -10049,7 +10080,8 @@ export default function App() {
         >
           <header
             className="emoji-picker-window-header"
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
               if ((e.target as HTMLElement).tagName === "BUTTON") return;
               e.preventDefault();
               const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
@@ -10105,7 +10137,8 @@ export default function App() {
         >
           <header
             className="compose-header"
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
               if ((e.target as HTMLElement).tagName === "BUTTON") return;
               e.preventDefault();
               const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
@@ -10349,7 +10382,8 @@ export default function App() {
             <div
               key={edge}
               className={`compose-resize compose-resize-${edge}`}
-              onMouseDown={(e) => {
+              onPointerDown={(e) => {
+                if (e.button !== 0) return;
                 e.preventDefault();
                 e.stopPropagation();
                 const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
@@ -10371,7 +10405,7 @@ export default function App() {
           aria-label="レス分類"
           style={panelPosStyle("threadCategory")}
         >
-          <header className="ng-panel-header ng-panel-drag-header" onMouseDown={startPanelDrag("threadCategory")}>
+          <header className="ng-panel-header ng-panel-drag-header" onPointerDown={startPanelDrag("threadCategory")}>
             <strong>レス分類</strong>
             <span className="ng-panel-count">{threadCategories.length}語</span>
             {threadCategoryFilter && (
@@ -10464,7 +10498,7 @@ export default function App() {
       )}
       {threadNgOpen && (
         <section className="ng-panel thread-ng-panel" role="dialog" aria-label="スレ一覧NGワード" style={panelPosStyle("threadNg")}>
-          <header className="ng-panel-header ng-panel-drag-header" onMouseDown={startPanelDrag("threadNg")}>
+          <header className="ng-panel-header ng-panel-drag-header" onPointerDown={startPanelDrag("threadNg")}>
             <strong>スレ一覧NGワード</strong>
             <span className="ng-panel-count">{ngFilters.thread_words.length}語</span>
             <button onClick={() => setThreadNgOpen(false)}>閉じる</button>
@@ -10510,7 +10544,7 @@ export default function App() {
       )}
       {ngPanelOpen && (
         <section className="ng-panel" role="dialog" aria-label="NGフィルタ" style={panelPosStyle("ng")}>
-          <header className="ng-panel-header ng-panel-drag-header" onMouseDown={startPanelDrag("ng")}>
+          <header className="ng-panel-header ng-panel-drag-header" onPointerDown={startPanelDrag("ng")}>
             <strong>{ngPanelTab === "ng" ? "NGフィルタ" : "ハイライト"}</strong>
             <span className="ng-panel-count">
               {ngPanelTab === "ng"
@@ -10770,7 +10804,7 @@ export default function App() {
       )}
       {ngImagePanelOpen && (
         <section className="ng-panel ng-image-panel" role="dialog" aria-label="画像NG" style={panelPosStyle("ngImage")}>
-          <header className="ng-panel-header ng-panel-drag-header" onMouseDown={startPanelDrag("ngImage")}>
+          <header className="ng-panel-header ng-panel-drag-header" onPointerDown={startPanelDrag("ngImage")}>
             <strong>画像NG</strong>
             <span className="ng-panel-count">
               {ngImageFilter.entries.filter((e) => !e.disabled).length}/{ngImageFilter.entries.length}
@@ -11852,6 +11886,35 @@ export default function App() {
                       </div>
                     </>
                   )}
+                  {dataDirInfo?.webviewDir && (
+                    <>
+                      <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                        <span>WebView の保存先</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.8em", opacity: 0.75, wordBreak: "break-all" }}>
+                          <span>{dataDirInfo.webviewDir}</span>
+                          <button
+                            type="button"
+                            className="title-action-btn"
+                            title="WebView の保存先フォルダを開く"
+                            onClick={() => {
+                              void invoke("reveal_webview_dir").catch((e) => {
+                                console.warn("reveal_webview_dir failed", e);
+                                setDataDirMsg(`フォルダを開けません: ${String(e)}`);
+                              });
+                            }}
+                          >
+                            <FolderOpen size={14} />
+                          </button>
+                        </span>
+                      </div>
+                      <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                        <span className="settings-hint" style={{ lineHeight: 1.5 }}>
+                          ウィンドウサイズ・ペイン幅・列幅・文字サイズ・スレの最終取得時刻・読みかけ位置・板一覧キャッシュは、上のデータフォルダではなくここに保存されます。OS がアプリ識別子ごとに管理する場所で、Ember を展開したフォルダとは無関係です。<br />
+                          そのため <strong>アプリのフォルダを消してもこれらの設定は残ります</strong>。完全に初期状態へ戻すときは、このフォルダも削除してください。
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </fieldset>
               <fieldset>
                 <legend>情報</legend>
@@ -12125,7 +12188,8 @@ export default function App() {
         >
           <header
             className="settings-header new-thread-header"
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
               if ((e.target as HTMLElement).tagName === "BUTTON") return;
               e.preventDefault();
               const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();

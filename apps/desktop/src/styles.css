@@ -114,7 +114,9 @@ body {
   padding: 3px;
   z-index: 81;
 }
-.menu-submenu-wrap:hover > .menu-submenu {
+/* ホバーに加えてクリックでも開く (.open) — タッチ環境ではホバーが発生しないため */
+.menu-submenu-wrap:hover > .menu-submenu,
+.menu-submenu-wrap > .menu-submenu.open {
   display: grid;
   gap: 1px;
 }
@@ -261,6 +263,22 @@ li.fav-drag-over {
 
 .pane-splitter:hover {
   background: linear-gradient(90deg, #0066cc 0, #3399ff 50%, #0066cc 100%);
+}
+
+/* ドラッグ操作の起点になる面はタッチのパン/ズームに取られないようにする。
+   これが無いと pointerdown 直後にブラウザがジェスチャを引き取り pointercancel が飛ぶため、
+   指でのリサイズ・パネル移動が成立しない。
+   一方、お気に入り一覧・タブバー・板ボタンバーはそれ自体がスクロールする面なので
+   touch-action は変更していない (指でのスクロールを潰さないため)。 */
+.pane-splitter,
+.row-splitter,
+.sortable-th,
+.ng-panel-drag-header,
+.compose-header,
+.compose-resize,
+.emoji-picker-window-header,
+.new-thread-header {
+  touch-action: none;
 }
 
 .pane h2 {

@@ -774,6 +774,61 @@ try {
   assert(paneFontReset === "12px", `pane font size should be 12px after reset, got ${paneFontReset}`);
   console.log("smoke-ui: font size setting ok");
 
+  // --- submenu opens by click (issue #21: ホバーの無いタッチ環境から到達できなかった) ---
+  await viewMenuItem.click();
+  await new Promise((r) => setTimeout(r, 100));
+  // ドロップダウンから離れた位置へマウスを退避させ、:hover が絡まない状態で確かめる
+  await page.mouse.move(400, 400);
+  await new Promise((r) => setTimeout(r, 50));
+  const submenuBefore = await page.$eval(".menu-submenu", (el) => window.getComputedStyle(el).display);
+  assert(submenuBefore === "none", `submenu should be hidden without hover, got ${submenuBefore}`);
+  await page.$eval(".menu-submenu-trigger", (el) => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  await new Promise((r) => setTimeout(r, 100));
+  const submenuAfter = await page.$eval(".menu-submenu", (el) => window.getComputedStyle(el).display);
+  assert(submenuAfter === "grid", `submenu should open on click alone, got ${submenuAfter}`);
+  const submenuItems = await page.$$eval(".menu-submenu button", (els) => els.map((el) => el.textContent));
+  assert(submenuItems.length === 9, `column submenu should have 9 toggles, got ${submenuItems.length}`);
+  await page.keyboard.press("Escape");
+  await new Promise((r) => setTimeout(r, 100));
+  console.log("smoke-ui: submenu click open ok");
+
+  // --- pointer (touch) drag resizes panes (issue #21: mouse 系イベントでは指で動かせなかった) ---
+  for (const sel of [".pane-splitter", ".row-splitter"]) {
+    const ta = await page.$eval(sel, (el) => window.getComputedStyle(el).touchAction);
+    assert(ta === "none", `${sel} should set touch-action:none, got ${ta}`);
+  }
+  // 指のドラッグ相当を PointerEvent で再現する (タッチはマウスイベントを合成しない)
+  const dragByTouch = (selector, dx, dy) => page.evaluate(({ sel, dx, dy }) => {
+    const sp = document.querySelector(sel);
+    const r = sp.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const base = { bubbles: true, cancelable: true, pointerId: 1, pointerType: "touch", isPrimary: true, button: 0 };
+    sp.dispatchEvent(new PointerEvent("pointerdown", { ...base, buttons: 1, clientX: x, clientY: y }));
+    window.dispatchEvent(new PointerEvent("pointermove", { ...base, buttons: 1, clientX: x + dx, clientY: y + dy }));
+    window.dispatchEvent(new PointerEvent("pointerup", { ...base, buttons: 0, clientX: x + dx, clientY: y + dy }));
+  }, { sel: selector, dx, dy });
+  const dragSplitterByTouch = (dx) => dragByTouch(".pane-splitter", dx, 0);
+  const boardWidthBefore = await page.$eval(".pane.boards", (el) => el.getBoundingClientRect().width);
+  await dragSplitterByTouch(60);
+  await new Promise((r) => setTimeout(r, 150));
+  const boardWidthAfter = await page.$eval(".pane.boards", (el) => el.getBoundingClientRect().width);
+  const grew = boardWidthAfter - boardWidthBefore;
+  assert(grew > 40 && grew < 80, `board pane should widen ~60px by touch pointer drag, got ${boardWidthBefore} -> ${boardWidthAfter}`);
+  await dragSplitterByTouch(-grew);
+  await new Promise((r) => setTimeout(r, 150));
+  const boardWidthRestored = await page.$eval(".pane.boards", (el) => el.getBoundingClientRect().width);
+  assert(Math.abs(boardWidthRestored - boardWidthBefore) < 4, `board pane width should be restored, got ${boardWidthRestored} (expected ~${boardWidthBefore})`);
+  const threadHeightBefore = await page.$eval(".pane.threads", (el) => el.getBoundingClientRect().height);
+  await dragByTouch(".row-splitter", 0, 40);
+  await new Promise((r) => setTimeout(r, 150));
+  const threadHeightAfter = await page.$eval(".pane.threads", (el) => el.getBoundingClientRect().height);
+  const taller = threadHeightAfter - threadHeightBefore;
+  assert(taller > 25 && taller < 55, `thread pane should grow ~40px by touch pointer drag, got ${threadHeightBefore} -> ${threadHeightAfter}`);
+  await dragByTouch(".row-splitter", 0, -taller);
+  await new Promise((r) => setTimeout(r, 150));
+  console.log("smoke-ui: pointer drag resize ok");
+
   // --- body link rendering ---
   // Click on response #4 which has a URL in the fallback data
   // Close compose window if open
@@ -1128,6 +1183,18 @@ try {
   });
   assert(dataDirWarningCss, "data dir warning CSS should exist in stylesheet");
   console.log("smoke-ui: data dir warning ok");
+  // WebView の保存先 (localStorage の実体) の案内。パスは Tauri 側の
+  // get_data_dir_info が返すので、静的 dist では行ごと出ないことを確認する。
+  const dataDirRowLabels = await page.$$eval(
+    '.settings-body fieldset:has(legend:text-is("データフォルダ")) .settings-row > span:first-child',
+    (els) => els.map((el) => el.textContent?.trim()),
+  );
+  assert(dataDirRowLabels.includes("現在の保存先"), "data folder section should list the current data dir");
+  assert(
+    !dataDirRowLabels.includes("WebView の保存先"),
+    "webview data dir row should stay hidden without tauri runtime",
+  );
+  console.log("smoke-ui: webview data dir row ok");
   // close settings
   await page.click('.settings-header button:has-text("閉じる")');
   await new Promise((r) => setTimeout(r, 100));

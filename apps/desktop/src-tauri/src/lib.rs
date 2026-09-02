@@ -2035,10 +2035,31 @@ struct DataDirInfo {
     /// 現在の保存先に実際に書き込めるか。false のときは設定・既読・ウィンドウ位置が
     /// どれも保存されないので、設定画面で警告を出す。
     writable: bool,
+    /// WebView が localStorage を置くフォルダ (Windows / Linux のみ)。データフォルダとは
+    /// 完全に別で、exe を展開した場所とも無関係な `<LocalData>/<identifier>` に作られる。
+    /// アプリのフォルダを消しても残るため「消したのに設定が戻る」の原因になる。
+    /// macOS は WKWebView が OS 側で管理していてパスを特定できないので None。
+    webview_dir: Option<String>,
+}
+
+/// Tauri が WebView に渡すユーザーデータフォルダ。Windows / Linux では
+/// `manager.path().resolve(identifier, BaseDirectory::LocalData)` が強制的に
+/// 設定されるので (tauri `manager/webview.rs`)、同じ値を `app_local_data_dir()`
+/// から求める。Windows ではこの下に WebView2 が `EBWebView` を作る。
+fn webview_data_dir(app: &AppHandle) -> Option<PathBuf> {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        app.path().app_local_data_dir().ok()
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
+        let _ = app;
+        None
+    }
 }
 
 #[tauri::command]
-fn get_data_dir_info() -> Result<DataDirInfo, String> {
+fn get_data_dir_info(app: AppHandle) -> Result<DataDirInfo, String> {
     let current = core_store::portable_data_dir().map_err(|e| e.to_string())?;
     let default = core_store::default_data_dir().map_err(|e| e.to_string())?;
     let pointer = core_store::data_dir_pointer_target().map_err(|e| e.to_string())?;
@@ -2052,6 +2073,7 @@ fn get_data_dir_info() -> Result<DataDirInfo, String> {
         fallback_from: core_store::data_dir_fallback_from()
             .map(|p| p.to_string_lossy().to_string()),
         writable: core_store::data_dir_writable(),
+        webview_dir: webview_data_dir(&app).map(|p| p.to_string_lossy().to_string()),
     })
 }
 
@@ -2078,6 +2100,12 @@ fn clear_data_dir() -> Result<(), String> {
 #[tauri::command]
 fn reveal_data_dir() -> Result<(), String> {
     let dir = core_store::portable_data_dir().map_err(|e| e.to_string())?;
+    reveal_dir_in_file_manager(&dir)
+}
+
+#[tauri::command]
+fn reveal_webview_dir(app: AppHandle) -> Result<(), String> {
+    let dir = webview_data_dir(&app).ok_or_else(|| "WebView の保存先を特定できません".to_string())?;
     reveal_dir_in_file_manager(&dir)
 }
 
@@ -2736,6 +2764,7 @@ pub fn run() {
             set_data_dir,
             clear_data_dir,
             reveal_data_dir,
+            reveal_webview_dir,
             append_kakikomi_log,
             open_kakikomi_log
         ])
