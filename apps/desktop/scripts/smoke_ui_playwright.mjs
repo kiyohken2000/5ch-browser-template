@@ -829,6 +829,68 @@ try {
   await new Promise((r) => setTimeout(r, 150));
   console.log("smoke-ui: pointer drag resize ok");
 
+  // --- 分割線の当たり判定 (issue #21: .row-splitter は 6px の枠に 2px の帯しか無く掴めなかった) ---
+  for (const sel of [".pane-splitter", ".row-splitter"]) {
+    const box = await page.$eval(sel, (el) => {
+      const r = el.getBoundingClientRect();
+      return { w: r.width, h: r.height };
+    });
+    const thickness = Math.min(box.w, box.h);
+    assert(thickness >= 6, `${sel} should be at least 6px thick to be grabbable, got ${thickness}`);
+  }
+  console.log("smoke-ui: splitter hit target ok");
+
+  // --- 狭い画面ではペインを縦積みにする (issue #21: 川型が 3 カラムのまま潰れていた) ---
+  const layoutToggle = await page.$('button[aria-label="レイアウト切替"]');
+  assert(layoutToggle, "layout toggle button not found");
+  const assertStacked = async (label) => {
+    const r = await page.evaluate(() => {
+      const rp = document.querySelector(".right-pane");
+      const cs = window.getComputedStyle(rp);
+      const resp = document.querySelector(".pane.responses").getBoundingClientRect();
+      const boards = document.querySelector(".pane.boards").getBoundingClientRect();
+      const status = document.querySelector(".status-bar").getBoundingClientRect();
+      const layout = document.querySelector(".layout").getBoundingClientRect();
+      return {
+        statusHeight: status.height,
+        layoutHeight: layout.height,
+        display: cs.display,
+        direction: cs.flexDirection,
+        respWidth: resp.width,
+        respHeight: resp.height,
+        boardsHeight: boards.height,
+        statusBottom: status.bottom,
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+      };
+    });
+    assert(r.display === "flex" && r.direction === "column",
+      `${label}: right pane should stack vertically when narrow, got ${r.display}/${r.direction}`);
+    assert(r.respWidth > r.innerWidth * 0.9,
+      `${label}: responses pane should span the full width when stacked, got ${r.respWidth} of ${r.innerWidth}`);
+    assert(r.respHeight > 100,
+      `${label}: responses pane should keep a usable height when stacked, got ${r.respHeight}`);
+    assert(r.boardsHeight <= r.innerHeight * 0.31,
+      `${label}: boards pane should be capped at 30vh when stacked, got ${r.boardsHeight} of ${r.innerHeight}`);
+    assert(r.statusBottom <= r.innerHeight + 1,
+      `${label}: status bar should stay on screen when stacked, got bottom ${r.statusBottom} of ${r.innerHeight}`);
+    // 縦積みでペインが内容の高さまで伸びると、.layout が画面をはみ出すか逆に縮んでしまう
+    assert(r.statusHeight < 40,
+      `${label}: status bar should keep its own height when stacked, got ${r.statusHeight}`);
+    assert(r.layoutHeight > r.innerHeight * 0.8,
+      `${label}: layout should fill the viewport when stacked, got ${r.layoutHeight} of ${r.innerHeight}`);
+  };
+  await page.setViewportSize({ width: 853, height: 1280 });
+  await new Promise((r) => setTimeout(r, 250));
+  await assertStacked("classic");
+  await layoutToggle.click();
+  await new Promise((r) => setTimeout(r, 250));
+  await assertStacked("river");
+  await layoutToggle.click(); // 通常レイアウトへ戻す
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await new Promise((r) => setTimeout(r, 250));
+  console.log("smoke-ui: narrow viewport stacking ok");
+
   // --- body link rendering ---
   // Click on response #4 which has a URL in the fallback data
   // Close compose window if open

@@ -1107,16 +1107,22 @@ li.fav-drag-over {
   color: #0066cc;
 }
 
+/* グリッド側は SPLITTER_PX (6px) の枠を確保しているので、高さを指定せず枠いっぱいに
+   伸ばす。以前は height:2px を明示していたため 6px の枠に 2px の帯しか無く、指はもちろん
+   マウスでも掴みにくかった (板/スレの .pane-splitter は 6px、川型の .row-splitter-river も
+   6px で、通常レイアウトのこの1本だけが 2px だった)。見た目も .pane-splitter に揃える。 */
 .row-splitter {
-  height: 2px;
-  background: #c0c0c0;
-  border: none;
+  background: linear-gradient(#c0c0c0 0, #d0d0d0 50%, #c0c0c0 100%);
+  border-top: 1px solid #d8d8d8;
+  border-bottom: 1px solid #a0a0a0;
   cursor: row-resize;
 }
 .row-splitter-river {
   width: 6px;
   height: auto;
   background: linear-gradient(90deg, #c0c0c0 0, #d0d0d0 50%, #c0c0c0 100%);
+  border-top: none;
+  border-bottom: none;
   border-right: 1px solid #a0a0a0;
   border-left: 1px solid #d8d8d8;
   cursor: col-resize;
@@ -3927,21 +3933,45 @@ a.body-link-image:hover::after {
   border-left: 2px solid var(--accent);
 }
 
+/* 画面が狭いとき (タブレットを縦にした場合など) は 3 ペインを縦に積む。
+   .layout / .right-pane はどちらもインライン style で grid-template-columns を持つため、
+   grid のまま行方向へ組み替えると列指定が残ってしまう。実際、川型 (.right-pane-river) は
+   列指定がインライン側にあり、以前はここで grid-template-rows しか打ち消していなかったので
+   狭い画面でも 3 カラムのまま残り、レスペインが潰れて空白になっていた。
+   flex に切り替えると grid-template-* がまとめて無効になるので、この取りこぼしが起きない。 */
 @media (max-width: 980px) {
-  .shell {
-    grid-template-rows: 26px auto auto 1fr 24px;
-  }
-  .layout {
-    grid-template-columns: 1fr !important;
-  }
+  /* .shell の行指定はここには置かない。App.tsx が表示中のバーに合わせて
+     grid-template-rows をインラインで組み立てており、常にそちらが優先されるため
+     ここに書いても効かない (以前あった 5 行の上書きは動作していない死んだ規則だった)。 */
+  .layout,
   .right-pane {
-    grid-template-rows: 1fr !important;
+    display: flex !important;
+    flex-direction: column;
+    min-height: 0;
   }
   .pane {
     border-right: 0;
     border-bottom: 1px solid var(--line);
-    min-height: 220px;
+    min-height: 0;
   }
+  /* 板一覧とスレ一覧は中身の高さのぶんだけ伸びるので、放っておくと画面上部を占有して
+     レスが埋もれる。上限を切って残りをレスペインに配分する。上限を超えた分は
+     .pane の overflow で各ペイン内スクロールになる。 */
+  .layout > .pane.boards {
+    flex: 0 0 auto;
+    max-height: 30vh;
+  }
+  .right-pane > .pane.threads {
+    flex: 0 0 auto;
+    max-height: 40vh;
+  }
+  .layout > .right-pane,
+  .right-pane > .pane.responses {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  /* 縦積みではドラッグ軸が合わない (板/スレは横方向、スレ/レスは縦方向に計算している) ため
+     分割線は引き続き隠す。動かない分割線を見せるより、上の配分に任せる。 */
   .pane-splitter,
   .row-splitter {
     display: none;

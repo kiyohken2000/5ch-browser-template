@@ -2604,8 +2604,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // Focus the existing window when a second instance is launched
+            // Focus the existing window when a second instance is launched.
+            // show() が無いと、ウィンドウが隠れている状態 (ランチャーから再度起動した場合など)
+            // で unminimize/set_focus だけでは前面に出てこない。Linux の Wayland 合成側は
+            // set_focus を無視することがあるので、まず show() で可視にしておく。
             if let Some(win) = app.get_webview_window("main") {
+                let _ = win.show();
                 let _ = win.unminimize();
                 let _ = win.set_focus();
             }
