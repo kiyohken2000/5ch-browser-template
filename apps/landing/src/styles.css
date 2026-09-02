@@ -713,6 +713,11 @@ h1 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
 }
+/* スクリーンショットを持たないカード。2 カラムのまま置くと最終行に 1 枚だけ
+   残って崩れるので、横 1 杯にして収める (1 カラム時は元から全幅)。 */
+.feature-card-wide {
+  grid-column: 1 / -1;
+}
 .feature-card {
   display: flex;
   flex-direction: column;
