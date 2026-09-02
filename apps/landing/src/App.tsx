@@ -6,6 +6,7 @@ import emberWindowsDark from "./assets/images/ember-windows-dark.jpg";
 import emberMacLight from "./assets/images/ember-mac-light.jpg";
 import emberMacDark from "./assets/images/ember-mac-dark.jpg";
 import emberImagePane from "./assets/images/ember-image-pane.jpeg";
+import discordNotification from "./assets/images/discord-notification.png";
 import emberRiberLayout1 from "./assets/images/ember-riber-layout-1.jpg";
 import emberRiberLayout2 from "./assets/images/ember-riber-layout-2.jpeg";
 import emberWindowsImagePane from "./assets/images/ember-windows-image-pane.jpeg";
@@ -729,14 +730,21 @@ export default function App() {
               </button>
             </article>
 
-            <article className="card feature-card feature-card-wide reveal" data-delay="5">
+            <article className="card feature-card reveal" data-delay="5">
               <div className="feature-icon"><BellIcon /></div>
               <h3>自分宛のレスを、Discord へ通知</h3>
               <p>
-                自分が書き込んだスレを巡回し、自分のレスにアンカーが付いたら Discord へ通知します。
-                スレタイ・本文・ID を添えて該当レスへ直接リンク。スマホの Discord アプリで受け取れるので、
-                PC の前を離れていても気づけます。
+                自分が書き込んだスレを巡回し、自分のレスにアンカーが付いたら通知。
+                スマホの Discord アプリで受け取れるので、PC の前を離れていても気づけます。
               </p>
+              <button
+                type="button"
+                className="shot-button feature-shot"
+                onClick={() => openZoom(discordNotification, "Discord への通知")}
+                aria-label="スクリーンショットを拡大"
+              >
+                <img src={discordNotification} alt="Discord への通知" width={378} height={232} loading="lazy" decoding="async" />
+              </button>
             </article>
           </div>
 
