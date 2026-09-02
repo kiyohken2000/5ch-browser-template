@@ -743,7 +743,7 @@ export default function App() {
                 onClick={() => openZoom(discordNotification, "Discord への通知")}
                 aria-label="スクリーンショットを拡大"
               >
-                <img src={discordNotification} alt="Discord への通知" width={378} height={232} loading="lazy" decoding="async" />
+                <img src={discordNotification} alt="Discord への通知" width={1260} height={753} loading="lazy" decoding="async" />
               </button>
             </article>
           </div>
