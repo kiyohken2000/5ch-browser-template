@@ -1166,7 +1166,7 @@ try {
   console.log("smoke-ui: response block striping ok");
 
   // --- fetched column ---
-  const fetchedHeader = await page.$('.threads th[title="取得済みスレを上にソート"]');
+  const fetchedHeader = await page.$('.threads th[title^="並び替え: "]');
   assert(fetchedHeader, "thread table should have fetched sort column");
   console.log("smoke-ui: fetched column ok");
 

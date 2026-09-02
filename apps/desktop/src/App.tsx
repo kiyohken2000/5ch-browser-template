@@ -4644,8 +4644,13 @@ export default function App() {
     visibleThreadItems = [...filteredThreadItems].sort((a, b) => {
       let cmp = 0;
       if (threadSortKey === "fetched") {
-        const score = (t: typeof a) => newThreadUrls.has(t.threadUrl) ? 1 : threadReadMap[t.id] ? 0 : 2;
-        cmp = score(a) - score(b);
+        // 「!」列は昇順/降順ではなく、先頭に集めるものを既読 <-> 新着で切り替える (無印は常に最後)
+        const score = (t: typeof a) => newThreadUrls.has(t.threadUrl)
+          ? (threadSortAsc ? 1 : 0)
+          : threadReadMap[t.id]
+          ? (threadSortAsc ? 0 : 1)
+          : 2;
+        return score(a) - score(b);
       }
       else if (threadSortKey === "id") cmp = a.id - b.id;
       else if (threadSortKey === "datNumber") cmp = Number(a.datNumber || 0) - Number(b.datNumber || 0);
@@ -4705,7 +4710,13 @@ export default function App() {
         onMouseDown={(e) => beginColResize(colKey, resizeSide, e)}
         onDoubleClick={(e) => resetColWidth(colKey, resizeSide, e)}
         onMouseMove={(e) => colResizeCursor(resizeSide, e)}
-        title={colKey === "fetched" ? "取得済みスレを上にソート" : undefined}
+        title={colKey === "fetched"
+          ? threadSortKey !== "fetched"
+            ? "並び替え: クリックで既読が上"
+            : threadSortAsc
+            ? "並び替え: 既読が上（クリックで新着が上）"
+            : "並び替え: 新着が上（クリックで既読が上）"
+          : undefined}
       >
         {THREAD_COL_LABELS[colKey]}{threadSortKey === sortKey ? (threadSortAsc ? " ▲" : " ▼") : ""}
       </th>

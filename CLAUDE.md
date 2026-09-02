@@ -57,7 +57,8 @@ cargo check --workspace                       # Rust型チェック
 # --- テスト ---
 cargo test --workspace                    # Rustユニットテスト
 cargo test --workspace -- --ignored       # ネットワーク接続テスト含む
-cd apps/desktop && npx playwright test scripts/smoke_ui_playwright.mjs  # UIスモークテスト
+cd apps/desktop && npm run build && node scripts/smoke_ui_playwright.mjs  # UIスモークテスト (dist を検証)
+cd apps/desktop && npm run test:smoke-ui  # 同上 (dev サーバーを起動して検証)
 
 # --- Lint ---
 cargo clippy --workspace -- -D warnings  # Rust lint
