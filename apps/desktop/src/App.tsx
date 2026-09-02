@@ -316,6 +316,17 @@ type ThreadResponseItem = {
   dateAndId: string;
   body: string;
 };
+// 通知設定。webhookUrl は実質シークレットなので localStorage には置かず、
+// core-store の notify_config.json にだけ保存する (認証設定と同じ扱い)。
+type NotifyConfig = { enabled: boolean; webhookUrl: string; discordUserId: string; intervalMin: number };
+type NotifyItem = {
+  threadTitle: string;
+  threadUrl: string;
+  responseNo: number;
+  name: string;
+  dateAndId: string;
+  body: string;
+};
 type BoardEntry = { boardName: string; url: string };
 type BoardCategory = { categoryName: string; boards: BoardEntry[] };
 type FavoriteBoard = { boardName: string; url: string };
@@ -533,6 +544,9 @@ const THREAD_FETCH_TIMES_KEY = "desktop.threadFetchTimes.v1";
 const WINDOW_STATE_KEY = "desktop.windowState.v1";
 const SEARCH_HISTORY_KEY = "desktop.searchHistory.v1";
 const MY_POSTS_KEY = "desktop.myPosts.v1";
+// 通知の「ここまで確認済み」境界。スレURL -> レス番号。単調増加なので、これだけで
+// 重複通知を防げる (通知済みレスの集合を持たなくてよい)。
+const NOTIFY_STATE_KEY = "desktop.notifyState.v1";
 const THREAD_TABS_KEY = "desktop.threadTabs.v1";
 const RECENT_OPENED_THREADS_KEY = "desktop.recentOpenedThreads.v1";
 const RECENT_POSTED_THREADS_KEY = "desktop.recentPostedThreads.v1";
@@ -558,6 +572,7 @@ const UI_JSON_FILES: Record<string, string> = {
   [COMPOSE_PREFS_KEY]: "compose_prefs",
   [BOOKMARK_KEY]: "bookmarks",
   [MY_POSTS_KEY]: "my_posts",
+  [NOTIFY_STATE_KEY]: "notify_state",
   [THREAD_CATEGORIES_KEY]: "thread_categories",
   [SEARCH_HISTORY_KEY]: "search_history",
   [RECENT_OPENED_THREADS_KEY]: "recent_opened_threads",
@@ -1753,6 +1768,22 @@ export default function App() {
     return {};
   });
   const pendingMyPostRef = useRef<{ threadUrl: string; body: string; prevCount: number } | null>(null);
+  // 巡回は setInterval のクロージャから走るので、myPosts を直接読むと書き込み直後の
+  // スレを取りこぼす。ref に写して常に最新を見る。
+  const myPostsRef = useRef<Record<string, number[]>>({});
+  const [notifyConfig, setNotifyConfig] = useState<NotifyConfig>({
+    enabled: false, webhookUrl: "", discordUserId: "", intervalMin: 10,
+  });
+  const [notifyMsg, setNotifyMsg] = useState("");
+  const [notifyBusy, setNotifyBusy] = useState(false);
+  // 最後にディスクへ書いた内容 (JSON 文字列)。読み込み前は null。読んだ直後の
+  // 値をそのまま書き戻さないため、および保存に失敗したときに次の変更で
+  // 再試行させるために持つ。
+  const notifySavedRef = useRef<string | null>(null);
+  const notifyCheckedRef = useRef<Record<string, number>>((() => {
+    try { const v = localStorage.getItem(NOTIFY_STATE_KEY); if (v) return JSON.parse(v); } catch { /* ignore */ }
+    return {};
+  })());
   const [postFlowTraceProbe, setPostFlowTraceProbe] = useState("not run");
   const [threadListProbe, setThreadListProbe] = useState("not run");
   const [responseListProbe, setResponseListProbe] = useState("not run");
@@ -2083,6 +2114,9 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [threadColumnsOpen, setThreadColumnsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 通知は「Webhook を作る → URL を貼る → テスト送信」という一度きりのセットアップで、
+  // 日常的に触る他の設定とは使い方が違う。AI 設定と同じく独立したパネルに分ける。
+  const [notifySettingsOpen, setNotifySettingsOpen] = useState(false);
   const [dataDirInfo, setDataDirInfo] = useState<{
     currentDir: string;
     defaultDir: string;
@@ -4856,6 +4890,219 @@ export default function App() {
       popupTopZRef.current = 610;
     }
   }, [idPopup, anchorPopup, backRefPopup, nestedPopups]);
+  useEffect(() => { myPostsRef.current = myPosts; }, [myPosts]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    invoke<NotifyConfig>("load_notify_config")
+      .then((cfg) => { notifySavedRef.current = JSON.stringify(cfg); setNotifyConfig(cfg); })
+      .catch((e) => {
+        console.warn("load_notify_config failed", e);
+        // 読めなくても入力は保存できるようにする。この時点の state は初期値なので、
+        // 利用者が何か変えるまでは保存が走らない (良いファイルを空で潰さない)。
+        notifySavedRef.current = JSON.stringify(notifyConfig);
+      });
+  }, []);
+
+  // 自分が書き込んだスレだけを巡回し、新着レスの中から自分宛 (>>自分のレス番号) を拾う。
+  // 書き込んでいないスレに自分宛は付かないので、dat を取る対象はごく少数で済む。
+  // 戻り値は実際に送った件数。
+  const patrolMyReplies = async (): Promise<number> => {
+    if (!isTauriRuntime()) return 0;
+    const myPostsNow = myPostsRef.current;
+    const targets = Object.keys(myPostsNow).filter(
+      (url) => Array.isArray(myPostsNow[url]) && myPostsNow[url].length > 0,
+    );
+    if (targets.length === 0) return 0;
+
+    // 板ごとに subject.txt を 1 回だけ叩く (既存の一括巡回と同じ方針)。
+    const boardMap = new Map<string, string[]>();
+    for (const url of targets) {
+      const boardUrl = getBoardUrlFromThreadUrl(url);
+      const arr = boardMap.get(boardUrl) ?? [];
+      arr.push(url);
+      boardMap.set(boardUrl, arr);
+    }
+    const serverInfo = new Map<string, { count: number; title: string }>();
+    await Promise.all(
+      Array.from(boardMap.entries()).map(async ([boardUrl, urls]) => {
+        let rows: ThreadListItem[] = [];
+        try {
+          rows = await invoke<ThreadListItem[]>("fetch_thread_list", { threadUrl: boardUrl, limit: null });
+        } catch (e) {
+          console.warn(`notify: fetch_thread_list failed for board: ${boardUrl}`, e);
+          return;
+        }
+        const byNorm = new Map<string, ThreadListItem>();
+        for (const row of rows) byNorm.set(normalizeThreadUrl(row.threadUrl), row);
+        for (const url of urls) {
+          const row = byNorm.get(normalizeThreadUrl(url));
+          if (row) serverInfo.set(url, { count: row.responseCount, title: decodeHtmlEntities(row.title) });
+        }
+      }),
+    );
+
+    const checked = notifyCheckedRef.current;
+    const items: NotifyItem[] = [];
+    // 送信に成功してから進める境界。失敗したら据え置いて次の巡回でやり直す。
+    const pendingAdvance: Record<string, number> = {};
+    // スレごとの「最後に積んだ items のインデックス」。送信先の上限で後ろが
+    // 切り捨てられたとき、どのスレまで届いたかを索くのに使う。
+    const lastItemIndex: Record<string, number> = {};
+    let committed = false;
+    for (const url of targets) {
+      const info = serverInfo.get(url);
+      // dat落ち・板の取得失敗はスキップ。境界を進めないので次回に持ち越す。
+      if (!info) continue;
+      const seen = checked[url];
+      if (seen === undefined) {
+        // 初回。ここより前は既に読んでいる前提にして、過去の自分宛を一気に送りつけない。
+        checked[url] = info.count;
+        committed = true;
+        continue;
+      }
+      if (info.count <= seen) continue;
+      const myNos = new Set(myPostsNow[url] ?? []);
+      let responses: ThreadResponseItem[] = [];
+      try {
+        const result = await invoke<{ responses: ThreadResponseItem[]; title: string | null }>(
+          "fetch_thread_responses_command", { threadUrl: url, limit: null },
+        );
+        responses = result.responses;
+      } catch (e) {
+        console.warn(`notify: fetch_thread_responses_command failed: ${url}`, e);
+        continue;
+      }
+      let found = 0;
+      for (const r of responses) {
+        if (r.responseNo <= seen) continue;
+        // 自分の書き込みそのものは通知しない (自分で自分にレスした場合)
+        if (myNos.has(r.responseNo)) continue;
+        const plain = decodeHtmlEntities(r.body.replace(/<[^>]+>/g, ""));
+        let hit = false;
+        for (const m of plain.matchAll(/>>?(\d+)/g)) {
+          if (myNos.has(Number(m[1]))) { hit = true; break; }
+        }
+        if (!hit) continue;
+        found++;
+        items.push({
+          threadTitle: info.title,
+          // 正規化した形 (末尾スラッシュ付きの read.cgi URL) で渡す。送信側はこれに
+          // レス番号を足して該当レスへのリンクを作るので、形が揃っていないと外れる。
+          threadUrl: normalizeThreadUrl(url),
+          responseNo: r.responseNo,
+          name: r.name,
+          dateAndId: r.dateAndId,
+          body: r.body,
+        });
+      }
+      // 自分宛が無かったスレは送信結果を待たずに進めてよい。
+      if (found === 0) { checked[url] = info.count; committed = true; }
+      else { pendingAdvance[url] = info.count; lastItemIndex[url] = items.length - 1; }
+    }
+
+    if (items.length === 0) {
+      if (committed) saveUiJson(NOTIFY_STATE_KEY, JSON.stringify(checked));
+      return 0;
+    }
+    let sent = 0;
+    try {
+      sent = await invoke<number>("send_notify_items", { items });
+      // 送信側は 1 回あたりの件数に上限があり、溢れた分は捨てられる。境界を無条件に
+      // 進めると捨てられたレスが二度と通知されないので、送れたスレだけ進める。
+      // 届かなかったスレは据え置いて次の巡回で拾い直す。
+      for (const [url, count] of Object.entries(pendingAdvance)) {
+        if (lastItemIndex[url] >= sent) continue;
+        checked[url] = count;
+        committed = true;
+      }
+    } catch (e) {
+      // 境界を進めないので、次の巡回で同じレスをもう一度拾う。
+      console.warn("send_notify_items failed", e);
+    }
+    if (committed) saveUiJson(NOTIFY_STATE_KEY, JSON.stringify(checked));
+    return sent;
+  };
+
+  // 通知が有効な間だけ定期巡回する。有効化直後に 1 回走らせるのは、初回が境界の
+  // 初期化だけで終わるため。間隔いっぱい待つと、その間に届いた自分宛を丸ごと
+  // 初期化で飲み込んでしまう。
+  useEffect(() => {
+    if (!notifyConfig.enabled || !isTauriRuntime()) return;
+    const minutes = Math.min(180, Math.max(1, notifyConfig.intervalMin || 10));
+    const first = window.setTimeout(() => { void patrolMyReplies(); }, 15000);
+    const timer = window.setInterval(() => { void patrolMyReplies(); }, minutes * 60 * 1000);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+    // patrolMyReplies は myPostsRef 経由で常に最新を読む。依存に入れると
+    // 書き込みのたびにタイマーが張り直され、巡回が一度も走らなくなる。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifyConfig.enabled, notifyConfig.intervalMin]);
+
+  const saveNotifyConfigNow = async (): Promise<boolean> => {
+    if (!isTauriRuntime()) return false;
+    try {
+      const serialized = JSON.stringify(notifyConfig);
+      await invoke("save_notify_config", { config: notifyConfig });
+      notifySavedRef.current = serialized;
+      return true;
+    } catch (e) {
+      console.warn("save_notify_config failed", e);
+      setNotifyMsg(`保存に失敗しました: ${String(e)}`);
+      return false;
+    }
+  };
+
+  // 保存ボタン方式だと押し忘れたままパネルを閉じられ、再起動で入力が消える。
+  // 「設定したのに通知が来ない」は原因が分かりにくいので、変更を自動で書く。
+  // 1 打鍵ごとに書かないようデバウンスする (Webhook URL は貼り付け1回だが、
+  // ユーザーIDや巡回間隔は手入力されうる)。
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    const serialized = JSON.stringify(notifyConfig);
+    // 読み込み前と、読み込んだ内容そのままのときは書き戻さない。
+    if (notifySavedRef.current === null || notifySavedRef.current === serialized) return;
+    const timer = window.setTimeout(() => {
+      invoke("save_notify_config", { config: notifyConfig })
+        .then(() => { notifySavedRef.current = serialized; })
+        .catch((e) => {
+          // ref は進めない。次に何か変えたときにもう一度書きにいく。
+          console.warn("save_notify_config failed", e);
+          setNotifyMsg(`保存に失敗しました: ${String(e)}`);
+        });
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [notifyConfig]);
+
+  // 貼り間違いは実際に送ってみないと気づけないので、保存してから 1 通投げる。
+  const handleNotifyTest = async () => {
+    setNotifyBusy(true);
+    setNotifyMsg("テスト送信中...");
+    try {
+      if (!(await saveNotifyConfigNow())) return;
+      await invoke("send_notify_test");
+      setNotifyMsg("テスト送信しました。通知先を確認してください");
+    } catch (e) {
+      setNotifyMsg(`テスト送信に失敗しました: ${String(e)}`);
+    } finally {
+      setNotifyBusy(false);
+    }
+  };
+
+  const handleNotifyPatrolNow = async () => {
+    if (!notifyConfig.enabled) { setNotifyMsg("「自分宛のレスを通知する」を有効にしてください"); return; }
+    setNotifyBusy(true);
+    setNotifyMsg("巡回中...");
+    try {
+      if (!(await saveNotifyConfigNow())) return;
+      const sent = await patrolMyReplies();
+      setNotifyMsg(sent > 0 ? `自分宛 ${sent}件を通知しました` : "自分宛の新着はありませんでした");
+    } catch (e) {
+      setNotifyMsg(`巡回に失敗しました: ${String(e)}`);
+    } finally {
+      setNotifyBusy(false);
+    }
+  };
+
   const myPostNos = useMemo(() => new Set(myPosts[activeThreadUrl] ?? []), [myPosts, activeThreadUrl]);
   const replyToMeNos = useMemo(() => {
     if (myPostNos.size === 0) return new Set<number>();
@@ -8194,6 +8441,7 @@ export default function App() {
             { text: "sep" },
             { text: "設定", action: () => setSettingsOpen(true) },
             { text: "AI 設定", action: () => setAiSettingsOpen(true) },
+            { text: "通知設定", action: () => setNotifySettingsOpen(true) },
             { text: "マウスジェスチャ設定", action: () => setGestureListOpen(true) },
             ...(navigator.userAgent.includes("Windows") ? [
               { text: "sep" },
@@ -11921,6 +12169,89 @@ export default function App() {
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
                 <div className="settings-row"><span>スモークテスト</span><span>67項目</span></div>
               </fieldset>
+            </div>
+          </div>
+        </div>
+      )}
+      {notifySettingsOpen && (
+        <div className="lightbox-overlay" onClick={() => setNotifySettingsOpen(false)}>
+          <div className="settings-panel notify-settings-panel" onClick={(e) => e.stopPropagation()}>
+            <header className="settings-header">
+              <strong>通知設定</strong>
+              <button onClick={() => setNotifySettingsOpen(false)}>閉じる</button>
+            </header>
+            <div className="settings-body">
+              <fieldset>
+                <legend>送信先 (Discord Webhook)</legend>
+                <div className="settings-row"><span>Webhook URL</span></div>
+                {/* 伏せ字にしない。貼り付けが1文字欠けても画面では分からず、テスト送信
+                    するまで気づけないため。漏れたときの被害はこの通知先へ投稿できる
+                    だけで、ウェブフックを作り直せば消えるので、認証情報とは等級が違う。 */}
+                <input
+                  type="text"
+                  className="notify-webhook-url"
+                  value={notifyConfig.webhookUrl}
+                  onChange={(e) => setNotifyConfig({ ...notifyConfig, webhookUrl: e.target.value })}
+                  placeholder="https://discord.com/api/webhooks/..."
+                  style={{ marginTop: 0 }}
+                />
+                <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                  <span className="settings-hint" style={{ lineHeight: 1.5 }}>
+                    Discord の サーバー設定 → 連携サービス → ウェブフック で作成し、URL をコピーして貼り付けます。<br />
+                    ⚠ この URL を知られると誰でもその通知先へ投稿できます。他人に見せないでください。
+                  </span>
+                </div>
+                <div className="settings-row" style={{ marginTop: 8 }}><span>Discord ユーザーID (任意)</span></div>
+                <input
+                  className="notify-discord-user-id"
+                  value={notifyConfig.discordUserId}
+                  onChange={(e) => setNotifyConfig({ ...notifyConfig, discordUserId: e.target.value })}
+                  placeholder="例: 123456789012345678"
+                  style={{ marginTop: 0 }}
+                />
+                <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                  <span className="settings-hint" style={{ lineHeight: 1.5 }}>
+                    入力するとメンション付きで送るので、サーバーの通知設定が「@メンションのみ」でもスマホにプッシュが届きます。Discord の 設定 → 詳細設定 → 開発者モード を ON にして、自分の名前を右クリック →「ユーザーIDをコピー」。
+                  </span>
+                </div>
+                <div className="settings-row" style={{ marginTop: 8, gap: 4 }}>
+                  <button type="button" disabled={notifyBusy} onClick={() => void handleNotifyTest()}>テスト送信</button>
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend>巡回</legend>
+                <label className="settings-row">
+                  <input
+                    type="checkbox"
+                    checked={notifyConfig.enabled}
+                    onChange={(e) => setNotifyConfig({ ...notifyConfig, enabled: e.target.checked })}
+                  />
+                  <span>自分宛のレスを通知する</span>
+                </label>
+                <label className="settings-row">
+                  <span>巡回間隔 (分)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={notifyConfig.intervalMin}
+                    onChange={(e) => setNotifyConfig({ ...notifyConfig, intervalMin: Number(e.target.value) })}
+                  />
+                </label>
+                <div className="settings-row" style={{ marginTop: 8, gap: 4 }}>
+                  <button type="button" disabled={notifyBusy} onClick={() => void handleNotifyPatrolNow()}>今すぐ巡回</button>
+                </div>
+                <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                  <span className="settings-hint" style={{ lineHeight: 1.5 }}>
+                    自分が書き込んだスレだけを巡回し、自分のレス番号へのアンカー (&gt;&gt;) が付いたら通知します。有効にした時点より前のレスは通知しません。<br />
+                    ⚠ Ember が起動している間だけ動きます。PC のスリープ中・終了中は通知されません。
+                  </span>
+                </div>
+              </fieldset>
+              {notifyMsg && <div className="settings-row"><span>{notifyMsg}</span></div>}
+              <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                <span className="settings-hint">変更は自動的に保存されます。</span>
+              </div>
             </div>
           </div>
         </div>

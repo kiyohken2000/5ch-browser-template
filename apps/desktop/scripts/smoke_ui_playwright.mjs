@@ -1142,6 +1142,12 @@ try {
   assert(legends.some((l) => l.includes("Ronin")), `settings should have Ronin/BE section, got ${legends}`);
   assert(legends.includes("データフォルダ"), `settings should have データフォルダ section, got ${legends}`);
   assert(legends.includes("情報"), `settings should have 情報 section, got ${legends}`);
+
+  // 通知は独立パネルへ移した。セットアップ手順ものを常用トグルの列に戻さないための歯止め。
+  assert(
+    !legends.some((l) => l.includes("通知")),
+    `notification settings should live in their own panel, not in 設定: ${legends}`,
+  );
   // ホイールスクロール行数の設定 (既定 OFF、ON のときだけ行数入力が出る)
   const wheelRowToggle = await page.$('.settings-body label:has-text("スレ一覧のホイールスクロールを行単位にする") input[type="checkbox"]');
   assert(wheelRowToggle, "settings should have wheel row scroll toggle");
@@ -1759,6 +1765,73 @@ try {
   );
   assert(savedMetaInline === true, `inline date/ID setting should persist, got ${savedMetaInline}`);
   console.log("smoke-ui: inline date/id ok");
+
+
+  // --- 通知設定パネル (Discord Webhook) ---
+  const fileMenuForNotify = await page.$('.menu-item:has-text("ファイル")');
+  await fileMenuForNotify.click();
+  await new Promise((r) => setTimeout(r, 100));
+  const notifyMenuBtn = await page.$('.menu-dropdown button:has-text("通知設定")');
+  assert(notifyMenuBtn, "file menu should have the notification settings entry");
+  await notifyMenuBtn.click();
+  await new Promise((r) => setTimeout(r, 200));
+  const notifyPanel = await page.$(".notify-settings-panel");
+  assert(notifyPanel, "notification settings should open in their own panel");
+  const notifyLegends = await page.$$eval(".notify-settings-panel legend", (els) =>
+    els.map((e) => e.textContent?.trim()),
+  );
+  // 送信先の用意と巡回の有効化は別の作業なので、節を分けてある。
+  assert(
+    notifyLegends.some((l) => l.includes("送信先")),
+    `notify panel should have a destination section, got ${notifyLegends}`,
+  );
+  assert(notifyLegends.includes("巡回"), `notify panel should have a patrol section, got ${notifyLegends}`);
+  const notifyToggle = await page.$('.notify-settings-panel label:has-text("自分宛のレスを通知する") input[type="checkbox"]');
+  assert(notifyToggle, "notify panel should have the reply notification toggle");
+  assert(
+    (await notifyToggle.isChecked()) === false,
+    "reply notification should be off until the user sets a webhook",
+  );
+  // 伏せ字にしない。貼り付けミスが画面で確認できず、テスト送信するまで気づけないため。
+  // 漏れても被害はこの通知先への投稿だけで、ウェブフックを作り直せば消える。
+  const webhookInput = await page.$(".notify-settings-panel input.notify-webhook-url");
+  assert(webhookInput, "notify panel should have the webhook url input");
+  assert(
+    (await webhookInput.getAttribute("type")) !== "password",
+    "webhook url should stay readable so a mistyped paste is visible",
+  );
+  assert(
+    await page.$(".notify-settings-panel input.notify-discord-user-id"),
+    "notify panel should have the discord user id input",
+  );
+  // 貼り間違いは実際に送らないと気づけないので、テスト送信は必須。
+  for (const label of ["テスト送信", "今すぐ巡回"]) {
+    assert(
+      await page.$(`.notify-settings-panel button:has-text("${label}")`),
+      `notify panel should have the ${label} button`,
+    );
+  }
+  // 入力は自動保存する。保存ボタンがあると押し忘れたまま閉じられ、再起動で消える。
+  assert(
+    !(await page.$('.notify-settings-panel button:has-text("保存")')),
+    "notify settings should autosave, not require a 保存 button",
+  );
+  const notifyInterval = await page.$eval(
+    '.notify-settings-panel label:has-text("巡回間隔") input[type="number"]',
+    (el) => el.value,
+  );
+  assert(notifyInterval === "10", `patrol interval should default to 10 minutes, got ${notifyInterval}`);
+  // 通知先 URL が localStorage に漏れていないこと (保存先は notify_config.json のみ)。
+  const notifyKeys = await page.evaluate(() =>
+    Object.keys(localStorage).filter((k) => k.toLowerCase().includes("notify")),
+  );
+  assert(
+    !notifyKeys.includes("desktop.notifyConfig.v1"),
+    `notify config must not be mirrored into localStorage, got ${notifyKeys}`,
+  );
+  await page.click(".notify-settings-panel .settings-header button");
+  await new Promise((r) => setTimeout(r, 150));
+  console.log("smoke-ui: notification settings ok");
 
   console.log("smoke-ui: ok");
 } finally {

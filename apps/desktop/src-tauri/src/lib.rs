@@ -1827,6 +1827,320 @@ fn save_upload_history(history: UploadHistory) -> Result<(), String> {
     core_store::save_json("upload_history.json", &history).map_err(|e| e.to_string())
 }
 
+// --- 通知 Webhook (Discord) ---
+
+// webhook_url は実質シークレット。知られると誰でもそのチャンネルへ投稿できるので、
+// Cookie 値と同じ扱いにする: append_log にも、フロントへ返すエラー文字列にも載せない。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct NotifyConfig {
+    enabled: bool,
+    webhook_url: String,
+    /// Discord のユーザーID (任意)。入っていればメンション付きで送るので、
+    /// サーバーの通知設定が「@メンションのみ」でもプッシュが飛ぶ。
+    discord_user_id: String,
+    /// 巡回間隔 (分)
+    interval_min: u32,
+}
+
+impl Default for NotifyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            webhook_url: String::new(),
+            discord_user_id: String::new(),
+            interval_min: 10,
+        }
+    }
+}
+
+#[tauri::command]
+fn load_notify_config() -> Result<NotifyConfig, String> {
+    match core_store::load_json::<NotifyConfig>("notify_config.json") {
+        Ok(data) => Ok(data),
+        Err(_) => Ok(NotifyConfig::default()),
+    }
+}
+
+#[tauri::command]
+fn save_notify_config(config: NotifyConfig) -> Result<(), String> {
+    core_store::save_json("notify_config.json", &config).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NotifyItem {
+    thread_title: String,
+    thread_url: String,
+    response_no: u32,
+    name: String,
+    date_and_id: String,
+    body: String,
+}
+
+/// Discord の 1 メッセージあたりの embed 数上限。
+const NOTIFY_CHUNK: usize = 10;
+/// 通知に載せるレス本文の文字数。長文レスが途中で切れすぎないよう広めに取る
+/// (Discord の embed description 自体の上限は 4096)。
+const NOTIFY_BODY_CHARS: usize = 900;
+/// Discord は 1 メッセージの embed 全体で 6000 文字まで。超えると 400 になる。
+/// 件数だけで区切ると長いレスが並んだときに超えるので、文字数でも区切る。
+/// 余裕を見て 6000 より低く取る。
+const NOTIFY_MESSAGE_CHARS: usize = 5000;
+/// 1 回の送信で投げる上限。溢れた分は次の巡回で拾う。
+const NOTIFY_MAX_ITEMS: usize = 30;
+
+/// dat の本文は `<br>` 区切りの HTML なので、通知に載せる前に平文へ落とす。
+fn strip_html_to_text(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut tag = String::new();
+    let mut in_tag = false;
+    for ch in html.chars() {
+        match ch {
+            '<' => {
+                in_tag = true;
+                tag.clear();
+            }
+            '>' if in_tag => {
+                in_tag = false;
+                // <br> / <br/> / <br /> だけは改行として残す。
+                if tag.trim().trim_end_matches('/').trim().eq_ignore_ascii_case("br") {
+                    out.push('\n');
+                }
+            }
+            _ if in_tag => tag.push(ch),
+            _ => out.push(ch),
+        }
+    }
+    // &amp; は最後に戻す。先に戻すと "&amp;lt;" が "<" まで復元されてしまう。
+    out.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .trim()
+        .to_string()
+}
+
+/// Discord のフィールド長上限で切る。バイトではなく文字で数える (日本語の途中で割らない)。
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
+fn is_discord_webhook(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    (lower.contains("discord.com/") || lower.contains("discordapp.com/"))
+        && lower.contains("/api/webhooks/")
+}
+
+/// Discord のユーザーID は snowflake = 17〜20 桁の数字。ユーザー名や "@名前" を
+/// そのまま allowed_mentions に載せると Discord が 400 (not snowflake) を返すので、
+/// 送る前に弾いて、何を入れ直せばいいか分かる文言にする。
+fn is_discord_snowflake(s: &str) -> bool {
+    (17..=20).contains(&s.len()) && s.chars().all(|c| c.is_ascii_digit())
+}
+
+/// 応答本文に Webhook URL やそのトークンが反射されていても、画面とログに出さない。
+/// 400 の理由は本文にしか書かれていないので、本文自体は捨てずにここで伏せる。
+fn scrub_webhook_url(body: &str, url: &str) -> String {
+    let mut out = body.replace(url, "<webhook>");
+    // URL 末尾のトークンだけが返ることもある。短い断片まで潰すと本文が読めなく
+    // なるので、トークンとして意味のある長さのときだけ置き換える。
+    if let Some(token) = url.rsplit('/').next() {
+        if token.len() >= 16 {
+            out = out.replace(token, "<token>");
+        }
+    }
+    out
+}
+
+/// 該当レスへ直接飛べる URL。スレ先頭に飛ばされるとスマホでは探すのが手間なので、
+/// read.cgi のスレ URL のときだけレス番号を足す。それ以外の URL は素性が分からない
+/// ので触らない (テスト送信の告知ページなど)。
+fn response_permalink(thread_url: &str, response_no: u32) -> String {
+    let trimmed = thread_url.trim_end_matches('/');
+    if trimmed.contains("/test/read.cgi/") {
+        format!("{}/{}", trimmed, response_no)
+    } else {
+        thread_url.to_string()
+    }
+}
+
+/// embed 1 件が 6000 文字予算のうち何文字を占めるか。Discord はタイトル・本文・
+/// フッターの合計で数えるので、送る形に切り詰めてから数える。
+fn embed_char_cost(item: &NotifyItem) -> usize {
+    let title = truncate_chars(
+        &format!(">>{} {}", item.response_no, item.thread_title),
+        256,
+    );
+    let body = truncate_chars(&strip_html_to_text(&item.body), NOTIFY_BODY_CHARS);
+    let footer = format!("{} {}", item.name.trim(), item.date_and_id.trim());
+    title.chars().count() + body.chars().count() + footer.trim().chars().count()
+}
+
+/// 送信を件数と文字数の両方で区切り、[start, end) の範囲で返す。
+/// 1 件だけで予算を超える場合もその 1 件は必ず送る (空のバッチを作らない)。
+fn notify_batches(items: &[NotifyItem]) -> Vec<(usize, usize)> {
+    let mut batches = Vec::new();
+    let mut start = 0;
+    let mut chars = 0usize;
+    for (i, item) in items.iter().enumerate() {
+        let cost = embed_char_cost(item);
+        if i > start && (i - start >= NOTIFY_CHUNK || chars + cost > NOTIFY_MESSAGE_CHARS) {
+            batches.push((start, i));
+            start = i;
+            chars = 0;
+        }
+        chars += cost;
+    }
+    if start < items.len() {
+        batches.push((start, items.len()));
+    }
+    batches
+}
+
+fn discord_payload(items: &[NotifyItem], user_id: &str) -> serde_json::Value {
+    let embeds: Vec<serde_json::Value> = items
+        .iter()
+        .map(|it| {
+            let mut embed = serde_json::json!({
+                "title": truncate_chars(&format!(">>{} {}", it.response_no, it.thread_title), 256),
+                "url": response_permalink(&it.thread_url, it.response_no),
+                "description": truncate_chars(&strip_html_to_text(&it.body), NOTIFY_BODY_CHARS),
+            });
+            let footer = format!("{} {}", it.name.trim(), it.date_and_id.trim());
+            let footer = footer.trim();
+            if !footer.is_empty() {
+                embed["footer"] = serde_json::json!({ "text": truncate_chars(footer, 2048) });
+            }
+            embed
+        })
+        .collect();
+    // 5ch のレス本文に @everyone や他人へのメンションが入っていても飛ばないよう、
+    // 宛先を設定したユーザーID だけに絞る (parse: [] で本文中の記法を無効化する)。
+    let users: Vec<String> = if user_id.is_empty() {
+        Vec::new()
+    } else {
+        vec![user_id.to_string()]
+    };
+    let mut payload = serde_json::json!({
+        "embeds": embeds,
+        "allowed_mentions": { "parse": [], "users": users },
+    });
+    if !user_id.is_empty() {
+        payload["content"] = serde_json::json!(format!("<@{}>", user_id));
+    }
+    payload
+}
+
+async fn post_notification(
+    client: &reqwest::Client,
+    config: &NotifyConfig,
+    items: &[NotifyItem],
+) -> Result<(), String> {
+    // コピペで末尾に / が付くことがある。付いたままだと Discord が弾く。
+    let url = config.webhook_url.trim().trim_end_matches('/');
+    // 送信先は Discord Webhook だけ。他の URL を黙って POST すると、届いたのか
+    // 弾かれたのか利用者が判別できないので、貼った時点で分かるように断る。
+    if !is_discord_webhook(url) {
+        return Err(
+            "Discord の Webhook URL を入力してください (https://discord.com/api/webhooks/...)"
+                .to_string(),
+        );
+    }
+    let user_id = config.discord_user_id.trim();
+    if !user_id.is_empty() && !is_discord_snowflake(user_id) {
+        return Err(
+            "Discord ユーザーID は 17〜20 桁の数字です。ユーザー名ではなく、開発者モードの「ユーザーIDをコピー」で得た数字を入力してください"
+                .to_string(),
+        );
+    }
+    let request = client.post(url).json(&discord_payload(items, user_id));
+    // reqwest のエラーは Display に URL を含むことがある。そのままフロントへ返すと
+    // 画面やログに Webhook URL が出てしまうので without_url() で落とす。
+    let response = request
+        .send()
+        .await
+        .map_err(|e| format!("送信に失敗しました: {}", e.without_url()))?;
+    let status = response.status();
+    if status.as_u16() == 429 {
+        return Err("送信先にレート制限されました。間隔を空けて再試行してください".to_string());
+    }
+    if !status.is_success() {
+        // 400 が何で落ちたかは応答本文にしか書かれていない。ここを伏せると
+        // 利用者もこちらも原因を追えないので、URL とトークンだけ伏せて見せる。
+        let body = response.text().await.unwrap_or_default();
+        let detail = truncate_chars(scrub_webhook_url(&body, url).trim(), 300);
+        if detail.is_empty() {
+            return Err(format!("送信先が HTTP {} を返しました", status.as_u16()));
+        }
+        return Err(format!(
+            "送信先が HTTP {} を返しました: {}",
+            status.as_u16(),
+            detail
+        ));
+    }
+    Ok(())
+}
+
+fn notify_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// 自分宛レスを通知先へ送る。URL を IPC に載せずに済むよう、設定はここで読む。
+#[tauri::command]
+async fn send_notify_items(items: Vec<NotifyItem>) -> Result<usize, String> {
+    let config = load_notify_config()?;
+    if !config.enabled {
+        return Ok(0);
+    }
+    if config.webhook_url.trim().is_empty() {
+        return Err("通知先の URL が設定されていません".to_string());
+    }
+    if items.is_empty() {
+        return Ok(0);
+    }
+    let client = notify_client()?;
+    let send = &items[..items.len().min(NOTIFY_MAX_ITEMS)];
+    // 途中で失敗したらそこで止める。フロントは境界を進めないので次の巡回で拾い直す。
+    // 送信済みの分が再送されうるが、取りこぼすよりは重複するほうがましと判断した。
+    for (start, end) in notify_batches(send) {
+        post_notification(&client, &config, &send[start..end]).await?;
+    }
+    // URL もレス本文も残さない。件数だけ記録する。
+    let _ = core_store::append_log(&format!("notify: sent {} item(s)", send.len()));
+    Ok(send.len())
+}
+
+/// 設定画面のテスト送信。貼り間違いは実際に送ってみないと気づけないので必須。
+/// enabled を見ないのは、有効化する前に確認したいため。
+#[tauri::command]
+async fn send_notify_test() -> Result<(), String> {
+    let config = load_notify_config()?;
+    if config.webhook_url.trim().is_empty() {
+        return Err("通知先の URL が設定されていません".to_string());
+    }
+    let client = notify_client()?;
+    let item = NotifyItem {
+        thread_title: "Ember 通知テスト".to_string(),
+        thread_url: "https://ember-5ch.pages.dev".to_string(),
+        response_no: 1,
+        name: "Ember".to_string(),
+        date_and_id: "テスト送信".to_string(),
+        body: "この通知が届いていれば設定は完了です。".to_string(),
+    };
+    post_notification(&client, &config, &[item]).await
+}
+
 // --- Image download ---
 
 #[derive(Debug, Serialize)]
@@ -2745,6 +3059,10 @@ pub fn run() {
             upload_image,
             load_upload_history,
             save_upload_history,
+            load_notify_config,
+            save_notify_config,
+            send_notify_items,
+            send_notify_test,
             set_always_on_top,
             open_youtube_pip,
             close_youtube_pip,
@@ -2794,7 +3112,12 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_5ch_login_target, ui_json_relative_path, NgFilters};
+    use super::{
+        discord_payload, is_5ch_login_target, is_discord_snowflake, is_discord_webhook,
+        embed_char_cost, notify_batches, response_permalink, scrub_webhook_url, strip_html_to_text,
+        truncate_chars, ui_json_relative_path, NgFilters, NotifyItem, NOTIFY_CHUNK,
+        NOTIFY_MESSAGE_CHARS,
+    };
 
     // match / addedAt は Rust 側の構造体に無いと save 時に黙って捨てられる。
     #[test]
@@ -2850,5 +3173,188 @@ mod tests {
         // 5ch.io.example.com など末尾偽装の防御
         assert!(!is_5ch_login_target("https://5ch.io.example.com/"));
         assert!(!is_5ch_login_target("https://evil5ch.io/"));
+    }
+
+    fn notify_item(body: &str) -> NotifyItem {
+        NotifyItem {
+            thread_title: "テストスレ".to_string(),
+            thread_url: "https://5ch.io/test/read.cgi/board/1234567890/".to_string(),
+            response_no: 42,
+            name: "名無しさん".to_string(),
+            date_and_id: "2026/09/03 ID:abcdEFGH".to_string(),
+            body: body.to_string(),
+        }
+    }
+
+    #[test]
+    fn strip_html_to_text_converts_br_and_entities() {
+        let html = "1行目<br>2行目<br />3行目 &lt;tag&gt; &amp; &quot;quote&quot;";
+        assert_eq!(
+            strip_html_to_text(html),
+            "1行目
+2行目
+3行目 <tag> & \"quote\""
+        );
+    }
+
+    // &amp;lt; を先に &amp; へ戻すと "<" まで復元され、投稿本文が化ける。
+    #[test]
+    fn strip_html_to_text_does_not_double_decode_amp() {
+        assert_eq!(strip_html_to_text("&amp;lt;"), "&lt;");
+    }
+
+    #[test]
+    fn strip_html_to_text_drops_anchor_tags_but_keeps_label() {
+        let html = r#"<a href="../test/read.cgi/board/1/40" class="reply_link">&gt;&gt;40</a> そうだね"#;
+        assert_eq!(strip_html_to_text(html), ">>40 そうだね");
+    }
+
+    // 日本語を途中のバイトで割らないこと (割ると Discord が 400 を返す)。
+    #[test]
+    fn truncate_chars_counts_characters_not_bytes() {
+        assert_eq!(truncate_chars("あいうえお", 3), "あい…");
+        assert_eq!(truncate_chars("あいうえお", 5), "あいうえお");
+        assert_eq!(truncate_chars("abc", 10), "abc");
+    }
+
+    #[test]
+    fn is_discord_webhook_matches_only_webhook_urls() {
+        assert!(is_discord_webhook(
+            "https://discord.com/api/webhooks/123456/abcdef"
+        ));
+        assert!(is_discord_webhook(
+            "https://discordapp.com/api/webhooks/123456/abcdef"
+        ));
+        // Discord Webhook 以外は送信先として受け付けない (post_notification が弾く)
+        assert!(!is_discord_webhook("https://ntfy.sh/my-topic"));
+        assert!(!is_discord_webhook("https://discord.com/channels/123/456"));
+        assert!(!is_discord_webhook(""));
+    }
+
+    // レス本文の @everyone でチャンネル全員を鳴らさない。宛先は設定した ID だけ。
+    #[test]
+    fn discord_payload_blocks_mentions_from_response_body() {
+        let items = vec![notify_item("@everyone 呼んでみる <@999>")];
+        let payload = discord_payload(&items, "1234567890");
+        assert_eq!(payload["allowed_mentions"]["parse"], serde_json::json!([]));
+        assert_eq!(
+            payload["allowed_mentions"]["users"],
+            serde_json::json!(["1234567890"])
+        );
+        assert_eq!(payload["content"], serde_json::json!("<@1234567890>"));
+    }
+
+    // ユーザーID 未設定ならメンションを一切付けない (空の <@> を送らない)。
+    #[test]
+    fn discord_payload_omits_content_without_user_id() {
+        let items = vec![notify_item("本文")];
+        let payload = discord_payload(&items, "");
+        assert!(payload.get("content").is_none(), "{payload}");
+        assert_eq!(
+            payload["allowed_mentions"]["users"],
+            serde_json::json!([])
+        );
+        assert_eq!(payload["embeds"][0]["description"], serde_json::json!("本文"));
+        // リンク先はスレ先頭ではなく該当レス (notify_item の response_no は 42)。
+        assert_eq!(
+            payload["embeds"][0]["url"],
+            serde_json::json!("https://5ch.io/test/read.cgi/board/1234567890/42")
+        );
+    }
+    // ユーザー名をそのまま入れると Discord が 400 を返す。送る前に弾く。
+    #[test]
+    fn is_discord_snowflake_accepts_only_id_digits() {
+        assert!(is_discord_snowflake("123456789012345678"));
+        assert!(is_discord_snowflake("12345678901234567"));
+        assert!(is_discord_snowflake("12345678901234567890"));
+        assert!(!is_discord_snowflake("kiyohken2000"));
+        assert!(!is_discord_snowflake("@1234567890123456789"));
+        assert!(!is_discord_snowflake("1234567890123456"));
+        assert!(!is_discord_snowflake("123456789012345678901"));
+        assert!(!is_discord_snowflake(""));
+        assert!(!is_discord_snowflake("１２３４５６７８９０１２３４５６７８"));
+    }
+
+    // 400 の理由は本文にしか無いので本文は見せる。ただし URL とトークンは伏せる。
+    #[test]
+    fn scrub_webhook_url_hides_url_and_token() {
+        let url = "https://discord.com/api/webhooks/123456789/SECRETtokenVALUE1234";
+        let body = format!(
+            r#"{{"message":"Invalid Form Body","url":"{}","token":"SECRETtokenVALUE1234"}}"#,
+            url
+        );
+        let scrubbed = scrub_webhook_url(&body, url);
+        assert!(!scrubbed.contains("SECRETtokenVALUE1234"), "{scrubbed}");
+        assert!(!scrubbed.contains(url), "{scrubbed}");
+        // 診断に必要な部分は残っていること
+        assert!(scrubbed.contains("Invalid Form Body"), "{scrubbed}");
+    }
+
+    // 通知から該当レスへ直接飛べること。スレ先頭に落とされるとスマホで探す羽目になる。
+    #[test]
+    fn response_permalink_points_at_the_response() {
+        assert_eq!(
+            response_permalink("https://5ch.io/test/read.cgi/board/1234567890/", 40),
+            "https://5ch.io/test/read.cgi/board/1234567890/40"
+        );
+        // 末尾スラッシュが無い形でも二重スラッシュにしない
+        assert_eq!(
+            response_permalink("https://5ch.io/test/read.cgi/board/1234567890", 40),
+            "https://5ch.io/test/read.cgi/board/1234567890/40"
+        );
+        // read.cgi でない URL には触らない (テスト送信の告知ページなど)
+        assert_eq!(
+            response_permalink("https://ember-5ch.pages.dev", 1),
+            "https://ember-5ch.pages.dev"
+        );
+    }
+
+    fn sized_item(no: u32, body_len: usize) -> NotifyItem {
+        NotifyItem {
+            thread_title: "t".to_string(),
+            thread_url: "https://5ch.io/test/read.cgi/board/1/".to_string(),
+            response_no: no,
+            name: String::new(),
+            date_and_id: String::new(),
+            body: "あ".repeat(body_len),
+        }
+    }
+
+    // 件数の上限で区切ること。
+    #[test]
+    fn notify_batches_splits_by_embed_count() {
+        let items: Vec<NotifyItem> = (1..=25).map(|n| sized_item(n, 1)).collect();
+        let batches = notify_batches(&items);
+        assert_eq!(batches, vec![(0, 10), (10, 20), (20, 25)]);
+    }
+
+    // 文字数でも区切ること。件数だけで切ると 6000 文字を超えて Discord が 400 を返す。
+    #[test]
+    fn notify_batches_splits_by_total_chars() {
+        // 1 件あたり本文 900 文字 (上限で切られる) + タイトル数文字。
+        let items: Vec<NotifyItem> = (1..=10).map(|n| sized_item(n, 2000)).collect();
+        let batches = notify_batches(&items);
+        assert!(batches.len() > 1, "long items must be split: {batches:?}");
+        for (start, end) in &batches {
+            assert!(end - start <= NOTIFY_CHUNK);
+            let cost: usize = items[*start..*end].iter().map(embed_char_cost).sum();
+            // 2 件以上のバッチは必ず予算内に収まっていること。
+            if end - start > 1 {
+                assert!(cost <= NOTIFY_MESSAGE_CHARS, "batch over budget: {cost}");
+            }
+        }
+        // 全件が必ずどれかのバッチに入る (取りこぼさない)。
+        assert_eq!(batches.first().map(|b| b.0), Some(0));
+        assert_eq!(batches.last().map(|b| b.1), Some(items.len()));
+        for w in batches.windows(2) {
+            assert_eq!(w[0].1, w[1].0, "batches must be contiguous: {batches:?}");
+        }
+    }
+
+    // 1 件だけで予算を超えても、その 1 件は送る (空バッチや無限分割にしない)。
+    #[test]
+    fn notify_batches_keeps_a_single_oversized_item() {
+        let items = vec![sized_item(1, 100000)];
+        assert_eq!(notify_batches(&items), vec![(0, 1)]);
     }
 }
