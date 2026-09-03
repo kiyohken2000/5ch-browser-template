@@ -1,11 +1,10 @@
-# Tauri は .desktop のファイル名を productName から決めるため、この
-# ファイルは Ember.desktop になる。app_id (ember) と一致しないので実体には
-# できない。実体は linux/ember.desktop を deb/rpm の files で配置しており、
-# こちらはランチャーに重複表示されないよう NoDisplay で伏せておく。
 [Desktop Entry]
-Type=Application
-Name={{name}}
-Exec={{exec}}
+Categories={{categories}}
+{{#if comment}}Comment={{comment}}
+{{/if}}Exec={{exec}}
+StartupWMClass={{exec}}
 Icon={{icon}}
+Name={{name}}
 Terminal=false
+Type=Application
 NoDisplay=true

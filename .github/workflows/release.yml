@@ -65,6 +65,20 @@ jobs:
           npm run tauri:build -- --config "$TMP_CONFIG"
           rm -f "$TMP_CONFIG"
 
+      - name: Dump desktop entries on failure
+        if: failure()
+        run: |
+          # Tauri は linuxdeploy の出力を表示しないので、バンドルに使われた
+          # .desktop を残しておく。AppImage は deb のデータツリーから AppDir を
+          # 組むため、両方のエントリがここに出る。
+          find target/release/bundle -maxdepth 4 -name '*.desktop' -print0 2>/dev/null \
+            | while IFS= read -r -d '' f; do
+                echo "===== $f ====="
+                cat "$f"
+              done
+          echo "===== AppDir tree ====="
+          ls -laR target/release/bundle/appimage/*.AppDir 2>/dev/null | head -60 || true
+
       - name: Repack AppImage with bundled libs
         run: |
           sudo apt-get install -y libfuse2
@@ -216,6 +230,20 @@ jobs:
           JSON
           npm run tauri:build -- --config "$TMP_CONFIG"
           rm -f "$TMP_CONFIG"
+
+      - name: Dump desktop entries on failure
+        if: failure()
+        run: |
+          # Tauri は linuxdeploy の出力を表示しないので、バンドルに使われた
+          # .desktop を残しておく。AppImage は deb のデータツリーから AppDir を
+          # 組むため、両方のエントリがここに出る。
+          find target/release/bundle -maxdepth 4 -name '*.desktop' -print0 2>/dev/null \
+            | while IFS= read -r -d '' f; do
+                echo "===== $f ====="
+                cat "$f"
+              done
+          echo "===== AppDir tree ====="
+          ls -laR target/release/bundle/appimage/*.AppDir 2>/dev/null | head -60 || true
 
       - name: Repack AppImage with bundled libs
         run: |
