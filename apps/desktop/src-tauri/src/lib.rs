@@ -1573,6 +1573,19 @@ fn set_always_on_top(window: tauri::WebviewWindow, on_top: bool) -> Result<(), S
     window.set_always_on_top(on_top).map_err(|e| format!("{}", e))
 }
 
+// UI 全体の表示倍率。CSS ではなく WebView 自体のズームを使う。styles.css は
+// px 指定が 1300 箇所ある一方 rem は 0 なので CSS 側で倍率をかけるには全面的な
+// 書き換えが要るうえ、CSS の zoom はドラッグ処理の座標計算とずれる。
+// WebView のズームなら両方とも起きない。
+#[tauri::command]
+fn set_ui_zoom(window: tauri::WebviewWindow, factor: f64) -> Result<(), String> {
+    // 選択肢は 1.0〜1.5 だが、壊れた値が渡っても操作不能にならないよう丸める。
+    let clamped = if factor.is_finite() { factor.clamp(0.5, 3.0) } else { 1.0 };
+    window
+        .set_zoom(clamped)
+        .map_err(|e| format!("表示倍率の変更に失敗しました: {}", e))
+}
+
 #[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct YoutubePipBounds {
@@ -3064,6 +3077,7 @@ pub fn run() {
             send_notify_items,
             send_notify_test,
             set_always_on_top,
+            set_ui_zoom,
             open_youtube_pip,
             close_youtube_pip,
             start_pip_drag,

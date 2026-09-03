@@ -558,6 +558,15 @@ const POST_LOG_PREFS_KEY = "desktop.postLogPrefs.v1";
 const THREAD_CATEGORIES_KEY = "desktop.threadCategories.v2";
 const DISMISSED_UPDATE_VERSION_KEY = "desktop.dismissedUpdateVersion.v1";
 const NG_ID_EXPIRE_DAYS_KEY = "desktop.ngIdExpireDays.v1";
+// UI 全体の表示倍率。WebView 自体のズームなので px 指定のままでも全部が拡大され、
+// ペインのドラッグなどの座標計算もずれない。タッチ端末では指に対して UI が
+// 小さすぎるという要望への対応で、機種ごとに適正値が違うため段階から選ばせる。
+const UI_ZOOM_KEY = "desktop.uiZoom.v1";
+const UI_ZOOM_OPTIONS: { value: number; label: string }[] = [
+  { value: 1, label: "標準" },
+  { value: 1.25, label: "大" },
+  { value: 1.5, label: "特大" },
+];
 // スレ一覧フィルタ (お気に入り / 最近開いた / 最近書き込んだ) の選択状態。
 // "" は「フィルタなし = 板のスレ一覧」。dat落ちキャッシュは板依存で起動時に
 // 再取得が要るため対象外。
@@ -594,6 +603,7 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   ngIdExpireDays: NG_ID_EXPIRE_DAYS_KEY,
   ex0chEnabled: EX0CH_ENABLED_KEY,
   aiPrefs: AI_PREFS_KEY,
+  uiZoom: UI_ZOOM_KEY,
 };
 // settings.json は core-store が空の {} を作るので、UI_JSON_MIGRATED_KEY とは
 // 別の印が要る。これが無い間はファイルにフィールドが無くても localStorage を消さない。
@@ -1815,6 +1825,23 @@ export default function App() {
   useEffect(() => {
     saveUiSetting(NG_ID_EXPIRE_DAYS_KEY, String(ngIdExpireDays));
   }, [ngIdExpireDays]);
+  const [uiZoom, setUiZoom] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(UI_ZOOM_KEY);
+      if (raw === null) return 1;
+      const n = Number(raw);
+      return UI_ZOOM_OPTIONS.some((o) => o.value === n) ? n : 1;
+    } catch {
+      return 1;
+    }
+  });
+  // 初回にも走るので、これが起動時の倍率の復元も兼ねる (ズーム自体は WebView 側の
+  // 状態で、プロセスをまたいでは残らない)。
+  useEffect(() => {
+    saveUiSetting(UI_ZOOM_KEY, String(uiZoom));
+    if (!isTauriRuntime()) return;
+    invoke("set_ui_zoom", { factor: uiZoom }).catch((e) => console.warn("set_ui_zoom failed", e));
+  }, [uiZoom]);
   const [highlightFilters, setHighlightFilters] = useState<HighlightFilters>({ words: [], ids: [], names: [] });
   // 手動「ここまで読んだ」マーカー: board_url -> thread_key -> response_no
   const [readMarker, setReadMarker] = useState<Record<string, Record<string, number>>>({});
@@ -11761,6 +11788,14 @@ export default function App() {
                   <select value={darkMode ? "dark" : "light"} onChange={(e) => setDarkMode(e.target.value === "dark")}>
                     <option value="light">ライト</option>
                     <option value="dark">ダーク</option>
+                  </select>
+                </label>
+                <label className="settings-row">
+                  <span>UI サイズ</span>
+                  <select className="ui-zoom-select" value={String(uiZoom)} onChange={(e) => setUiZoom(Number(e.target.value))}>
+                    {UI_ZOOM_OPTIONS.map((o) => (
+                      <option key={o.value} value={String(o.value)}>{o.label}</option>
+                    ))}
                   </select>
                 </label>
                 <label className="settings-row">

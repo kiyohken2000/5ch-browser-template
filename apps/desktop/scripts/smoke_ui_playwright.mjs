@@ -1148,6 +1148,19 @@ try {
     !legends.some((l) => l.includes("通知")),
     `notification settings should live in their own panel, not in 設定: ${legends}`,
   );
+  // UI サイズ (タッチ端末向けの表示倍率。既定は標準 = 1)
+  const uiZoomSelect = await page.$(".settings-body select.ui-zoom-select");
+  assert(uiZoomSelect, "settings should have a UI size select");
+  assert((await uiZoomSelect.inputValue()) === "1", "UI size should default to 1 (標準)");
+  const uiZoomLabels = await page.$$eval(".settings-body select.ui-zoom-select option", (els) =>
+    els.map((e) => e.textContent?.trim()),
+  );
+  assert(
+    uiZoomLabels.length === 3 && uiZoomLabels.includes("標準") && uiZoomLabels.includes("大") && uiZoomLabels.includes("特大"),
+    `UI size should offer 3 steps, got ${uiZoomLabels}`,
+  );
+  console.log("smoke-ui: UI size setting ok");
+
   // ホイールスクロール行数の設定 (既定 OFF、ON のときだけ行数入力が出る)
   const wheelRowToggle = await page.$('.settings-body label:has-text("スレ一覧のホイールスクロールを行単位にする") input[type="checkbox"]');
   assert(wheelRowToggle, "settings should have wheel row scroll toggle");
