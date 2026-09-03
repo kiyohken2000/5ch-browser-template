@@ -571,6 +571,16 @@ const UI_ZOOM_OPTIONS: { value: number; label: string }[] = [
   { value: 1.25, label: "大" },
   { value: 1.5, label: "特大" },
 ];
+// タッチ操作モード。タブレットにはカーソルが無いので、タップで合成される
+// mouseover の直後に mouseout が来て、ポップアップが開いた瞬間に閉じる。
+// on にするとホバー由来の開閉を止め、タップで開いてタップで閉じる形になる。
+const TOUCH_MODE_KEY = "desktop.touchMode.v1";
+type TouchModePref = "auto" | "on" | "off";
+const TOUCH_MODE_OPTIONS: { value: TouchModePref; label: string }[] = [
+  { value: "auto", label: "自動" },
+  { value: "on", label: "常にオン" },
+  { value: "off", label: "常にオフ" },
+];
 // スレ一覧フィルタ (お気に入り / 最近開いた / 最近書き込んだ) の選択状態。
 // "" は「フィルタなし = 板のスレ一覧」。dat落ちキャッシュは板依存で起動時に
 // 再取得が要るため対象外。
@@ -608,6 +618,7 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   ex0chEnabled: EX0CH_ENABLED_KEY,
   aiPrefs: AI_PREFS_KEY,
   uiZoom: UI_ZOOM_KEY,
+  touchMode: TOUCH_MODE_KEY,
 };
 // settings.json は core-store が空の {} を作るので、UI_JSON_MIGRATED_KEY とは
 // 別の印が要る。これが無い間はファイルにフィールドが無くても localStorage を消さない。
@@ -1858,6 +1869,61 @@ export default function App() {
     window.addEventListener("resize", apply);
     return () => window.removeEventListener("resize", apply);
   }, [uiZoom]);
+  const [touchModePref, setTouchModePref] = useState<TouchModePref>(() => {
+    try {
+      const raw = localStorage.getItem(TOUCH_MODE_KEY);
+      return raw === "on" || raw === "off" ? raw : "auto";
+    } catch {
+      return "auto";
+    }
+  });
+  const touchModePrefRef = useRef<TouchModePref>(touchModePref);
+  touchModePrefRef.current = touchModePref;
+  // 直前に触った入力デバイスがタッチだったか。タップ直後の合成 mouseover は
+  // 再描画を待たずに届くので、ホバー抑止の判定は state ではなく ref を見る。
+  const lastPointerWasTouchRef = useRef<boolean>((() => {
+    try {
+      return window.matchMedia("(pointer: coarse)").matches;
+    } catch {
+      return false;
+    }
+  })());
+  const [touchActive, setTouchActive] = useState(lastPointerWasTouchRef.current);
+  const resolveTouchMode = (pref: TouchModePref, touch: boolean) =>
+    pref === "on" || (pref === "auto" && touch);
+  // touchMode は描画用 (CSS の印やタッチ用ボタン)、isTouchMode() はイベント用。
+  // 判定式は同じものを使う。
+  const touchMode = resolveTouchMode(touchModePref, touchActive);
+  const isTouchMode = () => resolveTouchMode(touchModePrefRef.current, lastPointerWasTouchRef.current);
+  useEffect(() => {
+    saveUiSetting(TOUCH_MODE_KEY, touchModePref);
+  }, [touchModePref]);
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      const touch = e.pointerType === "touch" || e.pointerType === "pen";
+      if (lastPointerWasTouchRef.current === touch) return;
+      lastPointerWasTouchRef.current = touch;
+      setTouchActive(touch);
+    };
+    // タップのあとに来るのは合成 mouse* イベントだけで pointermove は発生しないので、
+    // これでタッチ操作の最中にマウス判定へ戻されることはない。
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse" || !lastPointerWasTouchRef.current) return;
+      lastPointerWasTouchRef.current = false;
+      setTouchActive(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("pointermove", onPointerMove, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("pointermove", onPointerMove, true);
+    };
+  }, []);
+  // CSS 側でタップ領域を広げるための印。
+  useEffect(() => {
+    document.documentElement.classList.toggle("touch-mode", touchMode);
+    document.body.classList.toggle("touch-mode", touchMode);
+  }, [touchMode]);
   const [highlightFilters, setHighlightFilters] = useState<HighlightFilters>({ words: [], ids: [], names: [] });
   // 手動「ここまで読んだ」マーカー: board_url -> thread_key -> response_no
   const [readMarker, setReadMarker] = useState<Record<string, Record<string, number>>>({});
@@ -2279,6 +2345,34 @@ export default function App() {
   const beMenuRef = useRef<HTMLDivElement>(null);
   const anchorPopupCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [backRefPopup, setBackRefPopup] = useState<{ x: number; y: number; anchorTop: number; responseIds: number[]; z?: number } | null>(null);
+  // タッチ操作では「マウスが離れたら閉じる」が使えないので、まとめて閉じる手段が要る。
+  const closeAllPopups = () => {
+    if (anchorPopupCloseTimer.current) {
+      clearTimeout(anchorPopupCloseTimer.current);
+      anchorPopupCloseTimer.current = null;
+    }
+    if (idPopupCloseTimer.current) {
+      clearTimeout(idPopupCloseTimer.current);
+      idPopupCloseTimer.current = null;
+    }
+    setAnchorPopup(null);
+    setBackRefPopup(null);
+    setNestedPopups([]);
+    setIdPopup(null);
+  };
+  // アンカーの真下にポップアップを出す。ホバーとタップで同じ位置になるように共通化。
+  const openAnchorPopupAt = (el: HTMLElement, responseIds: number[]) => {
+    if (responseIds.length === 0) return;
+    if (anchorPopupCloseTimer.current) {
+      clearTimeout(anchorPopupCloseTimer.current);
+      anchorPopupCloseTimer.current = null;
+    }
+    const rect = el.getBoundingClientRect();
+    const popupWidth = Math.min(620, window.innerWidth - 24);
+    const x = Math.max(8, Math.min(rect.left, window.innerWidth - popupWidth - 8));
+    setNestedPopups([]);
+    setAnchorPopup({ x, y: rect.bottom + 1, anchorTop: rect.top, responseIds, z: allocatePopupZ() });
+  };
   const [watchoiMenu, setWatchoiMenu] = useState<{ x: number; y: number; watchoi: string } | null>(null);
   const watchoiMenuRef = useRef<HTMLDivElement>(null);
   const [composePos, setComposePos] = useState<{ x: number; y: number } | null>(null);
@@ -4933,6 +5027,21 @@ export default function App() {
       popupTopZRef.current = 610;
     }
   }, [idPopup, anchorPopup, backRefPopup, nestedPopups]);
+  // タッチ操作中はポップアップが自分では閉じないので、外側を触ったら閉じる。
+  // トリガー自体のタップは除外する (閉じてから開き直しになるのを避ける)。
+  useEffect(() => {
+    if (!touchMode) return;
+    if (!idPopup && !anchorPopup && !backRefPopup && nestedPopups.length === 0) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (!t || typeof t.closest !== "function") return;
+      if (t.closest(".anchor-popup, .id-popup, .hover-preview, .thread-menu")) return;
+      if (t.closest(".anchor-ref, .back-ref-trigger, .response-id-cell, .image-gallery-resno")) return;
+      closeAllPopups();
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    return () => window.removeEventListener("pointerdown", onDown, true);
+  }, [touchMode, idPopup, anchorPopup, backRefPopup, nestedPopups]);
   useEffect(() => { myPostsRef.current = myPosts; }, [myPosts]);
 
   useEffect(() => {
@@ -5453,7 +5562,16 @@ export default function App() {
   }, [ogpCardsEnabled, tweetCardsEnabled, ogpDomainFilters, visibleResponseItems, responseSearchQuery, youtubeThumbsEnabled, imageSizeLimit, threadCategoryPanelOpen]);
 
   const handlePopupChainOver = (ev: ReactMouseEvent, nestedLevel?: number) => {
-    const t = ev.target as HTMLElement;
+    if (isTouchMode()) return;
+    openPopupChainFrom(ev.target as HTMLElement, nestedLevel);
+  };
+  // ポップアップの中のアンカー / ▼N / ID をタップでもたどれるようにする。
+  const handlePopupChainClick = (ev: ReactMouseEvent, nestedLevel?: number) => {
+    handlePopupImageClick(ev);
+    if (!isTouchMode()) return;
+    openPopupChainFrom(ev.target as HTMLElement, nestedLevel);
+  };
+  const openPopupChainFrom = (t: HTMLElement, nestedLevel?: number) => {
     const pushNested = (rect: DOMRect, responseIds: number[]) => {
       if (nestedLevel === undefined) {
         setNestedPopups([{ x: rect.left, y: rect.bottom + 1, anchorTop: rect.top, responseIds, z: allocatePopupZ() }]);
@@ -5493,6 +5611,7 @@ export default function App() {
   };
 
   const handlePopupChainOut = (ev: ReactMouseEvent, nestedLevel?: number) => {
+    if (isTouchMode()) return;
     const t = ev.target as HTMLElement;
     const leftAnchor = !!t.closest(".anchor-ref") || !!t.closest(".popup-back-ref");
     const leftId = !!t.closest(".popup-id-trigger");
@@ -5550,6 +5669,15 @@ export default function App() {
       </div>
     );
   };
+
+  // タッチ操作ではポップアップが自分では閉じないので、明示的な閉じる手段を出す。
+  const renderPopupTouchBar = () => (
+    <div className="popup-touch-bar">
+      <button type="button" className="popup-touch-close" onClick={(e) => { e.stopPropagation(); closeAllPopups(); }}>
+        閉じる
+      </button>
+    </div>
+  );
 
   // ポップアップ (アンカー / 逆参照 / ID) の本文。あぼーん指定のレスは中身を出さない
   const renderPopupBody = (resp: typeof responseItems[number]) =>
@@ -5659,6 +5787,7 @@ export default function App() {
     setThreadTitlePopup(null);
   };
   const onThreadTitleMouseEnter = (event: ReactMouseEvent<HTMLTableCellElement>, title: string) => {
+    if (isTouchMode()) return;
     if (paneLayoutMode !== "river") return;
     hideThreadTitlePopup();
     const rect = event.currentTarget.getBoundingClientRect();
@@ -6801,6 +6930,8 @@ export default function App() {
   };
 
   const showHoverPreview = (src: string) => {
+    // タッチではサムネイルのタップが拡大表示に割り当てられているので、ホバー側は出さない。
+    if (isTouchMode()) return;
     if (hoverPreviewHideTimerRef.current) {
       clearTimeout(hoverPreviewHideTimerRef.current);
       hoverPreviewHideTimerRef.current = null;
@@ -9588,6 +9719,12 @@ export default function App() {
                 const anchor = target.closest<HTMLElement>(".anchor-ref");
                 if (!anchor) return;
                 const ids = getAnchorIds(anchor);
+                // タッチ操作ではホバーで出せないので、タップをポップアップに割り当てる。
+                // ジャンプはポップアップヘッダのレス番号から行える。
+                if (isTouchMode()) {
+                  openAnchorPopupAt(anchor, ids.filter((id) => responseItems.some((r) => r.id === id)));
+                  return;
+                }
                 const first = ids.find((id) => responseItems.some((r) => r.id === id));
                 if (first) {
                   selectResponseAndScroll(first);
@@ -9612,6 +9749,7 @@ export default function App() {
                 }
               }}
               onMouseOver={(e) => {
+                if (isTouchMode()) return;
                 const target = e.target as HTMLElement;
                 const anchor = target.closest<HTMLElement>(".anchor-ref");
                 if (!anchor) { return; }
@@ -9628,6 +9766,7 @@ export default function App() {
                 }
               }}
               onMouseOut={(e) => {
+                if (isTouchMode()) return;
                 const target = e.target as HTMLElement;
                 // Hide hover preview when mouse leaves thumb or image URL link (hover mode)
                 const leftThumb = target.closest("img.response-thumb");
@@ -9743,7 +9882,14 @@ export default function App() {
                       {backRefMap.has(r.id) && (
                         <span
                           className="back-ref-trigger"
+                          onClick={(e) => {
+                            if (!isTouchMode()) return;
+                            e.stopPropagation();
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, responseIds: backRefMap.get(r.id)!, z: allocatePopupZ() });
+                          }}
                           onMouseEnter={(e) => {
+                            if (isTouchMode()) return;
                             const rect = (e.target as HTMLElement).getBoundingClientRect();
                             setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, responseIds: backRefMap.get(r.id)! });
                           }}
@@ -9764,10 +9910,19 @@ export default function App() {
                             onClick={(e) => {
                               e.stopPropagation();
                               if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; }
+                              // タッチ操作ではタップを ID ポップアップに割り当てる。
+                              // ID メニュー (コピー / NGID / ハイライト) はポップアップのヘッダから開ける。
+                              if (isTouchMode() && idPopupEnabled) {
+                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                const right = Math.max(8, window.innerWidth - rect.right);
+                                setIdPopup({ right, y: rect.bottom + 2, anchorTop: rect.top, id, z: allocatePopupZ() });
+                                return;
+                              }
                               const p = clampMenuPosition(e.clientX, e.clientY, 160, 56);
                               setIdMenu({ x: p.x, y: p.y, id });
                             }}
                             onMouseEnter={(e) => {
+                              if (isTouchMode()) return;
                               if (!idPopupEnabled) return;
                               if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; }
                               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -9775,6 +9930,7 @@ export default function App() {
                               setIdPopup({ right, y: rect.bottom + 2, anchorTop: rect.top, id });
                             }}
                             onMouseLeave={() => {
+                              if (isTouchMode()) return;
                               idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 80);
                             }}
                           >
@@ -9925,6 +10081,7 @@ export default function App() {
                           setStatus(`>>${img.responseNo}`);
                         }}
                         onMouseEnter={(e) => {
+                          if (isTouchMode()) return;
                           if (anchorPopupCloseTimer.current) { clearTimeout(anchorPopupCloseTimer.current); anchorPopupCloseTimer.current = null; }
                           const rect = e.currentTarget.getBoundingClientRect();
                           const popupWidth = Math.min(620, window.innerWidth - 24);
@@ -9932,6 +10089,7 @@ export default function App() {
                           setAnchorPopup({ x, y: rect.bottom + 1, anchorTop: rect.top, responseIds: [img.responseNo] });
                         }}
                         onMouseLeave={(e) => {
+                          if (isTouchMode()) return;
                           const next = e.relatedTarget as HTMLElement | null;
                           if (next?.closest(".anchor-popup")) return;
                           if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
@@ -10007,6 +10165,7 @@ export default function App() {
                     <div
                       className="ai-summary-content ai-markdown"
                       onMouseOver={(e) => {
+                        if (isTouchMode()) return;
                         const target = e.target as HTMLElement;
                         const anchor = target.closest<HTMLElement>(".anchor-ref");
                         if (!anchor) return;
@@ -10023,6 +10182,7 @@ export default function App() {
                         }
                       }}
                       onMouseOut={(e) => {
+                        if (isTouchMode()) return;
                         const target = e.target as HTMLElement;
                         if (!target.closest(".anchor-ref")) return;
                         const next = e.relatedTarget as HTMLElement | null;
@@ -10039,6 +10199,10 @@ export default function App() {
                         const anchor = target.closest<HTMLElement>(".anchor-ref");
                         if (!anchor) return;
                         const ids = getAnchorIds(anchor);
+                        if (isTouchMode()) {
+                          openAnchorPopupAt(anchor, ids.filter((id) => responseItems.some((r) => r.id === id)));
+                          return;
+                        }
                         const first = ids.find((id) => responseItems.some((r) => r.id === id));
                         if (first) {
                           selectResponseAndScroll(first);
@@ -11451,12 +11615,14 @@ export default function App() {
             className="anchor-popup"
             style={{ ...posStyle, zIndex: anchorPopup.z, '--fs-delta': `${responsesFontSize - 12}px` } as unknown as React.CSSProperties}
             onMouseEnter={() => {
+              if (isTouchMode()) return;
               if (anchorPopupCloseTimer.current) {
                 clearTimeout(anchorPopupCloseTimer.current);
                 anchorPopupCloseTimer.current = null;
               }
             }}
             onMouseLeave={(ev) => {
+              if (isTouchMode()) return;
               const next = ev.relatedTarget as HTMLElement | null;
               if (next?.closest(".anchor-popup") || next?.closest(".id-popup")) return;
               if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
@@ -11468,9 +11634,10 @@ export default function App() {
             }}
             onMouseOver={(ev) => handlePopupChainOver(ev)}
             onMouseOut={(ev) => handlePopupChainOut(ev)}
-            onClick={handlePopupImageClick}
+            onClick={(ev) => handlePopupChainClick(ev)}
             onMouseMove={handlePopupImageHover}
           >
+            {touchMode && renderPopupTouchBar()}
             {popupResps.map((popupResp) => (
               <div key={popupResp.id}>
                 {renderPopupHeader(popupResp)}
@@ -11487,6 +11654,7 @@ export default function App() {
             className="anchor-popup back-ref-popup"
             style={{ left: backRefPopup.x, bottom: window.innerHeight - backRefPopup.y, zIndex: backRefPopup.z, '--fs-delta': `${responsesFontSize - 12}px` } as React.CSSProperties}
             onMouseLeave={(ev) => {
+              if (isTouchMode()) return;
               const next = ev.relatedTarget as HTMLElement | null;
               if (next?.closest(".anchor-popup") || next?.closest(".id-popup")) return;
               setBackRefPopup(null);
@@ -11494,9 +11662,10 @@ export default function App() {
             }}
             onMouseOver={(ev) => handlePopupChainOver(ev)}
             onMouseOut={(ev) => handlePopupChainOut(ev)}
-            onClick={handlePopupImageClick}
+            onClick={(ev) => handlePopupChainClick(ev)}
             onMouseMove={handlePopupImageHover}
           >
+            {touchMode && renderPopupTouchBar()}
             {refs.map((refNo) => {
               const refResp = responseItems.find((r) => r.id === refNo);
               if (!refResp) return null;
@@ -11527,12 +11696,14 @@ export default function App() {
             className="anchor-popup nested-popup"
             style={{ ...nPosStyle, zIndex: np.z, '--fs-delta': `${responsesFontSize - 12}px` } as unknown as React.CSSProperties}
             onMouseEnter={() => {
+              if (isTouchMode()) return;
               if (anchorPopupCloseTimer.current) {
                 clearTimeout(anchorPopupCloseTimer.current);
                 anchorPopupCloseTimer.current = null;
               }
             }}
             onMouseLeave={(ev) => {
+              if (isTouchMode()) return;
               const next = ev.relatedTarget as HTMLElement | null;
               if (next?.closest(".anchor-popup") || next?.closest(".id-popup")) return;
               if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
@@ -11545,9 +11716,10 @@ export default function App() {
             }}
             onMouseOver={(ev) => handlePopupChainOver(ev, i)}
             onMouseOut={(ev) => handlePopupChainOut(ev, i)}
-            onClick={handlePopupImageClick}
+            onClick={(ev) => handlePopupChainClick(ev, i)}
             onMouseMove={handlePopupImageHover}
           >
+            {touchMode && renderPopupTouchBar()}
             {nestedResps.map((nestedResp) => (
               <div key={nestedResp.id}>
                 {renderPopupHeader(nestedResp)}
@@ -11571,11 +11743,13 @@ export default function App() {
             style={{ ...idPosStyle, zIndex: idPopup.z, '--fs-delta': `${responsesFontSize - 12}px` } as unknown as React.CSSProperties}
             onMouseEnter={() => { if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; } }}
             onMouseLeave={(ev) => {
+              if (isTouchMode()) return;
               const next = ev.relatedTarget as HTMLElement | null;
               if (next?.closest(".anchor-popup")) return;
               idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 80);
             }}
             onMouseOver={(ev) => {
+              if (isTouchMode()) return;
               const t = ev.target as HTMLElement;
               const a = t.closest<HTMLElement>(".anchor-ref");
               if (!a) return;
@@ -11589,6 +11763,7 @@ export default function App() {
               }
             }}
             onMouseOut={(ev) => {
+              if (isTouchMode()) return;
               const t = ev.target as HTMLElement;
               if (!t.closest(".anchor-ref")) return;
               const next = ev.relatedTarget as HTMLElement | null;
@@ -11600,11 +11775,30 @@ export default function App() {
                 anchorPopupCloseTimer.current = null;
               }, 80);
             }}
-            onClick={handlePopupImageClick}
+            onClick={(ev) => handlePopupChainClick(ev)}
             onMouseMove={handlePopupImageHover}
           >
             <div className="id-popup-header">
               ID:{idPopup.id} ({idResponses.length}件)
+              {touchMode && (
+                <>
+                  <button
+                    type="button"
+                    className="popup-touch-menu"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const p = clampMenuPosition(rect.left, rect.bottom, 160, 56);
+                      setIdMenu({ x: p.x, y: p.y, id: idPopup.id });
+                    }}
+                  >
+                    メニュー
+                  </button>
+                  <button type="button" className="popup-touch-close" onClick={(e) => { e.stopPropagation(); closeAllPopups(); }}>
+                    閉じる
+                  </button>
+                </>
+              )}
             </div>
             <div className="id-popup-list">
               {idResponses.map((r) => {
@@ -11811,6 +12005,18 @@ export default function App() {
                   <select className="ui-zoom-select" value={String(uiZoom)} onChange={(e) => setUiZoom(Number(e.target.value))}>
                     {UI_ZOOM_OPTIONS.map((o) => (
                       <option key={o.value} value={String(o.value)}>{o.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-row">
+                  <span>タッチ操作</span>
+                  <select
+                    className="touch-mode-select"
+                    value={touchModePref}
+                    onChange={(e) => setTouchModePref(e.target.value as TouchModePref)}
+                  >
+                    {TOUCH_MODE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
                 </label>

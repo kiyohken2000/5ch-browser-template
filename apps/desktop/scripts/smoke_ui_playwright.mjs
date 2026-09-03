@@ -1180,6 +1180,44 @@ try {
   assert(!(await isNarrow()), "1280px viewport should not stack");
   console.log("smoke-ui: UI size vs narrow layout ok");
 
+  // タッチ操作モード。ホバー抑止の判定自体はポインタイベント依存でここでは再現できないので、
+  // 設定が root の touch-mode クラス (CSS のタップ領域拡大の印) に反映されることを見る。
+  const touchModeSelect = await page.$(".settings-body select.touch-mode-select");
+  assert(touchModeSelect, "settings should have a touch mode select");
+  assert((await touchModeSelect.inputValue()) === "auto", "touch mode should default to auto");
+  const touchLabels = await page.$$eval(".settings-body select.touch-mode-select option", (os) => os.map((o) => o.textContent));
+  assert(
+    touchLabels.length === 3 && touchLabels.join(",") === "自動,常にオン,常にオフ",
+    `touch mode should offer 3 choices, got ${touchLabels.join(",")}`,
+  );
+  const isTouchMode = () => page.evaluate(() => document.documentElement.classList.contains("touch-mode"));
+  assert(!(await isTouchMode()), "a mouse-only context should not be in touch mode");
+  await touchModeSelect.selectOption("on");
+  await new Promise((r) => setTimeout(r, 250));
+  assert(await isTouchMode(), "touch mode ON should mark the root element");
+  await touchModeSelect.selectOption("auto");
+  await new Promise((r) => setTimeout(r, 250));
+  assert(!(await isTouchMode()), "auto should stay off while only the mouse has been used");
+  console.log("smoke-ui: touch mode setting ok");
+
+  // 自動判定は実際にタッチイベントが出るコンテキストでないと確かめられない。
+  // 別コンテキストを起こして、タップで切り替わること / 設定で上書きできることを見る。
+  const tapAndCheck = async (pref) => {
+    const ctx = await browser.newContext({ hasTouch: true });
+    if (pref) await ctx.addInitScript((v) => localStorage.setItem("desktop.touchMode.v1", v), pref);
+    const p2 = await ctx.newPage();
+    await p2.goto(targetUrl, { waitUntil: "load" });
+    await p2.waitForSelector(".layout");
+    await p2.touchscreen.tap(200, 200);
+    await new Promise((r) => setTimeout(r, 250));
+    const marked = await p2.evaluate(() => document.documentElement.classList.contains("touch-mode"));
+    await ctx.close();
+    return marked;
+  };
+  assert(await tapAndCheck(null), "auto should switch to touch mode once a real tap arrives");
+  assert(!(await tapAndCheck("off")), "常にオフ should override touch detection on a touch device");
+  console.log("smoke-ui: touch mode detection ok");
+
   // ホイールスクロール行数の設定 (既定 OFF、ON のときだけ行数入力が出る)
   const wheelRowToggle = await page.$('.settings-body label:has-text("スレ一覧のホイールスクロールを行単位にする") input[type="checkbox"]');
   assert(wheelRowToggle, "settings should have wheel row scroll toggle");

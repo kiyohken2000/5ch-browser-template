@@ -1279,6 +1279,38 @@ li.fav-drag-over {
   padding: 6px;
   font-size: calc(12px + var(--fs-delta, 0px));
 }
+/* タッチ操作中のポップアップを閉じるバー。ポップアップはスクロールするので
+   sticky で上に残す (padding 分だけ上にずらす)。 */
+.popup-touch-bar {
+  position: sticky;
+  top: -6px;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  margin: -6px -8px 4px;
+  padding: 4px 6px;
+  background: inherit;
+}
+.touch-mode .popup-touch-close,
+.touch-mode .popup-touch-menu {
+  font-size: calc(11px + var(--fs-delta, 0px));
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.touch-mode .popup-touch-close {
+  margin-left: auto;
+}
+/* タップで開く小さなトリガーの当たり判定を広げる。インライン要素の
+   上下 padding は行ボックスの高さを変えないので、レイアウトはずれない。 */
+.touch-mode .anchor-ref,
+.touch-mode .back-ref-trigger,
+.touch-mode .response-id-cell,
+.touch-mode .popup-id-trigger,
+.touch-mode .popup-back-ref,
+.touch-mode .image-gallery-resno {
+  padding-block: 6px;
+}
+
 .id-popup-header {
   display: flex;
   align-items: center;
