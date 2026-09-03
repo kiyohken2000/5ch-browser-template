@@ -1191,7 +1191,11 @@ try {
     `touch mode should offer 3 choices, got ${touchLabels.join(",")}`,
   );
   const isTouchMode = () => page.evaluate(() => document.documentElement.classList.contains("touch-mode"));
-  assert(!(await isTouchMode()), "a mouse-only context should not be in touch mode");
+  // 上のスプリッタ検証で pointerType:"touch" の合成イベントを投げているので、
+  // マウスを動かして操作がマウスへ戻ることを確かめてから既定値を見る。
+  for (let i = 0; i < 6; i += 1) await page.mouse.move(400 + i * 30, 300 + i * 30);
+  await new Promise((r) => setTimeout(r, 100));
+  assert(!(await isTouchMode()), "moving the mouse should take over from an earlier touch pointer event");
   await touchModeSelect.selectOption("on");
   await new Promise((r) => setTimeout(r, 250));
   assert(await isTouchMode(), "touch mode ON should mark the root element");
@@ -1217,6 +1221,29 @@ try {
   assert(await tapAndCheck(null), "auto should switch to touch mode once a real tap arrives");
   assert(!(await tapAndCheck("off")), "常にオフ should override touch detection on a touch device");
   console.log("smoke-ui: touch mode detection ok");
+
+  // タップ直後に来る合成マウスイベントでモードが往復すると、再描画とタップ領域の
+  // 付け替えがスクロール中に走って操作が壊れる。往復しないことを見る。
+  {
+    const ctx = await browser.newContext({ hasTouch: true });
+    const p2 = await ctx.newPage();
+    await p2.goto(targetUrl, { waitUntil: "load" });
+    await p2.waitForSelector(".layout");
+    const inTouchMode = () => p2.evaluate(() => document.documentElement.classList.contains("touch-mode"));
+    await p2.touchscreen.tap(200, 200);
+    await new Promise((r) => setTimeout(r, 200));
+    assert(await inTouchMode(), "a tap should enter touch mode");
+    for (let i = 0; i < 6; i += 1) await p2.mouse.move(300 + i * 30, 300 + i * 30);
+    await new Promise((r) => setTimeout(r, 200));
+    assert(await inTouchMode(), "mouse events right after a tap should not leave touch mode");
+    // 静かな時間が空いたあとの、実際に動いたマウス操作でだけマウスへ戻る。
+    await new Promise((r) => setTimeout(r, 2100));
+    for (let i = 0; i < 6; i += 1) await p2.mouse.move(300 + i * 30, 300 + i * 30);
+    await new Promise((r) => setTimeout(r, 200));
+    assert(!(await inTouchMode()), "a real mouse move well after the last touch should return to mouse mode");
+    await ctx.close();
+  }
+  console.log("smoke-ui: touch mode does not flap ok");
 
   // ホイールスクロール行数の設定 (既定 OFF、ON のときだけ行数入力が出る)
   const wheelRowToggle = await page.$('.settings-body label:has-text("スレ一覧のホイールスクロールを行単位にする") input[type="checkbox"]');

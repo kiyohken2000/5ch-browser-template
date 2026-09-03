@@ -581,6 +581,11 @@ const TOUCH_MODE_OPTIONS: { value: TouchModePref; label: string }[] = [
   { value: "on", label: "常にオン" },
   { value: "off", label: "常にオフ" },
 ];
+// 自動判定でマウス操作へ戻す条件。タップの直後には合成マウスイベントが来るので、
+// 直前のタッチからの経過時間と、実際にカーソルが動いたかの両方を見て往復を防ぐ。
+const MOUSE_TAKEOVER_QUIET_MS = 2000;
+const MOUSE_TAKEOVER_MOVES = 3;
+const MOUSE_TAKEOVER_DISTANCE = 24;
 // スレ一覧フィルタ (お気に入り / 最近開いた / 最近書き込んだ) の選択状態。
 // "" は「フィルタなし = 板のスレ一覧」。dat落ちキャッシュは板依存で起動時に
 // 再取得が要るため対象外。
@@ -1899,22 +1904,51 @@ export default function App() {
     saveUiSetting(TOUCH_MODE_KEY, touchModePref);
   }, [touchModePref]);
   useEffect(() => {
-    const onPointerDown = (e: PointerEvent) => {
-      const touch = e.pointerType === "touch" || e.pointerType === "pen";
-      if (lastPointerWasTouchRef.current === touch) return;
-      lastPointerWasTouchRef.current = touch;
-      setTouchActive(touch);
+    // タッチの根拠にはタッチイベントそのものを使う。pointerType は環境によっては
+    // タップでも mouse で届く (合成イベント) ので、タッチ方向の判定にしか使わない。
+    let lastTouchAt = 0;
+    let mouseMoves = 0;
+    let mouseFrom: { x: number; y: number } | null = null;
+    const enterTouch = () => {
+      lastTouchAt = Date.now();
+      mouseMoves = 0;
+      mouseFrom = null;
+      if (lastPointerWasTouchRef.current) return;
+      lastPointerWasTouchRef.current = true;
+      setTouchActive(true);
     };
-    // タップのあとに来るのは合成 mouse* イベントだけで pointermove は発生しないので、
-    // これでタッチ操作の最中にマウス判定へ戻されることはない。
+    const onTouchStart = () => enterTouch();
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "touch" || e.pointerType === "pen") enterTouch();
+    };
+    // マウスへ戻す側は慎重にする。モードが行き来すると再描画とタップ領域の
+    // 付け替えがスクロール中に走って、指の追従が壊れる。
     const onPointerMove = (e: PointerEvent) => {
-      if (e.pointerType !== "mouse" || !lastPointerWasTouchRef.current) return;
+      if (!lastPointerWasTouchRef.current) return;
+      if (e.pointerType && e.pointerType !== "mouse") {
+        enterTouch();
+        return;
+      }
+      if (Date.now() - lastTouchAt < MOUSE_TAKEOVER_QUIET_MS) return;
+      if (!mouseFrom) {
+        mouseFrom = { x: e.clientX, y: e.clientY };
+        mouseMoves = 1;
+        return;
+      }
+      mouseMoves += 1;
+      const moved = Math.hypot(e.clientX - mouseFrom.x, e.clientY - mouseFrom.y);
+      if (mouseMoves < MOUSE_TAKEOVER_MOVES || moved < MOUSE_TAKEOVER_DISTANCE) return;
       lastPointerWasTouchRef.current = false;
       setTouchActive(false);
     };
+    // touch* は passive で登録する (スクロールを妨げないため)。
+    window.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+    window.addEventListener("touchmove", onTouchStart, { capture: true, passive: true });
     window.addEventListener("pointerdown", onPointerDown, true);
     window.addEventListener("pointermove", onPointerMove, true);
     return () => {
+      window.removeEventListener("touchstart", onTouchStart, true);
+      window.removeEventListener("touchmove", onTouchStart, true);
       window.removeEventListener("pointerdown", onPointerDown, true);
       window.removeEventListener("pointermove", onPointerMove, true);
     };
@@ -2339,7 +2373,9 @@ export default function App() {
     return popupTopZRef.current;
   };
   const idPopupCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [idMenu, setIdMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  // z はポップアップと同じ採番を使う。ID ポップアップから開くとき、CSS 固定の
+  // z-index ではポップアップ (インライン指定) の下に潜ってしまう。
+  const [idMenu, setIdMenu] = useState<{ x: number; y: number; id: string; z: number } | null>(null);
   const idMenuRef = useRef<HTMLDivElement>(null);
   const [beMenu, setBeMenu] = useState<{ x: number; y: number; beNumber: string } | null>(null);
   const beMenuRef = useRef<HTMLDivElement>(null);
@@ -9919,7 +9955,7 @@ export default function App() {
                                 return;
                               }
                               const p = clampMenuPosition(e.clientX, e.clientY, 160, 56);
-                              setIdMenu({ x: p.x, y: p.y, id });
+                              setIdMenu({ x: p.x, y: p.y, id, z: allocatePopupZ() });
                             }}
                             onMouseEnter={(e) => {
                               if (isTouchMode()) return;
@@ -11557,7 +11593,7 @@ export default function App() {
         </div>
       )}
       {idMenu && (
-        <div ref={idMenuRef} className="thread-menu" style={{ left: idMenu.x, top: idMenu.y }} onClick={(e) => e.stopPropagation()}>
+        <div ref={idMenuRef} className="thread-menu" style={{ left: idMenu.x, top: idMenu.y, zIndex: idMenu.z }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { void navigator.clipboard.writeText(`ID:${idMenu.id}`); setStatus("IDをコピーしました"); setIdMenu(null); }}>このIDをコピー</button>
           <button onClick={() => { addNgEntry("ids", idMenu.id); setIdMenu(null); }}>NGIDに追加</button>
           <button onClick={() => { addHighlightEntry("ids", idMenu.id); setIdMenu(null); }}>IDをハイライト</button>
@@ -11789,7 +11825,7 @@ export default function App() {
                       e.stopPropagation();
                       const rect = e.currentTarget.getBoundingClientRect();
                       const p = clampMenuPosition(rect.left, rect.bottom, 160, 56);
-                      setIdMenu({ x: p.x, y: p.y, id: idPopup.id });
+                      setIdMenu({ x: p.x, y: p.y, id: idPopup.id, z: allocatePopupZ() });
                     }}
                   >
                     メニュー
