@@ -1161,6 +1161,25 @@ try {
   );
   console.log("smoke-ui: UI size setting ok");
 
+  // UI サイズを上げても縦積みに切り替わらないこと。
+  // 縦積みの判定は CSS ピクセル上の幅ではなく、倍率を掛け戻した物理的な幅で行う。
+  // これが無いと、画面が狭くなくても倍率を上げただけで 3 ペインが縦に積まれる。
+  const isNarrow = () => page.evaluate(() => document.documentElement.classList.contains("narrow-layout"));
+  await page.setViewportSize({ width: 853, height: 1280 });
+  await new Promise((r) => setTimeout(r, 250));
+  assert(await isNarrow(), "853px viewport at 標準 should stack panes");
+  // 853 * 1.5 = 1279.5 > 980 なので、倍率 1 なら広い画面ということになる
+  await uiZoomSelect.selectOption("1.5");
+  await new Promise((r) => setTimeout(r, 250));
+  assert(!(await isNarrow()), "853px viewport at 特大 should NOT stack (it is a wide window, just zoomed)");
+  await uiZoomSelect.selectOption("1");
+  await new Promise((r) => setTimeout(r, 250));
+  assert(await isNarrow(), "going back to 標準 should stack again");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await new Promise((r) => setTimeout(r, 250));
+  assert(!(await isNarrow()), "1280px viewport should not stack");
+  console.log("smoke-ui: UI size vs narrow layout ok");
+
   // ホイールスクロール行数の設定 (既定 OFF、ON のときだけ行数入力が出る)
   const wheelRowToggle = await page.$('.settings-body label:has-text("スレ一覧のホイールスクロールを行単位にする") input[type="checkbox"]');
   assert(wheelRowToggle, "settings should have wheel row scroll toggle");

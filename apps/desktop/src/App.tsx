@@ -562,6 +562,10 @@ const NG_ID_EXPIRE_DAYS_KEY = "desktop.ngIdExpireDays.v1";
 // ペインのドラッグなどの座標計算もずれない。タッチ端末では指に対して UI が
 // 小さすぎるという要望への対応で、機種ごとに適正値が違うため段階から選ばせる。
 const UI_ZOOM_KEY = "desktop.uiZoom.v1";
+// 3 ペインを縦に積む閾値 (px)。UI サイズを上げると CSS ピクセル上の幅が縮むので、
+// window.innerWidth をそのまま比べると画面が狭くなくても縦積みになってしまう。
+// 倍率を掛け戻すと倍率 1 のときの幅に戻るので、それで判定する。
+const NARROW_LAYOUT_MAX_WIDTH = 980;
 const UI_ZOOM_OPTIONS: { value: number; label: string }[] = [
   { value: 1, label: "標準" },
   { value: 1.25, label: "大" },
@@ -1841,6 +1845,18 @@ export default function App() {
     saveUiSetting(UI_ZOOM_KEY, String(uiZoom));
     if (!isTauriRuntime()) return;
     invoke("set_ui_zoom", { factor: uiZoom }).catch((e) => console.warn("set_ui_zoom failed", e));
+  }, [uiZoom]);
+  // 縦積みへの切り替え。倍率を掛け戻して物理的な幅で判定するので、UI サイズを
+  // 上げてもレイアウトは変わらない。
+  useEffect(() => {
+    const apply = () => {
+      const narrow = window.innerWidth * uiZoom <= NARROW_LAYOUT_MAX_WIDTH;
+      document.documentElement.classList.toggle("narrow-layout", narrow);
+      document.body.classList.toggle("narrow-layout", narrow);
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
   }, [uiZoom]);
   const [highlightFilters, setHighlightFilters] = useState<HighlightFilters>({ words: [], ids: [], names: [] });
   // 手動「ここまで読んだ」マーカー: board_url -> thread_key -> response_no

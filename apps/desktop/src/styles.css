@@ -3938,47 +3938,47 @@ a.body-link-image:hover::after {
    grid のまま行方向へ組み替えると列指定が残ってしまう。実際、川型 (.right-pane-river) は
    列指定がインライン側にあり、以前はここで grid-template-rows しか打ち消していなかったので
    狭い画面でも 3 カラムのまま残り、レスペインが潰れて空白になっていた。
-   flex に切り替えると grid-template-* がまとめて無効になるので、この取りこぼしが起きない。 */
-@media (max-width: 980px) {
-  /* .shell の行指定はここには置かない。App.tsx が表示中のバーに合わせて
-     grid-template-rows をインラインで組み立てており、常にそちらが優先されるため
-     ここに書いても効かない (以前あった 5 行の上書きは動作していない死んだ規則だった)。 */
-  .layout,
-  .right-pane {
-    display: flex !important;
-    flex-direction: column;
-    min-height: 0;
-  }
-  .pane {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    min-height: 0;
-  }
-  /* 板一覧とスレ一覧は中身の高さのぶんだけ伸びるので、放っておくと画面上部を占有して
-     レスが埋もれる。上限を切って残りをレスペインに配分する。上限を超えた分は
-     .pane の overflow で各ペイン内スクロールになる。 */
-  .layout > .pane.boards {
-    flex: 0 0 auto;
-    max-height: 30vh;
-  }
-  .right-pane > .pane.threads {
-    flex: 0 0 auto;
-    max-height: 40vh;
-  }
-  .layout > .right-pane,
-  .right-pane > .pane.responses {
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-  /* 縦積みではドラッグ軸が合わない (板/スレは横方向、スレ/レスは縦方向に計算している) ため
-     分割線は引き続き隠す。動かない分割線を見せるより、上の配分に任せる。 */
-  .pane-splitter,
-  .row-splitter {
-    display: none;
-  }
-  .response-layout {
-    grid-template-rows: 1fr auto;
-  }
+   flex に切り替えると grid-template-* がまとめて無効になるので、この取りこぼしが起きない。
+
+   判定はメディアクエリではなく App.tsx が付ける .narrow-layout で行う。UI サイズ
+   (WebView のズーム) を上げると CSS ピクセル上の幅が縮むため、@media (max-width: 980px)
+   のままだと画面が狭くなくても縦積みに切り替わってしまう。App.tsx 側は倍率を掛け戻して
+   物理的な幅で判定するので、倍率を変えてもレイアウトは変わらない。 */
+.narrow-layout .layout,
+.narrow-layout .right-pane {
+  display: flex !important;
+  flex-direction: column;
+  min-height: 0;
+}
+.narrow-layout .pane {
+  border-right: 0;
+  border-bottom: 1px solid var(--line);
+  min-height: 0;
+}
+/* 板一覧とスレ一覧は中身の高さのぶんだけ伸びるので、放っておくと画面上部を占有して
+   レスが埋もれる。上限を切って残りをレスペインに配分する。上限を超えた分は
+   .pane の overflow で各ペイン内スクロールになる。 */
+.narrow-layout .layout > .pane.boards {
+  flex: 0 0 auto;
+  max-height: 30vh;
+}
+.narrow-layout .right-pane > .pane.threads {
+  flex: 0 0 auto;
+  max-height: 40vh;
+}
+.narrow-layout .layout > .right-pane,
+.narrow-layout .right-pane > .pane.responses {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/* 縦積みではドラッグ軸が合わない (板/スレは横方向、スレ/レスは縦方向に計算している) ため
+   分割線は引き続き隠す。動かない分割線を見せるより、上の配分に任せる。 */
+.narrow-layout .pane-splitter,
+.narrow-layout .row-splitter {
+  display: none;
+}
+.narrow-layout .response-layout {
+  grid-template-rows: 1fr auto;
 }
 
 /* ===== Dark Theme ===== */
