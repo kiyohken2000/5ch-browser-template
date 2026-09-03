@@ -1545,8 +1545,27 @@ struct WindowSize {
 }
 
 #[tauri::command]
-fn save_window_size(width: f64, height: f64, x: Option<i32>, y: Option<i32>, maximized: Option<bool>) -> Result<(), String> {
-    let size = WindowSize { width, height, x, y, maximized: maximized.unwrap_or(false) };
+fn save_window_size(
+    window: tauri::WebviewWindow,
+    width: f64,
+    height: f64,
+    x: Option<i32>,
+    y: Option<i32>,
+    maximized: Option<bool>,
+) -> Result<(), String> {
+    // フロントエンドが渡す width / height は window.innerWidth 由来の CSS ピクセル
+    // なので、UI サイズ (WebView のズーム) を上げるとウィンドウ自体より小さい値になる。
+    // 復元側は論理サイズとして set_size するため、そのまま保存すると起動のたびに
+    // 倍率のぶんだけウィンドウが縮んでいく (特大では毎回 1/1.5)。
+    // OS 側の実サイズが取れるならそちらを使い、渡された値はフォールバックに留める。
+    // CloseRequested 側の保存と同じ計算。
+    let (w, h) = match (window.inner_size(), window.scale_factor()) {
+        (Ok(size), Ok(scale)) if scale > 0.0 => {
+            (size.width as f64 / scale, size.height as f64 / scale)
+        }
+        _ => (width, height),
+    };
+    let size = WindowSize { width: w, height: h, x, y, maximized: maximized.unwrap_or(false) };
     core_store::save_json("window_size.json", &size).map_err(|e| e.to_string())
 }
 
