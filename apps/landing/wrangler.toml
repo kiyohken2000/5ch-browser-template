@@ -2,6 +2,17 @@ name = "ember-5ch"
 compatibility_date = "2024-09-01"
 pages_build_output_dir = "./dist"
 
+# 旧カウンタ (ember-counter)。2026-09-03 に D1 へ移行済みで、コードからは
+# 参照していない。切り戻し用に移行前のデータを残してあるだけなので、
+# 数日運用して問題なければこのバインドごと namespace を削除してよい。
 [[kv_namespaces]]
 binding = "COUNTER"
 id = "6a0024e028514a9fa4ec0a3f2a19b557"
+
+# 更新チェック数のカウンタ。以前は KV (COUNTER) で get→+1→put していたが、
+# 無料枠の write 1,000/日 に対して 500/日 を超えたため D1 に移した。
+# D1 は write 100,000/日 で、UPSERT 1 文なので同時実行で増分が消えることもない。
+[[d1_databases]]
+binding = "STATS_DB"
+database_name = "ember-stats"
+database_id = "ac2b50ac-b7b8-4ef2-8944-108a700e08ee"

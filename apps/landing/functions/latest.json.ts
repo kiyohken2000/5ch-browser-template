@@ -1,10 +1,14 @@
-interface Env {
-  COUNTER: KVNamespace;
+interface D1PreparedStatement {
+  bind(...values: unknown[]): D1PreparedStatement;
+  run(): Promise<unknown>;
 }
 
-interface KVNamespace {
-  get(key: string): Promise<string | null>;
-  put(key: string, value: string): Promise<void>;
+interface D1Database {
+  prepare(query: string): D1PreparedStatement;
+}
+
+interface Env {
+  STATS_DB: D1Database;
 }
 
 type PagesFunction<E = unknown> = (ctx: {
@@ -19,7 +23,7 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
   const ua = request.headers.get("user-agent") ?? "";
   const isBrowser = /^Mozilla\//i.test(ua);
 
-  if (env.COUNTER && !isBrowser) {
+  if (env.STATS_DB && !isBrowser) {
     // Workers のタイムゾーンは UTC 固定なので、日本時間 (UTC+9) にずらした
     // 時刻から日付を取る。JST は DST がないため固定オフセットで正確。
     const today = new Date(Date.now() + 9 * 60 * 60 * 1000)
@@ -27,16 +31,18 @@ export const onRequestGet: PagesFunction<Env> = async (ctx) => {
       .slice(0, 10);
     waitUntil(
       (async () => {
-        // KV の無料枠は write 1,000/日。以前は日次キーと累計キー
-        // ("latest:app:total") の両方を更新していたため更新チェック 1 回で
-        // 2 write を消費し、上限の半分に達していた。日次キーのみに絞る。
-        // 累計は stats.ts が日次キーを合算して返すので、値としては失われない。
-        const key = `latest:app:${today}`;
+        // 以前は KV で get → +1 → put していたが、(1) 無料枠の write 1,000/日
+        // に対して 500/日 を超えた (2) KV は結果整合なので同時起動が重なると
+        // 増分が消える、の 2 点から D1 に移した。UPSERT 1 文なのでアトミック。
         try {
-          const current = parseInt((await env.COUNTER.get(key)) ?? "0", 10);
-          await env.COUNTER.put(key, String(current + 1));
+          await env.STATS_DB.prepare(
+            "INSERT INTO update_checks (date, count) VALUES (?1, 1) " +
+              "ON CONFLICT(date) DO UPDATE SET count = count + 1"
+          )
+            .bind(today)
+            .run();
         } catch (e) {
-          console.warn("kv counter failed", key, e);
+          console.warn("d1 counter failed", today, e);
         }
       })()
     );

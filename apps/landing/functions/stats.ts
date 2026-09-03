@@ -1,14 +1,17 @@
-interface Env {
-  COUNTER: KVNamespace;
+interface D1Result<T> {
+  results: T[];
 }
 
-interface KVNamespace {
-  get(key: string): Promise<string | null>;
-  list(opts: { prefix?: string; limit?: number; cursor?: string }): Promise<{
-    keys: { name: string }[];
-    list_complete: boolean;
-    cursor?: string;
-  }>;
+interface D1PreparedStatement {
+  all<T>(): Promise<D1Result<T>>;
+}
+
+interface D1Database {
+  prepare(query: string): D1PreparedStatement;
+}
+
+interface Env {
+  STATS_DB: D1Database;
 }
 
 type PagesFunction<E = unknown> = (ctx: {
@@ -16,34 +19,26 @@ type PagesFunction<E = unknown> = (ctx: {
 }) => Response | Promise<Response>;
 
 const TOTAL_KEY = "latest:app:total";
-const DAILY_KEY_RE = /^latest:app:[0-9]{4}-[0-9]{2}-[0-9]{2}$/;
 
 export const onRequestGet: PagesFunction<Env> = async ({ env }) => {
-  if (!env.COUNTER) {
+  if (!env.STATS_DB) {
     return new Response("counter not configured", { status: 503 });
   }
 
-  const result: Record<string, number> = {};
-  let cursor: string | undefined;
-  let total = 0;
-  do {
-    const page = await env.COUNTER.list({ prefix: "latest:", cursor });
-    for (const k of page.keys) {
-      // 旧・累計キーは latest.json.ts が更新しなくなった (KV write 削減) ので
-      // 読まずに捨て、下で日次キーの合算に差し替える。
-      if (k.name === TOTAL_KEY) continue;
-      const v = await env.COUNTER.get(k.name);
-      if (v === null) continue;
-      const n = parseInt(v, 10);
-      if (!Number.isFinite(n)) continue;
-      result[k.name] = n;
-      if (DAILY_KEY_RE.test(k.name)) total += n;
-    }
-    cursor = page.list_complete ? undefined : page.cursor;
-  } while (cursor);
+  // KV 時代は list + 日数ぶんの get (1 訪問あたり 80 read 超、しかも日数と
+  // ともに増える) だったが、D1 では 1 クエリで済む。
+  const { results } = await env.STATS_DB.prepare(
+    "SELECT date, count FROM update_checks ORDER BY date ASC"
+  ).all<{ date: string; count: number }>();
 
-  // KV list は辞書順に返るため、日付キー ("latest:app:2026-..") はすべて
-  // "latest:app:total" より前に来る。最後に足せば従来と同じ並びの JSON になる。
+  // レスポンス形状は KV 時代と互換 ("latest:app:<日付>" と累計キー)。
+  // ランディング (src/App.tsx) がこのキー形式でパースしている。
+  const result: Record<string, number> = {};
+  let total = 0;
+  for (const row of results) {
+    result[`latest:app:${row.date}`] = row.count;
+    total += row.count;
+  }
   result[TOTAL_KEY] = total;
 
   return new Response(JSON.stringify(result, null, 2), {
