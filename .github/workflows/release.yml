@@ -148,6 +148,40 @@ jobs:
           file target/release/bundle/appimage/*.AppImage
           ls -lh target/release/bundle/appimage/*.AppImage
 
+          # AppDir 直下のエントリが実体側の内容になっているか確かめる。
+          # deb/rpm 側の都合で productName 由来の Ember.desktop を NoDisplay に
+          # しているため、ここが伏せられたまま残ると AppImage が統合時に
+          # ランチャーへ出てこなくなる。再パック後の中身で検証する。
+          VERIFY_DIR="$(mktemp -d)"
+          cp target/release/bundle/appimage/*.AppImage "$VERIFY_DIR/app.AppImage"
+          (cd "$VERIFY_DIR" && ./app.AppImage --appimage-extract > /dev/null)
+
+          COUNT=$(ls -1 "$VERIFY_DIR"/squashfs-root/*.desktop | wc -l)
+          if [ "$COUNT" -ne 1 ]; then
+            echo "ERROR: AppDir 直下の .desktop が $COUNT 個あります (1 個であるべき)"
+            ls -1 "$VERIFY_DIR"/squashfs-root/*.desktop
+            exit 1
+          fi
+
+          ENTRY=$(ls -1 "$VERIFY_DIR"/squashfs-root/*.desktop)
+          echo "===== $ENTRY ====="
+          cat "$ENTRY"
+
+          for key in 'Exec=ember' 'Icon=ember' 'StartupWMClass=ember' \
+                     'StartupNotify=true' 'SingleMainWindow=true'; do
+            if ! grep -qx "$key" "$ENTRY"; then
+              echo "ERROR: AppImage のエントリに $key がありません"
+              exit 1
+            fi
+          done
+
+          if grep -q '^NoDisplay=' "$ENTRY"; then
+            echo "ERROR: AppImage のエントリが NoDisplay のままです"
+            exit 1
+          fi
+
+          rm -rf "$VERIFY_DIR"
+
       - name: Reduce deb dependency requirements for Debian 12+
         run: |
           DEB_FILE=$(ls target/release/bundle/deb/*.deb)
@@ -313,6 +347,40 @@ jobs:
         run: |
           file target/release/bundle/appimage/*.AppImage
           ls -lh target/release/bundle/appimage/*.AppImage
+
+          # AppDir 直下のエントリが実体側の内容になっているか確かめる。
+          # deb/rpm 側の都合で productName 由来の Ember.desktop を NoDisplay に
+          # しているため、ここが伏せられたまま残ると AppImage が統合時に
+          # ランチャーへ出てこなくなる。再パック後の中身で検証する。
+          VERIFY_DIR="$(mktemp -d)"
+          cp target/release/bundle/appimage/*.AppImage "$VERIFY_DIR/app.AppImage"
+          (cd "$VERIFY_DIR" && ./app.AppImage --appimage-extract > /dev/null)
+
+          COUNT=$(ls -1 "$VERIFY_DIR"/squashfs-root/*.desktop | wc -l)
+          if [ "$COUNT" -ne 1 ]; then
+            echo "ERROR: AppDir 直下の .desktop が $COUNT 個あります (1 個であるべき)"
+            ls -1 "$VERIFY_DIR"/squashfs-root/*.desktop
+            exit 1
+          fi
+
+          ENTRY=$(ls -1 "$VERIFY_DIR"/squashfs-root/*.desktop)
+          echo "===== $ENTRY ====="
+          cat "$ENTRY"
+
+          for key in 'Exec=ember' 'Icon=ember' 'StartupWMClass=ember' \
+                     'StartupNotify=true' 'SingleMainWindow=true'; do
+            if ! grep -qx "$key" "$ENTRY"; then
+              echo "ERROR: AppImage のエントリに $key がありません"
+              exit 1
+            fi
+          done
+
+          if grep -q '^NoDisplay=' "$ENTRY"; then
+            echo "ERROR: AppImage のエントリが NoDisplay のままです"
+            exit 1
+          fi
+
+          rm -rf "$VERIFY_DIR"
 
       - name: Reduce deb dependency requirements for Debian 12+
         run: |
