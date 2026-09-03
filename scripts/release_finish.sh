@@ -41,6 +41,33 @@ if [[ ! -f "$MAC_ZIP" ]]; then
   exit 1
 fi
 
+# ZIP の中身のバージョンを照合する。
+#
+# v0.0.247 のリリース時、前回 v0.0.246 の ZIP が out/ に残ったまま Phase 2 に
+# 進みかけた。ここは存在確認しかしていなかったので、そのまま実行していれば
+# 古い Mac バイナリを新バージョンとして配布し、自動更新にも載っていた。
+#
+# 判定に out/build-info.txt を使わないのは、あれが ZIP とは別のファイルで、
+# ZIP だけ差し替えられた場合に古いままになるため。ZIP には DMG が 1 個だけ
+# 入っており、その名前 (Ember_<version>_aarch64.dmg) が中身そのものの根拠になる。
+MAC_DMG_NAME=$(python -c "
+import sys, zipfile
+names = [n for n in zipfile.ZipFile(sys.argv[1]).namelist() if n.endswith('.dmg')]
+print(names[0] if len(names) == 1 else '')
+" "$MAC_ZIP")
+
+EXPECTED_DMG="Ember_${VERSION}_aarch64.dmg"
+if [[ "$MAC_DMG_NAME" != "$EXPECTED_DMG" ]]; then
+  echo "ERROR: $MAC_ZIP の中身が ${TAG} のものではありません" >&2
+  echo "  期待: ${EXPECTED_DMG}" >&2
+  echo "  実際: ${MAC_DMG_NAME:-(DMG が 1 個ではない / 読み取れない)}" >&2
+  echo "" >&2
+  echo "  Macで以下を実行し直して、out/ember-mac-arm64.zip を置き換えてください:" >&2
+  echo "    git pull && scripts/build_mac_release.sh" >&2
+  exit 1
+fi
+echo "  Mac DMG:    ${MAC_DMG_NAME}"
+
 MAC_SHA256=$(sha256sum "$MAC_ZIP" | awk '{print $1}')
 MAC_SIZE=$(wc -c < "$MAC_ZIP" | tr -d ' ')
 echo "  Mac SHA256: ${MAC_SHA256}"

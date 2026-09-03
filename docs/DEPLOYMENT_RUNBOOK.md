@@ -73,7 +73,9 @@ scripts/release_finish.sh <version> <release-notes>
 
 実行フロー:
 
-1. Mac ZIP / Windows ZIP の存在確認
+1. Mac ZIP / Windows ZIP の存在確認と、Mac ZIP の中身のバージョン照合
+   (ZIP 内の `Ember_<version>_aarch64.dmg` を見る。前バージョンの ZIP が
+   `out/` に残っていると、ここで止まる)
 2. `prepare_release_metadata.py` で `latest.json` 生成 → コミット & プッシュ
 3. `gh release create`（ZIPアップロード + リリースノート）
 4. ランディングページをビルドして Cloudflare Pages デプロイ
