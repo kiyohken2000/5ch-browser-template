@@ -1,0 +1,5 @@
+# Linux のパッケージに入るファイルは CRLF になると壊れる (Exec などの値に
+# 改行コードが混ざる)。このリポジトリは core.autocrlf=true 前提なので、
+# .desktop 系だけは明示的に LF に固定する。
+*.desktop text eol=lf
+*.desktop.hbs text eol=lf

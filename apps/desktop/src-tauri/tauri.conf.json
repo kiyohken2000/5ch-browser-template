@@ -45,7 +45,11 @@
           "libcairo2",
           "libcairo-gobject2"
         ],
-        "section": "web"
+        "section": "web",
+        "desktopTemplate": "linux/Ember.desktop.hbs",
+        "files": {
+          "/usr/share/applications/ember.desktop": "linux/ember.desktop"
+        }
       },
       "rpm": {
         "depends": [
@@ -58,7 +62,11 @@
           "libgdk_pixbuf-2.0.so.0()(64bit)",
           "libcairo.so.2()(64bit)",
           "libcairo-gobject.so.2()(64bit)"
-        ]
+        ],
+        "desktopTemplate": "linux/Ember.desktop.hbs",
+        "files": {
+          "/usr/share/applications/ember.desktop": "linux/ember.desktop"
+        }
       }
     },
     "macOS": {

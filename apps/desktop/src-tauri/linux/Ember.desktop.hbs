@@ -1,0 +1,11 @@
+# Tauri は .desktop のファイル名を productName から決めるため、この
+# ファイルは Ember.desktop になる。app_id (ember) と一致しないので実体には
+# できない。実体は linux/ember.desktop を deb/rpm の files で配置しており、
+# こちらはランチャーに重複表示されないよう NoDisplay で伏せておく。
+[Desktop Entry]
+Type=Application
+Name={{name}}
+Exec={{exec}}
+Icon={{icon}}
+Terminal=false
+NoDisplay=true

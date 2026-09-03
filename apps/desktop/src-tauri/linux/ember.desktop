@@ -1,0 +1,15 @@
+# Wayland ではランチャーがウィンドウと .desktop を app_id で対応付ける。
+# GTK は app_id を実行ファイル名から取るため ember になるので、このファイルの
+# 名前も ember.desktop でなければ既存ウィンドウをアクティブ化できない。
+# Exec / Icon / StartupWMClass は /usr/bin/ember と ember.png に対応する。
+[Desktop Entry]
+Type=Application
+Name=Ember
+Comment=5ちゃんねる専用ブラウザ
+Exec=ember
+Icon=ember
+Categories=Network;
+Terminal=false
+StartupWMClass=ember
+StartupNotify=true
+SingleMainWindow=true

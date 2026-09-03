@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - "v*"
+  # パッケージング変更をリリースを切らずに検証するための手動実行。
+  # タグ以外から起動したときは attach-to-release がスキップされ、
+  # 成果物は Actions の artifact としてのみ残る。
+  workflow_dispatch:
 
 jobs:
   build-linux-x64:
@@ -68,6 +72,13 @@ jobs:
           APPIMAGE="$(ls *.AppImage)"
           chmod +x "$APPIMAGE"
           ./"$APPIMAGE" --appimage-extract
+
+          # deb/rpm では ember.desktop を実体、productName 由来の Ember.desktop を
+          # NoDisplay の別名にしている。AppImage は AppDir 直下のエントリ 1 つしか
+          # 持たないので、伏せられた側が残らないよう実体の内容で上書きする。
+          for f in squashfs-root/*.desktop; do
+            cp "$GITHUB_WORKSPACE/apps/desktop/src-tauri/linux/ember.desktop" "$f"
+          done
 
           # Bundle FreeType to avoid symbol mismatch with bundled WebKit2GTK
           cp /usr/lib/x86_64-linux-gnu/libfreetype.so.6* squashfs-root/usr/lib/
@@ -214,6 +225,13 @@ jobs:
           chmod +x "$APPIMAGE"
           ./"$APPIMAGE" --appimage-extract
 
+          # deb/rpm では ember.desktop を実体、productName 由来の Ember.desktop を
+          # NoDisplay の別名にしている。AppImage は AppDir 直下のエントリ 1 つしか
+          # 持たないので、伏せられた側が残らないよう実体の内容で上書きする。
+          for f in squashfs-root/*.desktop; do
+            cp "$GITHUB_WORKSPACE/apps/desktop/src-tauri/linux/ember.desktop" "$f"
+          done
+
           # Bundle FreeType to avoid symbol mismatch with bundled WebKit2GTK
           cp /usr/lib/aarch64-linux-gnu/libfreetype.so.6* squashfs-root/usr/lib/
 
@@ -297,6 +315,8 @@ jobs:
 
   attach-to-release:
     needs: [build-linux-x64, build-linux-aarch64]
+    # workflow_dispatch では github.ref がブランチになるのでスキップされる。
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
