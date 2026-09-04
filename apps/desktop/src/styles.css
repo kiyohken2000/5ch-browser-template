@@ -883,6 +883,14 @@ li.fav-drag-over {
 .dark .response-watchoi:hover {
   color: #6cb6ff;
 }
+/* メール欄 (sage など)。名前の右に控えめに添える。間隔はヘッダの gap に任せる */
+.response-mail {
+  color: #666;
+  font-size: calc(11px + var(--fs-delta, 0px));
+}
+.dark .response-mail {
+  color: #888;
+}
 
 .response-be-link {
   color: #cc6600;

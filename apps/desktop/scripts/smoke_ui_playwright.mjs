@@ -1288,6 +1288,29 @@ try {
   assert(idPopupPrefOn === true, `ID hover popup on should persist, got ${idPopupPrefOn}`);
   console.log("smoke-ui: id hover popup setting ok");
 
+  // メール欄表示の設定 (既定 ON)。dat の mail は取得できていても表示先が無かったので、
+  // 「名前の右に出ること」と「設定で消せること」の両方を見る。
+  const mailToggle = await page.$('.settings-body label:has-text("メール欄") input[type="checkbox"]');
+  assert(mailToggle, "settings should have a mail field display toggle");
+  assert(await mailToggle.isChecked(), "mail field display should default to on");
+  const mailTexts = await page.$$eval(".response-mail", (els) => els.map((e) => e.textContent?.trim()));
+  assert(mailTexts.includes("[sage]"), `mail field should be shown next to the name, got ${JSON.stringify(mailTexts)}`);
+  await mailToggle.uncheck();
+  await new Promise((r) => setTimeout(r, 150));
+  assert((await page.$$(".response-mail")).length === 0, "turning the setting off should hide the mail field");
+  const mailPrefOff = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").showResponseMail;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(mailPrefOff === false, `mail field display off should persist, got ${mailPrefOff}`);
+  await mailToggle.check();
+  await new Promise((r) => setTimeout(r, 150));
+  assert((await page.$$(".response-mail")).length > 0, "turning the setting back on should show the mail field");
+  console.log("smoke-ui: response mail display setting ok");
+
   // OGP link card toggle exists in settings
   const ogpToggleLabel = await page.$('.settings-body label:has-text("OGPカード")');
   assert(ogpToggleLabel, "settings should have OGP card display toggle");
