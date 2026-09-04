@@ -2217,6 +2217,9 @@ export default function App() {
   const lastBoardUrlRef = useRef("");
   const pendingLastBoardRef = useRef<{ boardName: string; url: string } | null>(null);
   const [selectedBoard, setSelectedBoard] = useState("Favorite");
+  // ハイライト判定用。同名・別URLの板 (bbymobile と mobile の「モバイル」など) を
+  // 区別するため、板名ではなく URL で選択状態を持つ。
+  const [selectedBoardUrl, setSelectedBoardUrl] = useState("");
   const [selectedThread, setSelectedThread] = useState<number | null>(1);
   const [selectedResponse, setSelectedResponse] = useState<number>(1);
   const [threadReadMap, setThreadReadMap] = useState<Record<number, boolean>>({ 1: false, 2: true });
@@ -2862,6 +2865,10 @@ export default function App() {
   };
 
   const isFavoriteBoard = (url: string) => favorites.boards.some((b) => b.url === url);
+  const isSelectedBoard = (url: string) => {
+    if (!url || !selectedBoardUrl) return false;
+    return url.replace(/\/+$/, "") === selectedBoardUrl.replace(/\/+$/, "");
+  };
 
   const loadNgFilters = async () => {
     if (!isTauriRuntime()) return;
@@ -3649,6 +3656,7 @@ export default function App() {
     setShowRecentOpenedOnly(false);
     setShowRecentPostedOnly(false);
     lastBoardUrlRef.current = board.url;
+    setSelectedBoardUrl(board.url);
     setLocationInput(board.url);
     setThreadUrl(board.url);
     setFocusedPane("threads");
@@ -6800,6 +6808,7 @@ export default function App() {
       setLocationInput(lb.url);
       setThreadUrl(lb.url);
       lastBoardUrlRef.current = lb.url;
+      setSelectedBoardUrl(lb.url);
       // keepFilter: スレ一覧フィルタを復元している場合に、板の読み込みで
       // フィルタが解除されないようにする (フィルタ無しなら元々 no-op)。
       // 既読数のマップは板と復元フィルタで共有なので、板の読み込みが終わってから
@@ -9012,7 +9021,7 @@ export default function App() {
           {favorites.boards.map((b, i) => (
             <button
               key={b.url}
-              className={`board-btn${selectedBoard === b.boardName ? " selected" : ""}${boardBtnDragIndex !== null && boardBtnDragIndex !== i ? " board-btn-drop-target" : ""}`}
+              className={`board-btn${isSelectedBoard(b.url) ? " selected" : ""}${boardBtnDragIndex !== null && boardBtnDragIndex !== i ? " board-btn-drop-target" : ""}`}
               onClick={() => { if (boardBtnDragRef.current) return; selectBoard(b); }}
               onPointerDown={(e) => {
                 if (e.button !== 0) return;
@@ -9117,7 +9126,7 @@ export default function App() {
                         {favorites.boards.map((b, i) => (
                           <li key={b.url} className={favDragState?.type === "board" && favDragState.overIndex === i ? "fav-drag-over" : ""}>
                             <button
-                              className={`board-item ${selectedBoard === b.boardName ? "selected" : ""}`}
+                              className={`board-item ${isSelectedBoard(b.url) ? "selected" : ""}`}
                               onClick={() => { if (favDragRef.current) return; selectBoard(b); }}
                               onPointerDown={(e) => onFavItemPointerDown(e, "board", i, ".fav-board-list")}
                               title={b.url}
@@ -9151,7 +9160,7 @@ export default function App() {
                             {filteredBoards.map((b) => (
                               <li key={b.url}>
                                 <button
-                                  className={`board-item ${selectedBoard === b.boardName ? "selected" : ""}`}
+                                  className={`board-item ${isSelectedBoard(b.url) ? "selected" : ""}`}
                                   onClick={() => selectBoard(b)}
                                   title={b.url}
                                 >
@@ -9452,6 +9461,7 @@ export default function App() {
                       setShowRecentPostedOnly(false);
                       setSelectedBoard(boardUrl.split("/").filter(Boolean).pop() || "");
                       lastBoardUrlRef.current = boardUrl;
+                      setSelectedBoardUrl(boardUrl);
                       setLocationInput(boardUrl);
                       setThreadUrl(boardUrl);
                       void fetchThreadListFromCurrent(boardUrl);
@@ -11571,6 +11581,7 @@ export default function App() {
               setShowRecentPostedOnly(false);
               setSelectedBoard(boardUrl.split("/").filter(Boolean).pop() || "");
               lastBoardUrlRef.current = boardUrl;
+              setSelectedBoardUrl(boardUrl);
               setLocationInput(boardUrl);
               setThreadUrl(boardUrl);
               void fetchThreadListFromCurrent(boardUrl);

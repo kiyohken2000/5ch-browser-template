@@ -1953,6 +1953,40 @@ try {
   await new Promise((r) => setTimeout(r, 150));
   console.log("smoke-ui: notification settings ok");
 
+  // 同名・別URLの板 (「モバイル」が bbymobile と mobile に別々にある) を区別できること。
+  // 板ツリーはキャッシュから復元されるので、seed した状態の別ページで確認する。
+  const boardPage = await context.newPage();
+  await boardPage.addInitScript(() => {
+    localStorage.setItem(
+      "desktop.boardCategories.v1",
+      JSON.stringify([
+        {
+          categoryName: "PC等",
+          boards: [
+            { boardName: "モバイル", url: "https://headline.5ch.io/bbymobile/" },
+            { boardName: "モバイル", url: "https://egg.5ch.io/mobile/" },
+          ],
+        },
+      ]),
+    );
+    localStorage.setItem("desktop.expandedCategories.v1", JSON.stringify(["PC等"]));
+  });
+  await boardPage.goto(targetUrl, { waitUntil: "load" });
+  await boardPage.waitForSelector(".board-tree .board-item");
+  const seededBoards = await boardPage.$$(".board-tree .board-item");
+  assert(seededBoards.length === 2, `seeded board tree should have 2 boards, got ${seededBoards.length}`);
+  await seededBoards[1].click();
+  await new Promise((r) => setTimeout(r, 200));
+  const selectedBoardUrls = await boardPage.$$eval(".board-tree .board-item.selected", (els) =>
+    els.map((e) => e.getAttribute("title")),
+  );
+  assert(
+    selectedBoardUrls.length === 1 && selectedBoardUrls[0] === "https://egg.5ch.io/mobile/",
+    `only the clicked board should be highlighted, got ${JSON.stringify(selectedBoardUrls)}`,
+  );
+  await boardPage.close();
+  console.log("smoke-ui: board highlight by url ok");
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {
