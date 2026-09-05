@@ -2426,6 +2426,8 @@ export default function App() {
   const [paneLayoutMode, setPaneLayoutMode] = useState<PaneLayoutMode>("classic");
   const [boardPaneHidden, setBoardPaneHidden] = useState(false);
   const [threadPaneHidden, setThreadPaneHidden] = useState(false);
+  // 板を選んだらスレ一覧を出し、スレを開いたら畳む自動開閉。既定オフ。
+  const [threadPaneAutoToggle, setThreadPaneAutoToggle] = useState(false);
   const resizeDragRef = useRef<ResizeDragState | null>(null);
   const [threadColWidths, setThreadColWidths] = useState<Record<string, number>>({ ...DEFAULT_COL_WIDTHS });
   const [threadColVisible, setThreadColVisible] = useState<Record<ToggleableThreadColKey, boolean>>({ ...DEFAULT_COL_VISIBLE });
@@ -3409,6 +3411,10 @@ export default function App() {
 
   const openThreadInTab = (url: string, title: string) => {
     setResponseSearchQuery("");
+    if (threadPaneAutoToggle) {
+      setThreadPaneHidden(true);
+      if (focusedPane === "threads") setFocusedPane("responses");
+    }
     setNewThreadUrls((prev) => { if (!prev.has(url)) return prev; const next = new Set(prev); next.delete(url); return next; });
     pushRecentOpenedThread(url, title);
     const existingIndex = threadTabs.findIndex((t) => t.threadUrl === url);
@@ -3659,6 +3665,7 @@ export default function App() {
     setSelectedBoardUrl(board.url);
     setLocationInput(board.url);
     setThreadUrl(board.url);
+    if (threadPaneAutoToggle) setThreadPaneHidden(false);
     setFocusedPane("threads");
     void fetchThreadListFromCurrent(board.url);
     setTimeout(() => {
@@ -6556,6 +6563,7 @@ export default function App() {
           paneLayoutMode?: PaneLayoutMode;
           boardPaneHidden?: boolean;
           threadPaneHidden?: boolean;
+          threadPaneAutoToggle?: boolean;
           fontSize?: number;
           boardsFontSize?: number;
           threadsFontSize?: number;
@@ -6616,6 +6624,7 @@ export default function App() {
         if (parsed.paneLayoutMode === "classic" || parsed.paneLayoutMode === "river") setPaneLayoutMode(parsed.paneLayoutMode);
         if (typeof parsed.boardPaneHidden === "boolean") setBoardPaneHidden(parsed.boardPaneHidden);
         if (typeof parsed.threadPaneHidden === "boolean") setThreadPaneHidden(parsed.threadPaneHidden);
+        if (typeof parsed.threadPaneAutoToggle === "boolean") setThreadPaneAutoToggle(parsed.threadPaneAutoToggle);
         const fallbackFs = typeof parsed.fontSize === "number" ? parsed.fontSize : 12;
         setBoardsFontSize(typeof parsed.boardsFontSize === "number" ? parsed.boardsFontSize : fallbackFs);
         setThreadsFontSize(typeof parsed.threadsFontSize === "number" ? parsed.threadsFontSize : fallbackFs);
@@ -7454,6 +7463,7 @@ export default function App() {
       paneLayoutMode,
       boardPaneHidden,
       threadPaneHidden,
+      threadPaneAutoToggle,
       boardsFontSize,
       threadsFontSize,
       responsesFontSize,
@@ -7505,7 +7515,7 @@ export default function App() {
     if (isTauriRuntime()) {
       void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, composePos, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, composePos, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -9445,7 +9455,7 @@ export default function App() {
           onClick={(e) => e.stopPropagation()}
         />
         )}
-        <section className="pane responses" onMouseDown={() => setFocusedPane("responses")} style={{ '--fs-delta': `${responsesFontSize - 12}px` } as React.CSSProperties}>
+        <section className="pane responses" onMouseDown={() => { setFocusedPane("responses"); if (threadPaneAutoToggle) setThreadPaneHidden(true); }} style={{ '--fs-delta': `${responsesFontSize - 12}px` } as React.CSSProperties}>
           {activeTabIndex >= 0 && activeTabIndex < threadTabs.length && (
             <div className="thread-title-bar">
               <span className="thread-title-text" title={threadTabs[activeTabIndex].title}>
@@ -9464,6 +9474,7 @@ export default function App() {
                       setSelectedBoardUrl(boardUrl);
                       setLocationInput(boardUrl);
                       setThreadUrl(boardUrl);
+                      if (threadPaneAutoToggle) setThreadPaneHidden(false);
                       void fetchThreadListFromCurrent(boardUrl);
                     }}
                   >
@@ -11584,6 +11595,7 @@ export default function App() {
               setSelectedBoardUrl(boardUrl);
               setLocationInput(boardUrl);
               setThreadUrl(boardUrl);
+              if (threadPaneAutoToggle) setThreadPaneHidden(false);
               void fetchThreadListFromCurrent(boardUrl);
             }
             setTabMenu(null);
@@ -12198,6 +12210,10 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={titleClickRefresh} onChange={(e) => setTitleClickRefresh(e.target.checked)} />
                   <span>スレタイクリックでスレ一覧を更新</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={threadPaneAutoToggle} onChange={(e) => setThreadPaneAutoToggle(e.target.checked)} />
+                  <span title="板を選ぶとスレ一覧が出て、スレを開くかレスペインを触ると隠れます">スレ一覧を自動で開閉する</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={autoScrollToSelected} onChange={(e) => setAutoScrollToSelected(e.target.checked)} />

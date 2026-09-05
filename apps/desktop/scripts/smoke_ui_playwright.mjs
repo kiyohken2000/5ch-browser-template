@@ -1984,8 +1984,38 @@ try {
     selectedBoardUrls.length === 1 && selectedBoardUrls[0] === "https://egg.5ch.io/mobile/",
     `only the clicked board should be highlighted, got ${JSON.stringify(selectedBoardUrls)}`,
   );
+
+  // スレ一覧の自動開閉 (設定 → 表示)。既定オフ。
+  // オンにすると、板を選んだときにスレ一覧が出て、レスペインを触ると隠れる。
+  await boardPage.click('.menu-item:has-text("ファイル")');
+  await new Promise((r) => setTimeout(r, 100));
+  await boardPage.click('.menu-dropdown button:has-text("設定")');
+  await new Promise((r) => setTimeout(r, 200));
+  const autoToggle = await boardPage.$('.settings-body label:has-text("スレ一覧を自動で開閉する") input[type="checkbox"]');
+  assert(autoToggle, "settings should have a thread pane auto toggle");
+  assert(!(await autoToggle.isChecked()), "thread pane auto toggle should default to off");
+  await autoToggle.check();
+  await boardPage.click('.settings-header button:has-text("閉じる")');
+  await new Promise((r) => setTimeout(r, 200));
+
+  const threadPaneDisplay = () =>
+    boardPage.$eval(".pane.threads", (el) => getComputedStyle(el).display);
+  await boardPage.click('button[aria-label="スレ一覧ペイン表示切替"]');
+  await new Promise((r) => setTimeout(r, 150));
+  assert((await threadPaneDisplay()) === "none", "thread pane should be hidden after toggling it off");
+
+  const autoBoards = await boardPage.$$(".board-tree .board-item");
+  await autoBoards[0].click();
+  await new Promise((r) => setTimeout(r, 200));
+  assert((await threadPaneDisplay()) !== "none", "selecting a board should reveal the thread pane");
+
+  await boardPage.click(".pane.responses");
+  await new Promise((r) => setTimeout(r, 200));
+  assert((await threadPaneDisplay()) === "none", "touching the responses pane should hide the thread pane again");
+
   await boardPage.close();
   console.log("smoke-ui: board highlight by url ok");
+  console.log("smoke-ui: thread pane auto toggle ok");
 
   console.log("smoke-ui: ok");
 } finally {
