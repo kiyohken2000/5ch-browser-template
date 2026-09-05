@@ -1257,6 +1257,31 @@ li.fav-drag-over {
   max-width: 100vw;
   cursor: zoom-out;
 }
+/* タッチ操作時の画像プレビュー操作バー。指で押せるように下端に置く */
+.hover-preview-touch-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.66);
+}
+.hover-preview-touch-bar button {
+  min-width: 46px;
+  min-height: 40px;
+  padding: 6px 14px;
+  font-size: 14px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(48, 48, 48, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  cursor: pointer;
+}
 
 .anchor-popup-header {
   font-size: calc(11px + var(--fs-delta, 0px));

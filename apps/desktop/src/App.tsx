@@ -6391,16 +6391,7 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (hoverPreviewSrcRef.current) {
-          hoverPreviewSrcRef.current = null;
-          if (hoverPreviewShowTimerRef.current) {
-            clearTimeout(hoverPreviewShowTimerRef.current);
-            hoverPreviewShowTimerRef.current = null;
-          }
-          if (hoverPreviewHideTimerRef.current) {
-            clearTimeout(hoverPreviewHideTimerRef.current);
-            hoverPreviewHideTimerRef.current = null;
-          }
-          if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
+          hideHoverPreview();
           return;
         }
         if (lightboxUrl) { setLightboxUrl(null); return; }
@@ -6973,6 +6964,10 @@ export default function App() {
     if (bodyLink) {
       e.preventDefault();
       const url = bodyLink.getAttribute("href");
+      if (url && isTouchMode() && hoverPreviewEnabled && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url)) {
+        showHoverPreview(url);
+        return;
+      }
       if (url && isTauriRuntime()) {
         void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
       } else if (url) {
@@ -6984,6 +6979,13 @@ export default function App() {
       e.preventDefault();
       const thumbLink = target.closest<HTMLElement>("[data-lightbox-src]");
       const url = thumbLink?.dataset.lightboxSrc ?? "";
+      if (isTouchMode() && hoverPreviewEnabled && !thumbLink?.classList.contains("youtube-thumb")) {
+        const src = target.getAttribute("src") ?? url;
+        if (src) {
+          showHoverPreview(src);
+          return;
+        }
+      }
       if (url && isTauriRuntime()) {
         void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
       } else if (url) {
@@ -6992,9 +6994,26 @@ export default function App() {
     }
   };
 
+  const hideHoverPreview = () => {
+    hoverPreviewSrcRef.current = null;
+    if (hoverPreviewShowTimerRef.current) {
+      clearTimeout(hoverPreviewShowTimerRef.current);
+      hoverPreviewShowTimerRef.current = null;
+    }
+    if (hoverPreviewHideTimerRef.current) {
+      clearTimeout(hoverPreviewHideTimerRef.current);
+      hoverPreviewHideTimerRef.current = null;
+    }
+    if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
+  };
+
+  const zoomHoverPreview = (deltaPercent: number) => {
+    const next = Math.max(10, Math.min(500, hoverPreviewZoomRef.current + deltaPercent));
+    hoverPreviewZoomRef.current = next;
+    if (hoverPreviewImgRef.current) hoverPreviewImgRef.current.style.transform = `scale(${next / 100})`;
+  };
+
   const showHoverPreview = (src: string) => {
-    // タッチではサムネイルのタップが拡大表示に割り当てられているので、ホバー側は出さない。
-    if (isTouchMode()) return;
     if (hoverPreviewHideTimerRef.current) {
       clearTimeout(hoverPreviewHideTimerRef.current);
       hoverPreviewHideTimerRef.current = null;
@@ -7019,7 +7038,8 @@ export default function App() {
       clearTimeout(hoverPreviewShowTimerRef.current);
       hoverPreviewShowTimerRef.current = null;
     }
-    const delay = hoverPreviewDelayRef.current;
+    // タップで開いたときは待たせない。
+    const delay = isTouchMode() ? 0 : hoverPreviewDelayRef.current;
     if (delay > 0 && src !== hoverPreviewSrcRef.current) {
       hoverPreviewShowTimerRef.current = setTimeout(show, delay);
     } else {
@@ -9739,6 +9759,11 @@ export default function App() {
                     openThreadInTab(url, title);
                     return;
                   }
+                  // タッチではホバーで出せないので、画像URLのタップをプレビューに割り当てる。
+                  if (url && isTouchMode() && hoverPreviewEnabled && /\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(url)) {
+                    showHoverPreview(url);
+                    return;
+                  }
                   if (url && isTauriRuntime()) {
                     void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
                   } else if (url) {
@@ -9758,11 +9783,18 @@ export default function App() {
                   }
                   return;
                 }
-                // thumb image click: open in external browser
+                // thumb image click: タッチはプレビュー、マウスは外部ブラウザ
                 if (target.classList.contains("response-thumb")) {
                   e.preventDefault();
                   const thumbLink = target.closest<HTMLElement>("[data-lightbox-src]");
                   const url = thumbLink?.dataset.lightboxSrc ?? "";
+                  if (isTouchMode() && hoverPreviewEnabled && !thumbLink?.classList.contains("youtube-thumb")) {
+                    const src = target.getAttribute("src") ?? url;
+                    if (src) {
+                      showHoverPreview(src);
+                      return;
+                    }
+                  }
                   if (url && isTauriRuntime()) {
                     void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
                   } else if (url) {
@@ -10129,6 +10161,10 @@ export default function App() {
                           if (sizeChecking) return;
                           if (sizeBlocked) {
                             setRevealedGalleryImages((prev) => new Set(prev).add(img.url));
+                            return;
+                          }
+                          if (isTouchMode() && hoverPreviewEnabled) {
+                            showHoverPreview(img.url);
                             return;
                           }
                           if (isTauriRuntime()) {
@@ -12963,33 +12999,44 @@ export default function App() {
         ref={hoverPreviewRef}
         className="hover-preview"
         style={{ display: "none" }}
-        onClick={() => {
-          hoverPreviewSrcRef.current = null;
-          if (hoverPreviewHideTimerRef.current) {
-            clearTimeout(hoverPreviewHideTimerRef.current);
-            hoverPreviewHideTimerRef.current = null;
-          }
-          if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
-        }}
+        onClick={hideHoverPreview}
         onWheel={(e) => {
           if (e.ctrlKey) {
             e.preventDefault();
-            const next = Math.max(10, Math.min(500, hoverPreviewZoomRef.current + (e.deltaY < 0 ? 20 : -20)));
-            hoverPreviewZoomRef.current = next;
-            if (hoverPreviewImgRef.current) hoverPreviewImgRef.current.style.transform = `scale(${next / 100})`;
+            zoomHoverPreview(e.deltaY < 0 ? 20 : -20);
           }
         }}
       >
+        {/* タッチでは Ctrl+ホイールのズームも外部ブラウザ起動のタップも使えないので、操作をボタンで出す */}
+        {touchMode && (
+          <div className="hover-preview-touch-bar" onClick={(e) => e.stopPropagation()}>
+            <button type="button" aria-label="縮小" onClick={() => zoomHoverPreview(-20)}>−</button>
+            <button type="button" aria-label="拡大" onClick={() => zoomHoverPreview(20)}>＋</button>
+            <button
+              type="button"
+              onClick={() => {
+                const url = hoverPreviewSrcRef.current;
+                hideHoverPreview();
+                if (!url) return;
+                if (isTauriRuntime()) {
+                  void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
+                } else {
+                  window.open(url, "_blank");
+                }
+              }}
+            >
+              ブラウザで開く
+            </button>
+            <button type="button" onClick={hideHoverPreview}>閉じる</button>
+          </div>
+        )}
         <img
           ref={hoverPreviewImgRef}
           alt=""
           onMouseLeave={() => {
-            hoverPreviewSrcRef.current = null;
-            if (hoverPreviewHideTimerRef.current) {
-              clearTimeout(hoverPreviewHideTimerRef.current);
-              hoverPreviewHideTimerRef.current = null;
-            }
-            if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
+            // タッチのタップ直後に来る合成イベントで閉じないようにする。
+            if (isTouchMode()) return;
+            hideHoverPreview();
           }}
           style={{ width: "auto", transformOrigin: "left top", transform: "scale(1)" }}
         />

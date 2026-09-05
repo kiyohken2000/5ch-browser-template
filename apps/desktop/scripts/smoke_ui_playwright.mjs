@@ -1204,6 +1204,27 @@ try {
   assert(!(await isTouchMode()), "auto should stay off while only the mouse has been used");
   console.log("smoke-ui: touch mode setting ok");
 
+  // 画像プレビューはホバーと Ctrl+ホイールでしか操作できず、タッチでは手が無かった。
+  // タッチ操作中だけ、閉じる / ズーム / 外部ブラウザの操作バーが出ることを見る。
+  const previewBarButtons = () =>
+    page.$$eval(".hover-preview .hover-preview-touch-bar button", (els) =>
+      els.map((e) => e.getAttribute("aria-label") ?? e.textContent?.trim()),
+    );
+  assert(
+    (await previewBarButtons()).length === 0,
+    "image preview should have no touch bar while the mouse is in use",
+  );
+  await touchModeSelect.selectOption("on");
+  await new Promise((r) => setTimeout(r, 250));
+  const previewBar = await previewBarButtons();
+  assert(
+    previewBar.join(",") === "縮小,拡大,ブラウザで開く,閉じる",
+    `image preview touch bar should offer zoom / open / close, got ${previewBar.join(",")}`,
+  );
+  await touchModeSelect.selectOption("auto");
+  await new Promise((r) => setTimeout(r, 250));
+  console.log("smoke-ui: image preview touch bar ok");
+
   // 自動判定は実際にタッチイベントが出るコンテキストでないと確かめられない。
   // 別コンテキストを起こして、タップで切り替わること / 設定で上書きできることを見る。
   const tapAndCheck = async (pref) => {
