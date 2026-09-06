@@ -2148,10 +2148,86 @@ try {
     `thread pane ratio should survive a restart, got ${restoredLayout.responseTopRatio} (was ${draggedLayout.responseTopRatio})`,
   );
 
+  // 最小化やバックグラウンド化の途中では、WebView の大きさが 0 の状態で resize が
+  // 飛んでくる。その大きさでペイン幅を切り詰めると保存値が最小幅で潰れ、復帰しても
+  // 戻らなくなる。極小サイズへ縮めて戻し、保存値も見た目も元のままであること。
+  const beforeMinimize = await savedLayout();
+  const shownColumns = () => boardPage.$eval(".layout", (el) => el.style.gridTemplateColumns);
+  const columnsBefore = await shownColumns();
+  await boardPage.setViewportSize({ width: 1, height: 1 });
+  await new Promise((r) => setTimeout(r, 300));
+  await boardPage.setViewportSize({ width: 1280, height: 720 });
+  await new Promise((r) => setTimeout(r, 400));
+  const afterMinimize = await savedLayout();
+  for (const key of ["boardPanePx", "threadPanePx", "responseTopRatio"]) {
+    assert(
+      afterMinimize[key] === beforeMinimize[key],
+      `${key} should survive the window shrinking to nothing, got ${afterMinimize[key]} (was ${beforeMinimize[key]})`,
+    );
+  }
+  assert(
+    (await shownColumns()) === columnsBefore,
+    `pane widths should be restored when the window comes back, got ${await shownColumns()} (was ${columnsBefore})`,
+  );
+
   await boardPage.close();
   console.log("smoke-ui: board highlight by url ok");
   console.log("smoke-ui: thread pane auto toggle ok");
   console.log("smoke-ui: pane splitter persistence ok");
+  console.log("smoke-ui: pane size survives minimize ok");
+
+  // 設定ファイルへの書き込みが 1 回返ってこないと、それ以降の保存がすべて落ちてしまう
+  // (最小化中に投げた呼び出しで起きる)。Tauri ランタイムを装って 1 回目の保存を
+  // 止めたまま幅を変え、打ち切ったあとに最新の値が書き直されること。
+  const ipcPage = await context.newPage();
+  await ipcPage.addInitScript(() => {
+    window.__savedPrefs = [];
+    window.__hangNextSave = true;
+    window.__TAURI_INTERNALS__ = {
+      transformCallback: (cb) => cb,
+      invoke: (cmd, args) => {
+        if (cmd === "save_layout_prefs") {
+          window.__savedPrefs.push(args.prefs);
+          if (window.__hangNextSave) {
+            window.__hangNextSave = false;
+            return new Promise(() => {});
+          }
+          return Promise.resolve(null);
+        }
+        if (cmd === "load_layout_prefs") return Promise.resolve("");
+        return Promise.reject(new Error("smoke stub: " + cmd));
+      },
+    };
+  });
+  await ipcPage.goto(targetUrl, { waitUntil: "load" });
+  await ipcPage.waitForSelector(".row-splitter");
+  await new Promise((r) => setTimeout(r, 800));
+  const savedWrites = () => ipcPage.evaluate(() => window.__savedPrefs.length);
+  assert((await savedWrites()) === 1, `only the stuck write should be in flight, got ${await savedWrites()}`);
+  const ipcSplitter = await ipcPage.$eval(".row-splitter", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await ipcPage.mouse.move(ipcSplitter.x, ipcSplitter.y);
+  await ipcPage.mouse.down();
+  await ipcPage.mouse.move(ipcSplitter.x, ipcSplitter.y - 60, { steps: 6 });
+  await ipcPage.mouse.up();
+  await new Promise((r) => setTimeout(r, 600));
+  assert((await savedWrites()) === 1, "a second write must not start while the first is still in flight");
+  await new Promise((r) => setTimeout(r, 6000));
+  assert((await savedWrites()) >= 2, "a stuck write must not block every later save");
+  const ipcLastWritten = await ipcPage.evaluate(
+    () => JSON.parse(window.__savedPrefs[window.__savedPrefs.length - 1]).threadPanePx,
+  );
+  const ipcLastLocal = await ipcPage.evaluate(
+    () => JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1")).threadPanePx,
+  );
+  assert(
+    ipcLastWritten === ipcLastLocal,
+    `the retried write should carry the newest size, got ${ipcLastWritten} (localStorage has ${ipcLastLocal})`,
+  );
+  await ipcPage.close();
+  console.log("smoke-ui: layout prefs write recovers from a stuck ipc ok");
 
   console.log("smoke-ui: ok");
 } finally {
