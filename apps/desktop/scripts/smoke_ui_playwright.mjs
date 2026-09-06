@@ -1225,6 +1225,83 @@ try {
   await new Promise((r) => setTimeout(r, 250));
   console.log("smoke-ui: image preview touch bar ok");
 
+  // タップで開いたプレビューが、同じタップの続きで届く click に閉じられていた回帰の防止。
+  // 実機のタップは touchend のあとに mousemove → click を合成する。ホバー側の mousemove で
+  // 先に開くと、指の下に出た全画面オーバーレイへ click が落ちて即座に閉じてしまう。
+  // タッチ中はホバーでは開かず、click で開き、開いた直後の click は無視することを見る。
+  const previewDisplay = () => page.$eval(".hover-preview", (el) => getComputedStyle(el).display);
+  const thumbHint = () =>
+    page.$eval("#smoke-thumb-row a.thumb-link", (el) => getComputedStyle(el, "::after").content);
+  await page.evaluate(() => {
+    const host = document.querySelector(".response-scroll");
+    const row = document.createElement("div");
+    row.id = "smoke-thumb-row";
+    row.innerHTML =
+      '<a class="thumb-link" data-lightbox-src="https://example.invalid/a.jpg">' +
+      '<img class="response-thumb" alt="" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" />' +
+      "</a>";
+    host.appendChild(row);
+  });
+  assert(
+    (await thumbHint()).includes("Ctrl"),
+    "mouse mode should still explain the Ctrl+hover preview on a thumbnail",
+  );
+  await touchModeSelect.selectOption("on");
+  await new Promise((r) => setTimeout(r, 250));
+  assert(
+    (await thumbHint()) === "none",
+    "touch mode should not show the Ctrl+hover hint (it sticks after a tap and cannot be used)",
+  );
+  const hoverPreviewToggle = page
+    .locator(".settings-body label.settings-row", { hasText: "画像ホバープレビュー" })
+    .locator("input[type=checkbox]");
+  const hoverPreviewWasOn = await hoverPreviewToggle.isChecked();
+  if (!hoverPreviewWasOn) await hoverPreviewToggle.check();
+  await new Promise((r) => setTimeout(r, 150));
+
+  const fireOnThumb = (types) =>
+    page.evaluate((names) => {
+      const img = document.querySelector("#smoke-thumb-row img.response-thumb");
+      for (const name of names) {
+        img.dispatchEvent(new MouseEvent(name, { bubbles: true, cancelable: true, view: window }));
+      }
+    }, types);
+
+  await fireOnThumb(["mousemove"]);
+  await new Promise((r) => setTimeout(r, 100));
+  assert(
+    (await previewDisplay()) === "none",
+    "touch mode should not open the image preview from the mousemove synthesized by a tap",
+  );
+  // click と、そのすぐあとにオーバーレイへ落ちる click を同じタイミングで投げる
+  await page.evaluate(() => {
+    const opt = { bubbles: true, cancelable: true, view: window };
+    document.querySelector("#smoke-thumb-row img.response-thumb").dispatchEvent(new MouseEvent("click", opt));
+    document.querySelector(".hover-preview").dispatchEvent(new MouseEvent("click", opt));
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  assert(
+    (await previewDisplay()) === "block",
+    "tapping a thumbnail in touch mode should open the image preview and keep it open",
+  );
+  // 猶予を過ぎたら、オーバーレイのタップで閉じられること
+  await new Promise((r) => setTimeout(r, 500));
+  await page.evaluate(() => {
+    document
+      .querySelector(".hover-preview")
+      .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  assert(
+    (await previewDisplay()) === "none",
+    "tapping the opened preview should close it once the tap grace period is over",
+  );
+  if (!hoverPreviewWasOn) await hoverPreviewToggle.uncheck();
+  await page.evaluate(() => document.querySelector("#smoke-thumb-row")?.remove());
+  await touchModeSelect.selectOption("auto");
+  await new Promise((r) => setTimeout(r, 250));
+  console.log("smoke-ui: tap to open image preview ok");
+
   // 自動判定は実際にタッチイベントが出るコンテキストでないと確かめられない。
   // 別コンテキストを起こして、タップで切り替わること / 設定で上書きできることを見る。
   const tapAndCheck = async (pref) => {
@@ -2034,9 +2111,47 @@ try {
   await new Promise((r) => setTimeout(r, 200));
   assert((await threadPaneDisplay()) === "none", "touching the responses pane should hide the thread pane again");
 
+  // 自動開閉をオンにしたまま使うと、境界線の位置が再起動で既定に戻るという報告の回帰用。
+  // px と比率の両方が復元されること (比率は px がある側の分岐で読み捨てられていた)。
+  await boardPage.click('button[aria-label="スレ一覧ペイン表示切替"]');
+  await new Promise((r) => setTimeout(r, 200));
+  const splitterCenter = await boardPage.$eval(".row-splitter", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  await boardPage.mouse.move(splitterCenter.x, splitterCenter.y);
+  await boardPage.mouse.down();
+  await boardPage.mouse.move(splitterCenter.x, splitterCenter.y - 90, { steps: 8 });
+  await boardPage.mouse.up();
+  await new Promise((r) => setTimeout(r, 300));
+  const savedLayout = () =>
+    boardPage.evaluate(() => JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}"));
+  const draggedLayout = await savedLayout();
+  assert(
+    typeof draggedLayout.threadPanePx === "number" && draggedLayout.threadPanePx < 420,
+    `dragging the row splitter should shrink the thread pane, got ${draggedLayout.threadPanePx}`,
+  );
+  // このハーネスは毎ロードで layoutPrefs を消すので、保存済みの状態で起動し直す形に戻す
+  await boardPage.addInitScript((saved) => {
+    localStorage.setItem("desktop.layoutPrefs.v1", saved);
+  }, JSON.stringify(draggedLayout));
+  await boardPage.reload();
+  await boardPage.waitForSelector(".right-pane");
+  await new Promise((r) => setTimeout(r, 600));
+  const restoredLayout = await savedLayout();
+  assert(
+    restoredLayout.threadPanePx === draggedLayout.threadPanePx,
+    `thread pane size should survive a restart, got ${restoredLayout.threadPanePx} (was ${draggedLayout.threadPanePx})`,
+  );
+  assert(
+    restoredLayout.responseTopRatio === draggedLayout.responseTopRatio,
+    `thread pane ratio should survive a restart, got ${restoredLayout.responseTopRatio} (was ${draggedLayout.responseTopRatio})`,
+  );
+
   await boardPage.close();
   console.log("smoke-ui: board highlight by url ok");
   console.log("smoke-ui: thread pane auto toggle ok");
+  console.log("smoke-ui: pane splitter persistence ok");
 
   console.log("smoke-ui: ok");
 } finally {

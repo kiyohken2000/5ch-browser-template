@@ -3218,6 +3218,11 @@ button.search-history-btn:hover {
 .thumb-link:hover::after {
   opacity: 1;
 }
+/* タッチでは Ctrl も押せず、タップ後も :hover が残って出しっぱなしになるので出さない */
+.touch-mode .thumb-link::after,
+.touch-mode a.body-link-image::after {
+  content: none;
+}
 
 a.body-link-image {
   position: relative;

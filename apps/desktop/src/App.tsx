@@ -436,6 +436,8 @@ const stripBeIconPrefix = (text: string): string =>
 const MY_POST_MIN_PARTIAL_LEN = 8;
 const MY_POST_MIN_PARTIAL_RATIO = 0.8;
 
+// タップで開いた画像プレビューが、同じタップの click で閉じないようにする猶予。
+const HOVER_PREVIEW_TAP_GRACE_MS = 400;
 const MIN_BOARD_PANE_PX = 160;
 const MIN_THREAD_PANE_PX = 120;
 const MIN_RESPONSE_PANE_PX = 360;
@@ -2236,6 +2238,8 @@ export default function App() {
   const hoverPreviewImgRef = useRef<HTMLImageElement | null>(null);
   const hoverPreviewSrcRef = useRef<string | null>(null);
   const hoverPreviewZoomRef = useRef(100);
+  // タップで開いた直後は、同じタップの続きで届くクリックで閉じないようにする。
+  const hoverPreviewShownAtRef = useRef(0);
   const hoverPreviewHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [boardBtnDragIndex, setBoardBtnDragIndex] = useState<number | null>(null);
   const boardBtnDragRef = useRef<{ srcIndex: number; startX: number } | null>(null);
@@ -2435,7 +2439,14 @@ export default function App() {
   const [threadColOrderDraft, setThreadColOrderDraft] = useState<ThreadColKey[]>(() => [...DEFAULT_THREAD_COL_ORDER]);
   const knownThreadUrlsRef = useRef<Map<string, Set<string>>>(new Map());
   const [newThreadUrls, setNewThreadUrls] = useState<Set<string>>(new Set());
-  const layoutPrefsLoadedRef = useRef(false);
+  // 読み込みが済んだ印。読み込んだ値と同じ描画で立つように state で持つ。
+  // ref だと、読み込みが積んだ更新が反映される前に下の保存が走り、
+  // 読み込み前の既定値で保存済みの設定を上書きしてしまう。
+  const [layoutPrefsLoaded, setLayoutPrefsLoaded] = useState(false);
+  // レイアウト設定のファイル保存はドラッグ中に毎 pointermove 走る。書き込みが重なると
+  // 一時ファイルを奪い合って壊れるので、常に 1 本だけ流し、間の変更は最新だけ残す。
+  const layoutPrefsSavingRef = useRef(false);
+  const layoutPrefsPendingRef = useRef<string | null>(null);
   const threadScrollPositions = useRef<Record<string, number>>({});
   const boardTreeRef = useRef<HTMLDivElement | null>(null);
   const boardTreeScrollRestoreRef = useRef<number | null>(null);
@@ -6604,13 +6615,14 @@ export default function App() {
           wheelScrollRows?: number;
         };
         if (typeof parsed.boardPanePx === "number") setBoardPanePx(parsed.boardPanePx);
+        // 比率は px があるときも戻す。戻さないと既定値のまま保存し直され、
+        // px を持たない環境へ引き継いだときに位置が飛ぶ。
+        if (typeof parsed.responseTopRatio === "number") setResponseTopRatio(parsed.responseTopRatio);
         if (typeof parsed.threadPanePx === "number") {
           setThreadPanePx(parsed.threadPanePx);
         } else if (typeof parsed.responseTopRatio === "number") {
           const layoutHeight = responseLayoutRef.current?.clientHeight ?? Math.max(520, window.innerHeight - 180);
-          const nextThread = (layoutHeight * parsed.responseTopRatio) / 100;
-          setThreadPanePx(nextThread);
-          setResponseTopRatio(parsed.responseTopRatio);
+          setThreadPanePx((layoutHeight * parsed.responseTopRatio) / 100);
         }
         if (parsed.paneLayoutMode === "classic" || parsed.paneLayoutMode === "river") setPaneLayoutMode(parsed.paneLayoutMode);
         if (typeof parsed.boardPaneHidden === "boolean") setBoardPaneHidden(parsed.boardPaneHidden);
@@ -6696,10 +6708,13 @@ export default function App() {
     if (isTauriRuntime()) {
       invoke<string>("load_layout_prefs").then((raw) => {
         if (raw) applyPrefs(raw);
-        layoutPrefsLoadedRef.current = true;
-      }).catch(() => { layoutPrefsLoadedRef.current = true; });
+        setLayoutPrefsLoaded(true);
+      }).catch((e) => {
+        console.warn("load_layout_prefs failed", e);
+        setLayoutPrefsLoaded(true);
+      });
     } else {
-      layoutPrefsLoadedRef.current = true;
+      setLayoutPrefsLoaded(true);
     }
     try {
       const composeRaw = localStorage.getItem(COMPOSE_PREFS_KEY);
@@ -7033,6 +7048,7 @@ export default function App() {
         hoverPreviewRef.current.scrollTop = 0;
         hoverPreviewRef.current.scrollLeft = 0;
       }
+      hoverPreviewShownAtRef.current = Date.now();
     };
     if (hoverPreviewShowTimerRef.current) {
       clearTimeout(hoverPreviewShowTimerRef.current);
@@ -7048,6 +7064,9 @@ export default function App() {
   };
 
   const handlePopupImageHover = (e: React.MouseEvent) => {
+    // タップ直後に合成される mousemove でここが走ると、指の下に出たプレビューへ
+    // 同じタップの click が落ちて即座に閉じてしまう。タッチでは click 側で開く。
+    if (isTouchMode()) return;
     const target = e.target as HTMLElement;
     if (!e.ctrlKey && !hoverPreviewEnabled) return;
     const thumb = target.closest<HTMLImageElement>("img.response-thumb");
@@ -7474,8 +7493,23 @@ export default function App() {
     };
   }, [mouseGestureEnabled, activeTabIndex, threadTabs, gestureBindings]);
 
+  // 書き込み中は積んでおいて、終わってから最新の 1 件だけ書く。
+  const flushLayoutPrefs = () => {
+    if (layoutPrefsSavingRef.current) return;
+    const payload = layoutPrefsPendingRef.current;
+    if (payload === null) return;
+    layoutPrefsPendingRef.current = null;
+    layoutPrefsSavingRef.current = true;
+    void invoke("save_layout_prefs", { prefs: payload })
+      .catch((e) => console.warn("save_layout_prefs failed", e))
+      .finally(() => {
+        layoutPrefsSavingRef.current = false;
+        flushLayoutPrefs();
+      });
+  };
+
   useEffect(() => {
-    if (!layoutPrefsLoadedRef.current) return;
+    if (!layoutPrefsLoaded) return;
     const payload = JSON.stringify({
       boardPanePx,
       threadPanePx,
@@ -7533,9 +7567,10 @@ export default function App() {
     });
     localStorage.setItem(LAYOUT_PREFS_KEY, payload);
     if (isTauriRuntime()) {
-      void invoke("save_layout_prefs", { prefs: payload }).catch(() => {});
+      layoutPrefsPendingRef.current = payload;
+      flushLayoutPrefs();
     }
-  }, [boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, composePos, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, composePos, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -9832,6 +9867,9 @@ export default function App() {
                 }
               }}
               onMouseMove={(e) => {
+                // タップ直後の合成 mousemove で開くと、指の下に出たプレビューへ
+                // 同じタップの click が落ちて即座に閉じる。タッチでは click 側で開く。
+                if (isTouchMode()) return;
                 const target = e.target as HTMLElement;
                 if (!e.ctrlKey && !hoverPreviewEnabled) return;
                 const thumb = target.closest<HTMLImageElement>("img.response-thumb");
@@ -10142,11 +10180,13 @@ export default function App() {
                       <div
                         className="image-gallery-thumb-wrap"
                         onMouseMove={(e) => {
+                          if (isTouchMode()) return;
                           if (sizeChecking || sizeBlocked) return;
                           if (!e.ctrlKey && !hoverPreviewEnabled) return;
                           showHoverPreview(img.url);
                         }}
                         onMouseOut={(e) => {
+                          if (isTouchMode()) return;
                           const next = (e as React.MouseEvent).relatedTarget as HTMLElement | null;
                           if (next?.closest(".hover-preview")) return;
                           if (hoverPreviewShowTimerRef.current) { clearTimeout(hoverPreviewShowTimerRef.current); hoverPreviewShowTimerRef.current = null; }
@@ -12999,7 +13039,11 @@ export default function App() {
         ref={hoverPreviewRef}
         className="hover-preview"
         style={{ display: "none" }}
-        onClick={hideHoverPreview}
+        onClick={() => {
+          // 開いたのと同じタップの click がここへ流れてくることがあるので、直後は無視する。
+          if (isTouchMode() && Date.now() - hoverPreviewShownAtRef.current < HOVER_PREVIEW_TAP_GRACE_MS) return;
+          hideHoverPreview();
+        }}
         onWheel={(e) => {
           if (e.ctrlKey) {
             e.preventDefault();

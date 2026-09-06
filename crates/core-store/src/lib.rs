@@ -3,6 +3,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
 
@@ -295,8 +296,20 @@ pub fn save_json<T: Serialize>(relative_path: &str, value: &T) -> Result<(), Sto
     write_atomic(&path, &bytes)
 }
 
+/// 一時ファイル名を書き込みごとに変えるための連番。
+static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
+
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
-    let tmp = sibling_path(path, ".tmp");
+    // 固定名だと、同じファイルへの書き込みが重なったとき書き途中の一時ファイルを
+    // 別の書き込みが rename してしまい、本体が欠けた JSON になる。名前を分ける。
+    let tmp = sibling_path(
+        path,
+        &format!(
+            ".{}.{}.tmp",
+            std::process::id(),
+            WRITE_SEQ.fetch_add(1, Ordering::Relaxed)
+        ),
+    );
     fs::write(&tmp, bytes)?;
     // Windows でも MOVEFILE_REPLACE_EXISTING 相当なので既存ファイルを置き換えられる
     if let Err(e) = fs::rename(&tmp, path) {
