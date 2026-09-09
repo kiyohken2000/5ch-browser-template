@@ -1481,10 +1481,73 @@ try {
     "webview data dir row should stay hidden without tauri runtime",
   );
   console.log("smoke-ui: webview data dir row ok");
+
+  // 書き込み欄をレス本文の下に固定する設定 (既定 OFF、layoutPrefs に永続化される)
+  const composeDockToggle = await page.$('.settings-body label:has-text("書き込み欄をレス本文の下に固定") input[type="checkbox"]');
+  assert(composeDockToggle, "settings should have a docked compose toggle");
+  assert(!(await composeDockToggle.isChecked()), "compose docking should default to off");
+  await composeDockToggle.check();
+  await new Promise((r) => setTimeout(r, 150));
+  const composeDockPref = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").composeDocked;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(composeDockPref === true, `compose docking should persist, got ${composeDockPref}`);
+  console.log("smoke-ui: compose dock setting ok");
+
   // close settings
   await page.click('.settings-header button:has-text("閉じる")');
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: settings panel ok");
+
+  // 固定した書き込み欄は浮かせた窓ではなく、レスペインの最後の子として本文の下に入る
+  await page.click(".thread-title-actions button[title='書き込み']");
+  await page.waitForSelector(".pane.responses .compose-window.compose-docked");
+  assert(
+    await page.$(".pane.responses .compose-dock-splitter"),
+    "docked compose should have a splitter above it",
+  );
+  const dockedPosition = await page.$eval(".compose-window.compose-docked", (el) => getComputedStyle(el).position);
+  assert(dockedPosition === "static", `docked compose should not float, got ${dockedPosition}`);
+  assert(
+    (await page.$$(".compose-window .compose-resize")).length === 0,
+    "docked compose should drop the floating window resize handles",
+  );
+
+  // 書き込みウィンドウのヘッダーからも固定/浮かせるを切り替えられる
+  await page.click('.compose-header button[title="固定を解除して浮かせる"]');
+  await new Promise((r) => setTimeout(r, 150));
+  assert(
+    !(await page.$(".compose-window.compose-docked")),
+    "header toggle should undock the compose window",
+  );
+  const undockedPref = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").composeDocked;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(undockedPref === false, `header toggle should persist, got ${undockedPref}`);
+  await page.click('.compose-header button[title="レス本文の下に固定する"]');
+  await page.waitForSelector(".pane.responses .compose-window.compose-docked");
+  console.log("smoke-ui: compose header dock toggle ok");
+
+  await page.click(".compose-header button:has-text('閉じる')");
+  await new Promise((r) => setTimeout(r, 100));
+  // 既定 (浮かせる) に戻してから先へ進む
+  await (await page.$('.menu-item:has-text("ファイル")')).click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("設定")');
+  await page.waitForSelector(".settings-panel");
+  await page.uncheck('.settings-body label:has-text("書き込み欄をレス本文の下に固定") input[type="checkbox"]');
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.settings-header button:has-text("閉じる")');
+  await new Promise((r) => setTimeout(r, 100));
+  console.log("smoke-ui: docked compose placement ok");
 
   // --- post history panel ---
   const fileMenuForHistory = await page.$('.menu-item:has-text("ファイル")');

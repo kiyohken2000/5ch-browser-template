@@ -6744,3 +6744,51 @@ a.body-link-image:hover::after {
   font-size: 0.72em;
   opacity: 0.7;
 }
+
+/* === 書き込み欄をレス本文の下に固定したとき ===
+   浮かせているときの位置・影・最小幅を打ち消し、レスペインの最後の子として流し込む。
+   `.dark .compose-window` と詳細度が並ぶので、必ずそれより後ろに置くこと。 */
+.compose-window.compose-docked {
+  position: static;
+  right: auto;
+  bottom: auto;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  /* 高さは JS が持つが、ウィンドウが縮んだときにレス本文を潰さないための保険。 */
+  max-height: calc(100% - 120px);
+  /* 上の保険で内容より低くなったとき、レス一覧の上に溢れさせない。 */
+  overflow: auto;
+  flex: 0 0 auto;
+  border: 0;
+  border-top: 1px solid var(--line);
+  box-shadow: none;
+  z-index: auto;
+}
+
+.compose-window.compose-docked .compose-header {
+  cursor: default;
+}
+
+/* 縦が足りないときは本文の入力欄から先に詰める。ここを詰めないと、書き込みボタンの
+   ある行が下に押し出されて見えなくなる。 */
+.compose-window.compose-docked .compose-body {
+  min-height: 0;
+}
+
+/* ヘッダの固定トグルが押されている状態。.compose-header-icon の background/color が
+   後勝ちで .active-toggle を消してしまうので、ここで詳細度を上げて塗り直す。 */
+.compose-header-icon.active-toggle {
+  background: #b0d0ff;
+  color: #1a5ab8;
+}
+.dark .compose-header-icon.active-toggle {
+  background: #3a5a8a;
+  color: #8abfff;
+}
+
+/* 見た目とホバー、ダークモードは .row-splitter から借りる */
+.compose-dock-splitter {
+  flex: 0 0 6px;
+  height: 6px;
+}
