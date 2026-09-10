@@ -166,9 +166,11 @@ git add \
 # Only add files that have changes staged
 git diff --cached --quiet && { echo "No changes to commit"; exit 1; }
 
+# Claude-Session はセッションごとに変わるので、環境変数で渡されたときだけ末尾に付ける
 git commit -m "${TAG}: $(echo "$RELEASE_NOTES" | head -1)
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>${CLAUDE_SESSION_URL:+
+Claude-Session: ${CLAUDE_SESSION_URL}}"
 
 git push
 

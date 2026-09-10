@@ -3929,6 +3929,15 @@ a.body-link-image:hover::after {
 .settings-row input[type="number"] {
   width: 60px;
 }
+/* 項目名やボタンは縮めない。長い補足 (.settings-hint) だけが残り幅を使って折り返す */
+.settings-row > span:not(.settings-hint),
+.settings-row > button {
+  flex-shrink: 0;
+}
+.settings-row > .settings-hint {
+  flex: 1 1 0;
+  min-width: 0;
+}
 .settings-row select {
   padding: 2px 4px;
 }

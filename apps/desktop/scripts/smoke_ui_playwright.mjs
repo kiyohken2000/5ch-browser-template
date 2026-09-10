@@ -1720,6 +1720,73 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: compose ai review button ok");
 
+  // --- 「閉じても本文を残す」設定 (既定 OFF: 開き直すと本文は空、ON: 残る + クリアボタンが出る) ---
+  await (await page.$('.menu-item:has-text("ファイル")')).click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("設定")');
+  await page.waitForSelector(".settings-panel");
+  const keepDraftToggle = await page.$('.settings-body label:has-text("閉じても本文を残す") input[type="checkbox"]');
+  assert(keepDraftToggle, "settings should have a keep-draft toggle");
+  assert(!(await keepDraftToggle.isChecked()), "keep-draft should default to off");
+  await page.click('.settings-header button:has-text("閉じる")');
+  await new Promise((r) => setTimeout(r, 100));
+  // 既定 OFF: 書きかけて閉じて開き直すと空になる
+  await page.click(".thread-title-actions button[title='書き込み']");
+  await page.waitForSelector(".compose-window textarea.compose-body");
+  await page.fill(".compose-window textarea.compose-body", "書きかけの本文");
+  assert(!(await page.$('.compose-actions button[title="本文をクリア"]')), "clear button should be hidden while keep-draft is off");
+  await page.click(".compose-header button:has-text('閉じる')");
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click(".thread-title-actions button[title='書き込み']");
+  await page.waitForSelector(".compose-window textarea.compose-body");
+  const clearedBody = await page.$eval(".compose-window textarea.compose-body", (el) => el.value);
+  assert(clearedBody === "", `compose body should be cleared on reopen by default, got: ${clearedBody}`);
+  await page.click(".compose-header button:has-text('閉じる')");
+  await new Promise((r) => setTimeout(r, 100));
+  // ON にすると composePrefs に永続化され、閉じて開き直しても本文が残る
+  await (await page.$('.menu-item:has-text("ファイル")')).click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("設定")');
+  await page.waitForSelector(".settings-panel");
+  await page.check('.settings-body label:has-text("閉じても本文を残す") input[type="checkbox"]');
+  await new Promise((r) => setTimeout(r, 150));
+  const keepDraftPref = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.composePrefs.v1") || "{}").keepDraft;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(keepDraftPref === true, `keep-draft should persist to composePrefs, got ${keepDraftPref}`);
+  await page.click('.settings-header button:has-text("閉じる")');
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click(".thread-title-actions button[title='書き込み']");
+  await page.waitForSelector(".compose-window textarea.compose-body");
+  await page.fill(".compose-window textarea.compose-body", "残る本文");
+  await page.click(".compose-header button:has-text('閉じる')");
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click(".thread-title-actions button[title='書き込み']");
+  await page.waitForSelector(".compose-window textarea.compose-body");
+  const keptBody = await page.$eval(".compose-window textarea.compose-body", (el) => el.value);
+  assert(keptBody === "残る本文", `compose body should survive reopen when keep-draft is on, got: ${keptBody}`);
+  const clearDraftBtn = await page.$('.compose-actions button[title="本文をクリア"]');
+  assert(clearDraftBtn, "clear button should appear while keep-draft is on");
+  await clearDraftBtn.click();
+  const afterClear = await page.$eval(".compose-window textarea.compose-body", (el) => el.value);
+  assert(afterClear === "", `clear button should empty the body, got: ${afterClear}`);
+  await page.click(".compose-header button:has-text('閉じる')");
+  await new Promise((r) => setTimeout(r, 100));
+  // 既定 (OFF) に戻してから先へ進む
+  await (await page.$('.menu-item:has-text("ファイル")')).click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("設定")');
+  await page.waitForSelector(".settings-panel");
+  await page.uncheck('.settings-body label:has-text("閉じても本文を残す") input[type="checkbox"]');
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.settings-header button:has-text("閉じる")');
+  await new Promise((r) => setTimeout(r, 100));
+  console.log("smoke-ui: compose keep-draft setting ok");
+
   // --- 保存ログ一覧 (全板) がスレ一覧フィルタのメニューに並んでいる ---
   // 一覧の中身は Tauri IPC (load_all_cached_threads) 依存なので、ブラウザ環境では
   // 項目が既存の「dat落ちキャッシュ」と並んで出ていることだけを検証する。

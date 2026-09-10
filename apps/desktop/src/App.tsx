@@ -237,7 +237,7 @@ function buildTranslationPrompt(text: string, targetLangNativeName: string): str
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
-  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag,
+  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -1762,6 +1762,8 @@ export default function App() {
   const composeNameEditedRef = useRef(false);
   // ON のとき名前欄を記憶しない (開くたびに空、板ごとの名前も入力履歴も使わない)
   const [composeForgetName, setComposeForgetName] = useState(false);
+  // 書き込み窓を閉じても本文を残す (既定 OFF: 開き直すたびに空にする)
+  const [composeKeepDraft, setComposeKeepDraft] = useState(false);
   // 「記憶した名前を削除」の確認待ち状態 (2段階クリックで誤操作を防ぐ)
   const [nameClearArmed, setNameClearArmed] = useState(false);
   // 削除完了メッセージ。数秒で自動的に消す
@@ -6082,7 +6084,8 @@ export default function App() {
     if (!opts?.keepBody) {
       // 位置 (composePos) はここでリセットしない — 前回動かした位置を保持する。
       // 既定位置に戻すのはヘッダーの「サイズと位置をリセット」ボタン。
-      setComposeBody("");
+      // 本文は「閉じても本文を残す」が ON なら消さない (投稿成功時と手動クリアでだけ空になる)。
+      if (!composeKeepDraft) setComposeBody("");
       setComposeResult(null);
     }
   };
@@ -6771,8 +6774,9 @@ export default function App() {
     try {
       const composeRaw = localStorage.getItem(COMPOSE_PREFS_KEY);
       if (composeRaw) {
-        const cp = JSON.parse(composeRaw) as { name?: string; mail?: string; sage?: boolean; fontSize?: number; forgetName?: boolean };
+        const cp = JSON.parse(composeRaw) as { name?: string; mail?: string; sage?: boolean; fontSize?: number; forgetName?: boolean; keepDraft?: boolean };
         if (typeof cp.forgetName === "boolean") setComposeForgetName(cp.forgetName);
+        if (typeof cp.keepDraft === "boolean") setComposeKeepDraft(cp.keepDraft);
         if (typeof cp.name === "string" && !cp.forgetName) setComposeName(cp.name);
         if (typeof cp.fontSize === "number") setComposeFontSize(cp.fontSize);
         if (typeof cp.mail === "string") setComposeMail(cp.mail);
@@ -7730,8 +7734,8 @@ export default function App() {
   }, [settingsOpen]);
 
   useEffect(() => {
-    saveUiJson(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeForgetName ? "" : composeName, mail: composeMail, sage: composeSage, fontSize: composeFontSize, forgetName: composeForgetName }));
-  }, [composeName, composeMail, composeSage, composeFontSize, composeForgetName]);
+    saveUiJson(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeForgetName ? "" : composeName, mail: composeMail, sage: composeSage, fontSize: composeFontSize, forgetName: composeForgetName, keepDraft: composeKeepDraft }));
+  }, [composeName, composeMail, composeSage, composeFontSize, composeForgetName, composeKeepDraft]);
 
   useEffect(() => {
     if (suppressThreadScrollRef.current) {
@@ -8848,6 +8852,9 @@ export default function App() {
     )}
     <div className="compose-actions">
       <span className="compose-meta">{composeBody.length}文字 / {composeBody.split("\n").length}行</span>
+      {composeKeepDraft && (
+        <button onClick={() => setComposeBody("")} disabled={composeBody.length === 0} title="本文をクリア"><Eraser size={14} /></button>
+      )}
       <button
         className="compose-ai-check-btn"
         onClick={aiStartReviewPost}
@@ -12487,6 +12494,11 @@ export default function App() {
                   <span>名前を記憶しない</span>
                   <span className="settings-hint">開くたびに名前欄を空にする</span>
                 </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={composeKeepDraft} onChange={(e) => setComposeKeepDraft(e.target.checked)} />
+                  <span>閉じても本文を残す</span>
+                  <span className="settings-hint">次に開いたとき書きかけの本文が残る。投稿するか本文をクリアすると消える</span>
+                </label>
                 <div className="settings-row">
                   <span>記憶した名前</span>
                   {nameClearArmed ? (
@@ -12583,7 +12595,7 @@ export default function App() {
                   <legend>データフォルダ</legend>
                   <div className="settings-row" style={{ alignItems: "flex-start" }}>
                     <span>現在の保存先</span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.8em", opacity: 0.75, wordBreak: "break-all" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.8em", opacity: 0.75, wordBreak: "break-all", flex: "1 1 0", minWidth: 0 }}>
                       <span>{dataDirInfo?.currentDir ?? "—"}</span>
                       <button
                         type="button"
@@ -12659,7 +12671,7 @@ export default function App() {
                     <>
                       <div className="settings-row" style={{ alignItems: "flex-start" }}>
                         <span>WebView の保存先</span>
-                        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.8em", opacity: 0.75, wordBreak: "break-all" }}>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.8em", opacity: 0.75, wordBreak: "break-all", flex: "1 1 0", minWidth: 0 }}>
                           <span>{dataDirInfo.webviewDir}</span>
                           <button
                             type="button"
