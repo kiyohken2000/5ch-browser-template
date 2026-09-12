@@ -339,7 +339,9 @@ type NgMode = "hide" | "hide-images" | "abone";
 type NgEntry = { value: string; mode: NgMode; disabled?: boolean; excludeNo1?: boolean; match?: "partial" | "exact"; addedAt?: number };
 type NgFilters = { words: (string | NgEntry)[]; ids: (string | NgEntry)[]; names: (string | NgEntry)[]; thread_words: (string | NgEntry)[] };
 // 強調フィルタ (NGの逆): 指定ワード/ID/名前を強調表示
-type HlEntry = { value: string; color?: string; disabled?: boolean };
+// titleOff: スレ一覧のタイトルには適用しない (ワードのみ意味を持つ)
+// addedAt: 登録日時 (ms)。ID の自動削除に使う。導入前のエントリは持たない (= 対象外)
+type HlEntry = { value: string; color?: string; disabled?: boolean; titleOff?: boolean; addedAt?: number };
 type HighlightFilters = { words: (string | HlEntry)[]; ids: (string | HlEntry)[]; names: (string | HlEntry)[] };
 type NgImageEntry = { hash: string; thumbnail: string; sourceUrl: string; addedAt: number; disabled?: boolean; threshold?: number };
 type NgImageFilter = { entries: NgImageEntry[]; threshold: number };
@@ -408,6 +410,15 @@ const hlColor = (e: string | HlEntry): string => {
   return c && HIGHLIGHT_COLOR_KEYS.has(c) ? c : "yellow";
 };
 const hlDisabled = (e: string | HlEntry): boolean => typeof e === "string" ? false : (e.disabled ?? false);
+const hlTitleOff = (e: string | HlEntry): boolean => typeof e === "string" ? false : (e.titleOff ?? false);
+// 文字列形式 (旧データ) も含めて必ずオブジェクト形式に揃える (フラグを落とさず更新するため)
+const hlAddedAt = (e: string | HlEntry): number | null => typeof e === "string" || typeof e.addedAt !== "number" ? null : e.addedAt;
+const hlObj = (e: string | HlEntry): HlEntry => {
+  const addedAt = hlAddedAt(e);
+  return { value: hlVal(e), color: hlColor(e), disabled: hlDisabled(e), titleOff: hlTitleOff(e), ...(addedAt !== null ? { addedAt } : {}) };
+};
+const expiredHlIdValues = (ids: (string | HlEntry)[], days: number, now: number): string[] =>
+  expiredIdValues(ids, days, now, hlAddedAt, hlVal);
 type AuthConfig = {
   upliftEmail: string;
   upliftPassword: string;
@@ -567,6 +578,8 @@ const POST_LOG_PREFS_KEY = "desktop.postLogPrefs.v1";
 const THREAD_CATEGORIES_KEY = "desktop.threadCategories.v2";
 const DISMISSED_UPDATE_VERSION_KEY = "desktop.dismissedUpdateVersion.v1";
 const NG_ID_EXPIRE_DAYS_KEY = "desktop.ngIdExpireDays.v1";
+// 強調 ID の自動削除日数 (NG ID と同じ選択肢・同じ判定)。
+const HL_ID_EXPIRE_DAYS_KEY = "desktop.hlIdExpireDays.v1";
 // UI 全体の表示倍率。WebView 自体のズームなので px 指定のままでも全部が拡大され、
 // ペインのドラッグなどの座標計算もずれない。タッチ端末では指に対して UI が
 // 小さすぎるという要望への対応で、機種ごとに適正値が違うため段階から選ばせる。
@@ -629,6 +642,7 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   autoRefreshPersistEnabled: AUTO_REFRESH_PERSIST_KEY,
   postLogPrefs: POST_LOG_PREFS_KEY,
   ngIdExpireDays: NG_ID_EXPIRE_DAYS_KEY,
+  hlIdExpireDays: HL_ID_EXPIRE_DAYS_KEY,
   ex0chEnabled: EX0CH_ENABLED_KEY,
   aiPrefs: AI_PREFS_KEY,
   uiZoom: UI_ZOOM_KEY,
@@ -657,16 +671,19 @@ const formatNgAddedAt = (ts: number): string => {
 };
 // 期限切れの NG ID の value 一覧。addedAt を持たない (= 旧バージョンで登録された)
 // エントリは対象外。
-const expiredNgIdValues = (ids: (string | NgEntry)[], days: number, now: number): string[] => {
+// 強調 ID も同じ判定を使う (エントリ型が違うので addedAt / value の取り出しを差し替える)。
+const expiredIdValues = <T,>(ids: T[], days: number, now: number, addedAtOf: (e: T) => number | null, valOf: (e: T) => string): string[] => {
   if (days <= 0) return [];
   const cutoff = now - days * NG_DAY_MS;
   return ids
     .filter((e) => {
-      const added = ngEntryAddedAt(e);
+      const added = addedAtOf(e);
       return added !== null && added <= cutoff;
     })
-    .map(ngVal);
+    .map(valOf);
 };
+const expiredNgIdValues = (ids: (string | NgEntry)[], days: number, now: number): string[] =>
+  expiredIdValues(ids, days, now, ngEntryAddedAt, ngVal);
 
 type ThreadCategory = {
   keyword: string;
@@ -1857,6 +1874,19 @@ export default function App() {
   useEffect(() => {
     saveUiSetting(NG_ID_EXPIRE_DAYS_KEY, String(ngIdExpireDays));
   }, [ngIdExpireDays]);
+  const [hlIdExpireDays, setHlIdExpireDays] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(HL_ID_EXPIRE_DAYS_KEY);
+      if (raw === null) return 0;
+      const n = Number(raw);
+      return NG_ID_EXPIRE_DAY_OPTIONS.includes(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  });
+  useEffect(() => {
+    saveUiSetting(HL_ID_EXPIRE_DAYS_KEY, String(hlIdExpireDays));
+  }, [hlIdExpireDays]);
   const [uiZoom, setUiZoom] = useState<number>(() => {
     try {
       const raw = localStorage.getItem(UI_ZOOM_KEY);
@@ -2942,6 +2972,15 @@ export default function App() {
     setStatus(`期限切れのNG IDを${expired.length}件削除しました`);
   }, [ngFilters, ngIdExpireDays, ngPanelOpen]);
 
+  // 強調 ID の自動削除。NG ID と同じタイミング・同じ判定。
+  useEffect(() => {
+    const expired = expiredHlIdValues(highlightFilters.ids, hlIdExpireDays, Date.now());
+    if (expired.length === 0) return;
+    const gone = new Set(expired);
+    void persistHighlightFilters({ ...highlightFilters, ids: highlightFilters.ids.filter((e) => !gone.has(hlVal(e))) });
+    setStatus(`期限切れの強調IDを${expired.length}件削除しました`);
+  }, [highlightFilters, hlIdExpireDays, ngPanelOpen]);
+
   const loadOgpDomainFilters = async () => {
     if (!isTauriRuntime()) return;
     try {
@@ -3004,7 +3043,7 @@ export default function App() {
       setStatus(`already in highlight ${type}: ${trimmed}`);
       return;
     }
-    const entry: HlEntry = { value: trimmed, color: color ?? highlightAddColor };
+    const entry: HlEntry = { value: trimmed, color: color ?? highlightAddColor, addedAt: Date.now() };
     void persistHighlightFilters({ ...highlightFilters, [type]: [...highlightFilters[type], entry] });
     setStatus(`added highlight ${type}: ${trimmed}`);
   };
@@ -3019,7 +3058,7 @@ export default function App() {
       ...highlightFilters,
       [type]: highlightFilters[type].map((e) => {
         if (hlVal(e) !== value) return e;
-        return { value, color: hlColor(e), disabled: !hlDisabled(e) };
+        return { ...hlObj(e), disabled: !hlDisabled(e) };
       }),
     });
   };
@@ -3029,7 +3068,17 @@ export default function App() {
       ...highlightFilters,
       [type]: highlightFilters[type].map((e) => {
         if (hlVal(e) !== value) return e;
-        return { value, color, disabled: hlDisabled(e) };
+        return { ...hlObj(e), color };
+      }),
+    });
+  };
+
+  const toggleHighlightEntryTitle = (type: "words" | "ids" | "names", value: string) => {
+    void persistHighlightFilters({
+      ...highlightFilters,
+      [type]: highlightFilters[type].map((e) => {
+        if (hlVal(e) !== value) return e;
+        return { ...hlObj(e), titleOff: !hlTitleOff(e) };
       }),
     });
   };
@@ -5014,7 +5063,7 @@ export default function App() {
             style={threadAgeColorEnabled && !hasUnread && t.createdAt > 0 ? { color: threadAgeColor(t.createdAt) } : undefined}
             onMouseEnter={(e) => onThreadTitleMouseEnter(e, t.title)}
             onMouseLeave={onThreadTitleMouseLeave}
-            dangerouslySetInnerHTML={renderHighlightedPlainText(t.title, threadSearchQuery)}
+            dangerouslySetInnerHTML={renderHighlightedPlainTextWithEntries(t.title, threadSearchQuery, hlTitleWordEntries)}
           />
         );
       case "res":
@@ -5435,6 +5484,8 @@ export default function App() {
   const toHlActive = (list: (string | HlEntry)[]) =>
     list.filter((e) => !hlDisabled(e)).map((e) => ({ value: hlVal(e), color: hlColor(e) }));
   const hlWordEntries = toHlActive(highlightFilters.words);
+  // スレ一覧のタイトル用: 各ワードの「スレタイ」トグルがオフのものは除外
+  const hlTitleWordEntries = toHlActive(highlightFilters.words.filter((e) => !hlTitleOff(e)));
   const hlNameEntries = toHlActive(highlightFilters.names);
   const hlIdEntries = toHlActive(highlightFilters.ids);
   const visibleResponseItems = responseItems.filter((r) => {
@@ -11429,6 +11480,27 @@ export default function App() {
               <div key={type} className="ng-list-section">
                 <h4 className="ng-section-header">
                   <span>{type === "words" ? "ワード" : type === "ids" ? "ID" : "名前"} ({highlightFilters[type].filter((e) => !hlDisabled(e)).length}/{highlightFilters[type].length})</span>
+                  {type === "ids" && (
+                    <span className="ng-section-actions">
+                      <label
+                        className="ng-expire-setting"
+                        title="登録から指定日数が経過した強調IDを自動削除します (この機能より前に登録したものは登録日時が無いため対象外)"
+                      >
+                        自動削除
+                        <select
+                          className="ng-expire-select hl-expire-select"
+                          value={hlIdExpireDays}
+                          onChange={(e) => setHlIdExpireDays(Number(e.target.value))}
+                        >
+                          <option value={0}>無効</option>
+                          <option value={1}>1日</option>
+                          <option value={3}>3日</option>
+                          <option value={7}>7日</option>
+                          <option value={30}>30日</option>
+                        </select>
+                      </label>
+                    </span>
+                  )}
                 </h4>
                 {highlightFilters[type].length === 0 ? (
                   <span className="ng-empty">(なし)</span>
@@ -11438,6 +11510,8 @@ export default function App() {
                       const v = hlVal(entry);
                       const color = hlColor(entry);
                       const off = hlDisabled(entry);
+                      const addedAt = hlAddedAt(entry);
+                      const expiresAt = addedAt === null ? null : addedAt + hlIdExpireDays * NG_DAY_MS;
                       return (
                         <li key={v} className={off ? "ng-disabled" : ""}>
                           <button
@@ -11445,6 +11519,13 @@ export default function App() {
                             onClick={() => toggleHighlightEntry(type, v)}
                             title={off ? "クリックで有効化" : "クリックで無効化"}
                           >{off ? "OFF" : "ON"}</button>
+                          {type === "words" && (
+                            <button
+                              className={`ng-toggle hl-title-toggle ${hlTitleOff(entry) ? "ng-toggle-off" : "ng-toggle-on"}`}
+                              onClick={() => toggleHighlightEntryTitle(type, v)}
+                              title={hlTitleOff(entry) ? "スレ一覧のタイトルには適用しない (クリックで適用)" : "スレ一覧のタイトルにも適用中 (クリックで解除)"}
+                            >スレタイ</button>
+                          )}
                           <select
                             className={`hl-color-select hl-c-${color}`}
                             value={color}
@@ -11455,7 +11536,15 @@ export default function App() {
                               <option key={c.key} value={c.key}>{c.label}</option>
                             ))}
                           </select>
-                          <span className="ng-val" title={v}>{v}</span>
+                          {type === "ids" && hlIdExpireDays > 0 && (
+                            expiresAt === null
+                              ? <span className="ng-expire-badge ng-expire-none" title="登録日時が記録されていないため自動削除の対象外です">期限なし</span>
+                              : <span
+                                  className="ng-expire-badge"
+                                  title={`${formatNgAddedAt(addedAt as number)} に登録\n${formatNgAddedAt(expiresAt)} 以降に削除`}
+                                >{formatNgExpiresIn(expiresAt - Date.now())}</span>
+                          )}
+                          <span className="ng-val" title={addedAt === null ? v : `${v}\n${formatNgAddedAt(addedAt)} に登録`}>{v}</span>
                           <button className="ng-remove" onClick={() => removeHighlightEntry(type, v)}>×</button>
                         </li>
                       );

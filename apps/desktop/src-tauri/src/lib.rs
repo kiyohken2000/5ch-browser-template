@@ -1272,6 +1272,12 @@ enum HlEntry {
         color: Option<String>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         disabled: bool,
+        /// スレ一覧のタイトルには適用しない (ワードのみ)
+        #[serde(default, rename = "titleOff", skip_serializing_if = "std::ops::Not::not")]
+        title_off: bool,
+        /// 登録日時 (ms)。ID の自動削除に使う。導入前のエントリは持たない
+        #[serde(default, rename = "addedAt", skip_serializing_if = "Option::is_none")]
+        added_at: Option<i64>,
     },
 }
 
@@ -3148,7 +3154,7 @@ mod tests {
     use super::{
         discord_payload, is_5ch_login_target, is_discord_snowflake, is_discord_webhook,
         embed_char_cost, notify_batches, response_permalink, scrub_webhook_url, strip_html_to_text,
-        truncate_chars, ui_json_relative_path, NgFilters, NotifyItem, NOTIFY_CHUNK,
+        truncate_chars, ui_json_relative_path, HighlightFilters, NgFilters, NotifyItem, NOTIFY_CHUNK,
         NOTIFY_MESSAGE_CHARS,
     };
 
@@ -3170,6 +3176,17 @@ mod tests {
         let parsed: NgFilters = serde_json::from_str(json).expect("parse");
         let out = serde_json::to_string(&parsed).expect("serialize");
         assert!(!out.contains("addedAt"), "addedAt should not be invented: {out}");
+        assert!(out.contains("legacyString"), "plain string entry lost: {out}");
+    }
+
+    // 強調フィルタも同様: titleOff / addedAt は構造体に無いと save 時に消える。
+    #[test]
+    fn hl_entry_roundtrip_keeps_title_off_and_added_at() {
+        let json = r#"{"words":[{"value":"w","color":"green","titleOff":true}],"ids":[{"value":"ABCdef00","addedAt":1754870400000},"legacyString"]}"#;
+        let parsed: HighlightFilters = serde_json::from_str(json).expect("parse");
+        let out = serde_json::to_string(&parsed).expect("serialize");
+        assert!(out.contains(r#""titleOff":true"#), "titleOff dropped: {out}");
+        assert!(out.contains(r#""addedAt":1754870400000"#), "addedAt dropped: {out}");
         assert!(out.contains("legacyString"), "plain string entry lost: {out}");
     }
 

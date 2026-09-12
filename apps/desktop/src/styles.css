@@ -4428,6 +4428,21 @@ a.body-link-image:hover::after {
   color: var(--ink);
   border-color: #555;
 }
+/* タブ (NG / ハイライト, 許可 / ブロック): 既定の button は明るい背景のままなので
+   ダーク (グラス無し) では文字色 (--ink) と被って読めない。他のボタン群と同じ配色にする。
+   .active-toggle は詳細度で負けるので選択中の色を塗り直す。 */
+.dark .ng-panel-tabs button {
+  background: #3a3a3a;
+  color: var(--ink);
+  border-color: #555;
+}
+.dark .ng-panel-tabs button:hover {
+  background: #4a4a4a;
+}
+.dark .ng-panel-tabs button.active-toggle {
+  background: #3a5a8a;
+  color: #8abfff;
+}
 .dark .ng-panel-add select,
 .dark .ng-mode-select {
   background: #1e1e1e;
