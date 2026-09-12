@@ -170,6 +170,58 @@ struct ThreadListItem {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ThreadSearchItem {
+    title: String,
+    response_count: u32,
+    created_at: i64,
+    board_id: String,
+    board_title: Option<String>,
+    thread_url: String,
+}
+
+/// 全板スレタイ検索 (ff5ch) の結果。`total` は API 側の総ヒット数で、`items` は
+/// そのうち 1 リクエストで取れた分 (最大 200 件)。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThreadSearchResult {
+    query: String,
+    total: u64,
+    items: Vec<ThreadSearchItem>,
+}
+
+/// ff5ch の `alt=json` レスポンス。未知フィールドは無視し、欠けたら既定値にする。
+#[derive(Debug, Deserialize)]
+struct Ff5chResponse {
+    #[serde(default)]
+    total: u64,
+    #[serde(default)]
+    items: Vec<Ff5chItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Ff5chItem {
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    count: u32,
+    #[serde(default)]
+    created: i64,
+    #[serde(default)]
+    board_id: String,
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    board: Option<Ff5chBoard>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Ff5chBoard {
+    #[serde(default)]
+    title: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ThreadResponseItem {
     response_no: u32,
     name: String,
@@ -299,6 +351,71 @@ async fn fetch_thread_list(thread_url: String, limit: Option<usize>) -> Result<V
             thread_url: r.thread_url,
         })
         .collect())
+}
+
+/// 全板スレタイ検索。非公式の ff5ch (https://ff5ch.syoboi.jp/) の JSON API を使う。
+/// 定期クロール方式なので立ったばかりのスレは出ない。1 回で API 上限の 200 件を取る。
+/// 呼び出しはユーザーの明示操作 (検索ボタン) のみで、自動・逐次検索には使わないこと
+/// (robots.txt に Crawl-delay: 60 が指定されている)。
+#[tauri::command]
+async fn search_threads_ff5ch(query: String) -> Result<ThreadSearchResult, String> {
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        return Err("検索語が空です".to_string());
+    }
+    let _ = core_store::append_log(&format!("search_threads_ff5ch: {}", query));
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (compatible; Ember/0.1)")
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(3))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get("https://ff5ch.syoboi.jp/")
+        .query(&[("q", query.as_str()), ("alt", "json"), ("start", "0"), ("page", "200")])
+        .send()
+        .await
+        .map_err(|e| {
+            let _ = core_store::append_log(&format!("search_threads_ff5ch error: {}", e));
+            format!("スレタイ検索サービスに接続できません: {}", e)
+        })?;
+    let status = resp.status();
+    if !status.is_success() {
+        let _ = core_store::append_log(&format!("search_threads_ff5ch http {}", status));
+        return Err(format!("スレタイ検索サービスがエラーを返しました (HTTP {})", status.as_u16()));
+    }
+    let parsed: Ff5chResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("スレタイ検索の応答を解析できません: {}", e))?;
+    let total = parsed.total;
+    let items = ff5ch_items_to_search_items(parsed.items);
+    let _ = core_store::append_log(&format!("search_threads_ff5ch ok: {} / {}", items.len(), total));
+    Ok(ThreadSearchResult { query, total, items })
+}
+
+/// ff5ch の item をアプリ内の形に揃える。URL の無い行は捨てる。
+fn ff5ch_items_to_search_items(items: Vec<Ff5chItem>) -> Vec<ThreadSearchItem> {
+    items
+        .into_iter()
+        .filter(|it| !it.url.is_empty())
+        .map(|it| {
+            // API は http:// の 5ch.io URL を返す。アプリ内は https + normalize 済みで統一する
+            let https = if let Some(rest) = it.url.strip_prefix("http://") {
+                format!("https://{}", rest)
+            } else {
+                it.url.clone()
+            };
+            ThreadSearchItem {
+                title: it.title.trim().to_string(),
+                response_count: it.count,
+                created_at: it.created,
+                board_id: it.board_id,
+                board_title: it.board.map(|b| b.title).filter(|t| !t.trim().is_empty()),
+                thread_url: normalize_5ch_url(&https),
+            }
+        })
+        .collect()
 }
 
 /// デコード失敗で置換文字 (U+FFFD) が混入した OGP は壊れているとみなす。
@@ -3050,6 +3167,7 @@ pub fn run() {
             fetch_thread_responses_command,
             fetch_ogp_card,
             fetch_tweet_card,
+            search_threads_ff5ch,
             debug_post_connectivity,
             probe_post_confirm_empty,
             probe_post_confirm,
@@ -3154,9 +3272,32 @@ mod tests {
     use super::{
         discord_payload, is_5ch_login_target, is_discord_snowflake, is_discord_webhook,
         embed_char_cost, notify_batches, response_permalink, scrub_webhook_url, strip_html_to_text,
-        truncate_chars, ui_json_relative_path, HighlightFilters, NgFilters, NotifyItem, NOTIFY_CHUNK,
-        NOTIFY_MESSAGE_CHARS,
+        truncate_chars, ui_json_relative_path, ff5ch_items_to_search_items, Ff5chResponse,
+        HighlightFilters, NgFilters, NotifyItem, NOTIFY_CHUNK, NOTIFY_MESSAGE_CHARS,
     };
+
+    // ff5ch の実レスポンス (2026-09 取得) の抜粋。板が null の行、末尾空白付きタイトル、
+    // http:// の URL がそのまま来るので、アプリ内の形に揃っていることを確認する。
+    #[test]
+    fn ff5ch_response_maps_to_search_items() {
+        let json = r#"{"query":"テスト","start":0,"page":5,"total":1224,"items":[
+            {"title":"IQテスト？ ","count":1,"created":1789233040,"board_id":"livegalileo","url":"http://nova.5ch.io/test/read.cgi/livegalileo/1789233040/","board":null,"point":0},
+            {"title":"テスト ","count":22,"created":1789164667,"board_id":"mental","url":"http://krsw.5ch.net/test/read.cgi/mental/1789164667/","board":{"title":"メンヘルサロン","url":"http://krsw.5ch.io/mental/"},"point":0},
+            {"title":"URLなし","count":3,"created":1,"board_id":"x","url":"","board":null,"point":0}
+        ]}"#;
+        let parsed: Ff5chResponse = serde_json::from_str(json).expect("parse");
+        assert_eq!(parsed.total, 1224);
+        let items = ff5ch_items_to_search_items(parsed.items);
+        assert_eq!(items.len(), 2, "URL の無い行は捨てる");
+        assert_eq!(items[0].title, "IQテスト？");
+        assert_eq!(items[0].board_title, None);
+        assert_eq!(items[0].board_id, "livegalileo");
+        assert_eq!(items[0].thread_url, "https://nova.5ch.io/test/read.cgi/livegalileo/1789233040/");
+        assert_eq!(items[1].board_title.as_deref(), Some("メンヘルサロン"));
+        assert_eq!(items[1].response_count, 22);
+        assert_eq!(items[1].created_at, 1789164667);
+        assert_eq!(items[1].thread_url, "https://krsw.5ch.io/test/read.cgi/mental/1789164667/", "5ch.net は normalize で .io に寄せる");
+    }
 
     // match / addedAt は Rust 側の構造体に無いと save 時に黙って捨てられる。
     #[test]

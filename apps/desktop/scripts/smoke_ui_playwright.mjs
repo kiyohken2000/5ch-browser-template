@@ -1852,6 +1852,29 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: cache log list menu ok");
 
+  // --- 全板スレタイ検索: 検索欄の隣のボタンとフィルタメニューの項目がある ---
+  // 実際の検索は Tauri IPC (search_threads_ff5ch) 依存なので、ブラウザ環境では
+  // ボタン押下でスレ一覧が壊れない (行が残る) ことまでを検証する。
+  assert(
+    filterMenuLabels.some((t) => t.includes("全板スレタイ検索")),
+    `filter menu should have 全板スレタイ検索, got ${filterMenuLabels.join(" / ")}`,
+  );
+  const threadSearchAllBtn = await page.$(".thread-search-all-btn");
+  assert(threadSearchAllBtn, "all-board thread search button should exist next to the search box");
+  const threadSearchAllTitle = await threadSearchAllBtn.getAttribute("title");
+  assert(threadSearchAllTitle && threadSearchAllTitle.includes("全板"), `all-board search button should explain itself, got ${threadSearchAllTitle}`);
+  const rowsBeforeAllSearch = await page.$$eval(".threads tbody tr", (rows) => rows.length);
+  await page.fill(".thread-search", "プローブ");
+  await threadSearchAllBtn.click();
+  await new Promise((r) => setTimeout(r, 150));
+  const rowsAfterAllSearch = await page.$$eval(".threads tbody tr", (rows) => rows.length);
+  assert(rowsAfterAllSearch >= 1, `thread list should stay usable after all-board search outside tauri, got ${rowsAfterAllSearch} (before ${rowsBeforeAllSearch})`);
+  const allSearchActive = await threadSearchAllBtn.evaluate((el) => el.classList.contains("active-toggle"));
+  assert(!allSearchActive, "all-board search mode must not turn on without a result");
+  await page.fill(".thread-search", "");
+  await new Promise((r) => setTimeout(r, 100));
+  console.log("smoke-ui: all-board thread search ui ok");
+
   // --- NG ID 自動削除の設定が localStorage に永続化され、リロード後も復元される ---
   // (リロードを挟むので必ず一番最後に置くこと)
   await page.click("button[title='NGフィルタ']");

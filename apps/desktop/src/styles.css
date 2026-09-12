@@ -527,6 +527,40 @@ li.fav-drag-over {
   overflow-x: hidden;
 }
 
+/* 全板スレタイ検索モード中であることを示す帯 (スレ一覧の直上) */
+.thread-search-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  background: #fff3c4;
+  border-bottom: 1px solid #e0c060;
+  color: #5a4500;
+  font-size: calc(11px + var(--fs-delta, 0px));
+  flex-shrink: 0;
+}
+.thread-search-banner-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-search-banner button {
+  padding: 0 8px;
+  font-size: calc(10px + var(--fs-delta, 0px));
+}
+.dark .thread-search-banner {
+  background: #4a3d12;
+  border-bottom-color: #8a7020;
+  color: #ffe08a;
+}
+.dark .thread-search-banner button {
+  background: #3a3a3a;
+  color: var(--ink);
+  border-color: #555;
+}
+
 .threads-table-wrap:focus,
 .threads-table-wrap:focus-visible {
   outline: none;
@@ -4501,6 +4535,11 @@ a.body-link-image:hover::after {
   align-items: center;
   justify-content: center;
   gap: 2px;
+}
+/* 全板スレタイ検索ボタン: 検索中は押せない */
+.thread-search-all-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 /* --- Dark mode: generic buttons & inputs in panels --- */
 .dark .title-action-btn {

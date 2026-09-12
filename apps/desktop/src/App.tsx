@@ -236,7 +236,7 @@ function buildTranslationPrompt(text: string, targetLangNativeName: string): str
 }
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
-  Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban,
+  Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban, Search,
   Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser,
 } from "lucide-react";
 
@@ -309,6 +309,16 @@ type ThreadListItem = {
   responseCount: number;
   threadUrl: string;
 };
+// 全板スレタイ検索 (ff5ch) の1件。createdAt は UNIX 秒。
+type ThreadSearchItem = {
+  title: string;
+  responseCount: number;
+  createdAt: number;
+  boardId: string;
+  boardTitle: string | null;
+  threadUrl: string;
+};
+type ThreadSearchResult = { query: string; total: number; items: ThreadSearchItem[] };
 type ThreadResponseItem = {
   responseNo: number;
   name: string;
@@ -2166,6 +2176,11 @@ export default function App() {
   // 保存ログ一覧 (全板) を表示中かどうか。false のときは従来どおり現在の板の dat落ちのみ。
   // showCachedOnly が false の間は参照しないので、解除時にリセットしなくてよい。
   const [cacheListAllBoards, setCacheListAllBoards] = useState(false);
+  // 全板スレタイ検索 (ff5ch) の結果を表示中か。保存ログ一覧 (全板) と同じく、結果は
+  // スレ一覧ペインに仮想的に流し込む (専用のタブやパネルは作らない)。
+  const [showThreadSearchOnly, setShowThreadSearchOnly] = useState(false);
+  const [threadSearchResult, setThreadSearchResult] = useState<ThreadSearchResult | null>(null);
+  const [threadSearching, setThreadSearching] = useState(false);
   const [boardSearchQuery, setBoardSearchQuery] = useState("");
   const [responsesLoading, setResponsesLoading] = useState(false);
   const [ngInput, setNgInput] = useState("");
@@ -3879,6 +3894,7 @@ export default function App() {
     }
     setThreadListProbe("running...");
     setShowCachedOnly(false);
+    setShowThreadSearchOnly(false);
     setStatus(`loading threads from: ${url}`);
     setLocationInput(url);
     try {
@@ -4279,7 +4295,9 @@ export default function App() {
       // 「今表示しているリストでの並び順 (index + 1)」なので、保存リスト表示中は
       // fetchedThreads ではなくそのリスト側の index を使う。
       const sameThread = (u: string) => normalizeThreadUrl(u) === normalizedUrl;
-      const listIndex = showCachedOnly
+      const listIndex = showThreadSearchOnly
+        ? (threadSearchResult?.items ?? []).findIndex((it) => sameThread(it.threadUrl))
+        : showCachedOnly
         ? cachedThreadList.findIndex((ct) => sameThread(ct.threadUrl))
         : showRecentOpenedOnly
         ? recentOpenedThreads.findIndex((ft) => sameThread(ft.threadUrl))
@@ -4872,7 +4890,25 @@ export default function App() {
     : showRecentPostedOnly
     ? recentPostedThreads
     : favorites.threads;
-  const threadItems = showCachedOnly
+  const threadItems = showThreadSearchOnly
+    ? (threadSearchResult?.items ?? []).map((it, i) => {
+        const created = it.createdAt * 1000;
+        const elapsedDays = Math.max((Date.now() - created) / 86400000, 0.01);
+        const lastRead = threadLastReadCount[i + 1] ?? 0;
+        return {
+          id: i + 1,
+          // 板をまたぐのでタイトルの頭に板名を付ける (保存ログ一覧 (全板) と同じ)
+          title: `[${it.boardTitle || it.boardId}] ${it.title || "(タイトルなし)"}`,
+          res: it.responseCount,
+          got: lastRead > 0 ? lastRead : 0,
+          speed: created > 0 ? Number((it.responseCount / elapsedDays).toFixed(1)) : 0,
+          lastLoad: "-",
+          lastPost: "-",
+          threadUrl: it.threadUrl,
+          createdAt: created,
+        };
+      })
+    : showCachedOnly
     ? cachedThreadList.map((ct, i) => {
         const tk = getThreadKeyFromThreadUrl(ct.threadUrl);
         return {
@@ -4943,7 +4979,9 @@ export default function App() {
     .filter((t) => {
       if (ngFilters.words.some((w) => !ngEntryDisabled(w) && ngMatch(ngVal(w), t.title))) return false;
       if (ngFilters.thread_words.some((w) => !ngEntryDisabled(w) && ngMatch(ngVal(w), t.title))) return false;
-      if (threadSearchQuery.trim()) {
+      // 全板検索の結果は API 側で絞り込み済み。"A -B" や "@板名" のような構文は
+      // 部分一致にならないので、ここでは絞らない。
+      if (threadSearchQuery.trim() && !showThreadSearchOnly) {
         return t.title.toLowerCase().includes(threadSearchQuery.trim().toLowerCase());
       }
       return true;
@@ -6021,6 +6059,7 @@ export default function App() {
       }));
       setCacheListAllBoards(allBoards);
       setShowCachedOnly(true);
+      setShowThreadSearchOnly(false);
       setShowFavoritesOnly(false);
       setShowRecentOpenedOnly(false);
       setShowRecentPostedOnly(false);
@@ -6029,6 +6068,65 @@ export default function App() {
       console.warn("load_all_cached_threads failed", e);
       setStatus("保存ログの一覧取得に失敗しました");
     });
+  };
+
+  // 全板スレタイ検索。検索欄の語をそのまま ff5ch に投げ、結果をスレ一覧に表示する。
+  // 呼ぶのはボタン / Ctrl+Enter / メニューの明示操作だけで、入力中の逐次検索はしない
+  // (外部の非公式サービスなので連打を避ける)。
+  const runThreadSearch = async (rawQuery: string) => {
+    const query = rawQuery.trim();
+    if (!query) { setStatus("検索語を入力してください"); return; }
+    if (!isTauriRuntime()) { setStatus("web preview mode: thread search requires tauri runtime"); return; }
+    if (threadSearching) return;
+    setThreadSearching(true);
+    setStatus(`スレタイ検索中: ${query}`);
+    try {
+      const result = await invoke<ThreadSearchResult>("search_threads_ff5ch", { query });
+      // 既読数マップは「一覧での index + 1」がキーなので、結果の並びで作り直す
+      let allReadStatus: Record<string, Record<string, number>> = {};
+      try {
+        allReadStatus = await invoke<Record<string, Record<string, number>>>("load_read_status");
+      } catch (e) {
+        console.warn("load_read_status failed for thread search", e);
+      }
+      const readMap: Record<number, boolean> = {};
+      const lastReadMap: Record<number, number> = {};
+      result.items.forEach((it, i) => {
+        const id = i + 1;
+        const lastRead = allReadStatus[getBoardUrlFromThreadUrl(it.threadUrl)]?.[getThreadKeyFromThreadUrl(it.threadUrl)] ?? 0;
+        readMap[id] = lastRead > 0;
+        lastReadMap[id] = lastRead;
+      });
+      setThreadReadMap(readMap);
+      setThreadLastReadCount(lastReadMap);
+      setThreadSearchResult(result);
+      setShowThreadSearchOnly(true);
+      setShowCachedOnly(false);
+      setCachedThreadList([]);
+      setShowFavoritesOnly(false);
+      setShowRecentOpenedOnly(false);
+      setShowRecentPostedOnly(false);
+      addSearchHistory("thread", query);
+      setSearchHistoryDropdown(null);
+      setStatus(
+        result.total > result.items.length
+          ? `スレタイ検索: ${result.total}件中${result.items.length}件を表示`
+          : `スレタイ検索: ${result.items.length}件`,
+      );
+    } catch (e) {
+      console.warn("search_threads_ff5ch failed", e);
+      setStatus(String(e));
+    } finally {
+      setThreadSearching(false);
+    }
+  };
+
+  // 全板スレタイ検索の表示を解除し、現在の板の既読数マップに戻す
+  const exitThreadSearch = () => {
+    setShowThreadSearchOnly(false);
+    setThreadSearchResult(null);
+    const url = threadUrl.trim();
+    if (url && fetchedThreads.length > 0) void loadReadStatusForBoard(url, fetchedThreads);
   };
 
   const purgeThreadCache = (url: string) => {
@@ -9377,10 +9475,11 @@ export default function App() {
             onChange={(e) => setThreadSearchQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing) return;
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void runThreadSearch(threadSearchQuery); return; }
               if (e.key === "Enter") { addSearchHistory("thread", threadSearchQuery); setSearchHistoryDropdown(null); }
               if (e.key === "Escape") setSearchHistoryDropdown(null);
             }}
-            placeholder="検索 (Enter:保存 / 右クリック:削除)"
+            placeholder="検索 (Enter:保存 / Ctrl+Enter:全板検索)"
           />
           <button
             className="search-history-btn"
@@ -9407,7 +9506,20 @@ export default function App() {
             </div>
           )}
         </div>
-        {threadSearchQuery && <button className="title-action-btn" onClick={() => setThreadSearchQuery("")} title="検索クリア"><X size={14} /></button>}
+        {(threadSearchQuery || showThreadSearchOnly) && (
+          <button
+            className="title-action-btn"
+            onClick={() => { setThreadSearchQuery(""); if (showThreadSearchOnly) exitThreadSearch(); }}
+            title={showThreadSearchOnly ? "検索クリア (全板検索結果も解除)" : "検索クリア"}
+          ><X size={14} /></button>
+        )}
+        <button
+          className={`title-action-btn thread-search-all-btn ${showThreadSearchOnly ? "active-toggle" : ""}`}
+          disabled={threadSearching}
+          onClick={() => void runThreadSearch(threadSearchQuery)}
+          title={"全板からスレタイを検索 (Ctrl+Enter)\nスペース=AND / OR / -語=除外 / \"フレーズ\" / @板名=板を絞る"}
+          aria-label="全板スレタイ検索"
+        ><Search size={14} /></button>
         <button className="title-action-btn" onClick={() => {
           if (showFavoritesOnly) {
             void fetchFavNewCounts();
@@ -9422,9 +9534,10 @@ export default function App() {
         <button className="title-action-btn" onClick={() => openNewThreadDialog()} title="スレ立て"><FilePenLine size={14} /></button>
         <div className="title-split-wrap" onClick={(e) => e.stopPropagation()}>
           <button
-            className={`title-action-btn title-split-main ${(showCachedOnly || showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly) ? "active-toggle" : ""}`}
+            className={`title-action-btn title-split-main ${(showThreadSearchOnly || showCachedOnly || showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly) ? "active-toggle" : ""}`}
             onClick={() => {
-              if (showCachedOnly) { setShowCachedOnly(false); setCachedThreadList([]); }
+              if (showThreadSearchOnly) { exitThreadSearch(); }
+              else if (showCachedOnly) { setShowCachedOnly(false); setCachedThreadList([]); }
               else if (showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly) {
                 setShowFavoritesOnly(false); setShowRecentOpenedOnly(false); setShowRecentPostedOnly(false);
                 const url = threadUrl.trim();
@@ -9433,8 +9546,8 @@ export default function App() {
                 setThreadFilterMenuOpen((v) => !v);
               }
             }}
-            title={showCachedOnly ? (cacheListAllBoards ? `保存ログ一覧表示中 (${cachedThreadList.length}件, クリックで解除)` : "dat落ちキャッシュ表示中 (クリックで解除)") : showFavoritesOnly ? "お気に入りスレ表示中 (クリックで解除)" : showRecentOpenedOnly ? `最近開いたスレ表示中 (${recentOpenedThreads.length}/${MAX_RECENT_THREADS}, クリックで解除)` : showRecentPostedOnly ? `最近書き込んだスレ表示中 (${recentPostedThreads.length}/${MAX_RECENT_THREADS}, クリックで解除)` : "スレ一覧フィルタ"}
-          >{showCachedOnly ? <Save size={14} /> : showFavoritesOnly ? <Star size={14} /> : showRecentOpenedOnly ? <History size={14} /> : showRecentPostedOnly ? <Pencil size={14} /> : <ClipboardList size={14} />}</button>
+            title={showThreadSearchOnly ? `スレタイ検索結果: ${threadSearchResult?.query ?? ""} (${(threadSearchResult?.total ?? 0) > (threadSearchResult?.items.length ?? 0) ? `全${threadSearchResult?.total}件中${threadSearchResult?.items.length}件` : `${threadSearchResult?.items.length ?? 0}件`}, クリックで解除)` : showCachedOnly ? (cacheListAllBoards ? `保存ログ一覧表示中 (${cachedThreadList.length}件, クリックで解除)` : "dat落ちキャッシュ表示中 (クリックで解除)") : showFavoritesOnly ? "お気に入りスレ表示中 (クリックで解除)" : showRecentOpenedOnly ? `最近開いたスレ表示中 (${recentOpenedThreads.length}/${MAX_RECENT_THREADS}, クリックで解除)` : showRecentPostedOnly ? `最近書き込んだスレ表示中 (${recentPostedThreads.length}/${MAX_RECENT_THREADS}, クリックで解除)` : "スレ一覧フィルタ"}
+          >{showThreadSearchOnly ? <Search size={14} /> : showCachedOnly ? <Save size={14} /> : showFavoritesOnly ? <Star size={14} /> : showRecentOpenedOnly ? <History size={14} /> : showRecentPostedOnly ? <Pencil size={14} /> : <ClipboardList size={14} />}</button>
           <button
             className="title-action-btn title-split-toggle"
             onClick={() => setThreadFilterMenuOpen((v) => !v)}
@@ -9453,12 +9566,17 @@ export default function App() {
                 if (showCachedOnly && cacheListAllBoards) { setShowCachedOnly(false); setCachedThreadList([]); return; }
                 openCacheList(true);
               }}>{showCachedOnly && cacheListAllBoards ? "\u2713 " : ""}保存ログ一覧 (全板)</button>
+              <button disabled={threadSearching} onClick={() => {
+                setThreadFilterMenuOpen(false);
+                if (showThreadSearchOnly) { exitThreadSearch(); return; }
+                void runThreadSearch(threadSearchQuery);
+              }}>{(showThreadSearchOnly || threadSearching) ? "\u2713 " : ""}全板スレタイ検索{threadSearching ? " (検索中...)" : ""}</button>
               <button onClick={() => {
                 setThreadFilterMenuOpen(false);
                 const willEnable = !showFavoritesOnly;
                 setShowFavoritesOnly((v) => !v);
                 if (willEnable) {
-                  setShowCachedOnly(false); setShowRecentOpenedOnly(false); setShowRecentPostedOnly(false);
+                  setShowCachedOnly(false); setShowThreadSearchOnly(false); setShowRecentOpenedOnly(false); setShowRecentPostedOnly(false);
                   void fetchFavNewCounts();
                 } else {
                   const url = threadUrl.trim();
@@ -9470,7 +9588,7 @@ export default function App() {
                 const willEnable = !showRecentOpenedOnly;
                 setShowRecentOpenedOnly((v) => !v);
                 if (willEnable) {
-                  setShowCachedOnly(false); setShowFavoritesOnly(false); setShowRecentPostedOnly(false);
+                  setShowCachedOnly(false); setShowThreadSearchOnly(false); setShowFavoritesOnly(false); setShowRecentPostedOnly(false);
                   void fetchSavedThreadCounts(recentOpenedThreads, "recent-opened");
                 } else {
                   const url = threadUrl.trim();
@@ -9482,7 +9600,7 @@ export default function App() {
                 const willEnable = !showRecentPostedOnly;
                 setShowRecentPostedOnly((v) => !v);
                 if (willEnable) {
-                  setShowCachedOnly(false); setShowFavoritesOnly(false); setShowRecentOpenedOnly(false);
+                  setShowCachedOnly(false); setShowThreadSearchOnly(false); setShowFavoritesOnly(false); setShowRecentOpenedOnly(false);
                   void fetchSavedThreadCounts(recentPostedThreads, "recent-posted");
                 } else {
                   const url = threadUrl.trim();
@@ -9853,6 +9971,19 @@ export default function App() {
             : { gridTemplateRows: threadPaneHidden ? "1fr" : `${threadPaneShownPx}px ${SPLITTER_PX}px 1fr` }}
         >
         <section className="pane threads" onMouseDown={() => setFocusedPane("threads")} style={{ '--fs-delta': `${threadsFontSize - 12}px`, display: threadPaneHidden ? "none" : undefined } as React.CSSProperties}>
+          {showThreadSearchOnly && threadSearchResult && (
+            <div className="thread-search-banner" role="status">
+              <Search size={12} />
+              <span className="thread-search-banner-text">
+                全板スレタイ検索: <b>{threadSearchResult.query}</b>
+                {" — "}
+                {threadSearchResult.total > threadSearchResult.items.length
+                  ? `全${threadSearchResult.total}件中${threadSearchResult.items.length}件を表示`
+                  : `${threadSearchResult.items.length}件`}
+              </span>
+              <button type="button" onClick={() => { setThreadSearchQuery(""); exitThreadSearch(); }} title="検索結果を閉じて板一覧に戻る">解除</button>
+            </div>
+          )}
           <div className="threads-table-wrap" ref={threadListScrollRef} tabIndex={-1} onScroll={hideThreadTitlePopup}>
           <table>
             <thead>
@@ -9884,7 +10015,7 @@ export default function App() {
                           void fetchResponsesFromCurrent(t.threadUrl, { keepSelection: true });
                         }
                         // persist read status
-                        if (showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly) {
+                        if (showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly || showThreadSearchOnly) {
                           const boardUrl = getBoardUrlFromThreadUrl(t.threadUrl);
                           const threadKey = getThreadKeyFromThreadUrl(t.threadUrl);
                           if (threadKey && t.res > 0) {
@@ -9939,6 +10070,7 @@ export default function App() {
                     onClick={() => {
                       const boardUrl = getBoardUrlFromThreadUrl(threadTabs[activeTabIndex].threadUrl);
                       if (showCachedOnly) { setShowCachedOnly(false); setCachedThreadList([]); }
+                      if (showThreadSearchOnly) exitThreadSearch();
                       setShowFavoritesOnly(false);
                       setShowRecentOpenedOnly(false);
                       setShowRecentPostedOnly(false);
@@ -11861,6 +11993,7 @@ export default function App() {
             if (tab) {
               const boardUrl = getBoardUrlFromThreadUrl(tab.threadUrl);
               if (showCachedOnly) { setShowCachedOnly(false); setCachedThreadList([]); }
+              if (showThreadSearchOnly) exitThreadSearch();
               setShowFavoritesOnly(false);
               setShowRecentOpenedOnly(false);
               setShowRecentPostedOnly(false);
