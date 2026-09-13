@@ -1291,6 +1291,14 @@ li.fav-drag-over {
   max-width: 100vw;
   cursor: zoom-out;
 }
+/* 設定「プレビュー画像をウィンドウ内に収める」: 縦もウィンドウに収める (Ctrl+ホイールの拡縮はそのまま) */
+.hover-preview-fit img {
+  max-height: 100vh;
+}
+/* タッチ時は下端の操作バーに隠れないぶんを引く */
+.touch-mode .hover-preview-fit img {
+  max-height: calc(100vh - 56px);
+}
 /* タッチ操作時の画像プレビュー操作バー。指で押せるように下端に置く */
 .hover-preview-touch-bar {
   position: fixed;

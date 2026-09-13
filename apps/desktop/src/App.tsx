@@ -2097,6 +2097,8 @@ export default function App() {
   // ID のマウスオーバーで同一 ID のレスをポップアップするか。既定は表示する
   const [idPopupEnabled, setIdPopupEnabled] = useState(true);
   const [hoverPreviewDelay, setHoverPreviewDelay] = useState(0);
+  // ホバープレビューの画像をウィンドウ内に収めるか。既定は原寸 (縦長はスクロール、Ctrl+ホイールで縮小)
+  const [hoverPreviewFitEnabled, setHoverPreviewFitEnabled] = useState(false);
   const hoverPreviewDelayRef = useRef(0);
   hoverPreviewDelayRef.current = hoverPreviewDelay;
   const hoverPreviewShowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -6834,6 +6836,7 @@ export default function App() {
           idPopupEnabled?: boolean;
           lastBoard?: { boardName: string; url: string };
           hoverPreviewDelay?: number;
+          hoverPreviewFitEnabled?: boolean;
           thumbSize?: number;
           thumbMaskEnabled?: boolean;
           thumbMaskStrength?: number;
@@ -6904,6 +6907,7 @@ export default function App() {
           pendingLastBoardRef.current = parsed.lastBoard;
         }
         if (typeof parsed.hoverPreviewDelay === "number") setHoverPreviewDelay(parsed.hoverPreviewDelay);
+        if (typeof parsed.hoverPreviewFitEnabled === "boolean") setHoverPreviewFitEnabled(parsed.hoverPreviewFitEnabled);
         if (typeof parsed.thumbSize === "number") setThumbSize(parsed.thumbSize);
         if (typeof parsed.thumbMaskStrength === "number") setThumbMaskStrength(parsed.thumbMaskStrength);
         if (typeof parsed.thumbMaskForceOnStart === "boolean") setThumbMaskForceOnStart(parsed.thumbMaskForceOnStart);
@@ -7812,6 +7816,7 @@ export default function App() {
       idPopupEnabled,
       lastBoard: lastBoardUrlRef.current ? { boardName: selectedBoard, url: lastBoardUrlRef.current } : undefined,
       hoverPreviewDelay,
+      hoverPreviewFitEnabled,
       thumbSize,
       thumbMaskEnabled,
       thumbMaskStrength,
@@ -7846,7 +7851,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -12773,6 +12778,11 @@ export default function App() {
                   <input type="number" value={hoverPreviewDelay} min={0} max={2000} step={50} onChange={(e) => setHoverPreviewDelay(Number(e.target.value))} />
                   <span className="settings-hint">0 = 即時</span>
                 </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={hoverPreviewFitEnabled} onChange={(e) => setHoverPreviewFitEnabled(e.target.checked)} />
+                  <span>プレビュー画像をウィンドウ内に収める</span>
+                  <span className="settings-hint">オフ = 原寸 (縦長はスクロール、Ctrl+ホイールで拡縮)</span>
+                </label>
               </fieldset>
               <fieldset>
                 <legend>書き込み</legend>
@@ -13460,7 +13470,7 @@ export default function App() {
       )}
       <div
         ref={hoverPreviewRef}
-        className="hover-preview"
+        className={`hover-preview${hoverPreviewFitEnabled ? " hover-preview-fit" : ""}`}
         style={{ display: "none" }}
         onClick={() => {
           // 開いたのと同じタップの click がここへ流れてくることがあるので、直後は無視する。

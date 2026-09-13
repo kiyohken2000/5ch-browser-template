@@ -1393,6 +1393,23 @@ try {
   await new Promise((r) => setTimeout(r, 250));
   console.log("smoke-ui: tap to open image preview ok");
 
+  // 設定「プレビュー画像をウィンドウ内に収める」はオーバーレイのクラスで CSS に効かせる。既定はオフ (原寸)
+  {
+    const fitToggle = page
+      .locator(".settings-body label.settings-row", { hasText: "プレビュー画像をウィンドウ内に収める" })
+      .locator("input[type=checkbox]");
+    const hasFit = () => page.evaluate(() => document.querySelector(".hover-preview").classList.contains("hover-preview-fit"));
+    assert(!(await fitToggle.isChecked()), "preview fit should be off by default");
+    assert(!(await hasFit()), "hover-preview should not have the fit class by default");
+    await fitToggle.check();
+    await new Promise((r) => setTimeout(r, 100));
+    assert(await hasFit(), "checking preview fit should add .hover-preview-fit");
+    await fitToggle.uncheck();
+    await new Promise((r) => setTimeout(r, 100));
+    assert(!(await hasFit()), "unchecking preview fit should remove .hover-preview-fit");
+    console.log("smoke-ui: hover preview fit toggle ok");
+  }
+
   // 自動判定は実際にタッチイベントが出るコンテキストでないと確かめられない。
   // 別コンテキストを起こして、タップで切り替わること / 設定で上書きできることを見る。
   const tapAndCheck = async (pref) => {
