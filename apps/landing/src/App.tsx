@@ -20,6 +20,7 @@ import aiChat from "./assets/images/ai-chat.png";
 import aiStatus from "./assets/images/ai-status.png";
 import aiResponseAssist from "./assets/images/ai-response-assist.jpg";
 import aiTranslate from "./assets/images/ai-translate.png";
+import searchAllBoards from "./assets/images/search-all-boards.png";
 
 const REPO_RELEASES_URL = "https://github.com/kiyohken2000/5ch-browser-template/releases";
 const GITHUB_URL = "https://github.com/kiyohken2000/5ch-browser-template";
@@ -746,11 +747,28 @@ export default function App() {
                 <img src={discordNotification} alt="Discord への通知" width={1260} height={753} loading="lazy" decoding="async" />
               </button>
             </article>
+
+            <article className="card feature-card reveal" data-delay="6">
+              <div className="feature-icon"><SearchIcon /></div>
+              <h3>全板からスレタイを検索</h3>
+              <p>
+                スレ一覧の検索欄に入力した語で、全板のスレタイを横断検索。
+                AND / OR / 除外 / "フレーズ" / @板名 で絞り込めるので、板を知らなくても目的のスレにたどり着けます。
+              </p>
+              <button
+                type="button"
+                className="shot-button feature-shot"
+                onClick={() => openZoom(searchAllBoards, "全板からスレタイを検索")}
+                aria-label="スクリーンショットを拡大"
+              >
+                <img src={searchAllBoards} alt="全板からスレタイを検索" width={1630} height={919} loading="lazy" decoding="async" />
+              </button>
+            </article>
           </div>
 
           <div className="features-cta reveal">
             <p className="features-cta-text">
-              ここに載っているのは代表的なものだけです。NG / ハイライト / マウスジェスチャ / オートスクロール / 画像 NG / YouTube PiP / Discord 通知 / データフォルダ共有など、全 80+ 機能の一覧は README をご覧ください。
+              ここに載っているのは代表的なものだけです。NG / ハイライト / マウスジェスチャ / オートスクロール / 画像 NG / YouTube PiP / Discord 通知 / 全板スレタイ検索 / データフォルダ共有など、全 80+ 機能の一覧は README をご覧ください。
             </p>
             <a
               className="features-cta-link"
