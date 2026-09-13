@@ -3842,6 +3842,25 @@ a.body-link-image:hover::after {
   font-size: 12px;
 }
 
+.shortcuts-note {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: var(--sub);
+}
+
+.shortcut-row .shortcut-toggle,
+.shortcut-row .shortcut-toggle-spacer {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.shortcut-row.shortcut-disabled kbd,
+.shortcut-row.shortcut-disabled span {
+  opacity: 0.5;
+}
+
 .shortcut-row kbd {
   display: inline-block;
   min-width: 140px;

@@ -552,6 +552,10 @@ const DEFAULT_GESTURE_BINDINGS: Record<string, GestureActionId> = {
   "down,right": "closeTab",
   "down,left": "reloadThreadList",
 };
+// ON/OFF を切り替えられるショートカット。修飾キー無しで発火して通常操作 (単語選択のダブルクリックなど)
+// と衝突しうるものだけを対象にする。Ctrl 系は誤爆しにくいので固定。
+type ToggleableShortcutId = "dblclick-quote" | "key-r-quote" | "key-a-autoscroll";
+const TOGGLEABLE_SHORTCUT_IDS: ToggleableShortcutId[] = ["dblclick-quote", "key-r-quote", "key-a-autoscroll"];
 const COMPOSE_PREFS_KEY = "desktop.composePrefs.v1";
 const NAME_HISTORY_KEY = "desktop.nameHistory.v1";
 const BOARD_NAMES_KEY = "desktop.boardNames.v1";
@@ -2212,6 +2216,10 @@ export default function App() {
   const [mouseGestureEnabled, setMouseGestureEnabled] = useState(false);
   const [gestureBindings, setGestureBindings] = useState<Record<string, GestureActionId>>(DEFAULT_GESTURE_BINDINGS);
   const [threadAgeColorEnabled, setThreadAgeColorEnabled] = useState(false);
+  const [disabledShortcuts, setDisabledShortcuts] = useState<ToggleableShortcutId[]>([]);
+  const disabledShortcutsRef = useRef<ToggleableShortcutId[]>([]);
+  disabledShortcutsRef.current = disabledShortcuts;
+  const isShortcutDisabled = (id: ToggleableShortcutId) => disabledShortcutsRef.current.includes(id);
   const [imageGalleryOpen, setImageGalleryOpen] = useState(false);
   const gestureRef = useRef<{
     active: boolean;
@@ -2459,6 +2467,43 @@ export default function App() {
     setBackRefPopup(null);
     setNestedPopups([]);
     setIdPopup(null);
+  };
+  // ポップアップは開いた順に z を採番しているので、z の大小で親子を判定できる。
+  // メイン本文から開いた最初のポップアップは z 未指定 (= 0) の根。
+  const popupZOf = (el: HTMLElement | null): number | null => {
+    const p = el?.closest<HTMLElement>("[data-popup-z]");
+    if (!p) return null;
+    return Number(p.getAttribute("data-popup-z")) || 0;
+  };
+  // z より上に重なっているポップアップだけ閉じる (z 以下の親は残す)。
+  const closePopupsAbove = (z: number) => {
+    setNestedPopups((prev) => (prev.some((np) => (np.z ?? 0) > z) ? prev.filter((np) => (np.z ?? 0) <= z) : prev));
+    setAnchorPopup((prev) => (prev && (prev.z ?? 0) > z ? null : prev));
+    setBackRefPopup((prev) => (prev && (prev.z ?? 0) > z ? null : prev));
+    setIdPopup((prev) => (prev && (prev.z ?? 0) > z ? null : prev));
+  };
+  // ポップアップ内からマウスが移ったときの共通処理。移り先がポップアップなら処理して true を返す。
+  //  - 子 (後から開いた = z が大きい): 何もしない
+  //  - 同じポップアップ内 (アンカーから本文へ): 少し待ってから子だけ閉じる (アンカー→子へ移動中の猶予)
+  //  - 親 (z が小さい): 親より上の子を即閉じる。子が親の本文を隠したままにならないように
+  // 移り先がポップアップ外なら false (呼び出し側が従来通り全部閉じる)。
+  const trimPopupsOnLeave = (next: HTMLElement | null, ownZ: number): boolean => {
+    const nz = popupZOf(next);
+    if (nz === null) return false;
+    if (nz > ownZ) return true;
+    if (anchorPopupCloseTimer.current) {
+      clearTimeout(anchorPopupCloseTimer.current);
+      anchorPopupCloseTimer.current = null;
+    }
+    if (nz === ownZ) {
+      anchorPopupCloseTimer.current = setTimeout(() => {
+        closePopupsAbove(ownZ);
+        anchorPopupCloseTimer.current = null;
+      }, 80);
+    } else {
+      closePopupsAbove(nz);
+    }
+    return true;
   };
   // アンカーの真下にポップアップを出す。ホバーとタップで同じ位置になるように共通化。
   const openAnchorPopupAt = (el: HTMLElement, responseIds: number[]) => {
@@ -5162,8 +5207,8 @@ export default function App() {
       : [
           { id: 1, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:00", text: "投稿フロートレース準備完了", beNumber: null, watchoi: null },
           { id: 2, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "sage", time: "2026/03/07 10:02", text: "BE/UPLIFT/どんぐりログイン確認済み", beNumber: null, watchoi: null },
-          { id: 3, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:04", text: "次: subject/dat取得連携", beNumber: null, watchoi: null },
-          { id: 4, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:06", text: "参考 https://example.com/page を参照", beNumber: null, watchoi: null },
+          { id: 3, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:04", text: ">>1 次: subject/dat取得連携", beNumber: null, watchoi: null },
+          { id: 4, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:06", text: ">>3 参考 https://example.com/page を参照", beNumber: null, watchoi: null },
         ]),
   ];
   const extractId = (time: string) => {
@@ -5796,7 +5841,7 @@ export default function App() {
     const leftId = !!t.closest(".popup-id-trigger");
     if (!leftAnchor && !leftId) return;
     const next = ev.relatedTarget as HTMLElement | null;
-    if (next?.closest(".anchor-popup") || next?.closest(".id-popup")) return;
+    if (trimPopupsOnLeave(next, popupZOf(t) ?? 0)) return;
     if (leftAnchor) {
       if (nestedLevel === undefined) setNestedPopups([]);
       else setNestedPopups((prev) => prev.slice(0, nestedLevel + 1));
@@ -6722,6 +6767,7 @@ export default function App() {
         return;
       }
       if (e.key.toLowerCase() === "r" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (isShortcutDisabled("key-r-quote")) return;
         e.preventDefault();
         const sel = window.getSelection()?.toString().trim();
         if (sel) {
@@ -6732,6 +6778,7 @@ export default function App() {
         return;
       }
       if (e.key.toLowerCase() === "a" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (isShortcutDisabled("key-a-autoscroll")) return;
         e.preventDefault();
         setAutoScrollEnabled((v) => !v);
       }
@@ -6800,6 +6847,7 @@ export default function App() {
           mouseGestureEnabled?: boolean;
           gestureBindings?: Record<string, GestureActionId>;
           threadAgeColorEnabled?: boolean;
+          disabledShortcuts?: string[];
           composeSize?: { w: number; h: number };
           composePos?: { x: number; y: number };
           composeDocked?: boolean;
@@ -6871,6 +6919,9 @@ export default function App() {
         if (typeof parsed.autoRefreshInterval === "number") setAutoRefreshInterval(parsed.autoRefreshInterval);
         if (typeof parsed.alwaysOnTop === "boolean") setAlwaysOnTop(parsed.alwaysOnTop);
         if (typeof parsed.mouseGestureEnabled === "boolean") setMouseGestureEnabled(parsed.mouseGestureEnabled);
+        if (Array.isArray(parsed.disabledShortcuts)) {
+          setDisabledShortcuts(TOGGLEABLE_SHORTCUT_IDS.filter((id) => parsed.disabledShortcuts?.includes(id)));
+        }
         if (parsed.gestureBindings && typeof parsed.gestureBindings === "object") {
           const valid = new Set(GESTURE_ACTIONS.map((a) => a.id));
           const cleaned: Record<string, GestureActionId> = {};
@@ -7774,6 +7825,7 @@ export default function App() {
       mouseGestureEnabled,
       gestureBindings,
       threadAgeColorEnabled,
+      disabledShortcuts,
       composeSize: composeSize ?? undefined,
       composePos: composePos ?? undefined,
       composeDocked,
@@ -7794,7 +7846,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -10543,7 +10595,7 @@ export default function App() {
                     data-response-no={r.id}
                     className={`response-block ${selectedResponse === r.id ? "selected" : ""}${myPostNos.has(r.id) ? " my-post" : ""}${replyToMeNos.has(r.id) ? " reply-to-me" : ""}`}
                     onClick={() => setSelectedResponse(r.id)}
-                    onDoubleClick={() => appendComposeQuote(`>>${r.id}`)}
+                    onDoubleClick={() => { if (!isShortcutDisabled("dblclick-quote")) appendComposeQuote(`>>${r.id}`); }}
                   >
                     <div className="response-header">
                       <span className="response-no" onClick={(e) => onResponseNoClick(e, r.id)}>
@@ -12094,6 +12146,7 @@ export default function App() {
         return (
           <div
             className="anchor-popup"
+            data-popup-z={anchorPopup.z ?? 0}
             style={{ ...posStyle, zIndex: anchorPopup.z, '--fs-delta': `${responsesFontSize - 12}px` } as unknown as React.CSSProperties}
             onMouseEnter={() => {
               if (isTouchMode()) return;
@@ -12105,7 +12158,7 @@ export default function App() {
             onMouseLeave={(ev) => {
               if (isTouchMode()) return;
               const next = ev.relatedTarget as HTMLElement | null;
-              if (next?.closest(".anchor-popup") || next?.closest(".id-popup")) return;
+              if (trimPopupsOnLeave(next, anchorPopup.z ?? 0)) return;
               if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
               anchorPopupCloseTimer.current = setTimeout(() => {
                 setAnchorPopup(null);
@@ -12133,11 +12186,19 @@ export default function App() {
         return (
           <div
             className="anchor-popup back-ref-popup"
+            data-popup-z={backRefPopup.z ?? 0}
             style={{ left: backRefPopup.x, bottom: window.innerHeight - backRefPopup.y, zIndex: backRefPopup.z, '--fs-delta': `${responsesFontSize - 12}px` } as React.CSSProperties}
+            onMouseEnter={() => {
+              if (isTouchMode()) return;
+              if (anchorPopupCloseTimer.current) {
+                clearTimeout(anchorPopupCloseTimer.current);
+                anchorPopupCloseTimer.current = null;
+              }
+            }}
             onMouseLeave={(ev) => {
               if (isTouchMode()) return;
               const next = ev.relatedTarget as HTMLElement | null;
-              if (next?.closest(".anchor-popup") || next?.closest(".id-popup")) return;
+              if (trimPopupsOnLeave(next, backRefPopup.z ?? 0)) return;
               setBackRefPopup(null);
               setNestedPopups([]);
             }}
@@ -12175,6 +12236,7 @@ export default function App() {
           <div
             key={`${np.responseIds[0]}-${i}`}
             className="anchor-popup nested-popup"
+            data-popup-z={np.z ?? 0}
             style={{ ...nPosStyle, zIndex: np.z, '--fs-delta': `${responsesFontSize - 12}px` } as unknown as React.CSSProperties}
             onMouseEnter={() => {
               if (isTouchMode()) return;
@@ -12186,7 +12248,7 @@ export default function App() {
             onMouseLeave={(ev) => {
               if (isTouchMode()) return;
               const next = ev.relatedTarget as HTMLElement | null;
-              if (next?.closest(".anchor-popup") || next?.closest(".id-popup")) return;
+              if (trimPopupsOnLeave(next, np.z ?? 0)) return;
               if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
               anchorPopupCloseTimer.current = setTimeout(() => {
                 setAnchorPopup(null);
@@ -12221,12 +12283,17 @@ export default function App() {
         return (
           <div
             className="id-popup"
+            data-popup-z={idPopup.z ?? 0}
             style={{ ...idPosStyle, zIndex: idPopup.z, '--fs-delta': `${responsesFontSize - 12}px` } as unknown as React.CSSProperties}
-            onMouseEnter={() => { if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; } }}
+            onMouseEnter={() => {
+              if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; }
+              // 親ポップアップのアンカーから ID ポップアップ (子) へ移ってきた場合、子を閉じる猶予タイマーを止める
+              if (anchorPopupCloseTimer.current) { clearTimeout(anchorPopupCloseTimer.current); anchorPopupCloseTimer.current = null; }
+            }}
             onMouseLeave={(ev) => {
               if (isTouchMode()) return;
               const next = ev.relatedTarget as HTMLElement | null;
-              if (next?.closest(".anchor-popup")) return;
+              if (trimPopupsOnLeave(next, idPopup.z ?? 0)) return;
               idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 80);
             }}
             onMouseOver={(ev) => {
@@ -12248,7 +12315,7 @@ export default function App() {
               const t = ev.target as HTMLElement;
               if (!t.closest(".anchor-ref")) return;
               const next = ev.relatedTarget as HTMLElement | null;
-              if (next?.closest(".anchor-popup") || next?.closest(".id-popup")) return;
+              if (trimPopupsOnLeave(next, idPopup.z ?? 0)) return;
               if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
               anchorPopupCloseTimer.current = setTimeout(() => {
                 setAnchorPopup(null);
@@ -12366,7 +12433,8 @@ export default function App() {
               <button onClick={() => setShortcutsOpen(false)}>閉じる</button>
             </header>
             <div className="shortcuts-body">
-              {[
+              <p className="shortcuts-note">チェックを外すとそのショートカットを無効にできます (誤爆しやすいものだけ切替可)。</p>
+              {([
                 ["Ctrl+W", "選択スレを閉じる"],
                 ["Ctrl+Shift+T", "閉じたタブを再度開く"],
                 ["Ctrl+Shift+R", "スレ一覧を再取得"],
@@ -12382,12 +12450,27 @@ export default function App() {
                 ["Ctrl+1", "ツールバーの表示/非表示"],
                 ["Ctrl+2", "レスナビバーの表示/非表示"],
                 ["Ctrl+3", "ステータスバーの表示/非表示"],
-                ["R", "選択レスを引用して書き込み"],
-                ["A", "オートスクロールのオン/オフ"],
+                ["R", "選択レスを引用して書き込み", "key-r-quote"],
+                ["A", "オートスクロールのオン/オフ", "key-a-autoscroll"],
                 ["Escape", "ライトボックス/ダイアログを閉じる"],
-                ["ダブルクリック (レス行)", "引用して書き込み"],
-              ].map(([key, desc]) => (
-                <div key={key} className="shortcut-row">
+                ["ダブルクリック (レス行)", "引用して書き込み", "dblclick-quote"],
+              ] as [string, string, ToggleableShortcutId?][]).map(([key, desc, toggleId]) => (
+                <div key={key} className={`shortcut-row${toggleId && disabledShortcuts.includes(toggleId) ? " shortcut-disabled" : ""}`}>
+                  {toggleId ? (
+                    <input
+                      type="checkbox"
+                      className="shortcut-toggle"
+                      title="このショートカットを有効にする"
+                      checked={!disabledShortcuts.includes(toggleId)}
+                      onChange={(e) =>
+                        setDisabledShortcuts((prev) =>
+                          e.target.checked ? prev.filter((id) => id !== toggleId) : [...prev.filter((id) => id !== toggleId), toggleId]
+                        )
+                      }
+                    />
+                  ) : (
+                    <span className="shortcut-toggle-spacer" />
+                  )}
                   <kbd>{key}</kbd>
                   <span>{desc}</span>
                 </div>

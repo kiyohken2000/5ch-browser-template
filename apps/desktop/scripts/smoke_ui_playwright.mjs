@@ -280,8 +280,41 @@ try {
 
   // anchor-ref spans have data-anchor attribute
   const anchorRef = await page.$(".anchor-ref[data-anchor]");
-  // may not exist if fallback data has no >>N anchors, so just check class exists in CSS
+  assert(anchorRef, "fallback responses should render >>N as anchor-ref");
   console.log("smoke-ui: anchor-ref structure ok");
+
+  // --- popup chain: 子ポップアップから親へ戻ると子だけ閉じる ---
+  // >>3 (レス4) をホバー → レス3 のポップアップ → その中の >>1 をホバー → レス1 の子ポップアップ
+  const anchorTo3 = await page.$('.response-scroll .response-block[data-response-no="4"] .anchor-ref[data-anchor="3"]');
+  assert(anchorTo3, "response 4 should have an anchor to >>3");
+  await anchorTo3.hover();
+  await page.waitForSelector(".anchor-popup:not(.nested-popup)", { timeout: 2000 });
+  const innerAnchor = await page.$('.anchor-popup:not(.nested-popup) .anchor-ref[data-anchor="1"]');
+  assert(innerAnchor, "anchor popup for >>3 should contain an anchor to >>1");
+  await innerAnchor.hover();
+  await page.waitForSelector(".nested-popup", { timeout: 2000 });
+  // 子から親ポップアップの本文 (子に隠れていない部分) へ戻す
+  const parentBox = await page.$eval(".anchor-popup:not(.nested-popup)", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+  });
+  const childBox = await page.$eval(".nested-popup", (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+  });
+  await page.mouse.move(childBox.x + childBox.w / 2, childBox.y + Math.min(10, childBox.h / 2));
+  await new Promise((r) => setTimeout(r, 50));
+  // 子は親のアンカー直下 (画面下端なら上) に重なるので、子に隠れていない側の端を選ぶ
+  const childCoversTop = childBox.y <= parentBox.y + 4 && childBox.y + childBox.h >= parentBox.y + 4;
+  await page.mouse.move(parentBox.x + parentBox.w / 2, childCoversTop ? parentBox.y + parentBox.h - 4 : parentBox.y + 4);
+  await new Promise((r) => setTimeout(r, 200));
+  assert(!(await page.$(".nested-popup")), "moving back to the parent popup should close the child popup");
+  assert(await page.$(".anchor-popup"), "parent popup should stay open while hovered");
+  // ポップアップの外へ出すと全部閉じる
+  await page.mouse.move(5, Math.max(5, parentBox.y - 40));
+  await new Promise((r) => setTimeout(r, 300));
+  assert(!(await page.$(".anchor-popup")), "leaving all popups should close everything");
+  console.log("smoke-ui: popup chain trim ok");
 
   // double-click response row opens compose with quote
   // first close any open compose window
@@ -792,6 +825,19 @@ try {
   assert(shortcutsPanel, "shortcuts panel should be visible");
   const kbds = await page.$$eval(".shortcut-row kbd", (els) => els.length);
   assert(kbds >= 10, `shortcuts should list at least 10 keys, got ${kbds}`);
+  // 誤爆しやすいショートカット (ダブルクリック引用 / R / A) だけチェックボックスで ON/OFF できる
+  const toggles = await page.$$eval(".shortcut-row .shortcut-toggle", (els) => els.length);
+  assert(toggles === 3, `shortcuts panel should have 3 toggles, got ${toggles}`);
+  const dblRow = await page.$('.shortcut-row:has(kbd:has-text("ダブルクリック"))');
+  assert(dblRow, "double-click shortcut row should exist");
+  const dblToggle = await dblRow.$(".shortcut-toggle");
+  assert(dblToggle, "double-click row should have a toggle");
+  assert(await dblToggle.isChecked(), "double-click toggle should be on by default");
+  await dblToggle.click();
+  assert(!(await dblToggle.isChecked()), "double-click toggle should turn off");
+  assert(await dblRow.evaluate((el) => el.classList.contains("shortcut-disabled")), "disabled row should be dimmed");
+  await dblToggle.click();
+  assert(await dblToggle.isChecked(), "double-click toggle should turn back on");
   // close
   await page.click(".shortcuts-header button:has-text('閉じる')");
   await new Promise((r) => setTimeout(r, 100));
