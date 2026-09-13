@@ -237,7 +237,7 @@ function buildTranslationPrompt(text: string, targetLangNativeName: string): str
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban, Search,
-  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser,
+  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser, Flame,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -2099,6 +2099,9 @@ export default function App() {
   const [hoverPreviewDelay, setHoverPreviewDelay] = useState(0);
   // ホバープレビューの画像をウィンドウ内に収めるか。既定は原寸 (縦長はスクロール、Ctrl+ホイールで縮小)
   const [hoverPreviewFitEnabled, setHoverPreviewFitEnabled] = useState(false);
+  // 「人気レス」抽出: これ以上の >>N を受けたレスだけを表示する。▼N を赤くするかは別途 (既定オフ)
+  const [hotResponseThreshold, setHotResponseThreshold] = useState(3);
+  const [hotResponseRedEnabled, setHotResponseRedEnabled] = useState(false);
   const hoverPreviewDelayRef = useRef(0);
   hoverPreviewDelayRef.current = hoverPreviewDelay;
   const hoverPreviewShowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2585,7 +2588,7 @@ export default function App() {
   const [newResponseStart, setNewResponseStart] = useState<number | null>(null);
   const threadFetchTimesRef = useRef<Record<string, string>>({});
   const [responseSearchQuery, setResponseSearchQuery] = useState("");
-  const [responseLinkFilter, setResponseLinkFilter] = useState<"" | "image" | "video" | "link" | "mine">("");
+  const [responseLinkFilter, setResponseLinkFilter] = useState<"" | "image" | "video" | "link" | "mine" | "hot">("");
   const threadSearchRef = useRef<HTMLInputElement | null>(null);
   const responseSearchRef = useRef<HTMLInputElement | null>(null);
   const [threadSearchHistory, setThreadSearchHistory] = useState<string[]>([]);
@@ -5573,6 +5576,33 @@ export default function App() {
   const hlTitleWordEntries = toHlActive(highlightFilters.words.filter((e) => !hlTitleOff(e)));
   const hlNameEntries = toHlActive(highlightFilters.names);
   const hlIdEntries = toHlActive(highlightFilters.ids);
+  // Build back-reference map: responseNo → list of responseNos that reference it
+  const backRefMap = (() => {
+    const map = new Map<number, number[]>();
+    const addRef = (target: number, from: number) => {
+      if (!map.has(target)) map.set(target, []);
+      const arr = map.get(target)!;
+      if (!arr.includes(from)) arr.push(from);
+    };
+    for (const r of responseItems) {
+      const plain = decodeHtmlEntities(r.text.replace(/<[^>]+>/g, ""));
+      // comma-separated >>N,M,... or >N,M,...
+      for (const m of plain.matchAll(/>>?(\d+(?:[,、]\d+)+)/g)) {
+        for (const n of m[1].split(/[,、]/)) addRef(Number(n), r.id);
+      }
+      // range >>N-M or >N-M
+      for (const m of plain.matchAll(/>>?(\d+)-(\d+)/g)) {
+        const s = Number(m[1]), e = Number(m[2]);
+        for (let i = s; i <= e && i - s < 1000; i++) addRef(i, r.id);
+      }
+      // single >>N or >N
+      for (const m of plain.matchAll(/>>?(\d+)(?![\d,、\-])/g)) {
+        addRef(Number(m[1]), r.id);
+      }
+    }
+    return map;
+  })();
+
   const visibleResponseItems = responseItems.filter((r) => {
     const ngResult = ngResultMap.get(r.id);
     if (ngResult === "hide") return false;
@@ -5588,6 +5618,8 @@ export default function App() {
     }
     if (responseLinkFilter === "mine") {
       if (!myPostNos.has(r.id)) return false;
+    } else if (responseLinkFilter === "hot") {
+      if ((backRefMap.get(r.id)?.length ?? 0) < hotResponseThreshold) return false;
     } else if (responseLinkFilter) {
       const plain = r.text.replace(/<[^>]+>/g, "");
       const urlRe = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"\u0080-\uFFFF]+|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"\u0080-\uFFFF]+/gi;
@@ -5646,33 +5678,6 @@ export default function App() {
     }
     return () => { cancelled = true; };
   }, [imageGalleryOpen, imageSizeLimit, galleryImages]);
-
-  // Build back-reference map: responseNo → list of responseNos that reference it
-  const backRefMap = (() => {
-    const map = new Map<number, number[]>();
-    const addRef = (target: number, from: number) => {
-      if (!map.has(target)) map.set(target, []);
-      const arr = map.get(target)!;
-      if (!arr.includes(from)) arr.push(from);
-    };
-    for (const r of responseItems) {
-      const plain = decodeHtmlEntities(r.text.replace(/<[^>]+>/g, ""));
-      // comma-separated >>N,M,... or >N,M,...
-      for (const m of plain.matchAll(/>>?(\d+(?:[,、]\d+)+)/g)) {
-        for (const n of m[1].split(/[,、]/)) addRef(Number(n), r.id);
-      }
-      // range >>N-M or >N-M
-      for (const m of plain.matchAll(/>>?(\d+)-(\d+)/g)) {
-        const s = Number(m[1]), e = Number(m[2]);
-        for (let i = s; i <= e && i - s < 1000; i++) addRef(i, r.id);
-      }
-      // single >>N or >N
-      for (const m of plain.matchAll(/>>?(\d+)(?![\d,、\-])/g)) {
-        addRef(Number(m[1]), r.id);
-      }
-    }
-    return map;
-  })();
 
   // OGP リンクカードの非同期取得 & 埋め込み。トグル ON 時のみ、IntersectionObserver で
   // 画面に入ったスロットだけ取得する (スレ内の全 URL へ一斉に通信しない)。
@@ -6837,6 +6842,8 @@ export default function App() {
           lastBoard?: { boardName: string; url: string };
           hoverPreviewDelay?: number;
           hoverPreviewFitEnabled?: boolean;
+          hotResponseThreshold?: number;
+          hotResponseRedEnabled?: boolean;
           thumbSize?: number;
           thumbMaskEnabled?: boolean;
           thumbMaskStrength?: number;
@@ -6908,6 +6915,8 @@ export default function App() {
         }
         if (typeof parsed.hoverPreviewDelay === "number") setHoverPreviewDelay(parsed.hoverPreviewDelay);
         if (typeof parsed.hoverPreviewFitEnabled === "boolean") setHoverPreviewFitEnabled(parsed.hoverPreviewFitEnabled);
+        if (typeof parsed.hotResponseThreshold === "number" && parsed.hotResponseThreshold >= 1) setHotResponseThreshold(parsed.hotResponseThreshold);
+        if (typeof parsed.hotResponseRedEnabled === "boolean") setHotResponseRedEnabled(parsed.hotResponseRedEnabled);
         if (typeof parsed.thumbSize === "number") setThumbSize(parsed.thumbSize);
         if (typeof parsed.thumbMaskStrength === "number") setThumbMaskStrength(parsed.thumbMaskStrength);
         if (typeof parsed.thumbMaskForceOnStart === "boolean") setThumbMaskForceOnStart(parsed.thumbMaskForceOnStart);
@@ -7817,6 +7826,8 @@ export default function App() {
       lastBoard: lastBoardUrlRef.current ? { boardName: selectedBoard, url: lastBoardUrlRef.current } : undefined,
       hoverPreviewDelay,
       hoverPreviewFitEnabled,
+      hotResponseThreshold,
+      hotResponseRedEnabled,
       thumbSize,
       thumbMaskEnabled,
       thumbMaskStrength,
@@ -7851,7 +7862,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -10631,7 +10642,7 @@ export default function App() {
                       )}
                       {backRefMap.has(r.id) && (
                         <span
-                          className="back-ref-trigger"
+                          className={`back-ref-trigger${hotResponseRedEnabled && backRefMap.get(r.id)!.length >= hotResponseThreshold ? " hot" : ""}`}
                           onClick={(e) => {
                             if (!isTouchMode()) return;
                             e.stopPropagation();
@@ -11206,6 +11217,7 @@ export default function App() {
                 <button className={`link-filter-btn ${responseLinkFilter === "video" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "video" ? "" : "video")} title="動画リンク"><Film size={13} /></button>
                 <button className={`link-filter-btn ${responseLinkFilter === "link" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "link" ? "" : "link")} title="外部リンク"><ExternalLink size={13} /></button>
                 <button className={`link-filter-btn ${responseLinkFilter === "mine" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "mine" ? "" : "mine")} title="自分のレスのみ"><User size={13} /></button>
+                <button className={`link-filter-btn ${responseLinkFilter === "hot" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "hot" ? "" : "hot")} title={`人気レス (被参照 ${hotResponseThreshold} 件以上)`}><Flame size={13} /></button>
               </span>
               <span className="nav-buttons">
                 <button onClick={() => { if (visibleResponseItems.length > 0) scrollResponsesToTop(visibleResponseItems[0].id); }}>Top</button>
@@ -12782,6 +12794,15 @@ export default function App() {
                   <input type="checkbox" checked={hoverPreviewFitEnabled} onChange={(e) => setHoverPreviewFitEnabled(e.target.checked)} />
                   <span>プレビュー画像をウィンドウ内に収める</span>
                   <span className="settings-hint">オフ = 原寸 (縦長はスクロール、Ctrl+ホイールで拡縮)</span>
+                </label>
+                <label className="settings-row">
+                  <span>人気レスの被参照数しきい値</span>
+                  <input type="number" value={hotResponseThreshold} min={1} max={999} onChange={(e) => setHotResponseThreshold(Math.max(1, Math.min(999, Number(e.target.value) || 1)))} />
+                  <span className="settings-hint">レス欄の炎ボタンで、この数以上の &gt;&gt;N を受けたレスだけ表示</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={hotResponseRedEnabled} onChange={(e) => setHotResponseRedEnabled(e.target.checked)} />
+                  <span>しきい値以上の ▼N を赤く表示</span>
                 </label>
               </fieldset>
               <fieldset>

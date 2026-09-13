@@ -1410,6 +1410,47 @@ try {
     console.log("smoke-ui: hover preview fit toggle ok");
   }
 
+  // 人気レス (赤レス) 抽出: しきい値以上の >>N を受けたレスだけを炎ボタンで絞り込む。赤表示は既定オフ
+  {
+    const thresholdInput = page
+      .locator(".settings-body label.settings-row", { hasText: "人気レスの被参照数しきい値" })
+      .locator("input[type=number]");
+    const redToggle = page
+      .locator(".settings-body label.settings-row", { hasText: "しきい値以上の ▼N を赤く表示" })
+      .locator("input[type=checkbox]");
+    assert((await thresholdInput.inputValue()) === "3", "hot response threshold should default to 3");
+    assert(!(await redToggle.isChecked()), "hot response red display should be off by default");
+    const hotCount = () => page.evaluate(() => document.querySelectorAll(".response-scroll .back-ref-trigger.hot").length);
+    const visibleNos = () => page.$$eval(".response-scroll .response-block[data-response-no]", (els) => els.map((el) => el.getAttribute("data-response-no")));
+    const clickHot = () => page.evaluate(() => document.querySelector('.link-filter-btn[title^="人気レス"]').click());
+    // サンプルレスは >>1 / >>3 が 1 件ずつなので、しきい値 1 で 1 と 3 が対象になる
+    await thresholdInput.fill("1");
+    await new Promise((r) => setTimeout(r, 100));
+    assert((await hotCount()) === 0, "▼N should not turn red while the red display setting is off");
+    await redToggle.check();
+    await new Promise((r) => setTimeout(r, 100));
+    assert((await hotCount()) > 0, "▼N at or above the threshold should get .hot when the red display is on");
+    const before = await visibleNos();
+    await clickHot();
+    await new Promise((r) => setTimeout(r, 100));
+    const filtered = await visibleNos();
+    assert(filtered.length > 0 && filtered.length < before.length, `hot filter should narrow the list, before=${before.length} after=${filtered.length}`);
+    const allHaveRefs = await page.evaluate(() =>
+      [...document.querySelectorAll(".response-scroll .response-block[data-response-no]")].every((el) => el.querySelector(".back-ref-trigger")),
+    );
+    assert(allHaveRefs, "every response left by the hot filter should carry a ▼N badge");
+    await thresholdInput.fill("99");
+    await new Promise((r) => setTimeout(r, 100));
+    assert((await visibleNos()).length === 0, "raising the threshold above every count should leave the hot filter empty");
+    await clickHot();
+    await thresholdInput.fill("3");
+    await redToggle.uncheck();
+    await new Promise((r) => setTimeout(r, 100));
+    assert((await visibleNos()).length === before.length, "turning the hot filter off should restore the list");
+    assert((await hotCount()) === 0, "unchecking the red display should remove .hot");
+    console.log("smoke-ui: hot response filter ok");
+  }
+
   // 自動判定は実際にタッチイベントが出るコンテキストでないと確かめられない。
   // 別コンテキストを起こして、タップで切り替わること / 設定で上書きできることを見る。
   const tapAndCheck = async (pref) => {

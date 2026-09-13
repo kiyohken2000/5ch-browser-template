@@ -3751,6 +3751,11 @@ a.body-link-image:hover::after {
 .back-ref-trigger:hover {
   text-decoration: underline;
 }
+/* 設定「しきい値以上の ▼N を赤く表示」(いわゆる赤レス) */
+.back-ref-trigger.hot {
+  color: #d32f2f;
+  font-weight: 600;
+}
 .back-ref-popup-item {
   padding: 4px 0;
   border-bottom: 1px solid #e8e8e8;
@@ -4395,6 +4400,9 @@ a.body-link-image:hover::after {
 }
 .dark .back-ref-trigger {
   color: #6cb6ff;
+}
+.dark .back-ref-trigger.hot {
+  color: #ff7b7b;
 }
 .dark .status-bar {
   background: #2d2d30;
