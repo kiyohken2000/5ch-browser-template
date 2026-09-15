@@ -2566,8 +2566,24 @@ export default function App() {
   const [threadColVisible, setThreadColVisible] = useState<Record<ToggleableThreadColKey, boolean>>({ ...DEFAULT_COL_VISIBLE });
   const [threadColOrder, setThreadColOrder] = useState<ThreadColKey[]>(() => [...DEFAULT_THREAD_COL_ORDER]);
   const [threadColOrderDraft, setThreadColOrderDraft] = useState<ThreadColKey[]>(() => [...DEFAULT_THREAD_COL_ORDER]);
+  // 板URL → 最後に「明示的に」読み込んだときのスレURL集合。★ (新着スレ) はこれとの差分で付ける。
+  // キーは必ず板URLに寄せる (threadUrl はスレを開いている間スレURLになるため)。
   const knownThreadUrlsRef = useRef<Map<string, Set<string>>>(new Map());
   const [newThreadUrls, setNewThreadUrls] = useState<Set<string>>(new Set());
+  // 読み込んだ一覧と前回記録との差分を ★ にする。updateKnown が true (手動更新・板クリック) のときだけ
+  // 記録を更新し、自動更新 (false) は記録を据え置く。自動更新のたびに記録を上書きすると ★ が
+  // 次の自動更新までしか残らず、その直後の手動更新でも差分が出なくなる。
+  const markNewThreads = (rawUrl: string, rows: ThreadListItem[], updateKnown: boolean) => {
+    const boardUrl = parseThreadPath(rawUrl) ? getBoardUrlFromThreadUrl(rawUrl) : rawUrl;
+    const currentUrls = new Set(rows.map((r) => r.threadUrl));
+    const known = knownThreadUrlsRef.current.get(boardUrl);
+    if (known && known.size > 0) {
+      setNewThreadUrls(new Set([...currentUrls].filter((u) => !known.has(u))));
+    } else {
+      setNewThreadUrls(new Set());
+    }
+    if (updateKnown || !known) knownThreadUrlsRef.current.set(boardUrl, currentUrls);
+  };
   // 読み込みが済んだ印。読み込んだ値と同じ描画で立つように state で持つ。
   // ref だと、読み込みが積んだ更新が反映される前に下の保存が走り、
   // 読み込み前の既定値で保存済みの設定を上書きしてしまう。
@@ -4021,14 +4037,7 @@ export default function App() {
       });
       await loadReadStatusForBoard(url, rows);
       setFetchedThreads(rows);
-      const currentUrls = new Set(rows.map((r) => r.threadUrl));
-      const known = knownThreadUrlsRef.current.get(url);
-      if (known && known.size > 0) {
-        setNewThreadUrls(new Set([...currentUrls].filter((u) => !known.has(u))));
-      } else {
-        setNewThreadUrls(new Set());
-      }
-      knownThreadUrlsRef.current.set(url, currentUrls);
+      markNewThreads(url, rows, true);
       if (!keepSortOnRefreshRef.current && !threadSortPersistEnabledRef.current) {
         setThreadSortKey("id");
         setThreadSortAsc(true);
@@ -4128,14 +4137,7 @@ export default function App() {
       });
       setFetchedThreads(rows);
       void loadReadStatusForBoard(url, rows);
-      const currentUrls = new Set(rows.map((r) => r.threadUrl));
-      const known = knownThreadUrlsRef.current.get(url);
-      if (known && known.size > 0) {
-        setNewThreadUrls(new Set([...currentUrls].filter((u) => !known.has(u))));
-      } else {
-        setNewThreadUrls(new Set());
-      }
-      knownThreadUrlsRef.current.set(url, currentUrls);
+      markNewThreads(url, rows, false);
     } catch {
       // silent refresh — ignore errors
     }
