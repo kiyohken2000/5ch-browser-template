@@ -216,6 +216,12 @@ body {
   border-color: #0066cc;
   background: #bde;
 }
+/* 板ボタンバー先頭の「★お気に入り」(お気に入りスレ一覧を板のように開く) */
+.board-btn-fav {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
 li.fav-drag-over {
   background: #bde;
   outline: 1px solid #0066cc;

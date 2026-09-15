@@ -709,6 +709,25 @@ try {
     assert(tabMenuClose, "tab context menu should have タブを閉じる");
     const tabMenuOther = await page.$('.tab-menu button:has-text("他のタブを閉じる")');
     assert(tabMenuOther, "tab context menu should have 他のタブを閉じる");
+    // 右側/左側のタブを閉じる: 先頭タブなので「左側」は無効、「右側」は有効
+    const tabMenuRight = page.locator('.tab-menu button:has-text("右側のタブを閉じる")');
+    const tabMenuLeft = page.locator('.tab-menu button:has-text("左側のタブを閉じる")');
+    assert((await tabMenuRight.count()) === 1, "tab context menu should have 右側のタブを閉じる");
+    assert(!(await tabMenuRight.isDisabled()), "右側のタブを閉じる should be enabled on the first tab");
+    assert(await tabMenuLeft.isDisabled(), "左側のタブを閉じる should be disabled on the first tab");
+    await tabMenuRight.click();
+    await new Promise((r) => setTimeout(r, 150));
+    const tabsAfterRight = await page.$$eval(".thread-tab", (els) => els.length);
+    assert(tabsAfterRight === 1, `右側のタブを閉じる should leave only the first tab, got ${tabsAfterRight}`);
+    // 元の 2 タブ状態に戻す
+    await page.evaluate(() => {
+      const rows = document.querySelectorAll(".threads tbody tr");
+      if (rows[1]) rows[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    assert((await page.$$eval(".thread-tab", (els) => els.length)) === 2, "second tab should reopen after closing right tabs");
+    await (await page.$$(".thread-tab"))[0].click({ button: "right" });
+    await new Promise((r) => setTimeout(r, 100));
     // dismiss
     await page.evaluate(() => {
       document.querySelector(".shell")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -1593,9 +1612,44 @@ try {
   assert(gesturePanel, "clicking gesture assign button should open gesture config panel");
   const gestureSelects = await page.$$eval(".gesture-config-row select", (els) => els.length);
   assert(gestureSelects === 12, `gesture config should list 12 assignable patterns, got ${gestureSelects}`);
+  const gestureOptionLabels = await page.$$eval(".gesture-config-row select", (els) => Array.from(els[0].options).map((o) => o.textContent));
+  for (const label of ["他のタブを閉じる", "右側のタブを閉じる", "左側のタブを閉じる", "すべてのタブを閉じる"]) {
+    assert(gestureOptionLabels.includes(label), `gesture actions should include ${label}`);
+  }
   await page.click('.gesture-config-panel .shortcuts-header button:has-text("閉じる")');
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: mouse gesture customization ok");
+
+  // 板ボタンバーの「お気に入り」ボタン: 板ボタンバーを出すと先頭に出て、クリックでお気に入りスレ一覧になる
+  {
+    const boardBarToggle = page.locator('.settings-body label.settings-row', { hasText: "板ボタンバー" }).first().locator("input[type=checkbox]");
+    const favBtnToggle = page.locator('.settings-body label.settings-row', { hasText: "板ボタンバーに「お気に入り」を表示" }).locator("input[type=checkbox]");
+    assert(await favBtnToggle.isChecked(), "favorite board button should be on by default");
+    await boardBarToggle.check();
+    await new Promise((r) => setTimeout(r, 150));
+    assert((await page.$$(".board-button-bar .board-btn-fav")).length === 1, "board button bar should show the favorite button");
+    await page.evaluate(() => document.querySelector(".board-button-bar .board-btn-fav").click());
+    await new Promise((r) => setTimeout(r, 150));
+    assert(await page.$(".board-button-bar .board-btn-fav.selected"), "favorite button should be selected while the favorites list is shown");
+    assert(!(await page.locator(".fav-open-unread-btn").isDisabled()), "新着をすべて開く should be enabled while the favorites list is shown");
+    // 右クリックメニュー
+    await page.evaluate(() => document.querySelector(".board-button-bar .board-btn-fav").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 80 })));
+    await new Promise((r) => setTimeout(r, 100));
+    assert(await page.$('.fav-board-menu button:has-text("新着をすべて開く")'), "favorite button context menu should have 新着をすべて開く");
+    await page.evaluate(() => document.querySelector(".shell")?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    await new Promise((r) => setTimeout(r, 100));
+    assert(!(await page.$(".fav-board-menu")), "favorite button context menu should close on outside click");
+    await favBtnToggle.uncheck();
+    await new Promise((r) => setTimeout(r, 150));
+    assert((await page.$$(".board-btn-fav")).length === 0, "turning the setting off should hide the favorite button");
+    await favBtnToggle.check();
+    await boardBarToggle.uncheck();
+    // お気に入りスレ一覧を解除して板一覧に戻す
+    await page.evaluate(() => document.querySelector(".title-split-main").click());
+    await new Promise((r) => setTimeout(r, 150));
+    assert(await page.locator(".fav-open-unread-btn").isDisabled(), "leaving the favorites list should disable 新着をすべて開く");
+    console.log("smoke-ui: favorite board button ok");
+  }
   // データフォルダ: 保存先に書き込めないときの警告表示。
   // 実際の判定は Tauri 側 (get_data_dir_info) なので、静的 dist では
   // dataDirInfo が null のまま = 警告を出さないことだけ確認する。

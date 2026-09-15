@@ -237,7 +237,7 @@ function buildTranslationPrompt(text: string, targetLangNativeName: string): str
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban, Search,
-  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser, Flame,
+  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser, Flame, LayersPlus,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -515,12 +515,20 @@ type GestureActionId =
   | "scrollBottom"
   | "toggleDark"
   | "openSettings"
-  | "toggleThumbMask";
+  | "toggleThumbMask"
+  | "closeOtherTabs"
+  | "closeTabsRight"
+  | "closeTabsLeft"
+  | "closeAllTabs";
 const GESTURE_ACTIONS: { id: GestureActionId; label: string }[] = [
   { id: "none", label: "なし" },
   { id: "prevTab", label: "前のタブ" },
   { id: "nextTab", label: "次のタブ" },
   { id: "closeTab", label: "タブを閉じる" },
+  { id: "closeOtherTabs", label: "他のタブを閉じる" },
+  { id: "closeTabsRight", label: "右側のタブを閉じる" },
+  { id: "closeTabsLeft", label: "左側のタブを閉じる" },
+  { id: "closeAllTabs", label: "すべてのタブを閉じる" },
   { id: "reloadThread", label: "スレッド更新" },
   { id: "reloadThreadList", label: "スレッド一覧を更新" },
   { id: "scrollTop", label: "先頭へスクロール" },
@@ -2065,6 +2073,8 @@ export default function App() {
     document.body.style.cursor = "move";
   };
   const [showBoardButtons, setShowBoardButtons] = useState(false);
+  // 板ボタンバーの先頭に「★お気に入り」(お気に入りスレ一覧を板のように開く) を出すか
+  const [favBoardButtonEnabled, setFavBoardButtonEnabled] = useState(true);
   const [toolBarVisible, setToolBarVisible] = useState(true);
   const [responseNavBarVisible, setResponseNavBarVisible] = useState(true);
   const [statusBarVisible, setStatusBarVisible] = useState(true);
@@ -2320,6 +2330,11 @@ export default function App() {
   const tabDragOverRef = useRef<number | null>(null);
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; tabIndex: number } | null>(null);
   const tabMenuRef = useRef<HTMLDivElement>(null);
+  // 板ボタンバー「★お気に入り」の右クリックメニュー
+  const [favBoardMenu, setFavBoardMenu] = useState<{ x: number; y: number } | null>(null);
+  const favBoardMenuRef = useRef<HTMLDivElement>(null);
+  // お気に入り一覧を表示していない状態から「新着をすべて開く」を選んだとき、レス数取得の完了を待って開く
+  const openUnreadFavsAfterFetchRef = useRef(false);
   const [threadTitlePopup, setThreadTitlePopup] = useState<{ x: number; y: number; title: string } | null>(null);
   const threadTitleHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [responseReloadMenuOpen, setResponseReloadMenuOpen] = useState(false);
@@ -2588,6 +2603,10 @@ export default function App() {
   const [newResponseStart, setNewResponseStart] = useState<number | null>(null);
   const threadFetchTimesRef = useRef<Record<string, string>>({});
   const [responseSearchQuery, setResponseSearchQuery] = useState("");
+  // レス検索 / リンク絞り込みを掛ける直前の読書位置。絞り込み中は先頭から表示し、
+  // 解除したときここへ戻す (以前は scrollTop がそのまま残り、無関係な位置や先頭に飛んでいた)
+  const responseFilterOriginRef = useRef<{ threadUrl: string; no: number } | null>(null);
+  const responseFilterWasActiveRef = useRef(false);
   const [responseLinkFilter, setResponseLinkFilter] = useState<"" | "image" | "video" | "link" | "mine" | "hot">("");
   const threadSearchRef = useRef<HTMLInputElement | null>(null);
   const responseSearchRef = useRef<HTMLInputElement | null>(null);
@@ -3558,6 +3577,41 @@ export default function App() {
     });
   };
 
+  // 絞り込みが「無し → 有り」になる直前に読書位置を控える
+  const rememberResponseFilterOrigin = () => {
+    if (responseSearchQuery !== "" || responseLinkFilter !== "") return;
+    responseFilterOriginRef.current = { threadUrl, no: getVisibleResponseNo() };
+  };
+  const setResponseSearchQueryTracked = (q: string) => {
+    if (q !== "") rememberResponseFilterOrigin();
+    setResponseSearchQuery(q);
+  };
+  const toggleResponseLinkFilter = (kind: Exclude<typeof responseLinkFilter, "">) => {
+    const next = responseLinkFilter === kind ? "" : kind;
+    if (next !== "") rememberResponseFilterOrigin();
+    setResponseLinkFilter(next);
+  };
+  useLayoutEffect(() => {
+    const active = responseSearchQuery !== "" || responseLinkFilter !== "";
+    const wasActive = responseFilterWasActiveRef.current;
+    responseFilterWasActiveRef.current = active;
+    if (active === wasActive) return;
+    const container = responseScrollRef.current;
+    if (!container) return;
+    if (active) {
+      // 絞り込み結果は先頭から見せる (以前は絞り込み前の scrollTop が残って無関係な位置になっていた)
+      container.scrollTop = 0;
+      return;
+    }
+    const origin = responseFilterOriginRef.current;
+    responseFilterOriginRef.current = null;
+    // スレ切替で検索が消えた場合は切替側が位置を復元するので触らない
+    if (!origin || origin.threadUrl !== threadUrl) return;
+    if (origin.no <= 1) container.scrollTop = 0;
+    else scrollToResponseNo(origin.no);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [responseSearchQuery, responseLinkFilter]);
+
   const openThreadInTab = (url: string, title: string) => {
     setResponseSearchQuery("");
     if (threadPaneAutoToggle) {
@@ -3740,20 +3794,30 @@ export default function App() {
     setLocationInput(tab.threadUrl);
   };
 
-  const closeOtherTabs = (keepIndex: number) => {
-    const kept = threadTabs[keepIndex];
-    if (!kept) return;
+  // keep(index) が true のタブだけ残して他を閉じる。「他のタブ」「右側」「左側」の共通処理
+  const closeTabsExcept = (keep: (index: number) => boolean) => {
+    const keptIndices = threadTabs.map((_, i) => i).filter(keep);
+    if (keptIndices.length === threadTabs.length) return;
+    if (keptIndices.length === 0) { closeAllTabs(); return; }
     // 閉じるタブの読書位置を保存してから捨てる (以前は保存せずに破棄していた)
     threadTabs.forEach((tab, i) => {
-      if (tab.threadUrl === kept.threadUrl) return;
+      if (keep(i)) return;
       saveTabReadPosition(tab.threadUrl, i === activeTabIndex);
       tabCacheRef.current.delete(tab.threadUrl);
     });
     const wasActiveUrl = activeTabIndex >= 0 && activeTabIndex < threadTabs.length
       ? threadTabs[activeTabIndex].threadUrl
       : null;
-    setThreadTabs([kept]);
-    setActiveTabIndex(0);
+    const keptTabs = keptIndices.map((i) => threadTabs[i]);
+    // アクティブタブが残るならそれを維持。閉じた場合は元の位置に最も近い右隣 (無ければ末尾) へ
+    let nextIndex = keptIndices.indexOf(activeTabIndex);
+    if (nextIndex < 0) {
+      const after = keptIndices.findIndex((i) => i > activeTabIndex);
+      nextIndex = after >= 0 ? after : keptTabs.length - 1;
+    }
+    const kept = keptTabs[nextIndex];
+    setThreadTabs(keptTabs);
+    setActiveTabIndex(nextIndex);
     const cached = tabCacheRef.current.get(kept.threadUrl);
     if (cached) {
       setFetchedResponses(cached.responses);
@@ -3770,6 +3834,9 @@ export default function App() {
     setThreadUrl(kept.threadUrl);
     setLocationInput(kept.threadUrl);
   };
+  const closeOtherTabs = (keepIndex: number) => closeTabsExcept((i) => i === keepIndex);
+  const closeTabsRight = (index: number) => closeTabsExcept((i) => i <= index);
+  const closeTabsLeft = (index: number) => closeTabsExcept((i) => i >= index);
 
   const closeAllTabs = () => {
     // 全タブぶんの読書位置を保存してから捨てる (以前は保存せずに破棄していた)
@@ -4233,6 +4300,52 @@ export default function App() {
   const fetchFavNewCounts = async () => {
     await fetchSavedThreadCounts(favorites.threads, "favorites");
   };
+
+  // お気に入りスレ一覧を「板」のように開く (フィルタメニューの「お気に入りスレ」と同じ)。表示中なら更新だけ
+  const showFavoriteThreadList = () => {
+    if (!showFavoritesOnly) {
+      setShowFavoritesOnly(true);
+      setShowCachedOnly(false); setShowThreadSearchOnly(false); setShowRecentOpenedOnly(false); setShowRecentPostedOnly(false);
+    }
+    void fetchFavNewCounts();
+  };
+
+  // お気に入りスレ一覧で新着 (●) の付いたスレをまとめてタブに追加する。中身は
+  // タブを切り替えたときに従来どおり読み込まれる (ここで一斉取得はしない)
+  const openAllUnreadFavorites = () => {
+    const openUrls = new Set(threadTabs.map((t) => t.threadUrl));
+    const targets = visibleThreadItems.filter((t) =>
+      t.res >= 0 && t.res - t.got > 0 && !("datOchi" in t && t.datOchi) && !openUrls.has(t.threadUrl),
+    );
+    if (targets.length === 0) { setStatus("新着のあるお気に入りスレはありません"); return; }
+    const added: ThreadTab[] = targets.map((t) => ({ threadUrl: t.threadUrl, title: t.title }));
+    setThreadTabs((prev) => [...prev, ...added]);
+    if (activeTabIndex < 0) {
+      // タブが 1 つも無ければ先頭を表示する (タブ切替と同じ経路で読み込む)
+      const first = added[0];
+      setActiveTabIndex(0);
+      setFetchedResponses([]);
+      setSelectedResponse(loadBookmark(first.threadUrl) ?? 1);
+      setThreadUrl(first.threadUrl);
+      setLocationInput(first.threadUrl);
+      void fetchResponsesFromCurrent(first.threadUrl);
+    }
+    setStatus(`新着のあるお気に入りスレ ${added.length} 件をタブで開きました`);
+  };
+  // お気に入り一覧を表示していなければ表示に切り替え、レス数の取得完了後に開く
+  const openAllUnreadFavoritesFromAnywhere = () => {
+    if (showFavoritesOnly && favNewCountsFetched) { openAllUnreadFavorites(); return; }
+    openUnreadFavsAfterFetchRef.current = true;
+    showFavoriteThreadList();
+  };
+  useEffect(() => {
+    if (!openUnreadFavsAfterFetchRef.current) return;
+    if (!showFavoritesOnly) { openUnreadFavsAfterFetchRef.current = false; return; }
+    if (!favNewCountsFetched) return;
+    openUnreadFavsAfterFetchRef.current = false;
+    openAllUnreadFavorites();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showFavoritesOnly, favNewCountsFetched]);
 
   // 起動時にスレ一覧フィルタを復元した場合、対象リストの読み込みが終わってから
   // 1 回だけレス数を取得する (取得しないと「レス」「新着」列が埋まらない)。
@@ -6048,6 +6161,7 @@ export default function App() {
   useMenuReclamp(responseMenu, setResponseMenu, responseMenuRef);
   useMenuReclamp(threadMenu, setThreadMenu, threadMenuRef);
   useMenuReclamp(tabMenu, setTabMenu, tabMenuRef);
+  useMenuReclamp(favBoardMenu, setFavBoardMenu, favBoardMenuRef);
   useMenuReclamp(watchoiMenu, setWatchoiMenu, watchoiMenuRef);
   useMenuReclamp(idMenu, setIdMenu, idMenuRef);
   useMenuReclamp(beMenu, setBeMenu, beMenuRef);
@@ -6830,6 +6944,7 @@ export default function App() {
           fontFamily?: string;
           threadColWidths?: Record<string, number>;
           showBoardButtons?: boolean;
+          favBoardButtonEnabled?: boolean;
           toolBarVisible?: boolean;
           responseNavBarVisible?: boolean;
           statusBarVisible?: boolean;
@@ -6901,6 +7016,7 @@ export default function App() {
           setThreadColWidths((prev) => ({ ...prev, ...parsed.threadColWidths }));
         }
         if (typeof parsed.showBoardButtons === "boolean") setShowBoardButtons(parsed.showBoardButtons);
+        if (typeof parsed.favBoardButtonEnabled === "boolean") setFavBoardButtonEnabled(parsed.favBoardButtonEnabled);
         if (typeof parsed.toolBarVisible === "boolean") setToolBarVisible(parsed.toolBarVisible);
         if (typeof parsed.responseNavBarVisible === "boolean") setResponseNavBarVisible(parsed.responseNavBarVisible);
         if (typeof parsed.statusBarVisible === "boolean") setStatusBarVisible(parsed.statusBarVisible);
@@ -7680,6 +7796,18 @@ export default function App() {
         case "closeTab":
           if (activeTabIndex >= 0) closeTab(activeTabIndex);
           break;
+        case "closeOtherTabs":
+          if (activeTabIndex >= 0) closeOtherTabs(activeTabIndex);
+          break;
+        case "closeTabsRight":
+          if (activeTabIndex >= 0) closeTabsRight(activeTabIndex);
+          break;
+        case "closeTabsLeft":
+          if (activeTabIndex >= 0) closeTabsLeft(activeTabIndex);
+          break;
+        case "closeAllTabs":
+          closeAllTabs();
+          break;
         case "reloadThreadList":
           void fetchThreadListFromCurrent();
           break;
@@ -7814,6 +7942,7 @@ export default function App() {
       fontFamily,
       threadColWidths,
       showBoardButtons,
+      favBoardButtonEnabled,
       toolBarVisible,
       responseNavBarVisible,
       statusBarVisible,
@@ -7862,7 +7991,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -9285,7 +9414,7 @@ export default function App() {
       style={{ fontFamily: fontFamily ? `"Backslash", ${fontFamily}` : undefined, gridTemplateRows: [
         "26px",
         toolBarVisible ? "32px" : null,
-        (showBoardButtons && favorites.boards.length > 0) ? "auto" : null,
+        (showBoardButtons && (favorites.boards.length > 0 || favBoardButtonEnabled)) ? "auto" : null,
         "1fr",
         statusBarVisible ? "22px" : null,
       ].filter(Boolean).join(" "), "--thumb-size": `${thumbSize}px`, "--thumb-mask-blur": `${(thumbMaskStrength / 100) * 20}px`, "--thumb-mask-brightness": `${1 - (thumbMaskStrength / 100) * 0.25}` } as React.CSSProperties}
@@ -9293,6 +9422,7 @@ export default function App() {
         setThreadMenu(null);
         setResponseMenu(null);
         setTabMenu(null);
+        setFavBoardMenu(null);
         setOpenMenu(null);
         setIdPopup(null);
         setBackRefPopup(null);
@@ -9599,6 +9729,12 @@ export default function App() {
             void fetchThreadListFromCurrent();
           }
         }} title="スレ一覧を更新"><RefreshCw size={14} /></button>
+        <button
+          className="title-action-btn fav-open-unread-btn"
+          onClick={openAllUnreadFavorites}
+          disabled={!showFavoritesOnly}
+          title={showFavoritesOnly ? "新着のあるお気に入りスレをすべてタブで開く" : "新着をすべて開く (お気に入りスレ一覧表示中のみ)"}
+        ><LayersPlus size={14} /></button>
         <button className="title-action-btn" onClick={() => openNewThreadDialog()} title="スレ立て"><FilePenLine size={14} /></button>
         <div className="title-split-wrap" onClick={(e) => e.stopPropagation()}>
           <button
@@ -9685,8 +9821,21 @@ export default function App() {
         ><Ban size={14} />{ngFilters.thread_words.length > 0 ? ngFilters.thread_words.length : ""}</button>
       </div>
       )}
-      {showBoardButtons && favorites.boards.length > 0 && (
+      {showBoardButtons && (favorites.boards.length > 0 || favBoardButtonEnabled) && (
         <div className="board-button-bar" ref={boardBtnBarRef}>
+          {favBoardButtonEnabled && (
+            <button
+              className={`board-btn board-btn-fav${showFavoritesOnly ? " selected" : ""}`}
+              onClick={() => showFavoriteThreadList()}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const p = clampMenuPosition(e.clientX, e.clientY, 200, 60);
+                setFavBoardMenu({ x: p.x, y: p.y });
+              }}
+              title={showFavoritesOnly ? "お気に入りスレ一覧を更新 (右クリックでメニュー)" : "お気に入りスレ一覧を開く (右クリックでメニュー)"}
+            ><Star size={11} /> お気に入り</button>
+          )}
           {favorites.boards.map((b, i) => (
             <button
               key={b.url}
@@ -11178,7 +11327,7 @@ export default function App() {
                   ref={responseSearchRef}
                   className="thread-search"
                   value={responseSearchQuery}
-                  onChange={(e) => setResponseSearchQuery(e.target.value)}
+                  onChange={(e) => setResponseSearchQueryTracked(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.nativeEvent.isComposing) return;
                     if (e.key === "Enter") { addSearchHistory("response", responseSearchQuery); setSearchHistoryDropdown(null); }
@@ -11199,7 +11348,7 @@ export default function App() {
                         <div
                           key={w}
                           className="search-history-item"
-                          onClick={() => { setResponseSearchQuery(w); setSearchHistoryDropdown(null); }}
+                          onClick={() => { setResponseSearchQueryTracked(w); setSearchHistoryDropdown(null); }}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -11213,11 +11362,11 @@ export default function App() {
               </div>
               {responseSearchQuery && <button className="title-action-btn" onClick={() => setResponseSearchQuery("")} title="検索クリア"><X size={14} /></button>}
               <span className="link-filter-buttons">
-                <button className={`link-filter-btn ${responseLinkFilter === "image" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "image" ? "" : "image")} title="画像リンク"><Image size={13} /></button>
-                <button className={`link-filter-btn ${responseLinkFilter === "video" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "video" ? "" : "video")} title="動画リンク"><Film size={13} /></button>
-                <button className={`link-filter-btn ${responseLinkFilter === "link" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "link" ? "" : "link")} title="外部リンク"><ExternalLink size={13} /></button>
-                <button className={`link-filter-btn ${responseLinkFilter === "mine" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "mine" ? "" : "mine")} title="自分のレスのみ"><User size={13} /></button>
-                <button className={`link-filter-btn ${responseLinkFilter === "hot" ? "active" : ""}`} onClick={() => setResponseLinkFilter((p) => p === "hot" ? "" : "hot")} title={`人気レス (被参照 ${hotResponseThreshold} 件以上)`}><Flame size={13} /></button>
+                <button className={`link-filter-btn ${responseLinkFilter === "image" ? "active" : ""}`} onClick={() => toggleResponseLinkFilter("image")} title="画像リンク"><Image size={13} /></button>
+                <button className={`link-filter-btn ${responseLinkFilter === "video" ? "active" : ""}`} onClick={() => toggleResponseLinkFilter("video")} title="動画リンク"><Film size={13} /></button>
+                <button className={`link-filter-btn ${responseLinkFilter === "link" ? "active" : ""}`} onClick={() => toggleResponseLinkFilter("link")} title="外部リンク"><ExternalLink size={13} /></button>
+                <button className={`link-filter-btn ${responseLinkFilter === "mine" ? "active" : ""}`} onClick={() => toggleResponseLinkFilter("mine")} title="自分のレスのみ"><User size={13} /></button>
+                <button className={`link-filter-btn ${responseLinkFilter === "hot" ? "active" : ""}`} onClick={() => toggleResponseLinkFilter("hot")} title={`人気レス (被参照 ${hotResponseThreshold} 件以上)`}><Flame size={13} /></button>
               </span>
               <span className="nav-buttons">
                 <button onClick={() => { if (visibleResponseItems.length > 0) scrollResponsesToTop(visibleResponseItems[0].id); }}>Top</button>
@@ -12030,11 +12179,23 @@ export default function App() {
           }}>動画を開く</button>
         </div>
       )}
+      {favBoardMenu && (
+        <div ref={favBoardMenuRef} className="thread-menu fav-board-menu" style={{ left: favBoardMenu.x, top: favBoardMenu.y }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={() => { showFavoriteThreadList(); setFavBoardMenu(null); }}>お気に入りスレ一覧を開く</button>
+          <button onClick={() => { openAllUnreadFavoritesFromAnywhere(); setFavBoardMenu(null); }}>新着をすべて開く</button>
+        </div>
+      )}
       {tabMenu && (
         <div ref={tabMenuRef} className="thread-menu tab-menu" style={{ left: tabMenu.x, top: tabMenu.y }} onClick={(e) => e.stopPropagation()}>
           <button onClick={() => { closeTab(tabMenu.tabIndex); setTabMenu(null); }}>タブを閉じる</button>
           <button onClick={() => { closeOtherTabs(tabMenu.tabIndex); setTabMenu(null); }} disabled={threadTabs.length <= 1}>
             他のタブを閉じる
+          </button>
+          <button onClick={() => { closeTabsRight(tabMenu.tabIndex); setTabMenu(null); }} disabled={tabMenu.tabIndex >= threadTabs.length - 1}>
+            右側のタブを閉じる
+          </button>
+          <button onClick={() => { closeTabsLeft(tabMenu.tabIndex); setTabMenu(null); }} disabled={tabMenu.tabIndex <= 0}>
+            左側のタブを閉じる
           </button>
           <button onClick={() => { closeAllTabs(); setTabMenu(null); }}>すべてのタブを閉じる</button>
           <button onClick={() => {
@@ -12673,6 +12834,11 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={showBoardButtons} onChange={(e) => setShowBoardButtons(e.target.checked)} />
                   <span>板ボタンバー</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={favBoardButtonEnabled} onChange={(e) => setFavBoardButtonEnabled(e.target.checked)} />
+                  <span>板ボタンバーに「お気に入り」を表示</span>
+                  <span className="settings-hint">お気に入りスレ一覧を板のように開くボタン</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={toolBarVisible} onChange={(e) => setToolBarVisible(e.target.checked)} />
