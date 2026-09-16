@@ -450,6 +450,64 @@ try {
   await page.selectOption(".ng-panel-add select:not(.ng-mode-select)", "words");
   console.log("smoke-ui: ng id auto-expire ok");
 
+  // NG ワードの ID 連鎖: プレースホルダの >>2 と >>4 は同じ ID。UPLIFT (>>2 に一致) を
+  // あぼーんで登録し、ID連鎖を ON にすると >>4 もあぼーんになる。
+  await page.selectOption(".ng-panel-add .ng-mode-select", "abone");
+  await page.fill(".ng-panel-add input", "UPLIFT");
+  await page.click(".ng-panel-add button:has-text('追加')");
+  const chainToggle = await page.$(".ng-list li .ng-chain-toggle");
+  assert(chainToggle, "word entry should have an ID連鎖 toggle");
+  const chainOffText = await chainToggle.textContent();
+  assert(chainOffText === "ID連鎖OFF", `ID連鎖 should default to OFF, got ${chainOffText}`);
+  const aboneBeforeChain = await page.$$eval(".response-block.abone-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+  assert(
+    aboneBeforeChain.includes("2") && !aboneBeforeChain.includes("4"),
+    `without ID連鎖 only >>2 should be abone, got ${JSON.stringify(aboneBeforeChain)}`,
+  );
+  await chainToggle.click();
+  const chainOnText = await page.$eval(".ng-list li .ng-chain-toggle", (el) => el.textContent);
+  assert(chainOnText === "ID連鎖ON", `ID連鎖 toggle should turn ON, got ${chainOnText}`);
+  const aboneAfterChain = await page.$$eval(".response-block.abone-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+  assert(
+    aboneAfterChain.includes("2") && aboneAfterChain.includes("4") && !aboneAfterChain.includes("1") && !aboneAfterChain.includes("3"),
+    `ID連鎖 should abone the same-ID >>4 only, got ${JSON.stringify(aboneAfterChain)}`,
+  );
+  await page.click(".ng-remove");
+  console.log("smoke-ui: ng word id chain ok");
+
+  // 連鎖あぼーん: >>4 は >>3 に安価を打っている。「次:」で >>3 をあぼーんにし、
+  // 連鎖トグルを ON にすると >>4 もあぼーんになる。>>3 は >>1 にも安価を打っているが、
+  // >>1 が NG でも >>1 への安価は連鎖しない。
+  const chainRepliesBox = await page.$(".ng-chain-setting input[type='checkbox']");
+  assert(chainRepliesBox, "NG panel should have the 連鎖あぼーん checkbox");
+  assert(!(await chainRepliesBox.isChecked()), "連鎖あぼーん should default to off");
+  await page.fill(".ng-panel-add input", "次:");
+  await page.click(".ng-panel-add button:has-text('追加')");
+  const aboneNoChain = await page.$$eval(".response-block.abone-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+  assert(
+    aboneNoChain.includes("3") && !aboneNoChain.includes("4"),
+    `without 連鎖あぼーん only >>3 should be abone, got ${JSON.stringify(aboneNoChain)}`,
+  );
+  await chainRepliesBox.check();
+  const aboneChained = await page.$$eval(".response-block.abone-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+  assert(
+    aboneChained.includes("3") && aboneChained.includes("4") && !aboneChained.includes("1"),
+    `連鎖あぼーん should abone the reply >>4, got ${JSON.stringify(aboneChained)}`,
+  );
+  await page.click(".ng-remove");
+  // >>1 への安価は連鎖しない: >>1 をあぼーんにしても >>3 は残る
+  await page.fill(".ng-panel-add input", "トレース準備");
+  await page.click(".ng-panel-add button:has-text('追加')");
+  const aboneNo1 = await page.$$eval(".response-block.abone-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+  assert(
+    aboneNo1.includes("1") && !aboneNo1.includes("3") && !aboneNo1.includes("4"),
+    `replies to >>1 must not chain, got ${JSON.stringify(aboneNo1)}`,
+  );
+  await page.click(".ng-remove");
+  await chainRepliesBox.uncheck();
+  await page.selectOption(".ng-panel-add .ng-mode-select", "hide");
+  console.log("smoke-ui: ng chain replies ok");
+
   // switch to Highlight tab, add and remove a highlight word
   await page.click(".ng-panel-tabs button:has-text('ハイライト')");
   await page.fill(".ng-panel-add input", "testhlword");

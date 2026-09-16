@@ -1167,6 +1167,9 @@ enum NgEntry {
         // この機能より前に登録されたエントリは None のままで、自動削除の対象外。
         #[serde(default, rename = "addedAt", skip_serializing_if = "Option::is_none")]
         added_at: Option<i64>,
+        // ワードのみ: 一致したレスと同じ ID / ワッチョイのレスもスレ内で NG にする。
+        #[serde(default, rename = "chainId", skip_serializing_if = "std::ops::Not::not")]
+        chain_id: bool,
     },
 }
 
