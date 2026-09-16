@@ -1,5 +1,6 @@
 import {
   Fragment,
+  startTransition,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -12,9 +13,11 @@ import {
   type PointerEvent as ReactPointerEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type UIEventHandler,
+  type MutableRefObject,
   type RefObject,
   type SetStateAction,
 } from "react";
+import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import ReactMarkdown from "react-markdown";
@@ -1780,6 +1783,64 @@ const extractBeNumber = (...sources: string[]): string | null => {
   }
   return null;
 };
+
+// 書き込み欄の本文入力。値を App の state (composeBody) に直結すると 1 打鍵ごとに App 全体
+// (スレ一覧・全レス) が描き直されて入力が引っかかるので、表示用の値はここで持ち、App 側へは
+// startTransition (低優先度・中断可) で反映する。送信ショートカットと blur の直前は flushSync で
+// 親に同期してから親のハンドラを呼ぶので、打った直後に送信・クリアしても本文が欠けない。
+type ComposeTextareaProps = {
+  value: string;
+  onChange: (value: string) => void;
+  onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
+  textareaRef: MutableRefObject<HTMLTextAreaElement | null>;
+  fontSize: number;
+};
+function ComposeTextarea({ value, onChange, onKeyDown, textareaRef, fontSize }: ComposeTextareaProps) {
+  const [local, setLocal] = useState(value);
+  // 直前に親から受け取った value (派生 state パターン。描画中に ref を書き換えると StrictMode の
+  // 二重描画で 2 回目に判定が消えるので、state で持つ)。
+  const [prevValue, setPrevValue] = useState(value);
+  // 親へ送ってまだ反映を確認していない値 (古い順)。親から来た value がこの中にあれば自分の入力が
+  // 追いついただけ。どれとも違えば外部からの変更 (クリア・絵文字挿入・引用など) なので取り込む。
+  const sentRef = useRef<string[]>([]);
+  // 親の最新ハンドラ。flushSync で親を描き直した直後に呼ぶので ref 経由で最新を参照する。
+  const onKeyDownRef = useRef(onKeyDown);
+  onKeyDownRef.current = onKeyDown;
+  if (value !== prevValue) {
+    setPrevValue(value);
+    if (!sentRef.current.includes(value) && local !== value) setLocal(value);
+  }
+  useEffect(() => {
+    const i = sentRef.current.lastIndexOf(value);
+    sentRef.current = i >= 0 ? sentRef.current.slice(i + 1) : [];
+  }, [value]);
+  const flushToParent = () => {
+    if (sentRef.current.length === 0) return;
+    flushSync(() => onChange(local));
+  };
+  return (
+    <textarea
+      ref={textareaRef}
+      className="compose-body"
+      value={local}
+      onChange={(e) => {
+        const v = e.target.value;
+        setLocal(v);
+        sentRef.current.push(v);
+        startTransition(() => onChange(v));
+      }}
+      onKeyDown={(e) => {
+        // 修飾キー付き Enter (送信ショートカット) は親が本文を読むので先に同期する
+        if (e.key === "Enter" && (e.shiftKey || e.ctrlKey || e.metaKey)) flushToParent();
+        onKeyDownRef.current(e);
+      }}
+      onBlur={flushToParent}
+      placeholder="本文を入力"
+      autoFocus
+      style={{ fontSize: `${fontSize}px` }}
+    />
+  );
+}
 
 export default function App() {
   const [status, setStatus] = useState("not fetched");
@@ -5348,7 +5409,9 @@ export default function App() {
   const selectedThreadItem = visibleThreadItems.find((t) => t.id === selectedThread) ?? null;
   const unreadThreadCount = visibleThreadItems.filter((t) => !threadReadMap[t.id]).length;
   const selectedThreadLabel = selectedThreadItem ? `#${selectedThreadItem.id}` : "-";
-  const responseItems = [
+  // 派生データ (backRefMap / ngResultMap など) の useMemo が効くように、レス配列は fetchedResponses が
+  // 変わったときだけ作り直す。
+  const responseItems = useMemo(() => [
     ...(fetchedResponses.length > 0
       ? fetchedResponses.map((r) => {
           const rawName = r.name || "Anonymous";
@@ -5375,7 +5438,7 @@ export default function App() {
           { id: 3, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:04 ID:Smoke0003", text: ">>1 次: subject/dat取得連携", beNumber: null, watchoi: null },
           { id: 4, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:06 ID:SmokeSame", text: ">>3 参考 https://example.com/page を参照", beNumber: null, watchoi: null },
         ]),
-  ];
+  ], [fetchedResponses]);
   const extractId = (time: string) => {
     const m = time.match(/ID:(\S+)/);
     return m ? m[1] : "";
@@ -5732,7 +5795,7 @@ export default function App() {
   // Build back-reference map: responseNo → list of responseNos that reference it
   // ngChainRefMap は連鎖あぼーん用に範囲アンカー (>>1-100) を除いたもの。範囲を含めると
   // NG レスが 1 つ混ざるだけで広範囲に連鎖してしまう。
-  const { backRefMap, ngChainRefMap } = (() => {
+  const { backRefMap, ngChainRefMap } = useMemo(() => {
     const map = new Map<number, number[]>();
     const chainMap = new Map<number, number[]>();
     const addRef = (target: number, from: number, isRange = false) => {
@@ -5761,17 +5824,18 @@ export default function App() {
       }
     }
     return { backRefMap: map, ngChainRefMap: chainMap };
-  })();
+  }, [responseItems]);
 
-  const ngResultMap = new Map<number, NgMode>();
-  {
+  // evalNg が見るのは ngFilters だけなので、依存はその 4 つで足りる。
+  const ngResultMap = useMemo(() => {
+    const map = new Map<number, NgMode>();
     // 1 パス目: エントリに直接一致したレス。「ID連鎖」付きワードに当たったレスの
     // ID / ワッチョイを集めておく (スレ内だけの一時的な連鎖で、NG リストには追加しない)。
     const chainIds = new Map<string, NgMode>();
     const chainWatchois = new Map<string, NgMode>();
     for (const r of responseItems) {
       const { mode, chainMode } = evalNg({ name: r.name, time: r.time, text: r.text, responseNo: r.id });
-      if (mode) ngResultMap.set(r.id, mode);
+      if (mode) map.set(r.id, mode);
       if (!chainMode) continue;
       const id = extractId(r.time);
       if (id && id !== "???") chainIds.set(id, strongerNgMode(chainIds.get(id) ?? null, chainMode));
@@ -5786,7 +5850,7 @@ export default function App() {
         const byWatchoi = r.watchoi ? chainWatchois.get(r.watchoi) : undefined;
         let m: NgMode | null = byId ?? null;
         if (byWatchoi) m = strongerNgMode(m, byWatchoi);
-        if (m) ngResultMap.set(r.id, strongerNgMode(ngResultMap.get(r.id) ?? null, m));
+        if (m) map.set(r.id, strongerNgMode(map.get(r.id) ?? null, m));
       }
     }
     // 3 パス目: 連鎖あぼーん。NG (非表示 / あぼーん) になったレスへ安価を打ったレスも
@@ -5795,15 +5859,16 @@ export default function App() {
     if (ngChainReplies) {
       for (const r of responseItems) {
         if (r.id === 1) continue;
-        const mode = ngResultMap.get(r.id);
+        const mode = map.get(r.id);
         if (mode !== "hide" && mode !== "abone") continue;
         for (const from of ngChainRefMap.get(r.id) ?? []) {
           if (from === r.id || from === 1) continue;
-          ngResultMap.set(from, strongerNgMode(ngResultMap.get(from) ?? null, "abone"));
+          map.set(from, strongerNgMode(map.get(from) ?? null, "abone"));
         }
       }
     }
-  }
+    return map;
+  }, [responseItems, ngFilters, ngChainReplies, ngChainRefMap]);
   const ngFilteredCount = ngResultMap.size;
 
   const visibleResponseItems = responseItems.filter((r) => {
@@ -9273,15 +9338,12 @@ export default function App() {
         sage
       </label>
     </div>
-    <textarea
-      ref={composeBodyRef}
-      className="compose-body"
+    <ComposeTextarea
+      textareaRef={composeBodyRef}
       value={composeBody}
-      onChange={(e) => setComposeBody(e.target.value)}
+      onChange={setComposeBody}
       onKeyDown={onComposeBodyKeyDown}
-      placeholder="本文を入力"
-      autoFocus
-      style={{ fontSize: `${composeFontSize}px` }}
+      fontSize={composeFontSize}
     />
     {composePreview && (
       <div className="compose-preview" dangerouslySetInnerHTML={renderResponseBody(composeBody || "(空)", { youtubeThumbs: youtubeThumbsEnabled })} />

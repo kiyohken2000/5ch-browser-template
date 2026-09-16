@@ -274,6 +274,13 @@ try {
   const metaText = await composeMeta.evaluate((el) => el.textContent || "");
   assert(metaText.includes("文字"), `compose meta should show 文字, got: ${metaText}`);
   assert(metaText.includes("行"), `compose meta should show 行, got: ${metaText}`);
+  // 本文は textarea 側で先に反映され、文字数 (App 側の state) は transition で追いつく
+  await page.type(".compose-window textarea.compose-body", "abc\nde");
+  const typedNow = await page.$eval(".compose-window textarea.compose-body", (el) => el.value);
+  assert(typedNow === "abc\nde", `typed text should appear immediately, got: ${JSON.stringify(typedNow)}`);
+  await page.waitForFunction(() => (document.querySelector(".compose-meta")?.textContent || "").startsWith("6文字 / 2行"), null, { timeout: 3000 });
+  await page.fill(".compose-window textarea.compose-body", "");
+  await page.waitForFunction(() => (document.querySelector(".compose-meta")?.textContent || "").startsWith("0文字"), null, { timeout: 3000 });
   // close compose
   await page.click(".compose-header button:has-text('閉じる')");
   console.log("smoke-ui: compose target and meta ok");
