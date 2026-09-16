@@ -2472,7 +2472,17 @@ export default function App() {
   const [beMenu, setBeMenu] = useState<{ x: number; y: number; beNumber: string } | null>(null);
   const beMenuRef = useRef<HTMLDivElement>(null);
   const anchorPopupCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [backRefPopup, setBackRefPopup] = useState<{ x: number; y: number; anchorTop: number; responseIds: number[]; z?: number } | null>(null);
+  const [backRefPopup, setBackRefPopup] = useState<{ x: number; y: number; anchorTop: number; anchorBottom: number; responseIds: number[]; z?: number } | null>(null);
+  // レス系ポップアップを出す側 (上/下) と、その側に収まる高さを決める。下に maxH 分の空きがなく
+  // 上のほうが広ければ上に出す。どちらに出すにしても空きより高くはしない (中をスクロールさせる) ので、
+  // 参照数の多いレスや小さいウィンドウでも画面外にはみ出さない。
+  const fitPopupVertically = (belowTop: number, aboveBottom: number, maxH: number) => {
+    const spaceBelow = window.innerHeight - belowTop - 8;
+    const spaceAbove = aboveBottom - 8;
+    const flipUp = spaceBelow < maxH && spaceAbove > spaceBelow;
+    const maxHeight = Math.max(120, Math.min(maxH, flipUp ? spaceAbove : spaceBelow));
+    return { flipUp, maxHeight };
+  };
   // タッチ操作では「マウスが離れたら閉じる」が使えないので、まとめて閉じる手段が要る。
   const closeAllPopups = () => {
     if (anchorPopupCloseTimer.current) {
@@ -10798,12 +10808,12 @@ export default function App() {
                             if (!isTouchMode()) return;
                             e.stopPropagation();
                             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                            setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, responseIds: backRefMap.get(r.id)!, z: allocatePopupZ() });
+                            setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, anchorBottom: rect.bottom, responseIds: backRefMap.get(r.id)!, z: allocatePopupZ() });
                           }}
                           onMouseEnter={(e) => {
                             if (isTouchMode()) return;
                             const rect = (e.target as HTMLElement).getBoundingClientRect();
-                            setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, responseIds: backRefMap.get(r.id)! });
+                            setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, anchorBottom: rect.bottom, responseIds: backRefMap.get(r.id)! });
                           }}
                         >
                           ▼{backRefMap.get(r.id)!.length}
@@ -12317,12 +12327,10 @@ export default function App() {
       {anchorPopup && (() => {
         const popupResps = anchorPopup.responseIds.map((id) => responseItems.find((r) => r.id === id)).filter(Boolean) as typeof responseItems;
         if (popupResps.length === 0) return null;
-        const maxH = 300;
-        const spaceBelow = window.innerHeight - anchorPopup.y;
-        const flipUp = spaceBelow < maxH && anchorPopup.anchorTop > spaceBelow;
+        const { flipUp, maxHeight } = fitPopupVertically(anchorPopup.y, anchorPopup.anchorTop - 1, 300);
         const posStyle = flipUp
-          ? { left: anchorPopup.x, bottom: window.innerHeight - anchorPopup.anchorTop + 1 }
-          : { left: anchorPopup.x, top: anchorPopup.y };
+          ? { left: anchorPopup.x, bottom: window.innerHeight - anchorPopup.anchorTop + 1, maxHeight }
+          : { left: anchorPopup.x, top: anchorPopup.y, maxHeight };
         return (
           <div
             className="anchor-popup"
@@ -12363,11 +12371,18 @@ export default function App() {
       })()}
       {backRefPopup && (() => {
         const refs = backRefPopup.responseIds;
+        // 従来は常に ▼N の上に出していたが、▼N が画面上部にあると参照数ぶんの高さが上にはみ出して見えなかった。
+        const { flipUp: brFlipUp, maxHeight: brMaxHeight } = fitPopupVertically(backRefPopup.anchorBottom + 1, backRefPopup.y, 360);
+        const brWidth = Math.min(680, window.innerWidth - 24);
+        const brLeft = Math.max(8, Math.min(backRefPopup.x, window.innerWidth - brWidth - 8));
+        const brPosStyle = brFlipUp
+          ? { left: brLeft, bottom: window.innerHeight - backRefPopup.y, maxHeight: brMaxHeight }
+          : { left: brLeft, top: backRefPopup.anchorBottom + 1, maxHeight: brMaxHeight };
         return (
           <div
             className="anchor-popup back-ref-popup"
             data-popup-z={backRefPopup.z ?? 0}
-            style={{ left: backRefPopup.x, bottom: window.innerHeight - backRefPopup.y, zIndex: backRefPopup.z, '--fs-delta': `${responsesFontSize - 12}px` } as React.CSSProperties}
+            style={{ ...brPosStyle, zIndex: backRefPopup.z, '--fs-delta': `${responsesFontSize - 12}px` } as unknown as React.CSSProperties}
             onMouseEnter={() => {
               if (isTouchMode()) return;
               if (anchorPopupCloseTimer.current) {
@@ -12404,14 +12419,12 @@ export default function App() {
       {nestedPopups.map((np, i) => {
         const nestedResps = np.responseIds.map((id) => responseItems.find((r) => r.id === id)).filter(Boolean) as typeof responseItems;
         if (nestedResps.length === 0) return null;
-        const nMaxH = 300;
-        const nSpaceBelow = window.innerHeight - np.y;
-        const nFlipUp = nSpaceBelow < nMaxH && np.anchorTop > nSpaceBelow;
+        const { flipUp: nFlipUp, maxHeight: nMaxHeight } = fitPopupVertically(np.y + i * 8, np.anchorTop - 1 - i * 8, 300);
         const nPopupWidth = Math.min(620, window.innerWidth - 24);
         const nLeft = Math.max(8, Math.min(np.x + i * 8, window.innerWidth - nPopupWidth - 8));
         const nPosStyle = nFlipUp
-          ? { left: nLeft, bottom: window.innerHeight - np.anchorTop + 1 + i * 8 }
-          : { left: nLeft, top: np.y + i * 8 };
+          ? { left: nLeft, bottom: window.innerHeight - np.anchorTop + 1 + i * 8, maxHeight: nMaxHeight }
+          : { left: nLeft, top: np.y + i * 8, maxHeight: nMaxHeight };
         return (
           <div
             key={`${np.responseIds[0]}-${i}`}
@@ -12454,12 +12467,10 @@ export default function App() {
       })}
       {idPopup && (() => {
         const idResponses = responseItems.filter((r) => extractId(r.time) === idPopup.id);
-        const idMaxH = 360;
-        const idSpaceBelow = window.innerHeight - idPopup.y;
-        const idFlipUp = idSpaceBelow < idMaxH && idPopup.anchorTop > idSpaceBelow;
+        const { flipUp: idFlipUp, maxHeight: idMaxHeight } = fitPopupVertically(idPopup.y, idPopup.anchorTop - 2, 360);
         const idPosStyle = idFlipUp
-          ? { right: idPopup.right, bottom: window.innerHeight - idPopup.anchorTop + 2 }
-          : { right: idPopup.right, top: idPopup.y };
+          ? { right: idPopup.right, bottom: window.innerHeight - idPopup.anchorTop + 2, maxHeight: idMaxHeight }
+          : { right: idPopup.right, top: idPopup.y, maxHeight: idMaxHeight };
         return (
           <div
             className="id-popup"

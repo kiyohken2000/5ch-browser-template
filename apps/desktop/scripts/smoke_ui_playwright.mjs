@@ -316,6 +316,30 @@ try {
   assert(!(await page.$(".anchor-popup")), "leaving all popups should close everything");
   console.log("smoke-ui: popup chain trim ok");
 
+  // --- ▼N ポップアップは画面内に収まり、下に空きがあれば下に出る ---
+  // (以前は常に ▼N の上に固定だったので、▼N が画面上部にあると参照数ぶん上にはみ出して見えなかった)
+  {
+    const trigger = await page.$('.response-scroll .response-block[data-response-no="1"] .back-ref-trigger');
+    assert(trigger, "response 1 should carry a ▼N badge in the fallback data");
+    await trigger.hover();
+    await page.waitForSelector(".back-ref-popup", { timeout: 2000 });
+    const r = await page.evaluate(() => {
+      const t = document.querySelector('.response-scroll .response-block[data-response-no="1"] .back-ref-trigger').getBoundingClientRect();
+      const p = document.querySelector(".back-ref-popup").getBoundingClientRect();
+      return { tTop: t.top, tBottom: t.bottom, pTop: p.top, pBottom: p.bottom, pLeft: p.left, pRight: p.right, h: window.innerHeight, w: window.innerWidth };
+    });
+    assert(r.pTop >= 0 && r.pBottom <= r.h && r.pLeft >= 0 && r.pRight <= r.w, `back-ref popup should stay inside the viewport, got ${JSON.stringify(r)}`);
+    if (r.h - r.tBottom >= 360 + 8) {
+      assert(r.pTop >= r.tBottom, `back-ref popup should open below ▼N when there is room, got ${JSON.stringify(r)}`);
+    }
+    // ホバー表示の ▼N ポップアップはポップアップ自体から離れたときに閉じる
+    await page.hover(".back-ref-popup");
+    await page.mouse.move(5, 5);
+    await new Promise((res) => setTimeout(res, 300));
+    assert(!(await page.$(".back-ref-popup")), "leaving the back-ref popup should close it");
+    console.log("smoke-ui: back-ref popup placement ok");
+  }
+
   // double-click response row opens compose with quote
   // first close any open compose window
   const openCompose = await page.$(".compose-window");
