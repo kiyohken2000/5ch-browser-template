@@ -1949,11 +1949,31 @@ async fn upload_image(file_data: String, file_name: String) -> Result<ImageUploa
         let msg = json.get("message").and_then(|v| v.as_str()).unwrap_or("unknown error");
         return Err(format!("アップロード失敗: {}", msg));
     }
+    // 旧形式: {"source_url": "...", "thumbnail": "...", "url": "<ページURL>"}
+    // 新形式: {"post_id": "<ページURL>", "url": ["<画像URL>", ...]}
+    let json_str = |key: &str| json.get(key).and_then(|v| v.as_str()).map(|s| s.to_string());
+    let url_field = json.get("url");
+    let url_as_image = url_field
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.first())
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let source_url = json_str("source_url").or(url_as_image);
+    let Some(source_url) = source_url else {
+        let head: String = body.chars().take(200).collect();
+        return Err(format!("応答に画像URLが含まれていません: {}", head));
+    };
+    let thumbnail = json_str("thumbnail").unwrap_or_else(|| source_url.clone());
+    let page_url = url_field
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| json_str("post_id").filter(|s| s.starts_with("http")))
+        .unwrap_or_default();
     Ok(ImageUploadResult {
         success: true,
-        source_url: json.get("source_url").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        thumbnail: json.get("thumbnail").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        page_url: json.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        source_url,
+        thumbnail,
+        page_url,
     })
 }
 
