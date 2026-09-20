@@ -655,7 +655,7 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 5. **精度**: SemIf の数値は英語タスク。日本語の 5ch レスで Qwen3.5-4B(カタログ収録済み)/ LFM2.5-1.2B-JP を数ルールで実測してから採否を決める。ラベル softmax は calibrated ではないので、閾値はデータを見て決める
 6. 遅延 NG・SQLite キャッシュ・連鎖に乗せない・モデル未有効時は UI に出さない、は上記 3〜4 のまま
 
-**未確認事項の調査結果(2026-09-21。使い捨て検証 `crates/core-ai/examples/ng_probe.rs`、Gemma4-E2B-IT Q4_K_M、Windows / 32 スレッド CPU / Radeon RX 550)**:
+**未確認事項の調査結果(2026-09-21。検証プローブ `scripts/probe_ng_llm.rs`(examples/ にコピーしてビルド)、Gemma4-E2B-IT Q4_K_M、Windows / 32 スレッド CPU / Radeon RX 550)**:
 - **logit 読み出し API**: `LlamaContext::get_logits() -> &[f32]`(n_vocab 長、最後に `logits=true` で decode したトークン分)をトークン ID で添字するだけ。`candidates()` / `token_data_array()` は同じ配列を `LlamaTokenData`(`.id()` / `.logit()`)に包んだもの。`get_logits_ith(i)` でバッチ内の任意位置も取れる
 - **KV 巻き戻し API**: `LlamaContext::clear_kv_cache_seq(Some(0), Some(prefix_len), None)`(内部は `llama_memory_seq_rm`)。プレフィックス直後まで巻き戻して次のレス本文を同じ位置から decode できることを確認
 - **ラベルの単一トークン性(Gemma4 トークナイザ)**: `A` = 236776、`B` = 236799 で各 1 トークン。`<|turn>model\n` 直後に `A` を足しても前段のトークン列は変わらない(プレフィックス一貫性 OK)。`はい` は 1 トークンだが `いいえ` は 2 トークンなので、ラベルは A / B の英字にする。qwen / lfm2 / gemma3 は未計測(モデル未インストール)
