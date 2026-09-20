@@ -632,6 +632,40 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 4. 既存の連鎖(ID 連鎖・連鎖あぼーん)には乗せない(誤判定が波及するため)。まずは単発レスの判定のみ
 5. 精度検証: 実スレで数ルールを試し、誤判定率が実用に耐えなければ見送る。1B〜2B クラスのモデルでは日本語の皮肉・文脈依存の判定は弱い可能性が高い
 
+**代替候補: Laya(Jev クローンの公開実装。2026-09-21 追記、未検証)**:
+- Jev と同じ「選択肢にスコアを付けるだけ」の判定特化モデルの公開実装。ModernBERT(421M)/ mmBERT(322M、多言語)ベースで、質問タイプは `choice` / `score` / `noul`(yes/no)。重みは Hugging Face で配布(`aac6fef/laya-multilingual-mlx` など)、fp16 で 647MB(うち 61% が 256k 語彙の embedding)
+- Jev 不採用理由のうち「クラウド API のみ」「API キー必須」は該当しない(ローカル実行可・多言語版あり)。日本語精度は同じく未検証
+- 速度の参考値(mizchi 氏の記事 https://zenn.dev/mizchi/articles/laya-mlx-60fps): Apple Silicon の MLX で 1 判定 8ms(約 90 判定/秒)、WebGPU fp16 で約 20 判定/秒、WASM で約 5 判定/秒。上記 3 の「速度が最大の課題」は、生成 LLM の yes/no 判定より大幅に軽くなる可能性がある
+- **課題**: Ember の推論基盤は llama.cpp(GGUF)で、Laya は BERT 系エンコーダ。llama.cpp の BERT 対応で GGUF 化して分類ヘッドまで動かせるかは未確認。動かない場合は別の推論ランタイム(ONNX Runtime など)を追加することになり、新規 crate の承認が必要
+- 判断の質が「ルール文(説明文)の書き方」に強く依存する点は Jev と共通。ユーザーが書く自然文ルールでそのまま精度が出るかは要検証
+
+**同方式の実証例: SemIf(旧 OpenJev。2026-09-21 追記)**: https://openjev.com — TypeSafe とは無関係の独立研究プロジェクト。汎用 GGUF モデル(Qwen3 0.6B / MiniCPM5 2B / Qwen3.5 4B)を wllama(llama.cpp の WASM 版)+ WebGPU でブラウザ実行し、「選択肢の logit を直接読む方式」と「JSON を生成させる方式」を同じ質問で比較するデモ。独自評価(英語)の精度は MiniCPM5 2B 68.6%、Qwen3.5 4B 81.3%。専用モデルなしでも上記 2 の「1 トークン判定 + logit 確率」が成立する裏付けになる。Laya と違い **Ember の llama-cpp-2 / GGUF 基盤にそのまま乗る**構成で、Qwen3.5-4B はカタログ収録済み。
+
+**SemIf 方式の要点(openjev.com の worker.js を 2026-09-21 に確認)**:
+- chat 形式: system「Make the requested decision from the supplied state. Follow the output format exactly.」+ user「State: … / Question: … / Allowed options: A. … B. … / Reply with exactly one option letter from: A, B」
+- `max_tokens: 1`、thinking 無効(`enable_thinking: false`)、grammar でラベル文字のみ許可、ラベルトークンに `logit_bias +100`
+- 最初の生成トークンの top_logprobs からラベル(A / B / …)の logit を取り、**ラベルだけで softmax**。サイト自身が「calibrated confidence ではない」と注記
+- モデルごとにラベル `A` のトークン ID(`labelBase`: Qwen=32、MiniCPM=54)をハードコードしている
+
+**SemIf 方式で N23 を実装する場合の検討(2026-09-21。未着手・採否未定)**:
+1. **core-ai に判定 API を追加**: `score_options(model_path, prompt, option_labels, backend, cancel) -> Vec<f32>`。`complete_streaming` のプロンプト処理部(モデルキャッシュ・コンテキスト生成・チャンク decode)を流用し、生成ループの代わりに最後の decode 後の `ctx.token_data_array()` から各ラベルトークンの logit を読んで softmax を返す。生成トークンは 0。ラベルトークン ID はハードコードせず `model.str_to_token("A", AddBos::Never)` で引き、1 トークンにならないモデル(要確認: gemma / lfm2 / gemma4)は未対応として弾く
+2. **プロンプト**: 既存の `aiWrapTurn` / `aiSystemTurn` / `aiOpenAssistantTurn`(qwen は `<think>\n\n</think>` プリフィル込み)を流用し、NG は 2 択(A: ルールに該当する / B: 該当しない)の noul 相当にする。閾値は P(A) ≥ 0.8 既定、NG パネルで調整可。grammar / logit_bias は不要(logit を直接読むだけなので生成しない)
+3. **速度**: `complete_streaming` はコールごとに n_ctx 8192 のコンテキストを作るため、レス 1 件ずつ呼ぶとコンテキスト生成がボトルネックになる。判定用 API はコンテキストを使い回し、共通プレフィックス(system + ルール文)を KV キャッシュして**レス本文だけ decode → logit 読み → プレフィックス位置まで KV を巻き戻す**構造にする。レス 1 件のプロンプトは 200〜400 トークン程度なので、GPU で数十 ms、CPU で数百 ms〜秒のオーダーと見込む(要実測)。複数ルールはルールごとにレスをまとめて回す
+4. **排他**: 推論は `model_cache` の Mutex で直列化され、`ai_inference_cancel` はスロット 1 つ。判定は要約 / 返信生成 / 翻訳が動いていない**アイドル時のみ**バックグラウンドで進め、ユーザー操作の推論が来たら判定を中断して譲る
+5. **精度**: SemIf の数値は英語タスク。日本語の 5ch レスで Qwen3.5-4B(カタログ収録済み)/ LFM2.5-1.2B-JP を数ルールで実測してから採否を決める。ラベル softmax は calibrated ではないので、閾値はデータを見て決める
+6. 遅延 NG・SQLite キャッシュ・連鎖に乗せない・モデル未有効時は UI に出さない、は上記 3〜4 のまま
+
+**未確認事項の調査結果(2026-09-21。使い捨て検証 `crates/core-ai/examples/ng_probe.rs`、Gemma4-E2B-IT Q4_K_M、Windows / 32 スレッド CPU / Radeon RX 550)**:
+- **logit 読み出し API**: `LlamaContext::get_logits() -> &[f32]`(n_vocab 長、最後に `logits=true` で decode したトークン分)をトークン ID で添字するだけ。`candidates()` / `token_data_array()` は同じ配列を `LlamaTokenData`(`.id()` / `.logit()`)に包んだもの。`get_logits_ith(i)` でバッチ内の任意位置も取れる
+- **KV 巻き戻し API**: `LlamaContext::clear_kv_cache_seq(Some(0), Some(prefix_len), None)`(内部は `llama_memory_seq_rm`)。プレフィックス直後まで巻き戻して次のレス本文を同じ位置から decode できることを確認
+- **ラベルの単一トークン性(Gemma4 トークナイザ)**: `A` = 236776、`B` = 236799 で各 1 トークン。`<|turn>model\n` 直後に `A` を足しても前段のトークン列は変わらない(プレフィックス一貫性 OK)。`はい` は 1 トークンだが `いいえ` は 2 トークンなので、ラベルは A / B の英字にする。qwen / lfm2 / gemma3 は未計測(モデル未インストール)
+- **精度(日本語・手書き 12 件、ルール「政治の話題で他人を罵倒している」)**: 11 / 12 正解。唯一の誤りは「お前みたいなバカがいるからスレが荒れるんだよ。消えろ」(政治要素なしの罵倒)を P(A)=1.000 で該当と判定 — ルールの複合条件(政治 **かつ** 罵倒)の片側だけで反応する傾向。P(A) はほぼ 0.000 / 1.000 に飽和しており、**閾値 0.8 は不確実性フィルタとして機能しない**(SemIf の「calibrated ではない」注記どおり)。全 12 件で最上位トークンは A か B(思考チャネルへの逸脱なし)
+- **速度**: CPU で「レスごとに新規コンテキスト」約 700ms / 件(約 105 トークン)、「プレフィックス KV 共有 + 巻き戻し」約 400ms / 件(本文 + 末尾 約 60 トークン)。GPU(RX 550)は逆に遅く 2.3 秒 / 1.45 秒 — このカードが弱いだけの可能性が高く、他 GPU では未計測。実装するなら CPU 前提で 1 スレ 100 レスの新着 = 40 秒〜70 秒のバックグラウンド処理になる
+- **LFM2.5-1.2B-JP Q4_K_M(同日追試、CPU)**: **不適**。12 件中 5〜6 件正解(偶然と同等)で、ほぼ全レスを「該当する」と答える。選択肢の意味を A / B 入れ替えても「該当する」側を選ぶので位置バイアスではなく意味的な yes バイアス。指示文を system ターンに出すと 6〜8 / 12 に上がるが不安定。速度は約 380ms / 件(トークン数は Gemma4 より多い 約 130)
+- **KV 巻き戻しはアーキテクチャ依存**: LFM2(Hybrid Conv + Attn)と **Qwen3.5(Gated DeltaNet + Attn)** では `clear_kv_cache_seq` の部分削除が `false` を返す(再帰型メモリは範囲削除不可)。全消去 + プレフィックス再 decode にフォールバックすると新規コンテキストと同等の時間で、プレフィックス共有の効果はゼロ。有効なのは Gemma4 / Gemma3 のような純 Attention モデルのみ。実装するなら戻り値を見てフォールバックする必要があり、プレフィックス共有は「効けば速い」程度の最適化として扱う
+- **Qwen3.5-4B Q4_K_M(同日追試、CPU)**: **11 / 12 正解**(誤りは Gemma4 と同じ「政治要素なしの罵倒」1 件)。Gemma4 と違い **確率が飽和せず使える**: 該当 0.97〜0.99、明確な非該当 0.01〜0.24、境界例(「立憲の議員がまた失言してて笑った」「>>12 それ去年のニュースだぞ」)は 0.45〜0.54 に落ちる。選択肢を A / B 入れ替えても同じ判定(位置バイアスなし)。`<think>` はプリフィルで抑止でき最上位は常に A / B。**速度は約 1.6 秒 / 件(CPU)** で Gemma4-E2B の 4 倍
+- **結論**: 技術的には既存基盤だけで成立し、追加 crate は不要。モデル依存が大きい: LFM2.5-1.2B-JP は不可、Gemma4-E2B は精度 11/12 で速い(0.4〜0.7 秒 / 件)が確率が 0/1 に飽和して閾値が効かない、Qwen3.5-4B は精度 11/12 で閾値 0.8 が境界例の除外として機能するが 1.6 秒 / 件と遅い。**推奨は「判定はアクティブモデルに従い、閾値 UI は確率が飽和しないモデル(Qwen 系)でのみ意味がある」前提で Gemma4-E2B 以上を対応モデルとする**こと。実スレ 100 件規模での誤判定率は未計測
+
 **対象ファイル(想定)**: `apps/desktop/src/App.tsx`(NG パネル・`ngResultMap`)、`apps/desktop/src-tauri/src/lib.rs`(判定コマンド)、`crates/core-ai/src/lib.rs`(yes/no 判定 API と logit 取得)、`crates/core-store/src/lib.rs`(判定キャッシュ)、`apps/desktop/scripts/smoke_ui_playwright.mjs`
 
 **完了条件(採用した場合)**: ルール追加 → 新着レスが裏で判定され、閾値以上のレスが指定モードで NG になる。判定はローカル完結で外部送信なし。モデル未有効時は UI に出ない。smoke green。
