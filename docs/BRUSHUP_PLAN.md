@@ -646,6 +646,12 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 - `max_tokens: 1`、thinking 無効(`enable_thinking: false`)、grammar でラベル文字のみ許可、ラベルトークンに `logit_bias +100`
 - 最初の生成トークンの top_logprobs からラベル(A / B / …)の logit を取り、**ラベルだけで softmax**。サイト自身が「calibrated confidence ではない」と注記
 - モデルごとにラベル `A` のトークン ID(`labelBase`: Qwen=32、MiniCPM=54)をハードコードしている
+- **llama.rn(React Native の llama.cpp バインディング)で同方式を動かした際の落とし穴(FeedOwn 側で 2026-09-21 実機確認。Ember の llama-cpp-2 には直接関係しないが、生成 API 経由で確率を読む実装全般に当てはまる)**:
+  1. `logit_bias` を渡すとネイティブクラッシュ(`cpp/jsi/JSIParams.cpp` が `std::vector<llama_logit_bias>` をトークン ID で添字アクセス。`ignore_eos` も同じ。main でも未修正)。grammar だけで足りるので `logit_bias` 行は削除
+  2. `completion_probabilities` が completion をまたいで蓄積する(非並列 `completion()` の `generated_token_probs` が `rewind()` で clear されない)。`[0]` を読むと最初の 1 件の値が全件に出る → **末尾要素を読む**
+  3. `n_probs` はサンプラ適用後の値。llama.cpp 既定の `min_p 0.05 / top_k 40 / top_p 0.95` が掛かったままだと弱い側のラベルが切り捨てられて 0 になる → `temperature 1, top_k 0, top_p 1, min_p 0, typical_p 1` を明示する。grammar 有無での確率差はごく小さい(Qwen3 0.6B で 0.920 / 0.916)
+  - 1 と 2 は llama.rn の Issue として報告済み(post-sampling probs の提案つき): https://github.com/mybigday/llama.rn/issues/401
+  - Ember の `scripts/probe_ng_llm.rs` は `ctx.get_logits()` の生 logits から A / B の 2 値 softmax を自前計算しており、サンプラチェーンを通らないので 3 の切り捨ては受けない(2026-09-21 確認)
 
 **SemIf 方式で N23 を実装する場合の検討(2026-09-21。未着手・採否未定)**:
 1. **core-ai に判定 API を追加**: `score_options(model_path, prompt, option_labels, backend, cancel) -> Vec<f32>`。`complete_streaming` のプロンプト処理部(モデルキャッシュ・コンテキスト生成・チャンク decode)を流用し、生成ループの代わりに最後の decode 後の `ctx.token_data_array()` から各ラベルトークンの logit を読んで softmax を返す。生成トークンは 0。ラベルトークン ID はハードコードせず `model.str_to_token("A", AddBos::Never)` で引き、1 トークンにならないモデル(要確認: gemma / lfm2 / gemma4)は未対応として弾く
@@ -665,6 +671,8 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 - **KV 巻き戻しはアーキテクチャ依存**: LFM2(Hybrid Conv + Attn)と **Qwen3.5(Gated DeltaNet + Attn)** では `clear_kv_cache_seq` の部分削除が `false` を返す(再帰型メモリは範囲削除不可)。全消去 + プレフィックス再 decode にフォールバックすると新規コンテキストと同等の時間で、プレフィックス共有の効果はゼロ。有効なのは Gemma4 / Gemma3 のような純 Attention モデルのみ。実装するなら戻り値を見てフォールバックする必要があり、プレフィックス共有は「効けば速い」程度の最適化として扱う
 - **Qwen3.5-4B Q4_K_M(同日追試、CPU)**: **11 / 12 正解**(誤りは Gemma4 と同じ「政治要素なしの罵倒」1 件)。Gemma4 と違い **確率が飽和せず使える**: 該当 0.97〜0.99、明確な非該当 0.01〜0.24、境界例(「立憲の議員がまた失言してて笑った」「>>12 それ去年のニュースだぞ」)は 0.45〜0.54 に落ちる。選択肢を A / B 入れ替えても同じ判定(位置バイアスなし)。`<think>` はプリフィルで抑止でき最上位は常に A / B。**速度は約 1.6 秒 / 件(CPU)** で Gemma4-E2B の 4 倍
 - **結論**: 技術的には既存基盤だけで成立し、追加 crate は不要。モデル依存が大きい: LFM2.5-1.2B-JP は不可、Gemma4-E2B は精度 11/12 で速い(0.4〜0.7 秒 / 件)が確率が 0/1 に飽和して閾値が効かない、Qwen3.5-4B は精度 11/12 で閾値 0.8 が境界例の除外として機能するが 1.6 秒 / 件と遅い。**推奨は「判定はアクティブモデルに従い、閾値 UI は確率が飽和しないモデル(Qwen 系)でのみ意味がある」前提で Gemma4-E2B 以上を対応モデルとする**こと。実スレ 100 件規模での誤判定率は未計測
+- **モバイル実測(FeedOwn 側、iPhone 13 mini / A15 / 4 GB、iOS 27、llama.rn 0.12.4、Metal、同じ 12 件。2026-09-21)**: Qwen3.5-4B と Gemma4-E2B は OOM で載らず、使えるのは **Qwen3.5-2B Q4_K_M のみ**。2B は **10 / 12**(該当 0.57〜0.76 / 非該当 0.11〜0.39 / 境界例 0.39)、約 530 ms / 件。誤りは 4B と同じ「政治要素なしの罵倒」を 0.80 で該当としたものと、「首相会見の雑談」が 0.51 で境界超え(閾値 0.55 なら 11 / 12)。4B の「該当 0.97〜0.99」に対し 2B は該当側のマージンが薄く、**デスクトップで 4B を選ぶ判断は妥当**。Qwen3.5-0.8B は 8 / 12 で全件 0.39〜0.61(判別力なし)、対照の Qwen3-0.6B は 5 / 12(yes バイアス)、Gemma3-1B-IT は 4 / 12(0 / 1 飽和 + 逆向き)
+- **訂正: llama.rn 0.12.4 には hybrid モデルのプレフィックス再利用が無い**(0.12.7 で追加、release note #367)。上記 530 ms は毎回約 110 トークンを全 prefill した値(`timings.cache_n == prompt_n`)。「llama.rn なら Qwen3.5 でも状態スナップショットでプレフィックス共有が効く」は main 基準の話で、0.12.4 では効かない
 
 **見送り判定(2026-09-21。GPU 前提案の検討を含む)**:
 
@@ -697,7 +705,7 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 1. **前提を「Qwen3.5-4B + GPU(実測 0.5 秒 / 件以下)」に絞る**。CPU 環境・Gemma4 での提供は行わない
 2. Mac M2 で probe を Qwen3.5-4B で回し、Metal の実数を取る。RTX はユーザー報告があれば追記
 3. 本実装の前に、**「手動で 1 スレ判定して該当レス一覧 + 確率を表示するだけ」の試作**(`core-ai` に `score_options` を足し、App.tsx に一覧を出す程度。遅延 NG・キャッシュ・スケジューラは作らない)で、実スレ 5〜10 本 × ルール 3〜4 本の偽陽性を数える。許容範囲なら上記計画 3〜4 に進み、ダメなら却下に落として理由を記録する
-4. 別プロジェクト(React Native Expo / llama.rn)で同方式の `judge()` を先に動かして実スレ規模の手応えを見てからでも遅くない(llama.rn は Qwen3.5 でも状態スナップショットによるプレフィックス共有が効くので計測が速く回る)
+4. 別プロジェクト(React Native Expo / llama.rn)で同方式の `judge()` を先に動かして実スレ規模の手応えを見てからでも遅くない(llama.rn は 0.12.7 以降なら Qwen3.5 でも状態スナップショットによるプレフィックス共有が効く。0.12.4 では効かない — 上記「訂正」参照)。**2026-09-21 に FeedOwn 側で 12 件の実機検証まで実施済み**(上記「モバイル実測」)。実スレ規模はどちら側でも未計測
 
 **対象ファイル(想定)**: `apps/desktop/src/App.tsx`(NG パネル・`ngResultMap`)、`apps/desktop/src-tauri/src/lib.rs`(判定コマンド)、`crates/core-ai/src/lib.rs`(yes/no 判定 API と logit 取得)、`crates/core-store/src/lib.rs`(判定キャッシュ)、`apps/desktop/scripts/smoke_ui_playwright.mjs`
 

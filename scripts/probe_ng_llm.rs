@@ -116,6 +116,14 @@ fn report(model: &LlamaModel, ctx: &LlamaContext, a: LlamaToken, b: LlamaToken) 
     (pa, rank_best, top5.join(" "))
 }
 
+// サニティチェック: 全件が bit 単位で同じ確率なら、最終トークンの logits フラグが立っていない等で
+// 古い logits を読み続けている疑いが濃い (llama.rn の completion_probabilities 蓄積バグで実際に起きた形)。
+fn warn_if_identical(mode: &str, ps: &[f32]) {
+    if ps.len() >= 2 && ps.iter().all(|p| p.to_bits() == ps[0].to_bits()) {
+        println!("WARN mode {mode}: all {} P(該当) values are bit-identical ({:.6}) — stale logits? check the logits=true flag in decode_all", ps.len(), ps[0]);
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let model_path = &args[1];
@@ -162,6 +170,7 @@ fn main() {
         .with_n_batch(2048);
     let mut correct = 0;
     let mut total_ms = 0.0;
+    let mut ps: Vec<f32> = Vec::new();
     println!("\n== mode A: fresh context per response ==");
     for (body, expect) in CASES {
         let prompt = system_turn(template) + &wrap_user(template, &build_content(RULE, body)) + &opener;
@@ -173,12 +182,14 @@ fn main() {
         let (pa, rank, top5) = report(&model, &ctx, a, b);
         let ms = t.elapsed().as_secs_f64() * 1000.0;
         total_ms += ms;
+        ps.push(pa);
         let pm = p_match(pa);
         let pred = if pm >= 0.5 { "A" } else { "B" };
         if pred == *expect { correct += 1; }
         println!("{} exp={expect} P(該当)={pm:.3} rank(A|B)={rank} {ms:.0}ms n_tok={} top5={top5} | {}", if pred == *expect { "ok " } else { "NG " }, toks.len(), body.chars().take(24).collect::<String>());
     }
     println!("mode A: {correct}/{} correct, avg {:.0}ms", CASES.len(), total_ms / CASES.len() as f64);
+    warn_if_identical("A", &ps);
 
     // --- 3. 共通プレフィックスを KV キャッシュして本文だけ decode ---
     println!("\n== mode B: shared prefix KV cache + rewind ==");
@@ -199,6 +210,7 @@ fn main() {
     let user_close = &user_close[close_idx + 1..];
     let mut correct = 0;
     let mut total_ms = 0.0;
+    let mut ps: Vec<f32> = Vec::new();
     let mut rewind_failed = 0;
     for (body, expect) in CASES {
         let suffix = format!("{body}{head_b}{user_close}{opener}");
@@ -217,10 +229,12 @@ fn main() {
         }
         let ms = t.elapsed().as_secs_f64() * 1000.0;
         total_ms += ms;
+        ps.push(pa);
         let pm = p_match(pa);
         let pred = if pm >= 0.5 { "A" } else { "B" };
         if pred == *expect { correct += 1; }
         println!("{} exp={expect} P(該当)={pm:.3} rank(A|B)={rank} {ms:.0}ms n_tok={} top5={top5} | {}", if pred == *expect { "ok " } else { "NG " }, tok_suffix.len(), body.chars().take(24).collect::<String>());
     }
     println!("mode B: {correct}/{} correct, avg {:.0}ms, partial seq_rm unsupported x{rewind_failed} (fell back to full re-decode)", CASES.len(), total_ms / CASES.len() as f64);
+    warn_if_identical("B", &ps);
 }
