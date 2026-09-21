@@ -637,6 +637,7 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 - Jev 不採用理由のうち「クラウド API のみ」「API キー必須」は該当しない(ローカル実行可・多言語版あり)。日本語精度は同じく未検証
 - 速度の参考値(mizchi 氏の記事 https://zenn.dev/mizchi/articles/laya-mlx-60fps): Apple Silicon の MLX で 1 判定 8ms(約 90 判定/秒)、WebGPU fp16 で約 20 判定/秒、WASM で約 5 判定/秒。上記 3 の「速度が最大の課題」は、生成 LLM の yes/no 判定より大幅に軽くなる可能性がある
 - **課題**: Ember の推論基盤は llama.cpp(GGUF)で、Laya は BERT 系エンコーダ。llama.cpp の BERT 対応で GGUF 化して分類ヘッドまで動かせるかは未確認。動かない場合は別の推論ランタイム(ONNX Runtime など)を追加することになり、新規 crate の承認が必要
+- MLX 移植の本体: https://github.com/mizorewww/laya-mlx(Apache-2.0、2026-09-19 公開、2026-09-22 確認)。上記 zenn 記事はこの実装の測定。README の公称値は M3 Max・FP16 で短い質問 1 件 P50 13.4 ms(英語 421M)/ 7.4 ms(多言語 322M)、ピークメモリ 940 / 690 MiB、上流 PyTorch 版と 63/63 問で選択ラベル一致。**Apple Silicon + Python 3.11+ + macOS 14+ 限定**の Python パッケージなので、Rust/Tauri の Ember からそのまま使えず Windows では動かない。採用するなら上記「課題」の別ランタイム問題は変わらず
 - 判断の質が「ルール文(説明文)の書き方」に強く依存する点は Jev と共通。ユーザーが書く自然文ルールでそのまま精度が出るかは要検証
 
 **同方式の実証例: SemIf(旧 OpenJev。2026-09-21 追記)**: https://openjev.com — TypeSafe とは無関係の独立研究プロジェクト。汎用 GGUF モデル(Qwen3 0.6B / MiniCPM5 2B / Qwen3.5 4B)を wllama(llama.cpp の WASM 版)+ WebGPU でブラウザ実行し、「選択肢の logit を直接読む方式」と「JSON を生成させる方式」を同じ質問で比較するデモ。独自評価(英語)の精度は MiniCPM5 2B 68.6%、Qwen3.5 4B 81.3%。専用モデルなしでも上記 2 の「1 トークン判定 + logit 確率」が成立する裏付けになる。Laya と違い **Ember の llama-cpp-2 / GGUF 基盤にそのまま乗る**構成で、Qwen3.5-4B はカタログ収録済み。
