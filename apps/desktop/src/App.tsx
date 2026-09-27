@@ -5827,6 +5827,153 @@ export default function App() {
     [ngAiHiddenMap, ngAiRevealed],
   );
 
+
+  // --- 曖昧 NG: 例レスから述語の候補を作る -----------------------------------
+  // 生成だけでは使える述語かどうか分からない (実測: 読んだ印象が良い方が 0.00、
+  // 素朴な方が 0.75 だった)。候補は必ず実測値とセットで出して、ユーザーが選ぶ。
+  const NG_AI_GEN_INSTRUCTION = [
+    "掲示板の書き込みを隠すための「条件文」を作ります。",
+    "",
+    "仕組み: 条件文は 1 行ずつ独立に、1 件の書き込みに対して「当てはまるか / 当てはまらないか」を",
+    "判定されます。すべての行が当てはまった書き込みだけが隠されます。",
+    "だから 1 行にはひとつのことだけを書いてください。",
+    "",
+    "良い例 (2 行に分かれている):",
+    "話題: この書き込みは政治の話題である。",
+    "書き方: この書き込みは他人を罵倒している。",
+    "",
+    "悪い例 (1 行に 2 つ入っているので使えません):",
+    "この書き込みは政治の話題で他人を罵倒している。",
+    "",
+    "注意:",
+    "- 「感情的」「敵意がある」のような広すぎる言葉は、普通の書き込みまで当たるので避ける",
+    "- 話題の行には、扱われている話題そのものを短い言葉で入れる",
+    "- 書き方の行には、書き手の態度ややり方を入れる",
+    "- 伏字や記号ではなく、実際に判定に使える言葉で書く",
+    "- 1 行だけを出す。説明や前置きは書かない",
+  ].join("\n");
+  // 候補の当たり具合を見るために判定するスレのレス数。多いほど正確だが 1 件 60ms かかる。
+  const NG_AI_PREVIEW_SAMPLE = 60;
+
+  const [ngAiGenInput, setNgAiGenInput] = useState("");
+  const [ngAiGenBusy, setNgAiGenBusy] = useState<string | null>(null);
+  const [ngAiGenCandidates, setNgAiGenCandidates] = useState<
+    { slot: string; text: string; exampleHits: number; exampleTotal: number; sampleRate: number | null }[]
+  >([]);
+
+  const generateNgAiPredicates = async () => {
+    if (!isTauriRuntime()) {
+      setStatus("候補の生成はアプリ版でのみ動きます");
+      return;
+    }
+    if (!aiStatus?.activeModelId) {
+      setStatus("候補の生成にはチャット用モデルの有効化が必要です");
+      return;
+    }
+    const nos = ngAiGenInput
+      .split(/[^0-9]+/)
+      .map((v) => Number(v))
+      .filter((v) => Number.isFinite(v) && v > 0);
+    if (nos.length === 0) {
+      setStatus("例にするレス番号を入力してください (例: 12 34 56)");
+      return;
+    }
+    const byNo = new Map(responseItems.map((r) => [r.id, r]));
+    const examples = nos
+      .map((no) => byNo.get(no))
+      .filter((r): r is NonNullable<typeof r> => !!r && r.text.trim() !== "");
+    if (examples.length === 0) {
+      setStatus("指定されたレスがこのスレに見つかりません");
+      return;
+    }
+
+    const template = aiActiveTemplate();
+    const exampleText = examples
+      .map((r) => `例${r.id}: ${responseHtmlToPlainText(r.text).trim().slice(0, 200)}`)
+      .join("\n");
+    const content = `${NG_AI_GEN_INSTRUCTION}\n\n隠したい書き込みの例:\n${exampleText}\n`;
+
+    setNgAiGenCandidates([]);
+    const drafts: { slot: string; text: string }[] = [];
+    try {
+      for (const slot of ["話題", "書き方"]) {
+        setNgAiGenBusy(`${slot}の候補を生成中…`);
+        // 小さいモデルは指示を復唱して本題に入らないことがある。答えの書き出しを
+        // 先に置いて続きだけを書かせると、形も内容も安定する。
+        const prefill = "この書き込みは";
+        const prompt =
+          aiWrapTurn(template, "user", content) + aiOpenAssistantTurn(template) + `${slot}: ${prefill}`;
+        const raw = await invoke<string>("ai_complete_once", {
+          prompt,
+          maxTokens: 32,
+          backend: aiInferenceBackend,
+        });
+        const first = (raw.split("\n").find((l) => l.trim() !== "") ?? "").trim();
+        if (first) drafts.push({ slot, text: `${prefill}${first}` });
+      }
+    } catch (error) {
+      setStatus(`候補の生成に失敗しました: ${String(error)}`);
+      setNgAiGenBusy(null);
+      return;
+    }
+    if (drafts.length === 0) {
+      setStatus("候補を作れませんでした");
+      setNgAiGenBusy(null);
+      return;
+    }
+
+    // 候補ごとに「例レスを拾えるか」と「このスレのどれくらいに当たるか」を測る。
+    // ここが無いと、もっともらしいだけで 1 件も拾わない述語を選んでしまう。
+    setNgAiGenBusy("候補の当たり具合を確認中…");
+    const predicates = drafts.map((d) => d.text);
+    const step = Math.max(1, Math.floor(responseItems.length / NG_AI_PREVIEW_SAMPLE));
+    const sample = responseItems.filter((_, i) => i % step === 0).slice(0, NG_AI_PREVIEW_SAMPLE);
+    const bodies = [
+      ...examples.map((r) => responseHtmlToPlainText(r.text)),
+      ...sample.map((r) => responseHtmlToPlainText(r.text)),
+    ];
+    let scored: number[][] = [];
+    try {
+      scored = await invoke<number[][]>("ai_preview_predicates", {
+        predicates,
+        bodies,
+        backend: aiInferenceBackend,
+      });
+    } catch (error) {
+      console.warn("ai_preview_predicates failed", error);
+    }
+    setNgAiGenBusy(null);
+
+    setNgAiGenCandidates(
+      drafts.map((d, pi) => {
+        const col = scored.map((row) => row[pi] ?? 0);
+        const ex = col.slice(0, examples.length);
+        const sm = col.slice(examples.length);
+        return {
+          slot: d.slot,
+          text: d.text,
+          exampleHits: ex.filter((p) => p >= NG_AI_DEFAULT_THRESHOLD).length,
+          exampleTotal: examples.length,
+          sampleRate: sm.length > 0 ? sm.filter((p) => p >= NG_AI_DEFAULT_THRESHOLD).length / sm.length : null,
+        };
+      }),
+    );
+    setStatus(`候補を${drafts.length}件作りました`);
+  };
+
+  // 候補を述語の入力欄へ入れる。上書きではなく空いている欄から埋める。
+  const useNgAiCandidate = (text: string) => {
+    setNgAiDraft((prev) => {
+      const next = [...prev];
+      const empty = next.findIndex((v) => v.trim() === "");
+      if (empty >= 0) next[empty] = text;
+      else if (next.length < NG_AI_MAX_PREDICATES) next.push(text);
+      else next[next.length - 1] = text;
+      return next;
+    });
+    setStatus("述語欄に入れました。必要なら直してから追加してください");
+  };
+
   const toggleNgAiRevealed = (no: number) => {
     setNgAiRevealed((prev) => {
       const next = new Set(prev);
@@ -12723,6 +12870,50 @@ export default function App() {
               スレを開いたら自動で判定する
             </label>
             {!ngAiAuto && <span className="ng-ai-options-hint">切っている間は、レス欄下の「曖昧NG」ボタンで判定します</span>}
+          </div>
+          <div className="ng-ai-gen">
+            <div className="ng-ai-gen-head">
+              <span>例にするレス番号</span>
+              <input
+                value={ngAiGenInput}
+                onChange={(e) => setNgAiGenInput(e.target.value)}
+                placeholder="12 34 56"
+                title="「こういうレスを隠したい」という例のレス番号。開いているスレから探します"
+              />
+              <button onClick={() => void generateNgAiPredicates()} disabled={ngAiGenBusy !== null}>
+                候補を作る
+              </button>
+            </div>
+            {ngAiGenBusy && <div className="ng-ai-gen-busy">{ngAiGenBusy}</div>}
+            {ngAiGenCandidates.length > 0 && (
+              <ul className="ng-ai-gen-list">
+                {ngAiGenCandidates.map((c, i) => (
+                  <li key={i}>
+                    <div className="ng-ai-gen-text">
+                      <span className="ng-ai-gen-slot">{c.slot}</span>
+                      {c.text}
+                    </div>
+                    <div className="ng-ai-gen-stats">
+                      <span title="指定した例レスのうち、この述語が拾えた数">
+                        例 {c.exampleHits}/{c.exampleTotal}
+                      </span>
+                      {c.sampleRate !== null && (
+                        <span title="このスレから等間隔に抜き出したレスのうち、この述語に当たった割合">
+                          このスレ 約{Math.round(c.sampleRate * 100)}%
+                        </span>
+                      )}
+                      <button onClick={() => useNgAiCandidate(c.text)}>使う</button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {ngAiGenCandidates.length > 0 && (
+              <div className="ng-ai-gen-hint">
+                例を拾えていない候補や、このスレの大半に当たる候補は使わないでください。
+                文面だけでは良し悪しが分からないので、数字で選んでください。
+              </div>
+            )}
           </div>
           <div className="ng-ai-add">
             {ngAiDraft.map((v, i) => (

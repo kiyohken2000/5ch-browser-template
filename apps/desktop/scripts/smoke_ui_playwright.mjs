@@ -2393,6 +2393,13 @@ try {
     await page.waitForFunction(() => localStorage.getItem("desktop.ngAiAuto.v1") === "true");
     await autoBox.uncheck();
     await page.waitForFunction(() => localStorage.getItem("desktop.ngAiAuto.v1") === "false");
+    // 候補生成 (例レスから述語を作る) の入口。生成は Tauri IPC 必須なので UI だけ検証する
+    const genInput = await page.$(".ng-ai-gen-head input");
+    assert(genInput, "AI rule panel should offer the predicate generator input");
+    const genHint = await page.$eval(".ng-ai-gen-head", (el) => el.textContent || "");
+    assert(genHint.includes("レス番号"), `generator should ask for response numbers, got: ${genHint}`);
+    // 候補はまだ無い
+    assert(!(await page.$(".ng-ai-gen-list")), "no candidates before generating");
     // ヘッダを掴んで動かせる (他の NG 系パネルと同じ)
     const dragHeader = await page.$(".ng-ai-panel .ng-panel-drag-header");
     assert(dragHeader, "AI rule panel should have a draggable header");

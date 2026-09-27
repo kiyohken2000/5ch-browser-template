@@ -7017,8 +7017,8 @@ a.body-link-image:hover::after {
   right: 20px;
   width: min(560px, calc(100vw - 28px));
   max-height: min(70vh, 720px);
-  /* ヘッダ / 説明 / 自動判定 / 入力 / ルール一覧 / 候補一覧 */
-  grid-template-rows: auto auto auto auto auto 1fr;
+  /* ヘッダ / 説明 / 自動判定 / 候補生成 / 入力 / ルール一覧 / 候補一覧 */
+  grid-template-rows: auto auto auto auto auto auto 1fr;
 }
 .ng-ai-panel .ng-ai-candidates {
   max-height: none;
@@ -7150,6 +7150,82 @@ a.body-link-image:hover::after {
 }
 .ng-ai-help li {
   margin-bottom: 5px;
+}
+.ng-ai-gen {
+  padding: 5px 8px;
+  border-bottom: 1px solid #d0d0d0;
+  font-size: 11px;
+}
+.ng-ai-gen-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ng-ai-gen-head input {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  padding: 3px 6px;
+  border: 1px solid #c0c0c0;
+}
+.ng-ai-gen-busy {
+  margin-top: 4px;
+  color: var(--sub);
+}
+.ng-ai-gen-list {
+  list-style: none;
+  margin: 5px 0 0;
+  padding: 0;
+}
+.ng-ai-gen-list li {
+  border: 1px solid #d8d8d8;
+  border-radius: 3px;
+  padding: 4px 6px;
+  margin-bottom: 4px;
+}
+.ng-ai-gen-slot {
+  display: inline-block;
+  margin-right: 5px;
+  padding: 0 4px;
+  background: #e6eef6;
+  border-radius: 2px;
+  color: #4a6f96;
+}
+.ng-ai-gen-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  color: var(--sub);
+}
+.ng-ai-gen-stats button {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 1px 6px;
+}
+.ng-ai-gen-hint {
+  margin-top: 4px;
+  color: var(--sub);
+}
+.dark .ng-ai-gen {
+  border-color: #3f3f46;
+}
+.dark .ng-ai-gen-head input {
+  background: #1e1e20;
+  color: #e6e6e6;
+  border-color: #4a4a52;
+}
+.dark .ng-ai-gen-list li {
+  border-color: #3f3f46;
+}
+.dark .ng-ai-gen-slot {
+  background: #2b3946;
+  color: #9dc0e0;
+}
+.dark .ng-ai-gen-stats button {
+  background: #3a3a3a;
+  color: var(--ink);
+  border-color: #555;
 }
 .ng-ai-add {
   padding: 6px 8px;

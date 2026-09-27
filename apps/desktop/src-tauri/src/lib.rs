@@ -3219,6 +3219,129 @@ fn ai_load_ng_ai_results(
         .collect())
 }
 
+/// Run one short completion and return the whole text, instead of streaming it.
+///
+/// The predicate generator needs two tiny completions in a row and has no use
+/// for token events; going through the streaming session machinery would mean
+/// juggling its global "where do tokens go" state for a few dozen tokens.
+#[tauri::command]
+async fn ai_complete_once(
+    prompt: String,
+    max_tokens: Option<u32>,
+    backend: Option<core_ai::InferenceBackend>,
+) -> Result<String, String> {
+    let dir = ai_models_dir()?;
+    let manifest = core_ai::load_manifest(&dir).map_err(|e| e.to_string())?;
+    let target_id = manifest
+        .active_model_id
+        .clone()
+        .ok_or_else(|| "no active model".to_string())?;
+    let installed = manifest
+        .find(&target_id)
+        .ok_or_else(|| format!("model not installed: {target_id}"))?;
+    let path = dir.join(&installed.filename);
+    let max = max_tokens.unwrap_or(48);
+    let inference_backend = backend.unwrap_or_default();
+
+    // 判定が走っていたら譲らせる。生成と同じくユーザー操作なので待たせない。
+    ai_classify_yield();
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut slot = ai_inference_cancel().lock().map_err(|e| e.to_string())?;
+        if let Some(prev) = slot.take() {
+            prev.store(true, Ordering::Relaxed);
+        }
+        *slot = Some(cancel.clone());
+    }
+    let cancel_thread = cancel.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let mut out = String::new();
+        core_ai::complete_streaming(
+            &path,
+            &prompt,
+            max,
+            inference_backend,
+            &cancel_thread,
+            |piece| out.push_str(piece),
+            |_| {},
+        )
+        .map(|_| out)
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?;
+    {
+        let mut slot = ai_inference_cancel().lock().map_err(|e| e.to_string())?;
+        if let Some(curr) = slot.as_ref() {
+            if Arc::ptr_eq(curr, &cancel) {
+                *slot = None;
+            }
+        }
+    }
+    result.map_err(|e| e.to_string())
+}
+
+/// Score candidate predicates against a handful of responses without saving
+/// anything. Used to show how a generated candidate actually behaves before it
+/// becomes a rule — reading the wording is not enough to tell (measured: a
+/// candidate that reads better scored 0.00 where the plainer one scored 0.75).
+#[tauri::command]
+async fn ai_preview_predicates(
+    predicates: Vec<String>,
+    bodies: Vec<String>,
+    backend: Option<core_ai::InferenceBackend>,
+) -> Result<Vec<Vec<f32>>, String> {
+    let predicates: Vec<String> = predicates
+        .into_iter()
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if predicates.is_empty() || bodies.is_empty() {
+        return Ok(Vec::new());
+    }
+    if ai_generation_in_flight() {
+        return Err("busy".into());
+    }
+    let dir = ai_models_dir()?;
+    let manifest = core_ai::load_manifest(&dir).map_err(|e| e.to_string())?;
+    let installed = manifest
+        .find(NG_CLASSIFIER_MODEL_ID)
+        .ok_or_else(|| format!("model not installed: {NG_CLASSIFIER_MODEL_ID}"))?;
+    let path = dir.join(&installed.filename);
+
+    let cancel = Arc::new(AtomicBool::new(false));
+    {
+        let mut slot = ai_classify_cancel().lock().map_err(|e| e.to_string())?;
+        if let Some(prev) = slot.take() {
+            prev.store(true, Ordering::Relaxed);
+        }
+        *slot = Some(cancel.clone());
+    }
+    let cancel_thread = cancel.clone();
+    let inference_backend = backend.unwrap_or_default();
+    let scored = tauri::async_runtime::spawn_blocking(move || {
+        core_ai::classify_entailment(
+            &path,
+            &bodies,
+            &predicates,
+            inference_backend,
+            &cancel_thread,
+            |_| {},
+        )
+    })
+    .await
+    .map_err(|e| format!("join: {e}"))?;
+    {
+        let mut slot = ai_classify_cancel().lock().map_err(|e| e.to_string())?;
+        if let Some(curr) = slot.as_ref() {
+            if Arc::ptr_eq(curr, &cancel) {
+                *slot = None;
+            }
+        }
+    }
+    scored.map_err(|e| e.to_string())
+}
+
 /// Stop the in-flight judgement (thread closed, rule edited, app going idle).
 #[tauri::command]
 fn ai_cancel_classify() -> Result<(), String> {
@@ -3491,6 +3614,8 @@ pub fn run() {
             ai_cancel_inference,
             ai_classify_responses,
             ai_load_ng_ai_results,
+            ai_complete_once,
+            ai_preview_predicates,
             ai_cancel_classify,
             ai_forget_ng_rule,
             ai_list_backend_devices,
