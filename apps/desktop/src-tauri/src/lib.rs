@@ -2857,11 +2857,20 @@ fn ai_delete_model(model_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn ai_activate_model(model_id: String) -> Result<(), String> {
+async fn ai_activate_model(model_id: String) -> Result<(), String> {
     let dir = ai_models_dir()?;
     let manifest = core_ai::load_manifest(&dir).map_err(|e| e.to_string())?;
     if !manifest.is_installed(&model_id) {
         return Err(format!("model not installed: {model_id}"));
+    }
+    // 判定器 (NG 用の分類器) は文章生成ができないので、アクティブモデルにはしない。
+    // UI 側でも一覧から外しているが、カタログが差し替わっても壊れないよう二重にする。
+    if let Ok(catalog) = ai_load_merged_catalog().await {
+        if let Some(entry) = catalog.find(&model_id) {
+            if matches!(entry.kind, core_ai::ModelKind::Classifier) {
+                return Err(format!("not a chat model: {model_id}"));
+            }
+        }
     }
     core_ai::set_active_model(&dir, Some(&model_id)).map_err(|e| e.to_string())
 }

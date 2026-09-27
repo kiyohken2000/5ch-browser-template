@@ -130,6 +130,20 @@
       "promptTemplate": "hunyuan",
       "languages": ["ja", "en", "zh", "zh-Hant", "ko"],
       "recommendedFor": ["translation"]
+    },
+    {
+      "id": "bge-m3-zeroshot-v2-q4km",
+      "kind": "classifier",
+      "name": "bge-m3-zeroshot-v2.0",
+      "description": "曖昧 NG 専用の判定器 (0.42 GB)。文章に対して「この条件に当てはまるか」だけを答える多言語ゼロショット分類器。文章生成はしないので要約・翻訳には使えない。",
+      "sizeBytes": 438373760,
+      "quantization": "Q4_K_M",
+      "url": "https://huggingface.co/votepurchase/bge-m3-zeroshot-v2.0-GGUF/resolve/main/bge-m3-zeroshot-v2.0-Q4_K_M.gguf",
+      "sha256": "5d41a1d3c7dd256f688f0338b4e895537880e5f31d1ac832699e6e7a530bad7c",
+      "contextLength": 8192,
+      "classifierLabels": ["entailment", "not_entailment"],
+      "languages": ["ja", "multilingual"],
+      "recommendedFor": ["ng"]
     }
   ]
 }

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use llama_cpp_2::context::params::LlamaContextParams;
+use llama_cpp_2::context::params::{LlamaContextParams, LlamaPoolingType};
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
@@ -65,6 +65,19 @@ impl Default for InferenceParams {
     }
 }
 
+/// What a catalog model is for. Chat models generate text; a classifier only
+/// scores a (text, hypothesis) pair and never generates, so it is offered and
+/// activated separately from the chat model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ModelKind {
+    /// Text generation (summary, translation, reply drafting).
+    #[default]
+    Chat,
+    /// Sequence classification with a 2-label head (entailment / not_entailment).
+    Classifier,
+}
+
 /// Model catalog entry — describes a model that can be downloaded.
 /// Mirrors the schema of `apps/landing/public/ai-models.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,9 +91,19 @@ pub struct ModelEntry {
     pub url: String,
     pub sha256: String,
     pub context_length: u32,
+    /// Chat template id. Classifier entries have no prompt, so it may be absent
+    /// from the catalog; entries written before `kind` existed always carry it.
+    #[serde(default)]
     pub prompt_template: String,
     pub languages: Vec<String>,
     pub recommended_for: Vec<String>,
+    /// Absent in catalogs written before classifiers existed, hence the default.
+    #[serde(default)]
+    pub kind: ModelKind,
+    /// Label order of the classification head, as the GGUF carries it in
+    /// `*.classifier.output_labels`. Empty for chat models.
+    #[serde(default)]
+    pub classifier_labels: Vec<String>,
 }
 
 /// The full catalog of available models.
@@ -429,10 +452,88 @@ struct CachedModel {
     model: LlamaModel,
 }
 
-static MODEL_CACHE: OnceLock<Mutex<Option<CachedModel>>> = OnceLock::new();
+/// Which slot of the model cache a load goes into. The chat model and the NG
+/// classifier are different models that have to coexist (a judgement run must
+/// not evict the loaded chat model), so each gets its own slot. The cache still
+/// lives behind one mutex, which keeps inference calls serialized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModelSlot {
+    Chat,
+    Classifier,
+}
 
-fn model_cache() -> &'static Mutex<Option<CachedModel>> {
-    MODEL_CACHE.get_or_init(|| Mutex::new(None))
+#[derive(Default)]
+struct ModelCaches {
+    chat: Option<CachedModel>,
+    classifier: Option<CachedModel>,
+}
+
+impl ModelCaches {
+    fn slot(&self, slot: ModelSlot) -> &Option<CachedModel> {
+        match slot {
+            ModelSlot::Chat => &self.chat,
+            ModelSlot::Classifier => &self.classifier,
+        }
+    }
+
+    fn slot_mut(&mut self, slot: ModelSlot) -> &mut Option<CachedModel> {
+        match slot {
+            ModelSlot::Chat => &mut self.chat,
+            ModelSlot::Classifier => &mut self.classifier,
+        }
+    }
+}
+
+static MODEL_CACHE: OnceLock<Mutex<ModelCaches>> = OnceLock::new();
+
+fn model_cache() -> &'static Mutex<ModelCaches> {
+    MODEL_CACHE.get_or_init(|| Mutex::new(ModelCaches::default()))
+}
+
+/// Load `model_path` into `slot` if it is not already there, and return a
+/// reference to the cached model. The previous occupant of that slot is dropped
+/// first so its memory is freed before the new weights are allocated.
+fn load_into_slot<'a>(
+    caches: &'a mut ModelCaches,
+    slot: ModelSlot,
+    model_path: &Path,
+    inference_backend: InferenceBackend,
+    mut on_load: impl FnMut(),
+) -> Result<&'a LlamaModel, AiError> {
+    let backend = backend()?;
+    let needs_load = match caches.slot(slot) {
+        Some(c) => c.path != model_path || c.backend_kind != inference_backend,
+        None => true,
+    };
+    if needs_load {
+        on_load();
+        *caches.slot_mut(slot) = None;
+
+        // n_gpu_layers alone is not enough: with GGML_VULKAN compiled in, llama.cpp
+        // still picks a Vulkan compute backend for graph scheduling, causing many
+        // CPU<->GPU copies even when no layers are offloaded. Restrict the device
+        // list to an empty set (= CPU/ACCEL only) when the user forces CPU mode.
+        let mut model_params =
+            LlamaModelParams::default().with_n_gpu_layers(inference_backend.n_gpu_layers());
+        if matches!(inference_backend, InferenceBackend::Cpu) {
+            model_params = model_params
+                .with_devices(&[])
+                .map_err(|e| AiError::ModelLoadFailed(format!("with_devices(&[]): {e}")))?;
+        }
+        let model = LlamaModel::load_from_file(backend, model_path, &model_params)
+            .map_err(|e| AiError::ModelLoadFailed(e.to_string()))?;
+        *caches.slot_mut(slot) = Some(CachedModel {
+            path: model_path.to_path_buf(),
+            backend_kind: inference_backend,
+            model,
+        });
+    }
+    // 直前に必ず Some を入れているので unwrap 相当の分岐は起きない。
+    caches
+        .slot(slot)
+        .as_ref()
+        .map(|c| &c.model)
+        .ok_or_else(|| AiError::ModelLoadFailed("cache slot empty after load".into()))
 }
 
 /// Number of prompt tokens decoded per chunk. After each chunk the `cancel`
@@ -479,23 +580,35 @@ pub struct CacheStateSnapshot {
     pub loaded: bool,
     pub model_id: Option<String>,
     pub backend_kind: Option<InferenceBackend>,
+    /// Whether the NG classifier occupies its own slot. Reported separately
+    /// because it coexists with the chat model rather than replacing it.
+    pub classifier_loaded: bool,
+    pub classifier_model_id: Option<String>,
 }
 
 /// Return whether a model is currently loaded in the global cache, and which.
+/// `loaded` / `model_id` / `backend_kind` describe the chat slot, which is what
+/// the AI status panel shows.
 pub fn cache_state() -> CacheStateSnapshot {
     let guard = model_cache()
         .lock()
         .unwrap_or_else(|p| p.into_inner());
-    match guard.as_ref() {
+    let stem = |c: &CachedModel| c.path.file_stem().map(|s| s.to_string_lossy().into_owned());
+    let classifier = guard.slot(ModelSlot::Classifier).as_ref();
+    match guard.slot(ModelSlot::Chat).as_ref() {
         Some(c) => CacheStateSnapshot {
             loaded: true,
-            model_id: c.path.file_stem().map(|s| s.to_string_lossy().into_owned()),
+            model_id: stem(c),
             backend_kind: Some(c.backend_kind),
+            classifier_loaded: classifier.is_some(),
+            classifier_model_id: classifier.and_then(stem),
         },
         None => CacheStateSnapshot {
             loaded: false,
             model_id: None,
             backend_kind: None,
+            classifier_loaded: classifier.is_some(),
+            classifier_model_id: classifier.and_then(stem),
         },
     }
 }
@@ -504,39 +617,26 @@ pub fn cache_state() -> CacheStateSnapshot {
 /// the load step. If a different model is already cached it is dropped first.
 /// If the same (path, backend) is already cached this is a no-op.
 pub fn preload_model(model_path: &Path, inference_backend: InferenceBackend) -> Result<(), AiError> {
-    let backend = backend()?;
     let mut cache = model_cache()
         .lock()
         .unwrap_or_else(|p| p.into_inner());
-    if let Some(c) = cache.as_ref() {
-        if c.path == model_path && c.backend_kind == inference_backend {
-            return Ok(());
-        }
-    }
-    *cache = None;
-    let mut model_params =
-        LlamaModelParams::default().with_n_gpu_layers(inference_backend.n_gpu_layers());
-    if matches!(inference_backend, InferenceBackend::Cpu) {
-        model_params = model_params
-            .with_devices(&[])
-            .map_err(|e| AiError::ModelLoadFailed(format!("with_devices(&[]): {e}")))?;
-    }
-    let model = LlamaModel::load_from_file(backend, model_path, &model_params)
-        .map_err(|e| AiError::ModelLoadFailed(e.to_string()))?;
-    *cache = Some(CachedModel {
-        path: model_path.to_path_buf(),
-        backend_kind: inference_backend,
-        model,
-    });
+    load_into_slot(
+        &mut cache,
+        ModelSlot::Chat,
+        model_path,
+        inference_backend,
+        || {},
+    )?;
     Ok(())
 }
 
-/// Drop any cached model so its memory is freed. No-op if nothing is cached.
+/// Drop every cached model so its memory is freed, the classifier included.
+/// No-op if nothing is cached.
 pub fn unload_model() {
     let mut cache = model_cache()
         .lock()
         .unwrap_or_else(|p| p.into_inner());
-    *cache = None;
+    *cache = ModelCaches::default();
 }
 
 /// Stream a greedy completion, calling `on_token` with each decoded text fragment.
@@ -573,39 +673,15 @@ where
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
 
-    let needs_load = match cache.as_ref() {
-        Some(c) => c.path != model_path || c.backend_kind != inference_backend,
-        None => true,
-    };
-    if needs_load {
-        on_phase(InferencePhase::LoadingModel);
-        // Drop the previous model first so its memory is freed before we
-        // allocate the new one — important for large (>10 GB) weights.
-        *cache = None;
-
-        // n_gpu_layers alone is not enough: with GGML_VULKAN compiled in, llama.cpp
-        // still picks a Vulkan compute backend for graph scheduling, causing many
-        // CPU<->GPU copies even when no layers are offloaded. Restrict the device
-        // list to an empty set (= CPU/ACCEL only) when the user forces CPU mode.
-        let mut model_params =
-            LlamaModelParams::default().with_n_gpu_layers(inference_backend.n_gpu_layers());
-        if matches!(inference_backend, InferenceBackend::Cpu) {
-            model_params = model_params
-                .with_devices(&[])
-                .map_err(|e| AiError::ModelLoadFailed(format!("with_devices(&[]): {e}")))?;
-        }
-        let model = LlamaModel::load_from_file(backend, model_path, &model_params)
-            .map_err(|e| AiError::ModelLoadFailed(e.to_string()))?;
-        *cache = Some(CachedModel {
-            path: model_path.to_path_buf(),
-            backend_kind: inference_backend,
-            model,
-        });
-    }
-    let model = &cache
-        .as_ref()
-        .expect("model cache populated above")
-        .model;
+    // 生成はチャットスロット。判定器 (Classifier) は別スロットなので、判定が走っても
+    // ここで読んだモデルは落ちない。
+    let model = load_into_slot(
+        &mut cache,
+        ModelSlot::Chat,
+        model_path,
+        inference_backend,
+        || on_phase(InferencePhase::LoadingModel),
+    )?;
 
     let ctx_params = LlamaContextParams::default()
         .with_n_ctx(NonZeroU32::new(8192))
@@ -739,6 +815,145 @@ pub fn complete(
     Ok(output)
 }
 
+/// Context size for classification. A 5ch response plus a hypothesis is far
+/// under this; longer premises are truncated to fit rather than rejected.
+const CLASSIFY_N_CTX: u32 = 2048;
+
+/// Number of label logits the classifier head must produce (entailment /
+/// not_entailment).
+const CLASSIFY_N_LABELS: usize = 2;
+
+/// Score `hypotheses` against each of `premises` with a 2-label zero-shot
+/// classifier, returning `P(entailment)` per pair as `[premise][hypothesis]`.
+///
+/// This is the NG judgement path ([N23]). The model is a sequence classifier,
+/// not a generator: llama.cpp runs it with rank pooling, which applies the
+/// RoBERTa classification head (CLS → dense → tanh → out_proj) and hands back
+/// the two raw label logits, and we softmax those two. Nothing is generated.
+///
+/// The pair is laid out the way XLM-R was trained — `<s> premise </s></s>
+/// hypothesis </s>` — and the KV cache is cleared between pairs, so each score
+/// depends only on its own pair.
+///
+/// All pairs share one context, because creating a context costs more than
+/// scoring a pair. `on_scored` is called with the number of premises finished so
+/// far, for progress reporting.
+///
+/// Cancellation is checked before each pair; a cancelled run returns
+/// [`AiError::InferenceFailed("cancelled")`].
+pub fn classify_entailment(
+    model_path: &Path,
+    premises: &[String],
+    hypotheses: &[String],
+    inference_backend: InferenceBackend,
+    cancel: &AtomicBool,
+    mut on_scored: impl FnMut(usize),
+) -> Result<Vec<Vec<f32>>, AiError> {
+    if premises.is_empty() || hypotheses.is_empty() {
+        return Ok(Vec::new());
+    }
+    let backend = backend()?;
+    let mut cache = model_cache()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let model = load_into_slot(
+        &mut cache,
+        ModelSlot::Classifier,
+        model_path,
+        inference_backend,
+        || {},
+    )?;
+
+    let n_cls_out = model.n_cls_out() as usize;
+    if n_cls_out != CLASSIFY_N_LABELS {
+        return Err(AiError::InferenceFailed(format!(
+            "not a 2-label classifier: n_cls_out={n_cls_out} (expected {CLASSIFY_N_LABELS})"
+        )));
+    }
+
+    // Rank pooling encodes a whole sequence in one pass, so n_ubatch has to cover
+    // the longest pair — the default 512 aborts inside llama.cpp on longer ones.
+    let ctx_params = LlamaContextParams::default()
+        .with_n_ctx(NonZeroU32::new(CLASSIFY_N_CTX))
+        .with_n_batch(CLASSIFY_N_CTX)
+        .with_n_ubatch(CLASSIFY_N_CTX)
+        .with_embeddings(true)
+        .with_pooling_type(LlamaPoolingType::Rank);
+    let mut ctx = model
+        .new_context(backend, ctx_params)
+        .map_err(|e| AiError::ContextCreationFailed(e.to_string()))?;
+    let mut batch = LlamaBatch::new(CLASSIFY_N_CTX as usize, 1);
+
+    let bos = model.token_bos();
+    let eos = model.token_eos();
+    let hypothesis_tokens = hypotheses
+        .iter()
+        .map(|h| {
+            model
+                .str_to_token(h, AddBos::Never)
+                .map_err(|e| AiError::InferenceFailed(format!("tokenize hypothesis: {e}")))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut out = Vec::with_capacity(premises.len());
+    for premise in premises {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(AiError::InferenceFailed("cancelled".into()));
+        }
+        let premise_tokens = model
+            .str_to_token(premise, AddBos::Never)
+            .map_err(|e| AiError::InferenceFailed(format!("tokenize premise: {e}")))?;
+        let mut scores = Vec::with_capacity(hypotheses.len());
+        for hyp in &hypothesis_tokens {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(AiError::InferenceFailed("cancelled".into()));
+            }
+            // bos + premise + eos + eos + hypothesis + eos
+            let room = (CLASSIFY_N_CTX as usize).saturating_sub(hyp.len() + 4);
+            let premise_part = &premise_tokens[..premise_tokens.len().min(room)];
+            let mut tokens = Vec::with_capacity(premise_part.len() + hyp.len() + 4);
+            tokens.push(bos);
+            tokens.extend_from_slice(premise_part);
+            tokens.push(eos);
+            tokens.push(eos);
+            tokens.extend_from_slice(hyp);
+            tokens.push(eos);
+
+            ctx.clear_kv_cache();
+            batch.clear();
+            let last = tokens.len() - 1;
+            for (i, &t) in tokens.iter().enumerate() {
+                batch
+                    .add(t, i as i32, &[0], i == last)
+                    .map_err(|e| AiError::InferenceFailed(format!("batch add: {e}")))?;
+            }
+            ctx.decode(&mut batch)
+                .map_err(|e| AiError::InferenceFailed(format!("decode: {e}")))?;
+            let logits = ctx
+                .embeddings_seq_ith(0)
+                .map_err(|e| AiError::InferenceFailed(format!("embeddings_seq_ith: {e}")))?;
+            if logits.len() < CLASSIFY_N_LABELS {
+                return Err(AiError::InferenceFailed(format!(
+                    "classifier returned {} logits",
+                    logits.len()
+                )));
+            }
+            scores.push(softmax2(logits[0], logits[1]));
+        }
+        out.push(scores);
+        on_scored(out.len());
+    }
+    Ok(out)
+}
+
+/// `P(a)` of a two-way softmax over the raw label logits, shifted by the max so
+/// large logits cannot overflow `exp`.
+fn softmax2(a: f32, b: f32) -> f32 {
+    let m = a.max(b);
+    let (ea, eb) = ((a - m).exp(), (b - m).exp());
+    ea / (ea + eb)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -754,6 +969,83 @@ mod tests {
         assert!(p.max_tokens > 0);
         assert!(p.temperature > 0.0 && p.temperature <= 2.0);
         assert!(p.top_p > 0.0 && p.top_p <= 1.0);
+    }
+
+    #[test]
+    fn softmax2_is_symmetric_and_shift_invariant() {
+        assert!((softmax2(0.0, 0.0) - 0.5).abs() < 1e-6);
+        assert!(softmax2(5.0, -5.0) > 0.999);
+        assert!(softmax2(-5.0, 5.0) < 0.001);
+        // 大きな logit でも exp が溢れない (最大値を引いてから指数を取るため)
+        assert!(softmax2(200.0, 100.0).is_finite());
+        assert!((softmax2(201.0, 101.0) - softmax2(200.0, 100.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn catalog_entry_without_kind_is_chat() {
+        // 判定器を足す前に書かれたカタログ (kind も classifierLabels も無い) が読めること
+        let json = r#"{
+            "version": 1,
+            "models": [{
+                "id": "gemma3-1b-it-q4km",
+                "name": "Gemma3-1B-IT",
+                "description": "test",
+                "sizeBytes": 770000000,
+                "quantization": "Q4_K_M",
+                "url": "https://huggingface.co/foo/bar.gguf",
+                "sha256": "deadbeef",
+                "contextLength": 32768,
+                "promptTemplate": "gemma",
+                "languages": ["ja"],
+                "recommendedFor": ["summary"]
+            }]
+        }"#;
+        let catalog = parse_catalog(json).expect("parse");
+        let entry = catalog.find("gemma3-1b-it-q4km").expect("find");
+        assert_eq!(entry.kind, ModelKind::Chat);
+        assert!(entry.classifier_labels.is_empty());
+    }
+
+    #[test]
+    fn catalog_entry_can_be_a_classifier_without_prompt_template() {
+        let json = r#"{
+            "version": 1,
+            "models": [{
+                "id": "bge-m3-zeroshot-v2-q4km",
+                "kind": "classifier",
+                "name": "bge-m3-zeroshot-v2.0",
+                "description": "test",
+                "sizeBytes": 438373760,
+                "quantization": "Q4_K_M",
+                "url": "https://huggingface.co/foo/bar.gguf",
+                "sha256": "deadbeef",
+                "contextLength": 8192,
+                "classifierLabels": ["entailment", "not_entailment"],
+                "languages": ["ja"],
+                "recommendedFor": ["ng"]
+            }]
+        }"#;
+        let catalog = parse_catalog(json).expect("parse");
+        let entry = catalog.find("bge-m3-zeroshot-v2-q4km").expect("find");
+        assert_eq!(entry.kind, ModelKind::Classifier);
+        assert_eq!(entry.classifier_labels, ["entailment", "not_entailment"]);
+        assert!(entry.prompt_template.is_empty());
+    }
+
+    #[test]
+    fn classify_entailment_with_no_input_does_not_touch_the_model() {
+        // モデルファイルが無くても、入力が空なら読み込みに行かずに空を返す
+        let cancel = AtomicBool::new(false);
+        let got = classify_entailment(
+            Path::new("/nonexistent/model.gguf"),
+            &[],
+            &["これはテストである。".to_string()],
+            InferenceBackend::Cpu,
+            &cancel,
+            |_| {},
+        )
+        .expect("empty input is not an error");
+        assert!(got.is_empty());
     }
 
     #[test]

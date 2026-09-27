@@ -58,6 +58,9 @@ type AiModelEntry = {
   promptTemplate: string;
   languages: string[];
   recommendedFor: string[];
+  // kind を持たないエントリはチャット用 (判定器を足す前のカタログとの互換)。
+  kind?: "chat" | "classifier";
+  classifierLabels?: string[];
 };
 type AiCatalog = { version: number; models: AiModelEntry[] };
 type AiInstalled = {
@@ -13829,7 +13832,7 @@ export default function App() {
                   {aiCatalog && aiCatalog.models.length === 0 && (
                     <div className="ai-loading">利用可能なモデルがありません</div>
                   )}
-                  {aiCatalog?.models.filter((m) => m.id !== TRANSLATION_MODEL_ID).map((m) => {
+                  {aiCatalog?.models.filter((m) => m.id !== TRANSLATION_MODEL_ID && m.kind !== "classifier").map((m) => {
                     const installed = aiStatus?.installed.find((i) => i.id === m.id);
                     const active = aiStatus?.activeModelId === m.id;
                     const progress = aiDownloads[m.id];
