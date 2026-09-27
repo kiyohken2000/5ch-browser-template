@@ -2607,8 +2607,9 @@ button.search-history-btn:hover {
   left: 20px;
   bottom: 28px;
   /* タブが 3 つ (NG / ハイライト / AIルール) 並ぶので、一番長い
-     「NG (非表示/あぼーん)」がラベル途中で折り返さない幅を確保する */
-  width: min(480px, calc(100vw - 28px));
+     「NG (非表示/あぼーん)」がラベル途中で折り返さない幅を確保する。
+     タブの文字は --fs-delta で大きくなるため余裕を持たせてある。 */
+  width: min(560px, calc(100vw - 28px));
   max-height: 400px;
   border: 1px solid var(--line);
   background: #f5f5f5;

@@ -12219,7 +12219,7 @@ export default function App() {
             {/* 曖昧 NG は独立パネル。ここには「NG の話は NG パネルにある」で探す人向けの入口だけ置く */}
             {ngAiReady && (
               <button className={ngAiPanelOpen ? "active-toggle" : ""} onClick={() => setNgAiPanelOpen((v) => !v)} title="曖昧NG (AIルール) のパネルを開く">
-                AIルール…
+                AIルール
               </button>
             )}
           </div>
