@@ -177,6 +177,24 @@ try {
   assert(menuItems.includes("ヘルプ"), "menu bar should include ヘルプ item");
   console.log("smoke-ui: menu bar items ok");
 
+  // --- ツール > 書き込み履歴 (自分のレス一覧) ---
+  {
+    await page.click('.menu-item:has-text("ツール")');
+    const toolsMenu = await page.$eval(".menu-dropdown", (el) => el.textContent || "");
+    assert(toolsMenu.includes("書き込み履歴"), `the ツール menu should offer 書き込み履歴, got: ${toolsMenu}`);
+    await page.click('.menu-dropdown button:has-text("書き込み履歴")');
+    await page.waitForSelector(".post-history-body", { timeout: 2000 });
+    const historyHeader = await page.$eval(".settings-panel .settings-header strong", (el) => el.textContent || "");
+    assert(historyHeader.includes("書き込み履歴"), `the panel title should name 書き込み履歴, got: ${historyHeader}`);
+    assert(await page.$(".post-history-search input"), "the history panel should offer a filter box");
+    // Tauri なしの起動では自分のレスが 1 件も無いので空表示になる
+    const historyBody = await page.$eval(".post-history-body", (el) => el.textContent || "");
+    assert(historyBody.includes("まだ書き込みがありません"), `an empty history should say so, got: ${historyBody}`);
+    await page.click(".settings-panel .settings-header button:has-text('閉じる')");
+    await page.waitForFunction(() => !document.querySelector(".post-history-body"), null, { timeout: 2000 });
+    console.log("smoke-ui: post history panel ok");
+  }
+
   // unread thread row has bold styling
   const unreadRows = await page.$$(".threads tbody .unread-row");
   assert(unreadRows.length >= 0, "unread row class should be present (may be 0 if all read)");
@@ -322,6 +340,42 @@ try {
   await new Promise((r) => setTimeout(r, 300));
   assert(!(await page.$(".anchor-popup")), "leaving all popups should close everything");
   console.log("smoke-ui: popup chain trim ok");
+
+  // --- ポップアップのレス番号クリックでレスメニューを出し「ここにレス」できる ---
+  {
+    const openedCompose = await page.$(".compose-window");
+    if (openedCompose) await page.click(".compose-header button:has-text('閉じる')");
+    const toPopup = await page.$('.response-scroll .response-block[data-response-no="4"] .anchor-ref[data-anchor="3"]');
+    assert(toPopup, "response 4 should have an anchor to >>3");
+    await toPopup.hover();
+    await page.waitForSelector(".anchor-popup .anchor-popup-header .response-viewer-no", { timeout: 2000 });
+    await page.click(".anchor-popup .anchor-popup-header .response-viewer-no");
+    await page.waitForSelector(".response-menu", { timeout: 2000 });
+    // メニュー (z-index 50) はポップアップ (59〜) より下なので、番号クリックでポップアップは畳まれる
+    assert(!(await page.$(".anchor-popup")), "clicking the popup res number should close the popup so the menu is visible");
+    const menuText = await page.$eval(".response-menu", (el) => el.textContent || "");
+    assert(menuText.includes("ここにレス"), `the popup res menu should offer ここにレス, got: ${menuText}`);
+    assert(menuText.includes("このレスへジャンプ"), `a menu opened from a popup should keep a jump entry, got: ${menuText}`);
+    await page.click(".response-menu button:has-text('ここにレス')");
+    await page.waitForSelector(".compose-window textarea.compose-body", { timeout: 2000 });
+    const quoted = await page.$eval(".compose-window textarea.compose-body", (el) => el.value);
+    assert(quoted.includes(">>3"), `ここにレス from a popup should quote >>3, got: ${JSON.stringify(quoted)}`);
+    await page.click(".compose-header button:has-text('閉じる')");
+    console.log("smoke-ui: popup res number menu ok");
+  }
+
+  // --- 本文欄のレス番号から開いたメニューにはジャンプ項目を出さない (既に見えている) ---
+  {
+    const bodyNo = await page.$('.response-scroll .response-block[data-response-no="2"] .response-no');
+    assert(bodyNo, "response 2 should carry a clickable res number in the body pane");
+    await bodyNo.click();
+    await page.waitForSelector(".response-menu", { timeout: 2000 });
+    const bodyMenuText = await page.$eval(".response-menu", (el) => el.textContent || "");
+    assert(!bodyMenuText.includes("このレスへジャンプ"), `the body-pane res menu should not offer a jump entry, got: ${bodyMenuText}`);
+    await page.keyboard.press("Escape");
+    await page.click(".pane.responses");
+    console.log("smoke-ui: body res number menu keeps no jump entry ok");
+  }
 
   // --- ▼N ポップアップは画面内に収まり、下に空きがあれば下に出る ---
   // (以前は常に ▼N の上に固定だったので、▼N が画面上部にあると参照数ぶん上にはみ出して見えなかった)
@@ -1842,13 +1896,15 @@ try {
   console.log("smoke-ui: docked compose placement ok");
 
   // --- post history panel ---
+  // 書き込み履歴の入口は「ツール」メニュー側 (上の post history panel ok で検証)。
+  // ここはファイルメニューに残っていないことだけを見る。
   const fileMenuForHistory = await page.$('.menu-item:has-text("ファイル")');
   await fileMenuForHistory.click();
   await new Promise((r) => setTimeout(r, 100));
   const historyBtn = await page.$('.menu-dropdown button:has-text("書き込み履歴")');
-  assert(!historyBtn, "file menu should not have post history button");
+  assert(!historyBtn, "file menu should not have post history button (it lives in the ツール menu)");
   if (!historyBtn) {
-    console.log("smoke-ui: post history menu removed ok");
+    console.log("smoke-ui: post history not in file menu ok");
   } else {
     await historyBtn.click();
   await new Promise((r) => setTimeout(r, 200));
@@ -2171,6 +2227,95 @@ try {
   const filterModeCleared = await page.evaluate(() => localStorage.getItem("desktop.threadFilterMode.v1"));
   assert(filterModeCleared === "", `clearing the filter should persist an empty mode, got ${filterModeCleared}`);
   console.log("smoke-ui: thread filter restore ok");
+
+  // --- 書き込み履歴の一覧: 新旧どちらの保存形式でも並び、絞り込みとスレタイ補完が効く ---
+  // 記録は投稿成功時 (Tauri IPC 必須) なので localStorage に仕込んで表示だけを検証する。
+  {
+    await page.evaluate(() => {
+      localStorage.setItem("desktop.myPosts.v1", JSON.stringify({
+        // 新形式 (日時・スレタイ・本文つき)。>>34 は複数行なので「全文」トグルが出る
+        "https://rio2016.5ch.io/test/read.cgi/base/3333333333/": [
+          { no: 12, at: 1758900000000, title: "新形式のスレ", body: "エアコンが壊れた話" },
+          { no: 34, at: 1758990000000, title: "新形式のスレ", body: "冷房が効かない\n室外機が died\n買い替えかな" },
+        ],
+        // 旧形式 (レス番号だけ)。スレタイは recentPostedThreads から補完される
+        "https://rio2016.5ch.io/test/read.cgi/base/4444444444/": [56],
+      }));
+      localStorage.setItem("desktop.recentPostedThreads.v1", JSON.stringify([
+        {
+          threadUrl: "https://rio2016.5ch.io/test/read.cgi/base/4444444444/",
+          title: "旧形式のスレ",
+          boardUrl: "https://rio2016.5ch.io/base/",
+          updatedAt: 1758800000000,
+        },
+      ]));
+    });
+    await page.reload({ waitUntil: "load" });
+    await page.waitForSelector(".row-splitter");
+    await page.click('.menu-item:has-text("ツール")');
+    await page.click('.menu-dropdown button:has-text("書き込み履歴")');
+    await page.waitForSelector(".my-post-item", { timeout: 2000 });
+    const historyTitle = await page.$eval(".settings-panel .settings-header strong", (el) => el.textContent || "");
+    assert(historyTitle.includes("3件"), `all three saved posts should be counted, got: ${historyTitle}`);
+    const rows = await page.$$eval(".my-post-item", (els) => els.map((el) => ({
+      time: el.querySelector(".post-history-time")?.textContent || "",
+      no: el.querySelector(".response-viewer-no")?.textContent || "",
+      title: el.querySelector(".my-post-title")?.textContent || "",
+      body: el.querySelector(".my-post-body")?.textContent || "",
+    })));
+    assert(rows.length === 3, `the list should render 3 rows, got ${rows.length}`);
+    assert(rows[0].no === ">>34", `the newest post should come first, got ${rows[0].no}`);
+    assert(
+      rows[0].body === "冷房が効かない\n室外機が died\n買い替えかな",
+      `the row should show the saved body with its line breaks, got ${JSON.stringify(rows[0].body)}`,
+    );
+    // 旧形式は日時を持たないので末尾、スレタイは recentPostedThreads から埋まる
+    assert(rows[2].no === ">>56", `the migrated post should sort last, got ${rows[2].no}`);
+    assert(rows[2].time === "日時不明", `a migrated post has no timestamp, got ${JSON.stringify(rows[2].time)}`);
+    assert(rows[2].title === "旧形式のスレ", `a migrated post should borrow its title, got ${JSON.stringify(rows[2].title)}`);
+    // 本文を持たない行はその旨を出し、「全文」トグルは出さない
+    const missingBody = await page.$$eval(".my-post-item", (els) => {
+      const last = els[els.length - 1];
+      return {
+        text: last.querySelector(".my-post-body-missing")?.textContent || "",
+        hasToggle: Boolean(last.querySelector(".my-post-more")),
+      };
+    });
+    assert(missingBody.text.includes("本文の記録がありません"), `a body-less row should say so, got ${JSON.stringify(missingBody.text)}`);
+    assert(!missingBody.hasToggle, "a body-less row should not offer a 全文 toggle");
+    // 複数行の本文は 2 行に畳まれ、「全文」で展開できる
+    const bodyHeights = async () => page.$$eval(".my-post-item", (els) => {
+      const el = els[0].querySelector(".my-post-body");
+      return { h: el.getBoundingClientRect().height, scroll: el.scrollHeight };
+    });
+    const folded = await bodyHeights();
+    assert(folded.h + 1 < folded.scroll, `a 3-line body should be clamped, got ${JSON.stringify(folded)}`);
+    const firstToggle = page.locator(".my-post-item .my-post-more").first();
+    await firstToggle.click();
+    await page.waitForFunction(
+      () => document.querySelector(".my-post-item .my-post-body")?.classList.contains("expanded"),
+      null,
+      { timeout: 2000 },
+    );
+    const openedUp = await bodyHeights();
+    assert(openedUp.h > folded.h, `展開すると本文が伸びるはず, got ${JSON.stringify(openedUp)} vs ${JSON.stringify(folded)}`);
+    const toggleLabel = await firstToggle.textContent();
+    assert(toggleLabel === "畳む", `the toggle should flip to 畳む, got ${JSON.stringify(toggleLabel)}`);
+    await firstToggle.click();
+    await page.fill(".post-history-search input", "エアコン");
+    await page.waitForFunction(() => document.querySelectorAll(".my-post-item").length === 1, null, { timeout: 2000 });
+    const filtered = await page.$eval(".my-post-item .response-viewer-no", (el) => el.textContent || "");
+    assert(filtered === ">>12", `filtering by body should keep only >>12, got ${filtered}`);
+    await page.click(".settings-panel .settings-header button:has-text('閉じる')");
+    // 後続のテストに自分のレス記録を持ち越さない
+    await page.evaluate(() => {
+      localStorage.removeItem("desktop.myPosts.v1");
+      localStorage.removeItem("desktop.recentPostedThreads.v1");
+    });
+    await page.reload({ waitUntil: "load" });
+    await page.waitForSelector(".row-splitter");
+    console.log("smoke-ui: post history list ok");
+  }
 
   // --- 板ごとに記憶した名前欄が、投稿先の板に追従する ---
   // 保存は投稿成功時 (Tauri IPC 必須) なのでブラウザ環境では検証できない。

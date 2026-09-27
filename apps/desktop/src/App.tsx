@@ -346,6 +346,45 @@ type FavoriteBoard = { boardName: string; url: string };
 type FavoriteThread = { threadUrl: string; title: string; boardUrl: string };
 type RecentThread = FavoriteThread & { updatedAt: number };
 type FavoritesData = { boards: FavoriteBoard[]; threads: FavoriteThread[] };
+// 自分が書き込んだレス 1 件。自分宛マーカーのために元々レス番号だけを持っていたが、
+// 書き込み履歴の一覧に使うので日時・スレタイ・本文も一緒に残す。
+// 以前は number[] だったので、読み込み時に normalizeMyPosts で揃える
+// (移行した分は at=0 / title="" / body="" になり、一覧では日時不明として末尾に並ぶ。
+//  本文は backfillMyPostBodies がスレキャッシュから埋め直す)。
+type MyPostEntry = { no: number; at: number; title: string; body: string };
+type MyPostsMap = Record<string, MyPostEntry[]>;
+// 保存する本文の上限。5ch の 1 レスに収まらない長さまでは要らないが、
+// 改行ごと残したいので行数ぶんの余裕は取る。
+const MY_POST_BODY_MAX_LEN = 2000;
+// 本文の埋め直しで 1 回に読むスレ数の上限。履歴が多いときに IPC が並ばないようにする。
+const MY_POST_BACKFILL_MAX_THREADS = 50;
+const normalizeMyPosts = (raw: unknown): MyPostsMap => {
+  const out: MyPostsMap = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [url, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(value)) continue;
+    const list: MyPostEntry[] = [];
+    for (const item of value) {
+      if (typeof item === "number") {
+        list.push({ no: item, at: 0, title: "", body: "" });
+        continue;
+      }
+      if (!item || typeof item !== "object") continue;
+      const o = item as Partial<MyPostEntry> & { bodyHead?: unknown };
+      if (typeof o.no !== "number") continue;
+      // bodyHead は本文を 120 文字に切っていた頃の名前。
+      const body = typeof o.body === "string" ? o.body : typeof o.bodyHead === "string" ? o.bodyHead : "";
+      list.push({
+        no: o.no,
+        at: typeof o.at === "number" ? o.at : 0,
+        title: typeof o.title === "string" ? o.title : "",
+        body,
+      });
+    }
+    if (list.length > 0) out[url] = list;
+  }
+  return out;
+};
 // NG の適用方法。hide = レスごと消す / hide-images = 画像だけ消す /
 // abone = レス番と枠は残して中身を「あぼーん」に置き換える (レス番が飛ばない)
 type NgMode = "hide" | "hide-images" | "abone";
@@ -1910,14 +1949,21 @@ export default function App() {
   const newThreadNameEditedRef = useRef(false);
   const [postHistory, setPostHistory] = useState<{ time: string; threadUrl: string; body: string; ok: boolean }[]>([]);
   const [postHistoryOpen, setPostHistoryOpen] = useState(false);
-  const [myPosts, setMyPosts] = useState<Record<string, number[]>>(() => {
-    try { const v = localStorage.getItem(MY_POSTS_KEY); if (v) return JSON.parse(v); } catch { /* ignore */ }
+  const [postHistoryQuery, setPostHistoryQuery] = useState("");
+  // 本文を全部出している履歴の行 (`<スレURL>#<レス番号>`)。既定は 2 行で畳む。
+  const [postHistoryExpanded, setPostHistoryExpanded] = useState<Set<string>>(new Set());
+  const [myPosts, setMyPosts] = useState<MyPostsMap>(() => {
+    try { const v = localStorage.getItem(MY_POSTS_KEY); if (v) return normalizeMyPosts(JSON.parse(v)); } catch { /* ignore */ }
     return {};
   });
-  const pendingMyPostRef = useRef<{ threadUrl: string; body: string; prevCount: number } | null>(null);
+  const pendingMyPostRef = useRef<{ threadUrl: string; title: string; body: string; prevCount: number } | null>(null);
+  // 書き込み履歴からレスを開いたときの飛び先。スレを開いてレスが載るのを待ってから飛ぶ。
+  const pendingResponseJumpRef = useRef<{ threadUrl: string; no: number } | null>(null);
+  // 同じスレ・同じレスを続けて開いても効くように、要求ごとにカウンタを進める。
+  const [responseJumpRequest, setResponseJumpRequest] = useState(0);
   // 巡回は setInterval のクロージャから走るので、myPosts を直接読むと書き込み直後の
   // スレを取りこぼす。ref に写して常に最新を見る。
-  const myPostsRef = useRef<Record<string, number[]>>({});
+  const myPostsRef = useRef<MyPostsMap>({});
   const [notifyConfig, setNotifyConfig] = useState<NotifyConfig>({
     enabled: false, webhookUrl: "", discordUserId: "", intervalMin: 10,
   });
@@ -2382,7 +2428,9 @@ export default function App() {
   const [threadLastReadCount, setThreadLastReadCount] = useState<Record<number, number>>({});
   const [threadMenu, setThreadMenu] = useState<{ x: number; y: number; threadId: number } | null>(null);
   const threadMenuRef = useRef<HTMLDivElement>(null);
-  const [responseMenu, setResponseMenu] = useState<{ x: number; y: number; responseId: number } | null>(null);
+  // fromPopup: アンカー / 逆参照 / ID ポップアップのレス番号から開いたメニュー。
+  // その場合だけ「このレスへジャンプ」を出す (本文欄から開いたときは既に見えている)。
+  const [responseMenu, setResponseMenu] = useState<{ x: number; y: number; responseId: number; fromPopup?: boolean } | null>(null);
   const responseMenuRef = useRef<HTMLDivElement>(null);
   const [aaOverrides, setAaOverrides] = useState<Map<number, boolean>>(new Map());
   const [anchorPopup, setAnchorPopup] = useState<{ x: number; y: number; anchorTop: number; responseIds: number[]; z?: number } | null>(null);
@@ -2802,10 +2850,20 @@ export default function App() {
     }
     if (matched) {
       const myNo = matched.responseNo;
+      const entry: MyPostEntry = {
+        no: myNo,
+        at: Date.now(),
+        title: pending.title,
+        // 照合用の normalizedBody は空白を潰してあるので、履歴には書いたままを残す。
+        body: pending.body.trim().slice(0, MY_POST_BODY_MAX_LEN),
+      };
       setMyPosts((prev) => {
         const list = prev[pending.threadUrl] ?? [];
-        if (list.includes(myNo)) return prev;
-        const next = { ...prev, [pending.threadUrl]: [...list, myNo] };
+        // 同じレス番号が既にあるのは移行分 (日時・本文なし) の可能性があるので上書きする。
+        const next = {
+          ...prev,
+          [pending.threadUrl]: [...list.filter((e) => e.no !== myNo), entry],
+        };
         saveUiJson(MY_POSTS_KEY, JSON.stringify(next));
         return next;
       });
@@ -4691,7 +4749,7 @@ export default function App() {
         const postedTitle = threadTabs.find((t) => t.threadUrl === threadUrl.trim())?.title ?? threadUrl.trim();
         pushRecentPostedThread(threadUrl.trim(), postedTitle);
         const prevCount = tabCacheRef.current.get(threadUrl.trim())?.responses.length ?? 0;
-        pendingMyPostRef.current = { threadUrl: threadUrl.trim(), body: composeBody, prevCount };
+        pendingMyPostRef.current = { threadUrl: threadUrl.trim(), title: postedTitle, body: composeBody, prevCount };
         void fetchResponsesFromCurrent();
       }
     } catch (error) {
@@ -4854,7 +4912,7 @@ export default function App() {
         setUploadPanelOpen(false);
         setUploadResults([]);
         const prevCount = tabCacheRef.current.get(postTargetUrl)?.responses.length ?? 0;
-        pendingMyPostRef.current = { threadUrl: postTargetUrl, body: postedBody, prevCount };
+        pendingMyPostRef.current = { threadUrl: postTargetUrl, title: postedTitle, body: postedBody, prevCount };
         // Re-fetch responses via standard path to update thread list counts, cache, and timestamps
         await fetchResponsesFromCurrent(postTargetUrl);
         // Scroll to bottom to show the new post
@@ -5564,7 +5622,7 @@ export default function App() {
         continue;
       }
       if (info.count <= seen) continue;
-      const myNos = new Set(myPostsNow[url] ?? []);
+      const myNos = new Set((myPostsNow[url] ?? []).map((e) => e.no));
       let responses: ThreadResponseItem[] = [];
       try {
         const result = await invoke<{ responses: ThreadResponseItem[]; title: string | null }>(
@@ -5705,7 +5763,7 @@ export default function App() {
     }
   };
 
-  const myPostNos = useMemo(() => new Set(myPosts[activeThreadUrl] ?? []), [myPosts, activeThreadUrl]);
+  const myPostNos = useMemo(() => new Set((myPosts[activeThreadUrl] ?? []).map((e) => e.no)), [myPosts, activeThreadUrl]);
   const replyToMeNos = useMemo(() => {
     if (myPostNos.size === 0) return new Set<number>();
     const set = new Set<number>();
@@ -5718,6 +5776,130 @@ export default function App() {
     }
     return set;
   }, [responseItems, myPostNos]);
+
+  // 書き込み履歴の行を押したときのジャンプ。openThreadInTab は読書位置を復元するので、
+  // 対象レスが実際に載ってから飛ばす (dat 落ち等で載らなければ何もしない)。
+  useEffect(() => {
+    const pending = pendingResponseJumpRef.current;
+    if (!pending) return;
+    if (normalizeThreadUrl(threadUrl) !== pending.threadUrl) return;
+    if (!responseItems.some((r) => r.id === pending.no)) return;
+    pendingResponseJumpRef.current = null;
+    selectResponseAndScroll(pending.no);
+    setStatus(`jumped to >>${pending.no}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [responseItems, threadUrl, responseJumpRequest]);
+
+  // 書き込み履歴 (自分のレス) の一覧。スレをまたいで新しい順に並べる。
+  const myPostRows = useMemo(() => {
+    // 移行分はスレタイを持たないので、他で覚えているタイトルで補う (URL 直出しを避ける)。
+    const titleByUrl = new Map<string, string>();
+    for (const t of [...recentPostedThreads, ...recentOpenedThreads, ...favorites.threads]) {
+      if (t.title && !titleByUrl.has(normalizeThreadUrl(t.threadUrl))) {
+        titleByUrl.set(normalizeThreadUrl(t.threadUrl), t.title);
+      }
+    }
+    const rows: (MyPostEntry & { threadUrl: string })[] = [];
+    for (const [url, list] of Object.entries(myPosts)) {
+      const fallback = titleByUrl.get(normalizeThreadUrl(url)) ?? "";
+      for (const e of list) rows.push({ ...e, title: e.title || fallback, threadUrl: url });
+    }
+    // 移行分 (at=0) は日時が分からないので末尾へ落とし、その中はレス番号の大きい順。
+    rows.sort((a, b) => (b.at - a.at) || (b.no - a.no));
+    return rows;
+  }, [myPosts, recentPostedThreads, recentOpenedThreads, favorites.threads]);
+
+  // 本文を持たない履歴 (旧形式からの移行分) を、SQLite のスレキャッシュから埋める。
+  // キャッシュに残っていないスレはどうしようもないので、1 セッション 1 回だけ試す。
+  const myPostBackfillTriedRef = useRef<Set<string>>(new Set());
+  const backfillMyPostBodies = async () => {
+    if (!isTauriRuntime()) return;
+    const targets = new Map<string, number[]>();
+    for (const [url, list] of Object.entries(myPostsRef.current)) {
+      if (myPostBackfillTriedRef.current.has(url)) continue;
+      const missing = list.filter((e) => e.body === "").map((e) => e.no);
+      if (missing.length === 0) continue;
+      targets.set(url, missing);
+      if (targets.size >= MY_POST_BACKFILL_MAX_THREADS) break;
+    }
+    if (targets.size === 0) return;
+    const filled = new Map<string, Map<number, string>>();
+    for (const [url, nos] of targets) {
+      myPostBackfillTriedRef.current.add(url);
+      let json: string | null = null;
+      try {
+        json = await invoke<string | null>("load_thread_cache", { threadUrl: url });
+      } catch (e) {
+        console.warn("my post backfill: load_thread_cache failed", e);
+        continue;
+      }
+      if (!json) continue;
+      try {
+        const rows = JSON.parse(json) as ThreadResponseItem[];
+        const byNo = new Map<number, string>();
+        for (const no of nos) {
+          const hit = rows.find((r) => r.responseNo === no);
+          if (!hit) continue;
+          const text = responseHtmlToPlainText(hit.body || "").trim().slice(0, MY_POST_BODY_MAX_LEN);
+          if (text !== "") byNo.set(no, text);
+        }
+        if (byNo.size > 0) filled.set(url, byNo);
+      } catch (e) {
+        console.warn("my post backfill: broken cache json", url, e);
+      }
+    }
+    if (filled.size === 0) return;
+    setMyPosts((prev) => {
+      const next: MyPostsMap = { ...prev };
+      let changed = false;
+      for (const [url, byNo] of filled) {
+        const list = next[url];
+        if (!list) continue;
+        next[url] = list.map((e) => {
+          const text = e.body === "" ? byNo.get(e.no) : undefined;
+          if (text === undefined) return e;
+          changed = true;
+          return { ...e, body: text };
+        });
+      }
+      if (!changed) return prev;
+      saveUiJson(MY_POSTS_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!postHistoryOpen) return;
+    void backfillMyPostBodies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postHistoryOpen]);
+
+  const openMyPost = (row: { threadUrl: string; no: number; title: string }) => {
+    const url = normalizeThreadUrl(row.threadUrl);
+    pendingResponseJumpRef.current = { threadUrl: url, no: row.no };
+    setResponseJumpRequest((v) => v + 1);
+    openThreadInTab(url, row.title || url);
+    setPostHistoryOpen(false);
+    // dat 落ちや取得失敗でそのレスが載らないと飛び先が残り続け、後で同じスレを開いた
+    // ときに勝手に飛んでしまう。待つのはやめる期限を切る。
+    window.setTimeout(() => {
+      const p = pendingResponseJumpRef.current;
+      if (p && p.threadUrl === url && p.no === row.no) pendingResponseJumpRef.current = null;
+    }, 15000);
+  };
+
+  const removeMyPost = (threadUrl: string, no: number) => {
+    setMyPosts((prev) => {
+      const list = prev[threadUrl];
+      if (!list) return prev;
+      const kept = list.filter((e) => e.no !== no);
+      const next = { ...prev };
+      if (kept.length > 0) next[threadUrl] = kept;
+      else delete next[threadUrl];
+      saveUiJson(MY_POSTS_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   const watchoiCountMap = (() => {
     const map = new Map<string, number>();
@@ -6137,15 +6319,7 @@ export default function App() {
       <div className="anchor-popup-header">
         <span
           className="response-viewer-no"
-          onClick={(e) => {
-            e.stopPropagation();
-            selectResponseAndScroll(resp.id);
-            setAnchorPopup(null);
-            setBackRefPopup(null);
-            setNestedPopups([]);
-            setIdPopup(null);
-            setStatus(`jumped to >>${resp.id}`);
-          }}
+          onClick={(e) => onResponseNoClick(e, resp.id, { fromPopup: true })}
         >
           {resp.id}
         </span>{" "}
@@ -6304,11 +6478,14 @@ export default function App() {
     hideThreadTitlePopup();
   };
 
-  const onResponseNoClick = (e: ReactMouseEvent, responseId: number) => {
+  const onResponseNoClick = (e: ReactMouseEvent, responseId: number, opts?: { fromPopup?: boolean }) => {
     e.stopPropagation();
+    // メニュー (z-index 50) はポップアップ (59〜) より下にいるので、ポップアップ越しに
+    // 開くと隠れてしまう。番号を押した時点で操作対象は決まっているので先に畳む。
+    if (opts?.fromPopup) closeAllPopups();
     setSelectedResponse(responseId);
     const p = clampMenuPosition(e.clientX, e.clientY, 240, 400);
-    setResponseMenu({ x: p.x, y: p.y, responseId });
+    setResponseMenu({ x: p.x, y: p.y, responseId, fromPopup: opts?.fromPopup });
     setThreadMenu(null);
   };
 
@@ -6586,7 +6763,7 @@ export default function App() {
   };
 
   const runResponseAction = async (
-    action: "quote" | "quote-with-name" | "copy-url" | "add-ng-id" | "copy-id" | "copy-body" | "copy-full" | "add-ng-name" | "add-ng-body" | "add-hl-id" | "add-hl-name" | "toggle-aa" | "settings"
+    action: "jump" | "quote" | "quote-with-name" | "copy-url" | "add-ng-id" | "copy-id" | "copy-body" | "copy-full" | "add-ng-name" | "add-ng-body" | "add-hl-id" | "add-hl-name" | "toggle-aa" | "settings"
   ) => {
     if (!responseMenu) return;
     const id = responseMenu.responseId;
@@ -6596,6 +6773,12 @@ export default function App() {
       return;
     }
 
+    if (action === "jump") {
+      selectResponseAndScroll(id);
+      setStatus(`jumped to >>${id}`);
+      setResponseMenu(null);
+      return;
+    }
     if (action === "quote") {
       appendComposeQuote(`>>${id}`);
       setStatus(`quoted response #${id}`);
@@ -9660,6 +9843,8 @@ export default function App() {
             { text: "すべてのタブを閉じる", action: closeAllTabs },
           ]},
           { label: "ツール", items: [
+            { text: "書き込み履歴", action: () => { setPostHistoryQuery(""); setPostHistoryOpen(true); } },
+            { text: "sep" },
             { text: "認証状態", action: checkAuthEnv },
             { text: "認証テスト", action: probeAuth },
           ]},
@@ -12249,6 +12434,9 @@ export default function App() {
       )}
       {responseMenu && (
         <div ref={responseMenuRef} className="thread-menu response-menu" style={{ left: responseMenu.x, top: responseMenu.y }} onClick={(e) => e.stopPropagation()}>
+          {responseMenu.fromPopup && (
+            <button onClick={() => void runResponseAction("jump")}>このレスへジャンプ</button>
+          )}
           <button onClick={() => void runResponseAction("quote")}>ここにレス</button>
           <button onClick={() => void runResponseAction("quote-with-name")}>名前付き引用</button>
           {currentReadMarker === responseMenu.responseId ? (
@@ -12707,7 +12895,10 @@ export default function App() {
                   className="id-popup-item"
                   onClick={() => { selectResponseAndScroll(r.id); setIdPopup(null); }}
                 >
-                  <span className="response-viewer-no">{r.id}</span>
+                  <span
+                    className="response-viewer-no"
+                    onClick={(e) => onResponseNoClick(e, r.id, { fromPopup: true })}
+                  >{r.id}</span>
                   {replyCount > 0 && (
                     <span className="id-popup-reply-count" title={`${replyCount}件のレスがついています`}>▼{replyCount}</span>
                   )}
@@ -13201,6 +13392,13 @@ export default function App() {
                 <label className="settings-row">
                   <span>書き込みログ</span>
                   <button type="button" onClick={openKakikomiLog}>書き込みログを開く</button>
+                </label>
+                <label className="settings-row">
+                  <span>書き込み履歴 ({myPostRows.length}件)</span>
+                  <button
+                    type="button"
+                    onClick={() => { setSettingsOpen(false); setPostHistoryQuery(""); setPostHistoryOpen(true); }}
+                  >自分のレス一覧を開く</button>
                 </label>
               </fieldset>
               <fieldset>
@@ -13808,20 +14006,89 @@ export default function App() {
         <div className="lightbox-overlay" onClick={() => setPostHistoryOpen(false)}>
           <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
             <header className="settings-header">
-              <strong>書き込み履歴 ({postHistory.length}件)</strong>
+              <strong>書き込み履歴 ({myPostRows.length}件)</strong>
               <button onClick={() => setPostHistoryOpen(false)}>閉じる</button>
             </header>
             <div className="post-history-body">
-              {postHistory.length === 0 ? (
-                <p style={{ padding: "8px", color: "var(--sub)" }}>まだ書き込みがありません</p>
-              ) : (
-                postHistory.map((h, i) => (
-                  <div key={i} className={`post-history-item ${h.ok ? "post-ok" : "post-ng"}`}>
-                    <span className="post-history-time">{h.time}</span>
-                    <span className={`post-history-status ${h.ok ? "" : "post-ng-status"}`}>{h.ok ? "OK" : "NG"}</span>
-                    <span className="post-history-body">{h.body}</span>
-                  </div>
-                ))
+              <div className="post-history-search">
+                <input
+                  type="text"
+                  value={postHistoryQuery}
+                  placeholder="スレタイ・本文で絞り込み"
+                  onChange={(e) => setPostHistoryQuery(e.target.value)}
+                />
+                {postHistoryQuery !== "" && (
+                  <button type="button" onClick={() => setPostHistoryQuery("")}>×</button>
+                )}
+              </div>
+              {(() => {
+                const q = postHistoryQuery.trim().toLowerCase();
+                const rows = q === ""
+                  ? myPostRows
+                  : myPostRows.filter((r) => r.title.toLowerCase().includes(q) || r.body.toLowerCase().includes(q));
+                if (myPostRows.length === 0) {
+                  return <p style={{ padding: "8px", color: "var(--sub)" }}>まだ書き込みがありません</p>;
+                }
+                if (rows.length === 0) {
+                  return <p style={{ padding: "8px", color: "var(--sub)" }}>一致する書き込みがありません</p>;
+                }
+                return rows.map((r) => {
+                  const rowKey = `${r.threadUrl}#${r.no}`;
+                  const expanded = postHistoryExpanded.has(rowKey);
+                  // 畳んだ状態は 2 行までなので、それに収まらなさそうなものだけトグルを出す。
+                  const foldable = r.body.includes("\n") || r.body.length > 80;
+                  return (
+                    <div
+                      key={rowKey}
+                      className="post-history-item my-post-item"
+                      title={`${r.threadUrl} の >>${r.no} を開く`}
+                      onClick={() => openMyPost(r)}
+                    >
+                      <div className="my-post-line">
+                        <span className="post-history-time">{r.at > 0 ? formatSince(r.at) : "日時不明"}</span>
+                        <span className="response-viewer-no">{`>>${r.no}`}</span>
+                        <span className="my-post-title">{r.title || r.threadUrl}</span>
+                        <button
+                          type="button"
+                          className="my-post-remove"
+                          title="この履歴を削除 (このレスの自分宛マーカーも消えます)"
+                          onClick={(e) => { e.stopPropagation(); removeMyPost(r.threadUrl, r.no); }}
+                        >×</button>
+                      </div>
+                      {r.body === "" ? (
+                        <div className="my-post-body my-post-body-missing">本文の記録がありません (このスレのログが残っていません)</div>
+                      ) : (
+                        <div className={`my-post-body${expanded ? " expanded" : ""}`}>{r.body}</div>
+                      )}
+                      {r.body !== "" && foldable && (
+                        <button
+                          type="button"
+                          className="my-post-more"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPostHistoryExpanded((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(rowKey)) next.delete(rowKey); else next.add(rowKey);
+                              return next;
+                            });
+                          }}
+                        >{expanded ? "畳む" : "全文"}</button>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
+              {postHistory.length > 0 && (
+                <>
+                  <div className="my-post-section">今回の送信結果 ({postHistory.length}件)</div>
+                  {postHistory.map((h, i) => (
+                    <div key={i} className={`post-history-item ${h.ok ? "post-ok" : "post-ng"}`}>
+                      <span className="post-history-time">{h.time}</span>
+                      <span className={`post-history-status ${h.ok ? "" : "post-ng-status"}`}>{h.ok ? "OK" : "NG"}</span>
+                      <span className="post-history-body">{h.body}</span>
+                    </div>
+                  ))}
+                </>
               )}
             </div>
           </div>

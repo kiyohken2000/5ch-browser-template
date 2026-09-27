@@ -4094,6 +4094,90 @@ a.body-link-image:hover::after {
   border-color: #3c3c3c;
 }
 
+/* 書き込み履歴 (自分のレス一覧)。.post-history-item は 1 行の flex なので、
+   2 行構成のこちらは縦積みに上書きする。 */
+.post-history-search {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0 6px;
+  position: sticky;
+  top: 0;
+  background: #f5f5f5;
+  z-index: 1;
+}
+.post-history-search input {
+  flex: 1;
+  min-width: 0;
+}
+.dark .post-history-search {
+  background: #2d2d30;
+}
+.my-post-item {
+  display: block;
+  cursor: pointer;
+  padding: 5px 4px;
+}
+.my-post-item:hover {
+  background: #e8f0f8;
+}
+.dark .my-post-item:hover {
+  background: #33404d;
+}
+.my-post-line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.my-post-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.my-post-body {
+  color: var(--sub);
+  margin-top: 2px;
+  padding-left: 68px;
+  /* 書いたままの改行を残す。既定は 2 行で畳み、「全文」で展開する */
+  white-space: pre-wrap;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.my-post-body.expanded {
+  display: block;
+  overflow: visible;
+}
+.my-post-body-missing {
+  font-style: italic;
+  opacity: 0.75;
+}
+.my-post-more {
+  margin: 2px 0 0 68px;
+  padding: 0 6px;
+  font-size: 10px;
+  line-height: 1.6;
+}
+.my-post-remove {
+  flex: 0 0 auto;
+  line-height: 1;
+  padding: 0 5px;
+}
+.my-post-section {
+  margin-top: 10px;
+  padding: 4px 0 2px;
+  border-bottom: 1px solid #c8c8c8;
+  color: var(--sub);
+  font-size: 11px;
+  font-weight: 700;
+}
+.dark .my-post-section {
+  border-color: #4a4a4a;
+}
+
 .thread-tab {
   cursor: pointer;
 }
