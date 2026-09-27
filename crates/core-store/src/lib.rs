@@ -388,6 +388,18 @@ fn get_db() -> Result<std::sync::MutexGuard<'static, Option<Connection>>, StoreE
                 url TEXT PRIMARY KEY,
                 json TEXT NOT NULL,
                 fetched_at INTEGER NOT NULL
+            );
+            -- 曖昧 NG (AI ルール) の判定結果。prob は述語をまとめた後の値。
+            -- predicates_hash はルールの述語から作る。述語を書き換えたら値が変わるので、
+            -- 古い判定が残っていても読み出しに引っかからない。
+            CREATE TABLE IF NOT EXISTS ng_ai_result (
+                thread_url TEXT NOT NULL,
+                response_no INTEGER NOT NULL,
+                rule_id TEXT NOT NULL,
+                predicates_hash TEXT NOT NULL,
+                prob REAL NOT NULL,
+                judged_at INTEGER NOT NULL,
+                PRIMARY KEY (thread_url, response_no, rule_id)
             );"
         )?;
         *guard = Some(conn);
@@ -405,6 +417,84 @@ pub fn save_thread_cache(thread_url: &str, title: &str, responses_json: &str) ->
     conn.execute(
         "INSERT OR REPLACE INTO thread_cache (thread_url, title, responses_json, updated_at) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![thread_url, title, responses_json, now],
+    )?;
+    Ok(())
+}
+
+/// Judgements already stored for `(thread_url, rule_id)` whose predicates still
+/// hash to `predicates_hash`, as `(response_no, prob)`. Rows left over from an
+/// earlier wording of the rule are ignored here and dropped on the next save.
+pub fn load_ng_ai_results(
+    thread_url: &str,
+    rule_id: &str,
+    predicates_hash: &str,
+) -> Result<Vec<(u32, f32)>, StoreError> {
+    let guard = get_db()?;
+    let conn = guard.as_ref().ok_or_else(|| StoreError::Other("no db".into()))?;
+    let mut stmt = conn.prepare(
+        "SELECT response_no, prob FROM ng_ai_result
+         WHERE thread_url = ?1 AND rule_id = ?2 AND predicates_hash = ?3",
+    )?;
+    let rows = stmt.query_map(
+        rusqlite::params![thread_url, rule_id, predicates_hash],
+        |row| Ok((row.get::<_, i64>(0)? as u32, row.get::<_, f64>(1)? as f32)),
+    )?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+/// Store judgements for `(thread_url, rule_id)` and drop whatever that rule left
+/// behind under a different `predicates_hash`, so editing a rule cannot leave
+/// stale rows around.
+pub fn save_ng_ai_results(
+    thread_url: &str,
+    rule_id: &str,
+    predicates_hash: &str,
+    rows: &[(u32, f32)],
+) -> Result<(), StoreError> {
+    let mut guard = get_db()?;
+    let conn = guard.as_mut().ok_or_else(|| StoreError::Other("no db".into()))?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let tx = conn.transaction()?;
+    tx.execute(
+        "DELETE FROM ng_ai_result WHERE thread_url = ?1 AND rule_id = ?2 AND predicates_hash <> ?3",
+        rusqlite::params![thread_url, rule_id, predicates_hash],
+    )?;
+    {
+        let mut stmt = tx.prepare(
+            "INSERT OR REPLACE INTO ng_ai_result
+                (thread_url, response_no, rule_id, predicates_hash, prob, judged_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )?;
+        for (response_no, prob) in rows {
+            stmt.execute(rusqlite::params![
+                thread_url,
+                *response_no as i64,
+                rule_id,
+                predicates_hash,
+                *prob as f64,
+                now
+            ])?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// Forget every judgement made by `rule_id` (all threads). Used when a rule is
+/// deleted.
+pub fn delete_ng_ai_results_for_rule(rule_id: &str) -> Result<(), StoreError> {
+    let guard = get_db()?;
+    let conn = guard.as_ref().ok_or_else(|| StoreError::Other("no db".into()))?;
+    conn.execute(
+        "DELETE FROM ng_ai_result WHERE rule_id = ?1",
+        rusqlite::params![rule_id],
     )?;
     Ok(())
 }

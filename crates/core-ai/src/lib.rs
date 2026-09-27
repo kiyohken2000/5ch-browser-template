@@ -946,6 +946,19 @@ pub fn classify_entailment(
     Ok(out)
 }
 
+/// Stable short key for a rule's wording, used to invalidate cached judgements
+/// when its predicates are edited. The separator matters: without it
+/// `["ab", "c"]` and `["a", "bc"]` would hash the same.
+pub fn classifier_rule_hash(predicates: &[String]) -> String {
+    let mut hasher = Sha256::new();
+    for p in predicates {
+        hasher.update(p.as_bytes());
+        hasher.update([0u8]);
+    }
+    let digest = format!("{:x}", hasher.finalize());
+    digest[..16].to_string()
+}
+
 /// `P(a)` of a two-way softmax over the raw label logits, shifted by the max so
 /// large logits cannot overflow `exp`.
 fn softmax2(a: f32, b: f32) -> f32 {
@@ -979,6 +992,21 @@ mod tests {
         // 大きな logit でも exp が溢れない (最大値を引いてから指数を取るため)
         assert!(softmax2(200.0, 100.0).is_finite());
         assert!((softmax2(201.0, 101.0) - softmax2(200.0, 100.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn classifier_rule_hash_separates_predicates() {
+        let a = classifier_rule_hash(&["ab".to_string(), "c".to_string()]);
+        let b = classifier_rule_hash(&["a".to_string(), "bc".to_string()]);
+        assert_ne!(a, b, "区切りが無いと述語の切り方が違っても同じ値になる");
+        assert_eq!(a.len(), 16);
+        // 同じ述語なら同じ値 (キャッシュが無駄に捨てられない)
+        assert_eq!(a, classifier_rule_hash(&["ab".to_string(), "c".to_string()]));
+        // 順番が違えば別のルール
+        assert_ne!(
+            classifier_rule_hash(&["x".to_string(), "y".to_string()]),
+            classifier_rule_hash(&["y".to_string(), "x".to_string()])
+        );
     }
 
     #[test]

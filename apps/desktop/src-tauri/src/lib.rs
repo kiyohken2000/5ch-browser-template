@@ -2446,6 +2446,7 @@ async fn ai_load_merged_catalog() -> Result<core_ai::ModelCatalog, String> {
 
 static AI_CANCEL_FLAGS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
 static AI_INFERENCE_CANCEL: OnceLock<Mutex<Option<Arc<AtomicBool>>>> = OnceLock::new();
+static AI_CLASSIFY_CANCEL: OnceLock<Mutex<Option<Arc<AtomicBool>>>> = OnceLock::new();
 
 fn ai_cancel_flags() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
     AI_CANCEL_FLAGS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -2453,6 +2454,33 @@ fn ai_cancel_flags() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
 
 fn ai_inference_cancel() -> &'static Mutex<Option<Arc<AtomicBool>>> {
     AI_INFERENCE_CANCEL.get_or_init(|| Mutex::new(None))
+}
+
+/// Cancel flag of the in-flight NG judgement, kept separate from the generation
+/// one so the two can be stopped independently: a judgement yields to a user
+/// action, but cancelling a summary must not abandon a judgement run.
+fn ai_classify_cancel() -> &'static Mutex<Option<Arc<AtomicBool>>> {
+    AI_CLASSIFY_CANCEL.get_or_init(|| Mutex::new(None))
+}
+
+/// Whether text generation (summary / translation / reply drafting) is in
+/// flight. Judgement only runs when nothing else is using the model, because
+/// both take the same inference mutex in core-ai.
+fn ai_generation_in_flight() -> bool {
+    ai_inference_cancel()
+        .lock()
+        .map(|slot| slot.is_some())
+        .unwrap_or(false)
+}
+
+/// Ask the in-flight judgement to stop, so a user-triggered generation does not
+/// have to wait for it.
+fn ai_classify_yield() {
+    if let Ok(slot) = ai_classify_cancel().lock() {
+        if let Some(flag) = slot.as_ref() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
 }
 
 fn ai_models_dir() -> Result<PathBuf, String> {
@@ -2925,6 +2953,10 @@ async fn ai_run_inference(
     let max = max_tokens.unwrap_or(512);
     let inference_backend = backend.unwrap_or_default();
 
+    // NG の判定が走っていたら先に譲らせる。判定は裏の仕事で、こちらはユーザーの操作。
+    // 同じ推論ミューテックスを待つことになるので、譲らせないと数十秒待たされる。
+    ai_classify_yield();
+
     let cancel = Arc::new(AtomicBool::new(false));
     {
         let mut slot = ai_inference_cancel().lock().map_err(|e| e.to_string())?;
@@ -3008,6 +3040,169 @@ async fn ai_run_inference(
             Err(msg)
         }
     }
+}
+
+/// One response handed to the NG classifier.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NgAiResponseInput {
+    response_no: u32,
+    body: String,
+}
+
+/// `P(該当)` for one response under one rule.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NgAiScore {
+    response_no: u32,
+    prob: f32,
+    /// True when this came from the judgement cache rather than being scored now.
+    cached: bool,
+}
+
+/// Id of the classifier in the catalog. The NG judgement is only offered when
+/// this model is installed.
+const NG_CLASSIFIER_MODEL_ID: &str = "bge-m3-zeroshot-v2-q4km";
+
+/// Whether the NG classifier is downloaded, so the UI can hide the feature.
+#[tauri::command]
+fn ai_ng_classifier_ready() -> Result<bool, String> {
+    let dir = ai_models_dir()?;
+    let manifest = core_ai::load_manifest(&dir).map_err(|e| e.to_string())?;
+    Ok(manifest.is_installed(NG_CLASSIFIER_MODEL_ID))
+}
+
+/// Score `responses` against a rule's `predicates` and return `P(該当)` per
+/// response. Several predicates are combined with `min()`, i.e. an AND: the real
+/// thread evaluation showed a single composite sentence is much less precise
+/// than two single-predicate sentences ANDed together (see [N23]).
+///
+/// Judgements are cached in SQLite per (thread, response, rule) and reused while
+/// the predicates hash matches, so re-opening a thread costs nothing.
+///
+/// Returns `Err("busy")` when text generation is in flight — both paths take the
+/// same inference mutex, and the user's own action wins.
+#[tauri::command]
+async fn ai_classify_responses(
+    thread_url: String,
+    rule_id: String,
+    predicates: Vec<String>,
+    responses: Vec<NgAiResponseInput>,
+    backend: Option<core_ai::InferenceBackend>,
+) -> Result<Vec<NgAiScore>, String> {
+    let predicates: Vec<String> = predicates
+        .into_iter()
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if predicates.is_empty() || responses.is_empty() {
+        return Ok(Vec::new());
+    }
+    if ai_generation_in_flight() {
+        return Err("busy".into());
+    }
+
+    let dir = ai_models_dir()?;
+    let manifest = core_ai::load_manifest(&dir).map_err(|e| e.to_string())?;
+    let installed = manifest
+        .find(NG_CLASSIFIER_MODEL_ID)
+        .ok_or_else(|| format!("model not installed: {NG_CLASSIFIER_MODEL_ID}"))?;
+    let path = dir.join(&installed.filename);
+    let hash = core_ai::classifier_rule_hash(&predicates);
+
+    let cached: HashMap<u32, f32> =
+        core_store::load_ng_ai_results(&thread_url, &rule_id, &hash)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .collect();
+
+    let todo: Vec<&NgAiResponseInput> = responses
+        .iter()
+        .filter(|r| !cached.contains_key(&r.response_no))
+        .collect();
+    let todo_nos: Vec<u32> = todo.iter().map(|r| r.response_no).collect();
+    let premises: Vec<String> = todo.iter().map(|r| r.body.clone()).collect();
+
+    let mut fresh: Vec<(u32, f32)> = Vec::new();
+    if !premises.is_empty() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        {
+            let mut slot = ai_classify_cancel().lock().map_err(|e| e.to_string())?;
+            if let Some(prev) = slot.take() {
+                prev.store(true, Ordering::Relaxed);
+            }
+            *slot = Some(cancel.clone());
+        }
+        let cancel_thread = cancel.clone();
+        let inference_backend = backend.unwrap_or_default();
+        let predicates_thread = predicates.clone();
+        let scored = tauri::async_runtime::spawn_blocking(move || {
+            core_ai::classify_entailment(
+                &path,
+                &premises,
+                &predicates_thread,
+                inference_backend,
+                &cancel_thread,
+                |_done| {},
+            )
+        })
+        .await
+        .map_err(|e| format!("join: {e}"))?;
+
+        {
+            let mut slot = ai_classify_cancel().lock().map_err(|e| e.to_string())?;
+            if let Some(curr) = slot.as_ref() {
+                if Arc::ptr_eq(curr, &cancel) {
+                    *slot = None;
+                }
+            }
+        }
+
+        let scored = scored.map_err(|e| e.to_string())?;
+        for (no, scores) in todo_nos.iter().zip(scored.into_iter()) {
+            // 複数述語は AND。min が一番素直な近似で、実スレでも適合率が一番高かった。
+            let prob = scores.into_iter().fold(f32::INFINITY, f32::min);
+            if prob.is_finite() {
+                fresh.push((*no, prob));
+            }
+        }
+        if !fresh.is_empty() {
+            core_store::save_ng_ai_results(&thread_url, &rule_id, &hash, &fresh)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    let fresh_map: HashMap<u32, f32> = fresh.into_iter().collect();
+    let mut out = Vec::with_capacity(responses.len());
+    for r in &responses {
+        if let Some(prob) = cached.get(&r.response_no) {
+            out.push(NgAiScore {
+                response_no: r.response_no,
+                prob: *prob,
+                cached: true,
+            });
+        } else if let Some(prob) = fresh_map.get(&r.response_no) {
+            out.push(NgAiScore {
+                response_no: r.response_no,
+                prob: *prob,
+                cached: false,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Stop the in-flight judgement (thread closed, rule edited, app going idle).
+#[tauri::command]
+fn ai_cancel_classify() -> Result<(), String> {
+    ai_classify_yield();
+    Ok(())
+}
+
+/// Forget every judgement a rule made, for when the rule is deleted.
+#[tauri::command]
+fn ai_forget_ng_rule(rule_id: String) -> Result<(), String> {
+    core_store::delete_ng_ai_results_for_rule(&rule_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3267,6 +3462,10 @@ pub fn run() {
             ai_deactivate_model,
             ai_run_inference,
             ai_cancel_inference,
+            ai_classify_responses,
+            ai_cancel_classify,
+            ai_ng_classifier_ready,
+            ai_forget_ng_rule,
             ai_list_backend_devices,
             ai_cache_state,
             ai_preload_model,
