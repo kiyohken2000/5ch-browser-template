@@ -7021,6 +7021,23 @@ a.body-link-image:hover::after {
   line-height: 1.5;
   color: var(--sub);
   border-bottom: 1px solid #d0d0d0;
+  overflow-y: auto;
+  max-height: 40vh;
+}
+.ng-ai-note-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.ng-ai-note-head button {
+  flex: 0 0 auto;
+}
+.ng-ai-help {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.ng-ai-help li {
+  margin-bottom: 5px;
 }
 .ng-ai-add {
   padding: 6px 8px;

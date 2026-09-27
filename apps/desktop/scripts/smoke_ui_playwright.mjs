@@ -2386,6 +2386,23 @@ try {
     const dragHeader = await page.$(".ng-ai-panel .ng-panel-drag-header");
     assert(dragHeader, "AI rule panel should have a draggable header");
 
+    // 「書き方のコツ」は畳まれていて、押すと出る
+    assert(!(await page.$(".ng-ai-help")), "writing tips should start collapsed");
+    await page.click(".ng-ai-note-head button:has-text('書き方のコツ')");
+    await page.waitForSelector(".ng-ai-help li");
+    const tips = await page.$$eval(".ng-ai-help li", (els) => els.map((e) => e.textContent || ""));
+    assert(tips.length >= 4, `writing tips should list several points, got ${tips.length}`);
+    assert(
+      tips.some((t) => t.includes("分けて書く")),
+      "tips must tell the user to split conditions into separate predicates",
+    );
+    assert(
+      tips.some((t) => t.includes("主語つきの文")),
+      "tips must warn that action predicates need a full sentence",
+    );
+    await page.click(".ng-ai-note-head button:has-text('書き方のコツ')");
+    await page.waitForFunction(() => !document.querySelector(".ng-ai-help"));
+
     // 述語を 2 本入れてルールを足すと保存される
     const inputs = await page.$$(".ng-ai-add input");
     assert(inputs.length === 2, `draft should start with two predicate inputs, got ${inputs.length}`);

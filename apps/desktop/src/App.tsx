@@ -2386,6 +2386,7 @@ export default function App() {
     }
   });
   const [ngAiDraft, setNgAiDraft] = useState<string[]>(["", ""]);
+  const [ngAiHelpOpen, setNgAiHelpOpen] = useState(false);
   // 判定結果の候補。ルール ID -> (レス番号 -> 確率)。スレを移ると捨てる。
   const [ngAiCandidates, setNgAiCandidates] = useState<Map<string, Map<number, number>>>(new Map());
   const [ngAiJudging, setNgAiJudging] = useState<{ ruleId: string; done: number; total: number } | null>(null);
@@ -12480,9 +12481,49 @@ export default function App() {
             <button onClick={() => setNgAiPanelOpen(false)}>閉じる</button>
           </header>
           <div className="ng-ai-note">
-            自然文のルールでレスを判定します。<strong>「〜である。」の平叙文</strong>で書き、
-            条件が複数あるなら1行に詰めずに分けてください (すべて満たしたものだけが候補になります)。
-            判定はこの端末の中だけで行われ、外部には送信されません。
+            <div className="ng-ai-note-head">
+              <span>
+                自然文のルールでレスを判定します。<strong>条件が複数あるなら1行に詰めずに分けてください</strong>
+                (すべて満たしたレスだけが候補になります)。判定はこの端末の中だけで行われ、外部には送信されません。
+              </span>
+              <button className={ngAiHelpOpen ? "active-toggle" : ""} onClick={() => setNgAiHelpOpen((v) => !v)}>
+                書き方のコツ
+              </button>
+            </div>
+            {ngAiHelpOpen && (
+              <ul className="ng-ai-help">
+                <li>
+                  <strong>条件は分けて書く。</strong>
+                  「政治の話題で他人を罵倒している」と1文にするより、「この書き込みは政治の話題である。」と
+                  「この書き込みは他人を罵倒している。」に分けたほうが精度が上がります
+                  (同じ件数を隠す条件で、誤判定がおよそ半分になりました)。
+                </li>
+                <li>
+                  <strong>平叙文で書く。</strong>
+                  「〜である。」「〜している。」の形が一番はっきり出ます。疑問文や命令形は避けてください。
+                  話題を指定するだけなら「政治の話題」のような短い書き方でも動きますが、
+                  <strong>動作や状態 (罵倒している・宣伝している) は主語つきの文</strong>にしてください。
+                  短く書くと判定が鈍り、拾い漏れが増えます。
+                </li>
+                <li>
+                  <strong>全部を消す道具ではありません。</strong>
+                  しきい値0.8では「一番ひどいもの」から順に候補になります。実スレでの計測では、
+                  当てはまるレスのうち拾えたのは4分の1ほどでした。取りこぼしを減らしたいならしきい値を下げますが、
+                  誤って拾う率も上がります。
+                </li>
+                <li>
+                  <strong>誤って拾う分は残ります。</strong>
+                  しきい値0.8では、隠れたレス5件のうち1件ほどは本来当てはまらないものでした。
+                  あとから気付けるように、モードは「非表示」(復元可) のままにしておくのがおすすめです。
+                  ルールに当てはまらない話題のスレでは、1000レスあたり1〜2件しか発火しません。
+                </li>
+                <li>
+                  <strong>時間がかかります。</strong>
+                  レス1件あたり述語1つで約60ミリ秒。1000レスのスレを述語2つで判定すると2分ほどかかります。
+                  途中で中止できます。要約や翻訳を実行すると判定は中断して譲ります。
+                </li>
+              </ul>
+            )}
           </div>
           <div className="ng-ai-add">
             {ngAiDraft.map((v, i) => (
