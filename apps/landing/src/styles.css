@@ -1334,3 +1334,142 @@ h1 {
     transform: none;
   }
 }
+
+/* ---- 曖昧NG 説明ページ (/ai-ng.html) ---- */
+.doc-page {
+  max-width: 900px;
+}
+.doc-hero h1 {
+  margin: 8px 0 16px;
+}
+.doc-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.doc-badge {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: var(--ink-sub);
+}
+.doc-step {
+  margin-bottom: 40px;
+}
+.doc-step h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.doc-step-no {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: var(--brand-ink);
+  font-size: 14px;
+  flex: 0 0 auto;
+}
+.doc-shot {
+  margin: 16px 0 0;
+}
+.doc-shot-button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: none;
+  cursor: zoom-in;
+}
+.doc-shot-button img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.doc-shot figcaption {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ink-sub);
+}
+.doc-table-wrap {
+  overflow-x: auto;
+  margin: 16px 0;
+}
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.doc-table th,
+.doc-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+.doc-table th {
+  color: var(--ink-sub);
+  font-weight: 600;
+}
+.doc-row-good td {
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+}
+.doc-list {
+  padding-left: 20px;
+  line-height: 1.9;
+}
+.doc-list li + li {
+  margin-top: 6px;
+}
+.doc-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin: 20px 0;
+}
+.doc-metric {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+.doc-metric-value {
+  font-size: 30px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+.doc-metric-label {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-sub);
+  line-height: 1.6;
+}
+.doc-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+.doc-card h3 {
+  margin-top: 0;
+}
+.doc-faq > div + div {
+  margin-top: 20px;
+}
+.doc-faq h3 {
+  margin-bottom: 6px;
+}
+.inline-link {
+  color: var(--brand);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--brand) 40%, transparent);
+  white-space: nowrap;
+}
+.inline-link:hover {
+  border-bottom-color: var(--brand);
+}

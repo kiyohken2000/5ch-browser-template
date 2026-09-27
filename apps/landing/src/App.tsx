@@ -331,6 +331,7 @@ export default function App() {
             <a href="#features">機能</a>
             <a href="#install">インストール</a>
             <a href="#sync">データ共有</a>
+            <a href="/ai-ng.html">曖昧NG</a>
             <a href="#download">ダウンロード</a>
             <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
             <button
@@ -586,6 +587,10 @@ export default function App() {
               <p>
                 Apple Silicon は Metal、Windows / Linux は Vulkan で GPU 推論。
                 推論バックエンドは自動 / GPU / CPU から選択でき、環境に合わせて柔軟に切替えられます。
+              </p>
+              <p>
+                さらに「政治の話題で他人を罵倒している」のような<b>自然文のルールでレスを隠す「曖昧NG」</b>も。
+                文字列では書けない条件を扱えます。<a className="inline-link" href="/ai-ng.html">曖昧NG の使い方と仕組み →</a>
               </p>
               <div className="toggle-group">
                 <div className="toggle-set" role="tablist" aria-label="AI 機能">
