@@ -4027,6 +4027,8 @@ a.body-link-image:hover::after {
 .settings-row > .settings-hint {
   flex: 1 1 0;
   min-width: 0;
+  /* 数行に渡る注釈もあるので、折り返した行がくっつかないようにする */
+  line-height: 1.5;
 }
 .settings-row select {
   padding: 2px 4px;

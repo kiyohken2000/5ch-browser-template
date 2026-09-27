@@ -14203,13 +14203,14 @@ export default function App() {
                         )}
                         {installed && !clsDownloading && (
                           <>
-                            <button onClick={() => setNgAiPanelOpen(true)}>AIルールを開く</button>
+                            {/* AI 設定はモーダル (lightbox) なので、開いたままだと AI ルールパネルが触れない */}
+                            <button onClick={() => { setNgAiPanelOpen(true); setAiSettingsOpen(false); }}>AIルールを開く</button>
                             <button onClick={() => void aiDeleteModel(NG_CLASSIFIER_MODEL_ID)}>削除</button>
                           </>
                         )}
                       </div>
-                      <div className="settings-row" style={{ fontSize: "0.8em", opacity: 0.7 }}>
-                        <span>
+                      <div className="settings-row">
+                        <span className="settings-hint">
                           ※ 判定には bge-m3-zeroshot-v2.0 (0.42 GB) を使用。文章生成はしないので要約・翻訳・会話には使われません。
                           判定はこの端末の中だけで行われ、外部には送信されません。
                           消えたレスに気付けるよう、既定は「非表示」(復元可) で、しきい値は 0.8 です
