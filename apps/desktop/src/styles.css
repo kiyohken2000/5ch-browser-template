@@ -7000,7 +7000,19 @@ a.body-link-image:hover::after {
   height: 6px;
 }
 
-/* 曖昧 NG (AI ルール) タブ */
+/* AI ルール (曖昧NG) は独立パネル。スレを読みながら候補一覧を開いておく使い方に
+   なるので、フィルタ一覧より縦を長く取る。 */
+.ng-ai-panel {
+  width: min(560px, calc(100vw - 28px));
+  max-height: min(70vh, 720px);
+  /* ヘッダ / 説明 / 入力 / ルール一覧 / 候補一覧 */
+  grid-template-rows: auto auto auto auto 1fr;
+}
+.ng-ai-panel .ng-ai-candidates {
+  max-height: none;
+}
+
+/* 曖昧 NG (AI ルール) パネルの中身 */
 .ng-ai-note {
   padding: 6px 8px;
   font-size: 11px;

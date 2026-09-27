@@ -885,7 +885,7 @@ https://github.com/ollaya-dev/ollaya (Apache-2.0、Rust、2026-09-23 公開)。�
 - **受け入れ**: 手動で 1 スレ判定して結果が返り、2 回目はキャッシュから即返る
 
 **M3: 候補一覧 UI(ここで自動 NG に進むか再判断する)** — 🔜 実装済み / 実スレでの確認待ち (2026-09-27)
-- NG パネルに「AI ルール」タブ。`desktop.ngAiRules.v1` → `NgAiRule = { id, predicates: string[], mode: NgMode, threshold: number, disabled?: boolean, addedAt: number }`。述語は 1〜3 個、合成は `min()`
+- **独立パネル**にする(2026-09-27 変更。当初は NG パネルのタブだったが、曖昧 NG は「スレを判定して候補を見る」作業ビューを持ち、フィルタ一覧の編集とは性質が違う。`thread-ng-panel` / `ng-image-panel` などと同じ `DraggablePanelKey` の仲間にする)。NG パネルのタブ列と編集メニューから開く。`desktop.ngAiRules.v1` → `NgAiRule = { id, predicates: string[], mode: NgMode, threshold: number, disabled?: boolean, addedAt: number }`。述語は 1〜3 個、合成は `min()`
 - 「このスレを判定」ボタン → 該当候補を確率つきで一覧。行クリックでそのレスへジャンプ、そこから既存の文字列 NG へ手で追加できる
 - 判定モデル未導入 / AI 未有効ならタブを出さない(既存のゲーティングに従う)
 - `scripts/smoke_ui_playwright.mjs` に `desktop.ngAiRules.v1` をシードしてタブ・ルール行・閾値 UI を検証するアサーションを追加(判定自体は Tauri 必須なので静的 HTML では走らせない)

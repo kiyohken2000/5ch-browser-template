@@ -852,8 +852,8 @@ type ResizeDragState =
   | { mode: "compose-dock"; startY: number; startHeightPx: number; maxHeightPx: number }
   | { mode: "col-resize"; colKey: string; startX: number; startWidth: number; reverse: boolean };
 type PaneLayoutMode = "classic" | "river";
-// ヘッダのドラッグで移動できるパネル (NGフィルタ / スレ一覧NGワード / 画像NG / レス分類)
-type DraggablePanelKey = "ng" | "threadNg" | "ngImage" | "threadCategory";
+// ヘッダのドラッグで移動できるパネル (NGフィルタ / スレ一覧NGワード / 画像NG / レス分類 / AIルール)
+type DraggablePanelKey = "ng" | "threadNg" | "ngImage" | "threadCategory" | "ngAi";
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 const upsertRecentThread = (list: RecentThread[], entry: RecentThread): RecentThread[] =>
@@ -2365,7 +2365,10 @@ export default function App() {
   const [responsesLoading, setResponsesLoading] = useState(false);
   const [ngInput, setNgInput] = useState("");
   const [ngInputType, setNgInputType] = useState<"words" | "ids" | "names">("words");
-  const [ngPanelTab, setNgPanelTab] = useState<"ng" | "highlight" | "ai">("ng");
+  const [ngPanelTab, setNgPanelTab] = useState<"ng" | "highlight">("ng");
+  // 曖昧 NG は「スレを判定して候補を見る」作業ビューを持つので、フィルタ一覧の
+  // タブではなく独立パネルにしてある (NG パネルからはボタンで開く)。
+  const [ngAiPanelOpen, setNgAiPanelOpen] = useState(false);
   const [ngAiRules, setNgAiRules] = useState<NgAiRule[]>(() => {
     try {
       const v = localStorage.getItem(NG_AI_RULES_KEY);
@@ -9995,6 +9998,8 @@ export default function App() {
             { text: "sep" },
             { text: "NGフィルタ", action: () => setNgPanelOpen((v) => !v) },
             { text: "画像NG", action: () => setNgImagePanelOpen((v) => !v) },
+            // 判定器が入っていない環境では機能そのものを出さない
+            ...(ngAiReady ? [{ text: "AIルール (曖昧NG)", action: () => setNgAiPanelOpen((v) => !v) }] : []),
           ]},
           { label: "表示", items: [
             { text: `文字サイズ (${paneLabel(focusedPane)}): ${paneFontSize(focusedPane)[0]}px`, action: () => {} },
@@ -12194,12 +12199,10 @@ export default function App() {
       {ngPanelOpen && (
         <section className="ng-panel" role="dialog" aria-label="NGフィルタ" style={panelPosStyle("ng")}>
           <header className="ng-panel-header ng-panel-drag-header" onPointerDown={startPanelDrag("ng")}>
-            <strong>{ngPanelTab === "ng" ? "NGフィルタ" : ngPanelTab === "ai" ? "AIルール" : "ハイライト"}</strong>
+            <strong>{ngPanelTab === "ng" ? "NGフィルタ" : "ハイライト"}</strong>
             <span className="ng-panel-count">
               {ngPanelTab === "ng"
                 ? `${ngFilters.words.length}語 / ${ngFilters.ids.length}ID / ${ngFilters.names.length}名`
-                : ngPanelTab === "ai"
-                ? `${ngAiRules.length}ルール`
                 : `${highlightFilters.words.length}語 / ${highlightFilters.ids.length}ID / ${highlightFilters.names.length}名`}
             </span>
             {ngPanelTab === "ng" && (
@@ -12213,8 +12216,11 @@ export default function App() {
           <div className="ng-panel-tabs">
             <button className={ngPanelTab === "ng" ? "active-toggle" : ""} onClick={() => setNgPanelTab("ng")}>NG (非表示/あぼーん)</button>
             <button className={ngPanelTab === "highlight" ? "active-toggle" : ""} onClick={() => setNgPanelTab("highlight")}>ハイライト (強調)</button>
+            {/* 曖昧 NG は独立パネル。ここには「NG の話は NG パネルにある」で探す人向けの入口だけ置く */}
             {ngAiReady && (
-              <button className={ngPanelTab === "ai" ? "active-toggle" : ""} onClick={() => setNgPanelTab("ai")}>AIルール</button>
+              <button className={ngAiPanelOpen ? "active-toggle" : ""} onClick={() => setNgAiPanelOpen((v) => !v)} title="曖昧NG (AIルール) のパネルを開く">
+                AIルール…
+              </button>
             )}
           </div>
           {ngPanelTab === "ng" && (<>
@@ -12465,7 +12471,15 @@ export default function App() {
             ))}
           </div>
           </>)}
-          {ngPanelTab === "ai" && (<>
+        </section>
+      )}
+      {ngAiPanelOpen && (
+        <section className="ng-panel ng-ai-panel" role="dialog" aria-label="AIルール" style={panelPosStyle("ngAi")}>
+          <header className="ng-panel-header ng-panel-drag-header" onPointerDown={startPanelDrag("ngAi")}>
+            <strong>AIルール (曖昧NG)</strong>
+            <span className="ng-panel-count">{ngAiRules.length}ルール</span>
+            <button onClick={() => setNgAiPanelOpen(false)}>閉じる</button>
+          </header>
           <div className="ng-ai-note">
             自然文のルールでレスを判定します。<strong>「〜である。」の平叙文</strong>で書き、
             条件が複数あるなら1行に詰めずに分けてください (すべて満たしたものだけが候補になります)。
@@ -12582,7 +12596,6 @@ export default function App() {
               </ul>
             </div>
           )}
-          </>)}
         </section>
       )}
       {ogpDomainPanelOpen && (

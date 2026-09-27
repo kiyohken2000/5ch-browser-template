@@ -2317,18 +2317,25 @@ try {
     console.log("smoke-ui: post history list ok");
   }
 
-  // --- 曖昧 NG (AI ルール) タブ: 判定器が入っている時だけ出て、ルールを保存できる ---
-  // 判定そのものは Tauri IPC 必須なので、タブの出し分けとルールの永続化だけを検証する。
+  // --- 曖昧 NG (AI ルール): 独立パネルで、判定器が入っている時だけ入口が出る ---
+  // 判定そのものは Tauri IPC 必須なので、入口の出し分けとルールの永続化だけを検証する。
   {
-    // 判定器が未導入のうちはタブを出さない
+    // 判定器が未導入のうちは NG パネルにも編集メニューにも入口を出さない
     await page.click("button[title='NGフィルタ']");
     await page.waitForSelector(".ng-panel");
     const tabsWithoutModel = await page.$$eval(".ng-panel-tabs button", (els) => els.map((e) => e.textContent || ""));
     assert(
       !tabsWithoutModel.some((t) => t.includes("AIルール")),
-      `AI rule tab should be hidden until the classifier is installed, got: ${tabsWithoutModel.join(" / ")}`,
+      `AI rule entry should be hidden until the classifier is installed, got: ${tabsWithoutModel.join(" / ")}`,
     );
     await page.click(".ng-panel-header button:has-text('閉じる')");
+    await page.click('.menu-item:has-text("編集")');
+    const editItemsWithoutModel = await page.$$eval(".menu-dropdown button", (els) => els.map((e) => e.textContent || ""));
+    assert(
+      !editItemsWithoutModel.some((t) => t.includes("AIルール")),
+      `edit menu should not offer AI rules yet, got: ${editItemsWithoutModel.join(" / ")}`,
+    );
+    await page.keyboard.press("Escape");
 
     // 判定器が入っている状態と、保存済みルール 1 本を仕込む
     await page.evaluate(() => {
@@ -2347,10 +2354,19 @@ try {
     });
     await page.reload({ waitUntil: "load" });
     await page.waitForSelector(".row-splitter");
+
+    // NG パネルのボタンから独立パネルが開く (NG を探しに来た人向けの入口)
     await page.click("button[title='NGフィルタ']");
     await page.waitForSelector(".ng-panel");
     await page.click(".ng-panel-tabs button:has-text('AIルール')");
-    await page.waitForSelector(".ng-ai-rules");
+    await page.waitForSelector(".ng-ai-panel");
+    // NG パネル側のタブは切り替わっていない (別パネルが開くだけ)
+    const ngStillOnNgTab = await page.$eval(
+      ".ng-panel:not(.ng-ai-panel) .ng-panel-header strong",
+      (el) => el.textContent || "",
+    );
+    assert(ngStillOnNgTab.includes("NGフィルタ"), `opening the AI panel must not switch the NG tab, got: ${ngStillOnNgTab}`);
+    await page.click(".ng-panel:not(.ng-ai-panel) .ng-panel-header button:has-text('閉じる')");
 
     const ruleCount = await page.$$eval(".ng-ai-rule", (els) => els.length);
     assert(ruleCount === 1, `rule without predicates should be dropped, got ${ruleCount} rules`);
@@ -2359,13 +2375,16 @@ try {
       ruleText.includes("政治の話題") && ruleText.includes("かつ") && ruleText.includes("罵倒"),
       `predicates should be shown joined by かつ, got: ${ruleText}`,
     );
-    const headerCount = await page.$eval(".ng-panel-header .ng-panel-count", (el) => el.textContent || "");
-    assert(headerCount.includes("1ルール"), `header should count rules, got: ${headerCount}`);
+    const headerCount = await page.$eval(".ng-ai-panel .ng-panel-count", (el) => el.textContent || "");
+    assert(headerCount.includes("1ルール"), `panel header should count rules, got: ${headerCount}`);
     const threshold = await page.$eval('.ng-ai-rule-controls input[type="number"]', (el) => el.value);
     assert(threshold === "0.8", `default threshold should be 0.8, got: ${threshold}`);
     // あぼーんを既定にはしない
     const mode = await page.$eval(".ng-ai-rule-controls select", (el) => el.value);
     assert(mode === "hide", `default mode must stay hide (recoverable), got: ${mode}`);
+    // ヘッダを掴んで動かせる (他の NG 系パネルと同じ)
+    const dragHeader = await page.$(".ng-ai-panel .ng-panel-drag-header");
+    assert(dragHeader, "AI rule panel should have a draggable header");
 
     // 述語を 2 本入れてルールを足すと保存される
     const inputs = await page.$$(".ng-ai-add input");
@@ -2387,7 +2406,14 @@ try {
     await page.click(".ng-ai-rule:last-child .ng-ai-remove");
     await page.waitForFunction(() => document.querySelectorAll(".ng-ai-rule").length === 1);
 
-    await page.click(".ng-panel-header button:has-text('閉じる')");
+    // 編集メニューからも開閉できる
+    await page.click(".ng-ai-panel .ng-panel-header button:has-text('閉じる')");
+    await page.waitForFunction(() => !document.querySelector(".ng-ai-panel"));
+    await page.click('.menu-item:has-text("編集")');
+    await page.click('.menu-dropdown button:has-text("AIルール")');
+    await page.waitForSelector(".ng-ai-panel");
+    await page.click(".ng-ai-panel .ng-panel-header button:has-text('閉じる')");
+
     await page.evaluate(() => {
       localStorage.removeItem("desktop.ngAiRules.v1");
       localStorage.removeItem("desktop.ngAiReady.v1");
