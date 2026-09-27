@@ -5,6 +5,7 @@ import shotInstall from "./assets/images/ng-ai-install.png";
 import shotEntry from "./assets/images/ng-ai-entry.png";
 import shotPanel from "./assets/images/ng-ai-panel.png";
 import shotCollapsed from "./assets/images/ng-ai-collapsed.png";
+import shotTips from "./assets/images/ng-ai-tips.png";
 
 const GITHUB_URL = "https://github.com/kiyohken2000/5ch-browser-template";
 const ISSUES_URL = "https://github.com/kiyohken2000/5ch-browser-template/issues";
@@ -216,6 +217,11 @@ export default function AiNgPage() {
               </tbody>
             </table>
           </div>
+          {shot(
+            shotTips,
+            "AIルールパネルの書き方のコツ",
+            "同じ案内はアプリ内の「書き方のコツ」にも入っています",
+          )}
           <ul className="doc-list">
             <li><strong>条件は分けて書く。</strong> 1 文に詰め込むと精度がほぼ半分になります。</li>
             <li><strong>平叙文で、文末の「。」まで書く。</strong> 省くと拾える数が 2 割ほど減ります。</li>
