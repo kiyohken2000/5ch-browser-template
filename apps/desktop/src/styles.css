@@ -7017,11 +7017,92 @@ a.body-link-image:hover::after {
   right: 20px;
   width: min(560px, calc(100vw - 28px));
   max-height: min(70vh, 720px);
-  /* ヘッダ / 説明 / 入力 / ルール一覧 / 候補一覧 */
-  grid-template-rows: auto auto auto auto 1fr;
+  /* ヘッダ / 説明 / 自動判定 / 入力 / ルール一覧 / 候補一覧 */
+  grid-template-rows: auto auto auto auto auto 1fr;
 }
 .ng-ai-panel .ng-ai-candidates {
   max-height: none;
+}
+.ng-ai-options {
+  padding: 5px 8px;
+  border-bottom: 1px solid #d0d0d0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+}
+.ng-ai-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.ng-ai-options input {
+  margin: 0;
+}
+.ng-ai-options-hint {
+  color: var(--sub);
+}
+
+/* 曖昧 NG で畳んだレス。あぼーん表示とは別物だと分かる見た目にする */
+.ng-ai-hidden-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--sub);
+  border-left: 3px solid #7a9ec0;
+  background: #f3f6f9;
+}
+.ng-ai-hidden-label {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: #4a6f96;
+}
+.ng-ai-hidden-reason {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ng-ai-hidden-toggle {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 1px 6px;
+}
+.ng-ai-revealed-label {
+  font-size: 10px;
+  padding: 0 4px;
+  color: #4a6f96;
+  background: #e6eef6;
+  border: 1px solid #b9cfe2;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.nav-ng-ai-progress {
+  font-size: 11px;
+  color: var(--sub);
+  white-space: nowrap;
+}
+.nav-ng-ai-btn.active {
+  font-weight: 700;
+}
+.dark .ng-ai-options {
+  border-color: #3f3f46;
+}
+.dark .ng-ai-hidden-block {
+  background: #262b31;
+  border-left-color: #4a6f96;
+}
+.dark .ng-ai-hidden-label,
+.dark .ng-ai-revealed-label {
+  color: #9dc0e0;
+}
+.dark .ng-ai-revealed-label {
+  background: #2b3946;
+  border-color: #3f5a72;
 }
 
 /* 曖昧 NG (AI ルール) パネルの中身 */

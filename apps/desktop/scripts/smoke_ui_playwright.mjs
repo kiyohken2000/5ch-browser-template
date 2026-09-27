@@ -2379,9 +2379,20 @@ try {
     assert(headerCount.includes("1ルール"), `panel header should count rules, got: ${headerCount}`);
     const threshold = await page.$eval('.ng-ai-rule-controls input[type="number"]', (el) => el.value);
     assert(threshold === "0.8", `default threshold should be 0.8, got: ${threshold}`);
-    // あぼーんを既定にはしない
-    const mode = await page.$eval(".ng-ai-rule-controls select", (el) => el.value);
-    assert(mode === "hide", `default mode must stay hide (recoverable), got: ${mode}`);
+    // 表示方法は曖昧NG専用の畳み表示 1 種類。非表示/あぼーんのモード選択は持たない
+    assert(
+      !(await page.$(".ng-ai-rule-controls select")),
+      "AI rules must not offer a hide/abone mode select (the collapsed row is the only presentation)",
+    );
+
+    // 自動判定は既定オフで、切り替えると保存される
+    const autoBox = await page.$(".ng-ai-options input[type=\"checkbox\"]");
+    assert(autoBox, "AI rule panel should offer the auto-judge toggle");
+    assert(!(await autoBox.isChecked()), "auto judging must default to off (a 1000-response thread takes minutes)");
+    await autoBox.check();
+    await page.waitForFunction(() => localStorage.getItem("desktop.ngAiAuto.v1") === "true");
+    await autoBox.uncheck();
+    await page.waitForFunction(() => localStorage.getItem("desktop.ngAiAuto.v1") === "false");
     // ヘッダを掴んで動かせる (他の NG 系パネルと同じ)
     const dragHeader = await page.$(".ng-ai-panel .ng-panel-drag-header");
     assert(dragHeader, "AI rule panel should have a draggable header");
@@ -2417,11 +2428,23 @@ try {
       added.predicates.length === 1 && added.predicates[0] === "この書き込みは宣伝である。",
       `empty predicate rows should be dropped, got: ${JSON.stringify(added.predicates)}`,
     );
-    assert(added.mode === "hide" && added.threshold === 0.8, `new rule should use the safe defaults, got: ${JSON.stringify(added)}`);
+    assert(added.threshold === 0.8, `new rule should use the default threshold, got: ${JSON.stringify(added)}`);
+    assert(!("mode" in added), `AI rules must not carry a hide/abone mode, got: ${JSON.stringify(added)}`);
 
     // ルールを消すと一覧から消える
     await page.click(".ng-ai-rule:last-child .ng-ai-remove");
     await page.waitForFunction(() => document.querySelectorAll(".ng-ai-rule").length === 1);
+
+    // 有効なルールがあれば、レス欄のナビバーから手で判定できる (自動判定が切れていても押せる)
+    assert(
+      await page.$(".nav-ng-ai-btn"),
+      "response nav bar should offer a manual 曖昧NG button while a rule is enabled",
+    );
+    // 有効なルールが無くなればボタンごと消える
+    await page.uncheck(".ng-ai-rule .ng-ai-enable input");
+    await page.waitForFunction(() => !document.querySelector(".nav-ng-ai-btn"));
+    await page.check(".ng-ai-rule .ng-ai-enable input");
+    await page.waitForSelector(".nav-ng-ai-btn");
 
     // 編集メニューからも開閉できる
     await page.click(".ng-ai-panel .ng-panel-header button:has-text('閉じる')");
@@ -2434,6 +2457,7 @@ try {
     await page.evaluate(() => {
       localStorage.removeItem("desktop.ngAiRules.v1");
       localStorage.removeItem("desktop.ngAiReady.v1");
+      localStorage.removeItem("desktop.ngAiAuto.v1");
     });
     await page.reload({ waitUntil: "load" });
     await page.waitForSelector(".row-splitter");

@@ -398,11 +398,12 @@ type NgEntry = { value: string; mode: NgMode; disabled?: boolean; excludeNo1?: b
 type NgFilters = { words: (string | NgEntry)[]; ids: (string | NgEntry)[]; names: (string | NgEntry)[]; thread_words: (string | NgEntry)[] };
 // 曖昧 NG (AI ルール)。predicates は「この書き込みは政治の話題である。」のような
 // 平叙文で、複数書くと AND (実測で複合 1 文より適合率が高い。docs/BRUSHUP_PLAN.md [N23])。
-type NgAiRule = { id: string; predicates: string[]; mode: NgMode; threshold: number; disabled?: boolean; addedAt: number };
+type NgAiRule = { id: string; predicates: string[]; threshold: number; disabled?: boolean; addedAt: number };
 const NG_AI_MAX_PREDICATES = 3;
 const NG_AI_DEFAULT_THRESHOLD = 0.8;
 // 判定 1 件あたり述語ごとに 1 パス走るので、一度に投げる件数を抑えて中断できるようにする。
-const NG_AI_JUDGE_CHUNK = 25;
+// 10 件 × 述語 2 本で 1 往復およそ 1.2 秒。これくらい細かいと中止と進捗がすぐ効く。
+const NG_AI_JUDGE_CHUNK = 10;
 const normalizeNgAiRules = (raw: unknown): NgAiRule[] => {
   if (!Array.isArray(raw)) return [];
   const out: NgAiRule[] = [];
@@ -417,8 +418,6 @@ const normalizeNgAiRules = (raw: unknown): NgAiRule[] => {
     out.push({
       id: typeof o.id === "string" && o.id ? o.id : `r${Date.now()}${out.length}`,
       predicates,
-      // 既定はあぼーんにしない。適合率は 0.8 程度なので、復元できない消し方は選ばせない。
-      mode: o.mode === "abone" || o.mode === "hide-images" ? o.mode : "hide",
       threshold,
       disabled: o.disabled === true ? true : undefined,
       addedAt: typeof o.addedAt === "number" ? o.addedAt : 0,
@@ -686,6 +685,8 @@ const NG_AI_RULES_KEY = "desktop.ngAiRules.v1";
 // 判定器が導入済みかを覚えておく。起動直後に Tauri へ問い合わせるまでの間タブが
 // 出たり消えたりしないように、前回の結果を同期的に読めるところへ置く。
 const NG_AI_READY_KEY = "desktop.ngAiReady.v1";
+// スレを開いたときに自動で判定するか (既定オフ。1000 レスで 2 分かかるので勝手に走らせない)
+const NG_AI_AUTO_KEY = "desktop.ngAiAuto.v1";
 // 強調 ID の自動削除日数 (NG ID と同じ選択肢・同じ判定)。
 const HL_ID_EXPIRE_DAYS_KEY = "desktop.hlIdExpireDays.v1";
 // UI 全体の表示倍率。WebView 自体のズームなので px 指定のままでも全部が拡大され、
@@ -2387,9 +2388,18 @@ export default function App() {
   });
   const [ngAiDraft, setNgAiDraft] = useState<string[]>(["", ""]);
   const [ngAiHelpOpen, setNgAiHelpOpen] = useState(false);
+  const [ngAiAuto, setNgAiAuto] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(NG_AI_AUTO_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  // 曖昧 NG で畳んだレスのうち、ユーザーが手で開いたもの (スレを移ると忘れる)
+  const [ngAiRevealed, setNgAiRevealed] = useState<Set<number>>(new Set());
   // 判定結果の候補。ルール ID -> (レス番号 -> 確率)。スレを移ると捨てる。
   const [ngAiCandidates, setNgAiCandidates] = useState<Map<string, Map<number, number>>>(new Map());
-  const [ngAiJudging, setNgAiJudging] = useState<{ ruleId: string; done: number; total: number } | null>(null);
+  const [ngAiJudging, setNgAiJudging] = useState<{ ruleId: string; done: number; total: number; index?: number; count?: number } | null>(null);
   const ngAiCancelRef = useRef(false);
   const [highlightInput, setHighlightInput] = useState("");
   const [highlightInputType, setHighlightInputType] = useState<"words" | "ids" | "names">("words");
@@ -5627,7 +5637,6 @@ export default function App() {
     const rule: NgAiRule = {
       id: `r${Date.now()}`,
       predicates,
-      mode: "hide",
       threshold: NG_AI_DEFAULT_THRESHOLD,
       addedAt: Date.now(),
     };
@@ -5656,7 +5665,7 @@ export default function App() {
   };
 
   /// 開いているスレを 1 本まるごと判定して候補を集める。
-  const judgeThreadWithNgAiRule = async (rule: NgAiRule) => {
+  const judgeThreadWithNgAiRule = async (rule: NgAiRule, progress?: { index: number; count: number }) => {
     if (!isTauriRuntime()) {
       setStatus("判定はアプリ版でのみ動きます");
       return;
@@ -5671,8 +5680,8 @@ export default function App() {
       setStatus("判定するレスがありません");
       return;
     }
-    ngAiCancelRef.current = false;
-    setNgAiJudging({ ruleId: rule.id, done: 0, total: targets.length });
+    if (!progress) ngAiCancelRef.current = false;
+    setNgAiJudging({ ruleId: rule.id, done: 0, total: targets.length, ...progress });
     const found = new Map<number, number>();
     try {
       for (let i = 0; i < targets.length; i += NG_AI_JUDGE_CHUNK) {
@@ -5689,7 +5698,7 @@ export default function App() {
           responses: chunk.map((r) => ({ responseNo: r.id, body: r.text })),
         });
         for (const s of scores) found.set(s.responseNo, s.prob);
-        setNgAiJudging({ ruleId: rule.id, done: Math.min(i + chunk.length, targets.length), total: targets.length });
+        setNgAiJudging({ ruleId: rule.id, done: Math.min(i + chunk.length, targets.length), total: targets.length, ...progress });
         setNgAiCandidates((prev) => {
           const next = new Map(prev);
           next.set(rule.id, new Map(found));
@@ -5713,6 +5722,78 @@ export default function App() {
     if (isTauriRuntime()) {
       invoke("ai_cancel_classify").catch((e) => console.warn("ai_cancel_classify failed", e));
     }
+  };
+
+  // 有効なルールを順に回す。ナビバーのボタンと自動判定の入口。
+  const judgeThreadWithAllNgAiRules = async () => {
+    const rules = ngAiRules.filter((r) => !r.disabled);
+    if (rules.length === 0) {
+      setStatus("有効なAIルールがありません");
+      return;
+    }
+    for (let i = 0; i < rules.length; i += 1) {
+      if (ngAiCancelRef.current) break;
+      await judgeThreadWithNgAiRule(rules[i], { index: i + 1, count: rules.length });
+    }
+  };
+
+  // 自動判定。スレと有効ルールの組み合わせごとに 1 回だけ走らせる。判定結果は
+  // Rust 側でキャッシュされるので、開き直しても 2 回目は速い。
+  const ngAiAutoDoneRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!ngAiAuto || !ngAiReady || !isTauriRuntime()) return;
+    if (ngAiJudging) return;
+    const url = normalizeThreadUrl(activeThreadUrl);
+    if (!url) return;
+    const rules = ngAiRules.filter((r) => !r.disabled);
+    if (rules.length === 0) return;
+    // 本文が届く前に走らせても意味がない
+    if (responseItems.length === 0) return;
+    const key = `${url}|${responseItems.length}|${rules.map((r) => `${r.id}:${JSON.stringify(r.predicates)}`).join("|")}`;
+    if (ngAiAutoDoneRef.current.has(key)) return;
+    ngAiAutoDoneRef.current.add(key);
+    ngAiCancelRef.current = false;
+    void judgeThreadWithAllNgAiRules();
+  }, [ngAiAuto, ngAiReady, activeThreadUrl, responseItems.length, ngAiRules, ngAiJudging]);
+
+  useEffect(() => {
+    saveUiSetting(NG_AI_AUTO_KEY, String(ngAiAuto));
+  }, [ngAiAuto]);
+
+  // スレを移ったら「手で開いた」状態も忘れる
+  useEffect(() => {
+    setNgAiRevealed(new Set());
+  }, [activeThreadUrl]);
+
+  // 閾値以上で、かつ有効なルールに引っかかったレス。レス番号 -> 理由。
+  const ngAiHiddenMap = useMemo(() => {
+    const map = new Map<number, { ruleId: string; prob: number; label: string }>();
+    for (const rule of ngAiRules) {
+      if (rule.disabled) continue;
+      const scores = ngAiCandidates.get(rule.id);
+      if (!scores) continue;
+      for (const [no, prob] of scores) {
+        if (prob < rule.threshold) continue;
+        const prev = map.get(no);
+        // 複数ルールに当たったら確率の高い方を理由として見せる
+        if (!prev || prob > prev.prob) map.set(no, { ruleId: rule.id, prob, label: ngAiRuleLabel(rule) });
+      }
+    }
+    return map;
+  }, [ngAiCandidates, ngAiRules]);
+
+  const ngAiHiddenCount = useMemo(
+    () => [...ngAiHiddenMap.keys()].filter((no) => !ngAiRevealed.has(no)).length,
+    [ngAiHiddenMap, ngAiRevealed],
+  );
+
+  const toggleNgAiRevealed = (no: number) => {
+    setNgAiRevealed((prev) => {
+      const next = new Set(prev);
+      if (next.has(no)) next.delete(no);
+      else next.add(no);
+      return next;
+    });
   };
 
   // 表示用。閾値以上のものを確率の高い順に並べる。
@@ -11257,6 +11338,43 @@ export default function App() {
                 // あぼーん: レス番だけ残して名前・日時・ID・本文は出さない。
                 // レス番が飛ばないので「>>N が抜けている」と悩まずに済む。
                 // レス番クリックのメニュー (NG 追加や再表示) は通常レスと同じく使える。
+                // 曖昧 NG。通常の NG / あぼーんとは別扱いで、畳んだ 1 行に置き換える。
+                // ワンクリックで開けるので、消えたことに気付けないまま終わらない。
+                const aiHidden = ngAiHiddenMap.get(r.id);
+                if (aiHidden && !ngAiRevealed.has(r.id)) {
+                  return (
+                    <Fragment key={r.id}>
+                      {isFirstNew && (
+                        <div className="new-response-separator">
+                          <span>ここから新着</span>
+                        </div>
+                      )}
+                      <div
+                        data-response-no={r.id}
+                        className={`response-block ng-ai-hidden-block ${selectedResponse === r.id ? "selected" : ""}`}
+                        onClick={() => setSelectedResponse(r.id)}
+                      >
+                        <span className="response-no" onClick={(e) => onResponseNoClick(e, r.id)}>{r.id}</span>
+                        <span className="ng-ai-hidden-label" title={`${aiHidden.label} (P=${aiHidden.prob.toFixed(3)})`}>
+                          曖昧NGで非表示
+                        </span>
+                        <span className="ng-ai-hidden-reason">{aiHidden.label}</span>
+                        <button
+                          className="ng-ai-hidden-toggle"
+                          onClick={(e) => { e.stopPropagation(); toggleNgAiRevealed(r.id); }}
+                          title="このレスを表示する"
+                        >
+                          表示
+                        </button>
+                      </div>
+                      {r.id === currentReadMarker && (
+                        <div className="read-marker-separator">
+                          <span>ここまで読んだ</span>
+                        </div>
+                      )}
+                    </Fragment>
+                  );
+                }
                 if (ngResultMap.get(r.id) === "abone") {
                   return (
                     <Fragment key={r.id}>
@@ -11309,6 +11427,16 @@ export default function App() {
                       </span>
                       {myPostNos.has(r.id) && <span className="my-post-label">[自分]</span>}
                       {replyToMeNos.has(r.id) && <span className="reply-to-me-label">[自分宛]</span>}
+                      {/* 曖昧 NG に引っかかったが手で開いたレス。押すと畳み直せる */}
+                      {ngAiHiddenMap.has(r.id) && (
+                        <button
+                          className="ng-ai-revealed-label"
+                          title={`曖昧NGの対象 (${ngAiHiddenMap.get(r.id)?.label} / P=${ngAiHiddenMap.get(r.id)?.prob.toFixed(3)}) — 押すと畳みます`}
+                          onClick={(e) => { e.stopPropagation(); toggleNgAiRevealed(r.id); }}
+                        >
+                          曖昧NG / 隠す
+                        </button>
+                      )}
                       <span
                         className="response-name"
                         dangerouslySetInnerHTML={renderHighlightedPlainTextWithEntries(r.nameWithoutWatchoi, responseSearchQuery, hlNameEntries)}
@@ -11910,6 +12038,27 @@ export default function App() {
                 <button className={`link-filter-btn ${responseLinkFilter === "hot" ? "active" : ""}`} onClick={() => toggleResponseLinkFilter("hot")} title={`人気レス (被参照 ${hotResponseThreshold} 件以上)`}><Flame size={13} /></button>
               </span>
               <span className="nav-buttons">
+                {/* 曖昧 NG。自動判定が切れていても、ここから手で走らせられる。
+                    判定中は進捗が出て中止できる (操作は止まらない) */}
+                {ngAiReady && ngAiRules.some((r) => !r.disabled) && (
+                  ngAiJudging ? (
+                    <>
+                      <span className="nav-ng-ai-progress">
+                        曖昧NG {ngAiJudging.done}/{ngAiJudging.total}
+                        {ngAiJudging.count && ngAiJudging.count > 1 ? ` (${ngAiJudging.index}/${ngAiJudging.count})` : ""}
+                      </span>
+                      <button onClick={cancelNgAiJudge} title="判定を中止する">中止</button>
+                    </>
+                  ) : (
+                    <button
+                      className={ngAiHiddenCount > 0 ? "nav-ng-ai-btn active" : "nav-ng-ai-btn"}
+                      onClick={() => { ngAiCancelRef.current = false; void judgeThreadWithAllNgAiRules(); }}
+                      title="有効なAIルールでこのスレを判定する"
+                    >
+                      曖昧NG{ngAiHiddenCount > 0 ? ` (${ngAiHiddenCount})` : ""}
+                    </button>
+                  )
+                )}
                 <button onClick={() => { if (visibleResponseItems.length > 0) scrollResponsesToTop(visibleResponseItems[0].id); }}>Top</button>
                 {newResponseStart !== null && (
                   <button
@@ -12477,7 +12626,9 @@ export default function App() {
         <section className="ng-panel ng-ai-panel" role="dialog" aria-label="AIルール" style={panelPosStyle("ngAi")}>
           <header className="ng-panel-header ng-panel-drag-header" onPointerDown={startPanelDrag("ngAi")}>
             <strong>AIルール (曖昧NG)</strong>
-            <span className="ng-panel-count">{ngAiRules.length}ルール</span>
+            <span className="ng-panel-count">
+              {ngAiRules.length}ルール{ngAiHiddenCount > 0 ? ` / ${ngAiHiddenCount}件を非表示` : ""}
+            </span>
             <button onClick={() => setNgAiPanelOpen(false)}>閉じる</button>
           </header>
           <div className="ng-ai-note">
@@ -12525,6 +12676,13 @@ export default function App() {
                 </li>
               </ul>
             )}
+          </div>
+          <div className="ng-ai-options">
+            <label title="スレを開いた直後に、有効なルールで自動的に判定します。1000レスで2分ほどかかります。">
+              <input type="checkbox" checked={ngAiAuto} onChange={(e) => setNgAiAuto(e.target.checked)} />
+              スレを開いたら自動で判定する
+            </label>
+            {!ngAiAuto && <span className="ng-ai-options-hint">切っている間は、レス欄下の「曖昧NG」ボタンで判定します</span>}
           </div>
           <div className="ng-ai-add">
             {ngAiDraft.map((v, i) => (
@@ -12578,17 +12736,6 @@ export default function App() {
                           if (Number.isFinite(v) && v > 0 && v <= 1) updateNgAiRule(rule.id, { threshold: v });
                         }}
                       />
-                    </label>
-                    <label title="候補をどう扱うか">
-                      モード
-                      <select
-                        value={rule.mode}
-                        onChange={(e) => updateNgAiRule(rule.id, { mode: e.target.value as NgMode })}
-                        className="ng-mode-select"
-                      >
-                        <option value="hide">非表示</option>
-                        <option value="abone">あぼーん</option>
-                      </select>
                     </label>
                     {judging ? (
                       <>
