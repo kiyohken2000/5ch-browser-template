@@ -3064,14 +3064,6 @@ struct NgAiScore {
 /// this model is installed.
 const NG_CLASSIFIER_MODEL_ID: &str = "bge-m3-zeroshot-v2-q4km";
 
-/// Whether the NG classifier is downloaded, so the UI can hide the feature.
-#[tauri::command]
-fn ai_ng_classifier_ready() -> Result<bool, String> {
-    let dir = ai_models_dir()?;
-    let manifest = core_ai::load_manifest(&dir).map_err(|e| e.to_string())?;
-    Ok(manifest.is_installed(NG_CLASSIFIER_MODEL_ID))
-}
-
 /// Score `responses` against a rule's `predicates` and return `P(該当)` per
 /// response. Several predicates are combined with `min()`, i.e. an AND: the real
 /// thread evaluation showed a single composite sentence is much less precise
@@ -3464,7 +3456,6 @@ pub fn run() {
             ai_cancel_inference,
             ai_classify_responses,
             ai_cancel_classify,
-            ai_ng_classifier_ready,
             ai_forget_ng_rule,
             ai_list_backend_devices,
             ai_cache_state,

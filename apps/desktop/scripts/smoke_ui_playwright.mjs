@@ -2423,6 +2423,34 @@ try {
     console.log("smoke-ui: ng ai rules panel ok");
   }
 
+  // --- AI 設定: 判定器 (曖昧NG) のセクションがあり、チャット用モデル一覧には出ない ---
+  {
+    await page.click('.menu-item:has-text("ファイル")');
+    await page.click('.menu-dropdown button:has-text("AI 設定")');
+    await page.waitForSelector(".ai-settings-panel");
+    const aiLegends = await page.$$eval(".ai-settings-panel legend", (els) => els.map((e) => e.textContent?.trim() || ""));
+    assert(
+      aiLegends.some((l) => l.includes("曖昧NG")),
+      `AI settings should have a classifier section, got: ${aiLegends.join(" / ")}`,
+    );
+    // 判定器が未導入でもセクション自体は出す (ここからしか導入できないため)
+    const clsSection = await page.$eval(
+      ".ai-settings-panel fieldset:has(legend:text-is('曖昧NG (AIルール)'))",
+      (el) => el.textContent || "",
+    );
+    assert(
+      clsSection.includes("自然文のルール") || clsSection.includes("判定器をダウンロード") || clsSection.includes("カタログ読み込み中"),
+      `classifier section should explain or offer the download, got: ${clsSection.slice(0, 120)}`,
+    );
+    assert(
+      clsSection.includes("外部には送信されません"),
+      "classifier section must state that judging stays local",
+    );
+    await page.click(".ai-settings-panel .settings-header button:has-text('閉じる')");
+    await page.waitForFunction(() => !document.querySelector(".ai-settings-panel"));
+    console.log("smoke-ui: ai classifier section ok");
+  }
+
   // --- 板ごとに記憶した名前欄が、投稿先の板に追従する ---
   // 保存は投稿成功時 (Tauri IPC 必須) なのでブラウザ環境では検証できない。
   // localStorage にタブと板ごとの名前を仕込み、復元・追従だけを検証する。

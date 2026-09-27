@@ -220,6 +220,8 @@ function aiOpenAssistantTurn(template: string): string {
 //   - Compose translation: user picks the target so they can post in a foreign
 //     language; the source is their Japanese draft.
 const TRANSLATION_MODEL_ID = "hy-mt2-1.8b-q4km";
+// 曖昧 NG (AI ルール) の判定器。チャット用モデルとは別枠で導入・削除する。
+const NG_CLASSIFIER_MODEL_ID = "bge-m3-zeroshot-v2-q4km";
 type TranslationLang = { code: string; label: string; nativeName: string };
 const RESPONSE_TRANSLATION_LANG: TranslationLang = { code: "ja", label: "日本語", nativeName: "Japanese" };
 const COMPOSE_TRANSLATION_LANGS: TranslationLang[] = [
@@ -5596,20 +5598,17 @@ export default function App() {
     saveUiJson(NG_AI_RULES_KEY, JSON.stringify(ngAiRules));
   }, [ngAiRules]);
 
-  // 判定器が入っているかを起動時に 1 回確認する。結果は localStorage に残して、
-  // 次回は問い合わせ前からタブの有無が決まるようにする。
+  // 判定器の導入状況は aiStatus から取る (DL・削除の直後に refreshAiStatus が走るので
+  // 自動で追従する)。結果は localStorage に残して、次回は aiStatus が届く前から
+  // メニューとボタンの有無が決まるようにする。
   useEffect(() => {
-    if (!isTauriRuntime()) return;
-    void (async () => {
-      try {
-        const ready = await invoke<boolean>("ai_ng_classifier_ready");
-        setNgAiReady(ready);
-        saveUiSetting(NG_AI_READY_KEY, String(ready));
-      } catch (error) {
-        console.warn("ai_ng_classifier_ready failed", error);
-      }
-    })();
-  }, []);
+    if (!aiStatus) return;
+    const installed = aiStatus.installed.some((m) => m.id === NG_CLASSIFIER_MODEL_ID);
+    setNgAiReady(installed);
+    saveUiSetting(NG_AI_READY_KEY, String(installed));
+    // 消した判定器のパネルが開いたままにならないように畳む
+    if (!installed) setNgAiPanelOpen(false);
+  }, [aiStatus]);
 
   // スレを移ったら候補は捨てる (レス番号はスレごとの意味しか持たない)
   useEffect(() => {
@@ -14152,6 +14151,69 @@ export default function App() {
                       </div>
                       <div className="settings-row" style={{ fontSize: "0.8em", opacity: 0.7 }}>
                         <span>※ 翻訳には Hy-MT2-1.8B (1.1 GB) を使用。要約・会話とは独立して読み込まれます</span>
+                      </div>
+                    </>
+                  );
+                })()}
+              </fieldset>
+              <fieldset>
+                <legend>曖昧NG (AIルール)</legend>
+                {(() => {
+                  const installed = !!aiStatus?.installed.some((m) => m.id === NG_CLASSIFIER_MODEL_ID);
+                  const clsEntry = aiCatalog?.models.find((m) => m.id === NG_CLASSIFIER_MODEL_ID);
+                  const clsProgress = aiDownloads[NG_CLASSIFIER_MODEL_ID];
+                  const clsDownloading = !!clsProgress;
+                  const clsPct = clsProgress && clsProgress.total
+                    ? Math.min(100, (clsProgress.downloaded / clsProgress.total) * 100)
+                    : 0;
+                  const clsVerifying = !!(clsProgress && clsProgress.total && clsProgress.downloaded >= clsProgress.total);
+                  return (
+                    <>
+                      <div className="settings-row">
+                        <span>
+                          {installed
+                            ? "利用できます。編集メニューの「AIルール (曖昧NG)」から開きます"
+                            : "「政治の話題で他人を罵倒している」のような自然文のルールでレスを判定します"}
+                        </span>
+                      </div>
+                      {clsDownloading && (
+                        <div className={`ai-download-progress${clsVerifying ? " verifying" : ""}`}>
+                          <div className="ai-download-progress-bar" style={{ width: `${clsVerifying ? 100 : clsPct}%` }} />
+                          <span className="ai-download-progress-label">
+                            {clsVerifying
+                              ? `検証中… (${formatAiBytes(clsProgress.total ?? clsProgress.downloaded)})`
+                              : `${formatAiBytes(clsProgress.downloaded)}${clsProgress.total ? ` / ${formatAiBytes(clsProgress.total)}` : ""}`}
+                          </span>
+                        </div>
+                      )}
+                      <div className="ai-model-actions">
+                        {!installed && !clsDownloading && clsEntry && (
+                          <button onClick={() => void aiDownloadModel(NG_CLASSIFIER_MODEL_ID)}>
+                            判定器をダウンロード ({formatAiBytes(clsEntry.sizeBytes)})
+                          </button>
+                        )}
+                        {!installed && !clsDownloading && !clsEntry && (
+                          <button disabled>カタログ読み込み中…</button>
+                        )}
+                        {clsDownloading && !clsVerifying && (
+                          <button onClick={() => void aiCancelDownload(NG_CLASSIFIER_MODEL_ID)}>キャンセル</button>
+                        )}
+                        {clsDownloading && clsVerifying && (
+                          <button disabled title="ダウンロード完了後の SHA256 検証中。キャンセルできません。">検証中…</button>
+                        )}
+                        {installed && !clsDownloading && (
+                          <>
+                            <button onClick={() => setNgAiPanelOpen(true)}>AIルールを開く</button>
+                            <button onClick={() => void aiDeleteModel(NG_CLASSIFIER_MODEL_ID)}>削除</button>
+                          </>
+                        )}
+                      </div>
+                      <div className="settings-row" style={{ fontSize: "0.8em", opacity: 0.7 }}>
+                        <span>
+                          ※ 判定には bge-m3-zeroshot-v2.0 (0.42 GB) を使用。文章生成はしないので要約・翻訳・会話には使われません。
+                          判定はこの端末の中だけで行われ、外部には送信されません。
+                          消えたレスに気付けるよう、既定は「非表示」(復元可) で、しきい値は 0.8 です
+                        </span>
                       </div>
                     </>
                   );
