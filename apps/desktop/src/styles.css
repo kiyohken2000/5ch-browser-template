@@ -1463,13 +1463,16 @@ li.fav-drag-over {
 /* NGパネルのタブバー */
 .ng-panel-tabs {
   display: flex;
+  /* 文字サイズを上げた時はラベルを割るのではなく、タブごと次の行に落とす */
+  flex-wrap: wrap;
   gap: 6px;
   padding: 6px 8px 0;
 }
 .ng-panel-tabs button {
-  flex: 1;
+  flex: 1 1 auto;
   padding: 5px 8px;
   font-size: calc(12px + var(--fs-delta, 0px));
+  white-space: nowrap;
 }
 
 /* ハイライト色セレクト — 選択中の色で背景を着色して一目で分かるように */
@@ -2603,7 +2606,9 @@ button.search-history-btn:hover {
   position: fixed;
   left: 20px;
   bottom: 28px;
-  width: min(420px, calc(100vw - 28px));
+  /* タブが 3 つ (NG / ハイライト / AIルール) 並ぶので、一番長い
+     「NG (非表示/あぼーん)」がラベル途中で折り返さない幅を確保する */
+  width: min(480px, calc(100vw - 28px));
   max-height: 400px;
   border: 1px solid var(--line);
   background: #f5f5f5;
@@ -7005,6 +7010,10 @@ a.body-link-image:hover::after {
 /* AI ルール (曖昧NG) は独立パネル。スレを読みながら候補一覧を開いておく使い方に
    なるので、フィルタ一覧より縦を長く取る。 */
 .ng-ai-panel {
+  /* NG パネルのボタンから開くので、既定位置が重なっていると開いた瞬間に
+     NG パネルのヘッダを覆ってしまう。NG パネルは左下なので右下に寄せる。 */
+  left: auto;
+  right: 20px;
   width: min(560px, calc(100vw - 28px));
   max-height: min(70vh, 720px);
   /* ヘッダ / 説明 / 入力 / ルール一覧 / 候補一覧 */
