@@ -487,6 +487,18 @@ pub fn save_ng_ai_results(
     Ok(())
 }
 
+/// Forget every judgement stored for a thread. Used when its cached responses are
+/// dropped, so judgements never outlive the thread they describe.
+pub fn delete_ng_ai_results_for_thread(thread_url: &str) -> Result<(), StoreError> {
+    let guard = get_db()?;
+    let conn = guard.as_ref().ok_or_else(|| StoreError::Other("no db".into()))?;
+    conn.execute(
+        "DELETE FROM ng_ai_result WHERE thread_url = ?1",
+        rusqlite::params![thread_url],
+    )?;
+    Ok(())
+}
+
 /// Forget every judgement made by `rule_id` (all threads). Used when a rule is
 /// deleted.
 pub fn delete_ng_ai_results_for_rule(rule_id: &str) -> Result<(), StoreError> {

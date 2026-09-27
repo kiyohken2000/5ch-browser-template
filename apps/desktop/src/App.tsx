@@ -5685,15 +5685,43 @@ export default function App() {
       return;
     }
     if (!progress) ngAiCancelRef.current = false;
-    setNgAiJudging({ ruleId: rule.id, done: 0, total: targets.length, ...progress });
     const found = new Map<number, number>();
+
+    // 先に保存済みの判定をまとめて受け取って即反映する。開き直しただけなら
+    // ここで終わり (推論もモデル読み込みも走らない)。
     try {
-      for (let i = 0; i < targets.length; i += NG_AI_JUDGE_CHUNK) {
+      const cachedRows = await invoke<{ responseNo: number; prob: number }[]>("ai_load_ng_ai_results", {
+        threadUrl: url,
+        ruleId: rule.id,
+        predicates: rule.predicates,
+      });
+      for (const s of cachedRows) found.set(s.responseNo, s.prob);
+      if (found.size > 0 && normalizeThreadUrl(activeThreadUrlRef.current) === url) {
+        setNgAiCandidates((prev) => {
+          const next = new Map(prev);
+          next.set(rule.id, new Map(found));
+          return next;
+        });
+      }
+    } catch (error) {
+      console.warn("ai_load_ng_ai_results failed", error);
+    }
+
+    const pending = targets.filter((r) => !found.has(r.id));
+    if (pending.length === 0) {
+      const hits = [...found.values()].filter((p) => p >= rule.threshold).length;
+      setStatus(`判定済み (保存された結果を使用): ${hits}件が閾値${rule.threshold.toFixed(2)}以上`);
+      return;
+    }
+
+    setNgAiJudging({ ruleId: rule.id, done: 0, total: pending.length, ...progress });
+    try {
+      for (let i = 0; i < pending.length; i += NG_AI_JUDGE_CHUNK) {
         if (ngAiCancelRef.current) {
-          setStatus(`判定を中止しました (${i}/${targets.length}件)`);
+          setStatus(`判定を中止しました (${i}/${pending.length}件)`);
           break;
         }
-        const chunk = targets.slice(i, i + NG_AI_JUDGE_CHUNK);
+        const chunk = pending.slice(i, i + NG_AI_JUDGE_CHUNK);
         const scores = await invoke<{ responseNo: number; prob: number; cached: boolean }[]>("ai_classify_responses", {
           threadUrl: url,
           ruleId: rule.id,
@@ -5706,11 +5734,11 @@ export default function App() {
         // 無関係なレスが隠れてしまう。反映する前に確認する。
         if (normalizeThreadUrl(activeThreadUrlRef.current) !== url) {
           ngAiCancelRef.current = true;
-          setStatus(`スレを移ったので判定を中止しました (${Math.min(i + chunk.length, targets.length)}/${targets.length}件)`);
+          setStatus(`スレを移ったので判定を中止しました (${Math.min(i + chunk.length, pending.length)}/${pending.length}件)`);
           break;
         }
         for (const s of scores) found.set(s.responseNo, s.prob);
-        setNgAiJudging({ ruleId: rule.id, done: Math.min(i + chunk.length, targets.length), total: targets.length, ...progress });
+        setNgAiJudging({ ruleId: rule.id, done: Math.min(i + chunk.length, pending.length), total: pending.length, ...progress });
         setNgAiCandidates((prev) => {
           const next = new Map(prev);
           next.set(rule.id, new Map(found));
@@ -5719,7 +5747,7 @@ export default function App() {
       }
       if (!ngAiCancelRef.current) {
         const hits = [...found.values()].filter((p) => p >= rule.threshold).length;
-        setStatus(`判定完了: ${targets.length}件中 ${hits}件が閾値${rule.threshold.toFixed(2)}以上`);
+        setStatus(`判定完了: ${targets.length}件中 ${hits}件が閾値${rule.threshold.toFixed(2)}以上 (今回の判定 ${pending.length}件)`);
       }
     } catch (error) {
       const msg = String(error);

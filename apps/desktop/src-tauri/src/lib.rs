@@ -1634,6 +1634,9 @@ fn load_all_cached_threads() -> Result<Vec<(String, String, i64)>, String> {
 
 #[tauri::command]
 fn delete_thread_cache(thread_url: String) -> Result<(), String> {
+    // 曖昧 NG の判定結果はレス番号で紐付いているので、スレのログを捨てたら一緒に捨てる。
+    // 残しても害は無いが、消したつもりのものがディスクに残り続けるのは筋が悪い。
+    let _ = core_store::delete_ng_ai_results_for_thread(&thread_url);
     core_store::delete_thread_cache(&thread_url)
         .map_err(|e| format!("{}", e))
 }
@@ -3184,6 +3187,38 @@ async fn ai_classify_responses(
     Ok(out)
 }
 
+/// Judgements already stored for this thread and rule, in one call.
+///
+/// Re-opening a thread would otherwise walk the whole thread in chunks just to
+/// discover every response is already judged: one round trip per chunk, each
+/// re-reading the same rows. The caller asks for the stored map first, shows it
+/// immediately, and only judges what is missing.
+#[tauri::command]
+fn ai_load_ng_ai_results(
+    thread_url: String,
+    rule_id: String,
+    predicates: Vec<String>,
+) -> Result<Vec<NgAiScore>, String> {
+    let predicates: Vec<String> = predicates
+        .into_iter()
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if predicates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let hash = core_ai::classifier_rule_hash(&predicates);
+    let rows = core_store::load_ng_ai_results(&thread_url, &rule_id, &hash).map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|(response_no, prob)| NgAiScore {
+            response_no,
+            prob,
+            cached: true,
+        })
+        .collect())
+}
+
 /// Stop the in-flight judgement (thread closed, rule edited, app going idle).
 #[tauri::command]
 fn ai_cancel_classify() -> Result<(), String> {
@@ -3455,6 +3490,7 @@ pub fn run() {
             ai_run_inference,
             ai_cancel_inference,
             ai_classify_responses,
+            ai_load_ng_ai_results,
             ai_cancel_classify,
             ai_forget_ng_rule,
             ai_list_backend_devices,
