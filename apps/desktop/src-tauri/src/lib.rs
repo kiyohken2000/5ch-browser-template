@@ -3154,7 +3154,7 @@ async fn ai_classify_responses(
         }
 
         let scored = scored.map_err(|e| e.to_string())?;
-        for (no, scores) in todo_nos.iter().zip(scored.into_iter()) {
+        for (no, scores) in todo_nos.iter().zip(scored) {
             // 複数述語は AND。min が一番素直な近似で、実スレでも適合率が一番高かった。
             let prob = scores.into_iter().fold(f32::INFINITY, f32::min);
             if prob.is_finite() {
