@@ -7104,6 +7104,27 @@ a.body-link-image:hover::after {
   background: #2b3946;
   border-color: #3f5a72;
 }
+/* 既定の button は明るい背景のままなので、ダークでは文字色 (--ink) と被って読めない。
+   NG パネルの他のボタン群と同じ配色を、曖昧NG で足したボタンにも当てる。
+   .ng-ai-hidden-toggle はレス欄の中にあるので、パネル側の指定では拾えない。 */
+.dark .ng-ai-hidden-toggle,
+.dark .ng-ai-note-head button,
+.dark .ng-ai-add-actions button,
+.dark .ng-ai-rule-controls button,
+.dark .ng-ai-remove,
+.dark .ng-ai-add-id {
+  background: #3a3a3a;
+  color: var(--ink);
+  border-color: #555;
+}
+.dark .ng-ai-hidden-toggle:hover,
+.dark .ng-ai-note-head button:hover,
+.dark .ng-ai-add-actions button:hover,
+.dark .ng-ai-rule-controls button:hover,
+.dark .ng-ai-remove:hover,
+.dark .ng-ai-add-id:hover {
+  background: #474747;
+}
 
 /* 曖昧 NG (AI ルール) パネルの中身 */
 .ng-ai-note {
