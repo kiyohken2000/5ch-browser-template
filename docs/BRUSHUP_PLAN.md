@@ -865,13 +865,13 @@ https://github.com/ollaya-dev/ollaya (Apache-2.0、Rust、2026-09-23 公開)。�
 
 運用点は**述語 2 本の AND、閾値 0.8、モードは非表示(復元可)**。実測は適合率 0.81(厳格) / 0.94(緩め)、再現率 0.26、発火 2.8%、61 ms / 件 / 述語。**あぼーんを既定にしない・連鎖に乗せない・GPU 前提にしない**の 3 点は動かさない。
 
-**M0: モデルの用意と配布**
+**M0: モデルの用意と配布** — ✅ 完了 (2026-09-27)
 - `scripts/convert_nli_model.sh`(新規) — HF の fp16 取得 → `convert_hf_to_gguf.py`(llama.cpp) → `llama-quantize` Q4_K_M → sha256 出力。手順を再現可能にして残す。CI には入れない
 - 変換済み Q4_K_M(418 MiB)を HF の自分のアカウントへ公開。README に MIT と原作者(`MoritzLaurer/bge-m3-zeroshot-v2.0`)の帰属、変換コマンド、元リビジョンを明記
 - `apps/desktop/src-tauri/ai-models.json` に判定器のエントリを追加。既存 10 件は全部チャット用なので `kind: "chat" | "classifier"` を新設(未指定は `chat` 扱いで後方互換)、判定器は `promptTemplate` の代わりに `classifierLabels: ["entailment","not_entailment"]` を持つ
 - **受け入れ**: 既存の `ai_download_model` で DL と sha256 検証が通る。チャットのモデル選択に判定器が出てこない
 
-**M1: `core-ai` の判定 API とモデルキャッシュ 2 スロット化**
+**M1: `core-ai` の判定 API とモデルキャッシュ 2 スロット化** — ✅ 完了 (2026-09-27, c28f278)
 - `pub fn classify_entailment(model_path, premise, hypotheses: &[String], backend, cancel) -> Result<Vec<f32>, AiError>`
   - RANK プーリング + `embeddings_seq_ith()` の 2 値 softmax。ペアは `<s> premise </s></s> hypothesis </s>`
   - **`with_n_ubatch()` を `n_batch` と同値にする**(既定 512 のままだと長いレスで `n_ubatch >= n_tokens` の assert で落ちる。プローブで踏んだ)
@@ -879,17 +879,25 @@ https://github.com/ollaya-dev/ollaya (Apache-2.0、Rust、2026-09-23 公開)。�
 - `CachedModel` を 1 スロットから `{ chat, classifier }` の 2 スロットへ。`cache_state()` / `preload_model()` / `unload_model()` にスロット指定を足す。推論の直列化(同じ Mutex)は維持
 - **受け入れ**: `cargo test --workspace` と `cargo clippy --workspace -- -D warnings` が green。`crates/core-ai/src/lib.rs` は 1 ファイルを維持
 
-**M2: Tauri コマンドと判定キャッシュ**
+**M2: Tauri コマンドと判定キャッシュ** — ✅ 完了 (2026-09-27, a383f89)
 - `ai_classify_responses(threadUrl, ruleId, predicates, responses) -> Vec<{ responseNo, scores }>`。キャンセルは既存の `ai_inference_cancel` と同じスロット運用で、要約 / 翻訳 / 返信生成が動いている間は走らせない
 - `core-store` に `ng_ai_result(thread_url, response_no, rule_id, prob, judged_at)` を追加(PK は前 3 列)。述語を編集したら `rule_id` 単位で破棄
 - **受け入れ**: 手動で 1 スレ判定して結果が返り、2 回目はキャッシュから即返る
 
-**M3: 候補一覧 UI(ここで自動 NG に進むか再判断する)**
+**M3: 候補一覧 UI(ここで自動 NG に進むか再判断する)** — 🔜 実装済み / 実スレでの確認待ち (2026-09-27)
 - NG パネルに「AI ルール」タブ。`desktop.ngAiRules.v1` → `NgAiRule = { id, predicates: string[], mode: NgMode, threshold: number, disabled?: boolean, addedAt: number }`。述語は 1〜3 個、合成は `min()`
 - 「このスレを判定」ボタン → 該当候補を確率つきで一覧。行クリックでそのレスへジャンプ、そこから既存の文字列 NG へ手で追加できる
 - 判定モデル未導入 / AI 未有効ならタブを出さない(既存のゲーティングに従う)
 - `scripts/smoke_ui_playwright.mjs` に `desktop.ngAiRules.v1` をシードしてタブ・ルール行・閾値 UI を検証するアサーションを追加(判定自体は Tauri 必須なので静的 HTML では走らせない)
 - **受け入れ**: 実スレで候補一覧が出て、smoke green。**ここで実際に使ってもらう**
+
+**実装メモ(2026-09-27)**:
+- GGUF は https://huggingface.co/votepurchase/bge-m3-zeroshot-v2.0-GGUF に公開済み。`ai-models.json` の判定器エントリ (`kind: "classifier"`) はこの URL・418373760 バイト・sha256 `5d41a1d3…` を指す。変換は `scripts/convert_nli_model.sh` で再現できる
+- `classify_entailment()` は計画の単発版ではなく**レス × 述語のバッチ版**にした。コンテキスト生成はペア採点より高くつくので、1 回の呼び出しで 1 コンテキストを共有する
+- 判定キャッシュのキーは (スレ URL, レス番号, ルール ID) で、`predicates_hash` 列が一致した行だけ読む。述語を書き換えると古い判定は自動的にヒットしなくなる
+- 生成 (要約 / 翻訳 / 返信) と判定は core-ai の同じミューテックスを取り合うので、判定中に生成が来たら `ai_run_inference` の先頭で判定を中断させ、判定側は生成中なら `Err("busy")` で即返す。キャンセルスロットは 2 本に分けた
+- 判定器が入っているかは `ai_ng_classifier_ready` で確認し、結果を `desktop.ngAiReady.v1` に残す。起動直後にタブが出たり消えたりしないためと、スモークテストから出し分けを検証できるようにするため
+- **M3 の残り**: 実スレで「このスレを判定」を押して候補一覧が出ることの確認。モデルの DL とアプリ実行が必要なのでユーザー側での確認になる
 
 **M4: 自動 NG(M3 の確認後に着手)**
 - `aiNgMap`(スレ単位)を `ngResultMap` の 0 パス目としてマージ。既存の 1〜3 パス目は変更しない。**連鎖(ID 連鎖・連鎖あぼーん)には乗せない**

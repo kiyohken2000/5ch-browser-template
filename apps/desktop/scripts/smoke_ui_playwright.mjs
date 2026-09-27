@@ -2317,6 +2317,86 @@ try {
     console.log("smoke-ui: post history list ok");
   }
 
+  // --- 曖昧 NG (AI ルール) タブ: 判定器が入っている時だけ出て、ルールを保存できる ---
+  // 判定そのものは Tauri IPC 必須なので、タブの出し分けとルールの永続化だけを検証する。
+  {
+    // 判定器が未導入のうちはタブを出さない
+    await page.click("button[title='NGフィルタ']");
+    await page.waitForSelector(".ng-panel");
+    const tabsWithoutModel = await page.$$eval(".ng-panel-tabs button", (els) => els.map((e) => e.textContent || ""));
+    assert(
+      !tabsWithoutModel.some((t) => t.includes("AIルール")),
+      `AI rule tab should be hidden until the classifier is installed, got: ${tabsWithoutModel.join(" / ")}`,
+    );
+    await page.click(".ng-panel-header button:has-text('閉じる')");
+
+    // 判定器が入っている状態と、保存済みルール 1 本を仕込む
+    await page.evaluate(() => {
+      localStorage.setItem("desktop.ngAiReady.v1", "true");
+      localStorage.setItem("desktop.ngAiRules.v1", JSON.stringify([
+        {
+          id: "rule-politics",
+          predicates: ["この書き込みは政治の話題である。", "この書き込みは他人を罵倒している。"],
+          mode: "hide",
+          threshold: 0.8,
+          addedAt: 1759000000000,
+        },
+        // 述語が空のルールは読み込み時に落とす
+        { id: "rule-empty", predicates: [], mode: "hide", threshold: 0.8, addedAt: 1759000000001 },
+      ]));
+    });
+    await page.reload({ waitUntil: "load" });
+    await page.waitForSelector(".row-splitter");
+    await page.click("button[title='NGフィルタ']");
+    await page.waitForSelector(".ng-panel");
+    await page.click(".ng-panel-tabs button:has-text('AIルール')");
+    await page.waitForSelector(".ng-ai-rules");
+
+    const ruleCount = await page.$$eval(".ng-ai-rule", (els) => els.length);
+    assert(ruleCount === 1, `rule without predicates should be dropped, got ${ruleCount} rules`);
+    const ruleText = await page.$eval(".ng-ai-rule-text", (el) => el.textContent || "");
+    assert(
+      ruleText.includes("政治の話題") && ruleText.includes("かつ") && ruleText.includes("罵倒"),
+      `predicates should be shown joined by かつ, got: ${ruleText}`,
+    );
+    const headerCount = await page.$eval(".ng-panel-header .ng-panel-count", (el) => el.textContent || "");
+    assert(headerCount.includes("1ルール"), `header should count rules, got: ${headerCount}`);
+    const threshold = await page.$eval('.ng-ai-rule-controls input[type="number"]', (el) => el.value);
+    assert(threshold === "0.8", `default threshold should be 0.8, got: ${threshold}`);
+    // あぼーんを既定にはしない
+    const mode = await page.$eval(".ng-ai-rule-controls select", (el) => el.value);
+    assert(mode === "hide", `default mode must stay hide (recoverable), got: ${mode}`);
+
+    // 述語を 2 本入れてルールを足すと保存される
+    const inputs = await page.$$(".ng-ai-add input");
+    assert(inputs.length === 2, `draft should start with two predicate inputs, got ${inputs.length}`);
+    await inputs[0].fill("この書き込みは宣伝である。");
+    await inputs[1].fill("");
+    await page.click(".ng-ai-add-actions button:has-text('ルールを追加')");
+    await page.waitForFunction(() => document.querySelectorAll(".ng-ai-rule").length === 2);
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("desktop.ngAiRules.v1") || "[]"));
+    assert(saved.length === 2, `added rule should be persisted, got ${saved.length}`);
+    const added = saved[saved.length - 1];
+    assert(
+      added.predicates.length === 1 && added.predicates[0] === "この書き込みは宣伝である。",
+      `empty predicate rows should be dropped, got: ${JSON.stringify(added.predicates)}`,
+    );
+    assert(added.mode === "hide" && added.threshold === 0.8, `new rule should use the safe defaults, got: ${JSON.stringify(added)}`);
+
+    // ルールを消すと一覧から消える
+    await page.click(".ng-ai-rule:last-child .ng-ai-remove");
+    await page.waitForFunction(() => document.querySelectorAll(".ng-ai-rule").length === 1);
+
+    await page.click(".ng-panel-header button:has-text('閉じる')");
+    await page.evaluate(() => {
+      localStorage.removeItem("desktop.ngAiRules.v1");
+      localStorage.removeItem("desktop.ngAiReady.v1");
+    });
+    await page.reload({ waitUntil: "load" });
+    await page.waitForSelector(".row-splitter");
+    console.log("smoke-ui: ng ai rules panel ok");
+  }
+
   // --- 板ごとに記憶した名前欄が、投稿先の板に追従する ---
   // 保存は投稿成功時 (Tauri IPC 必須) なのでブラウザ環境では検証できない。
   // localStorage にタブと板ごとの名前を仕込み、復元・追従だけを検証する。

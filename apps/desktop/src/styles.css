@@ -6999,3 +6999,160 @@ a.body-link-image:hover::after {
   flex: 0 0 6px;
   height: 6px;
 }
+
+/* 曖昧 NG (AI ルール) タブ */
+.ng-ai-note {
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--sub);
+  border-bottom: 1px solid #d0d0d0;
+}
+.ng-ai-add {
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-bottom: 1px solid #d0d0d0;
+}
+.ng-ai-add input {
+  font-size: 11px;
+  padding: 4px 6px;
+  box-sizing: border-box;
+  border: 1px solid #c0c0c0;
+}
+.ng-ai-add-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.ng-ai-rules {
+  overflow-y: auto;
+  padding: 4px 8px;
+}
+.ng-ai-empty,
+.ng-ai-candidates-head {
+  font-size: 11px;
+  color: var(--sub);
+  padding: 4px 0;
+}
+.ng-ai-rule {
+  border: 1px solid #d0d0d0;
+  border-radius: 3px;
+  padding: 4px 6px;
+  margin-bottom: 4px;
+}
+.ng-ai-rule.disabled {
+  opacity: 0.55;
+}
+.ng-ai-rule-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ng-ai-rule-text {
+  flex: 1;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ng-ai-enable input {
+  margin: 0;
+}
+.ng-ai-remove {
+  padding: 0 5px;
+}
+.ng-ai-rule-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--sub);
+}
+.ng-ai-rule-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.ng-ai-rule-controls input[type="number"] {
+  width: 56px;
+  font-size: 11px;
+  padding: 2px 4px;
+}
+.ng-ai-progress,
+.ng-ai-hits {
+  font-size: 11px;
+}
+.ng-ai-candidates {
+  border-top: 1px solid #d0d0d0;
+  padding: 4px 8px 6px;
+  overflow-y: auto;
+  max-height: 40vh;
+}
+.ng-ai-candidates ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ng-ai-candidates li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ng-ai-add-id {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 1px 4px;
+}
+.ng-ai-candidate {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 3px 2px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ng-ai-candidate:hover {
+  background: #e8f0f8;
+}
+.ng-ai-prob {
+  font-variant-numeric: tabular-nums;
+  color: #b04000;
+  flex: 0 0 auto;
+}
+.ng-ai-no {
+  flex: 0 0 auto;
+  color: var(--sub);
+}
+.ng-ai-body {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dark .ng-ai-note,
+.dark .ng-ai-add,
+.dark .ng-ai-candidates {
+  border-color: #3f3f46;
+}
+.dark .ng-ai-rule {
+  border-color: #3f3f46;
+}
+.dark .ng-ai-add input,
+.dark .ng-ai-rule-controls input[type="number"] {
+  background: #1e1e20;
+  color: #e6e6e6;
+  border-color: #4a4a52;
+}
+.dark .ng-ai-candidate:hover {
+  background: #33404d;
+}
+.dark .ng-ai-prob {
+  color: #ffb08a;
+}

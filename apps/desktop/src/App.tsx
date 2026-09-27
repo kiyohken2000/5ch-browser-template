@@ -394,6 +394,36 @@ type NgMode = "hide" | "hide-images" | "abone";
 // chainId (ワードのみ): 一致したレスの ID / ワッチョイを持つレスも同じスレ内でまとめて NG にする
 type NgEntry = { value: string; mode: NgMode; disabled?: boolean; excludeNo1?: boolean; match?: "partial" | "exact"; addedAt?: number; chainId?: boolean };
 type NgFilters = { words: (string | NgEntry)[]; ids: (string | NgEntry)[]; names: (string | NgEntry)[]; thread_words: (string | NgEntry)[] };
+// 曖昧 NG (AI ルール)。predicates は「この書き込みは政治の話題である。」のような
+// 平叙文で、複数書くと AND (実測で複合 1 文より適合率が高い。docs/BRUSHUP_PLAN.md [N23])。
+type NgAiRule = { id: string; predicates: string[]; mode: NgMode; threshold: number; disabled?: boolean; addedAt: number };
+const NG_AI_MAX_PREDICATES = 3;
+const NG_AI_DEFAULT_THRESHOLD = 0.8;
+// 判定 1 件あたり述語ごとに 1 パス走るので、一度に投げる件数を抑えて中断できるようにする。
+const NG_AI_JUDGE_CHUNK = 25;
+const normalizeNgAiRules = (raw: unknown): NgAiRule[] => {
+  if (!Array.isArray(raw)) return [];
+  const out: NgAiRule[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Partial<NgAiRule>;
+    const predicates = Array.isArray(o.predicates)
+      ? o.predicates.filter((p): p is string => typeof p === "string" && p.trim() !== "").slice(0, NG_AI_MAX_PREDICATES)
+      : [];
+    if (predicates.length === 0) continue;
+    const threshold = typeof o.threshold === "number" && o.threshold > 0 && o.threshold <= 1 ? o.threshold : NG_AI_DEFAULT_THRESHOLD;
+    out.push({
+      id: typeof o.id === "string" && o.id ? o.id : `r${Date.now()}${out.length}`,
+      predicates,
+      // 既定はあぼーんにしない。適合率は 0.8 程度なので、復元できない消し方は選ばせない。
+      mode: o.mode === "abone" || o.mode === "hide-images" ? o.mode : "hide",
+      threshold,
+      disabled: o.disabled === true ? true : undefined,
+      addedAt: typeof o.addedAt === "number" ? o.addedAt : 0,
+    });
+  }
+  return out;
+};
 // 強調フィルタ (NGの逆): 指定ワード/ID/名前を強調表示
 // titleOff: スレ一覧のタイトルには適用しない (ワードのみ意味を持つ)
 // addedAt: 登録日時 (ms)。ID の自動削除に使う。導入前のエントリは持たない (= 対象外)
@@ -649,6 +679,11 @@ const DISMISSED_UPDATE_VERSION_KEY = "desktop.dismissedUpdateVersion.v1";
 const NG_ID_EXPIRE_DAYS_KEY = "desktop.ngIdExpireDays.v1";
 // NG になったレスへ安価を打ったレスも連鎖してあぼーんにする (既定オフ)
 const NG_CHAIN_REPLIES_KEY = "desktop.ngChainReplies.v1";
+// 曖昧 NG (AI ルール) の定義
+const NG_AI_RULES_KEY = "desktop.ngAiRules.v1";
+// 判定器が導入済みかを覚えておく。起動直後に Tauri へ問い合わせるまでの間タブが
+// 出たり消えたりしないように、前回の結果を同期的に読めるところへ置く。
+const NG_AI_READY_KEY = "desktop.ngAiReady.v1";
 // 強調 ID の自動削除日数 (NG ID と同じ選択肢・同じ判定)。
 const HL_ID_EXPIRE_DAYS_KEY = "desktop.hlIdExpireDays.v1";
 // UI 全体の表示倍率。WebView 自体のズームなので px 指定のままでも全部が拡大され、
@@ -699,6 +734,7 @@ const UI_JSON_FILES: Record<string, string> = {
   [RECENT_OPENED_THREADS_KEY]: "recent_opened_threads",
   [RECENT_POSTED_THREADS_KEY]: "recent_posted_threads",
   [THREAD_TABS_KEY]: "thread_tabs",
+  [NG_AI_RULES_KEY]: "ng_ai_rules",
 };
 // 旧バージョンの localStorage から data/*.json へ移し終えたかどうか。移行前は
 // ファイルが無くても localStorage を残すが、移行後にファイルが無ければ
@@ -2329,7 +2365,26 @@ export default function App() {
   const [responsesLoading, setResponsesLoading] = useState(false);
   const [ngInput, setNgInput] = useState("");
   const [ngInputType, setNgInputType] = useState<"words" | "ids" | "names">("words");
-  const [ngPanelTab, setNgPanelTab] = useState<"ng" | "highlight">("ng");
+  const [ngPanelTab, setNgPanelTab] = useState<"ng" | "highlight" | "ai">("ng");
+  const [ngAiRules, setNgAiRules] = useState<NgAiRule[]>(() => {
+    try {
+      const v = localStorage.getItem(NG_AI_RULES_KEY);
+      if (v) return normalizeNgAiRules(JSON.parse(v));
+    } catch { /* ignore */ }
+    return [];
+  });
+  const [ngAiReady, setNgAiReady] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(NG_AI_READY_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [ngAiDraft, setNgAiDraft] = useState<string[]>(["", ""]);
+  // 判定結果の候補。ルール ID -> (レス番号 -> 確率)。スレを移ると捨てる。
+  const [ngAiCandidates, setNgAiCandidates] = useState<Map<string, Map<number, number>>>(new Map());
+  const [ngAiJudging, setNgAiJudging] = useState<{ ruleId: string; done: number; total: number } | null>(null);
+  const ngAiCancelRef = useRef(false);
   const [highlightInput, setHighlightInput] = useState("");
   const [highlightInputType, setHighlightInputType] = useState<"words" | "ids" | "names">("words");
   const [highlightAddColor, setHighlightAddColor] = useState("yellow");
@@ -5533,6 +5588,147 @@ export default function App() {
     setNextThreadSearched(false);
     setNextThreadSearching(false);
   }, [activeThreadUrl]);
+
+  useEffect(() => {
+    saveUiJson(NG_AI_RULES_KEY, JSON.stringify(ngAiRules));
+  }, [ngAiRules]);
+
+  // 判定器が入っているかを起動時に 1 回確認する。結果は localStorage に残して、
+  // 次回は問い合わせ前からタブの有無が決まるようにする。
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    void (async () => {
+      try {
+        const ready = await invoke<boolean>("ai_ng_classifier_ready");
+        setNgAiReady(ready);
+        saveUiSetting(NG_AI_READY_KEY, String(ready));
+      } catch (error) {
+        console.warn("ai_ng_classifier_ready failed", error);
+      }
+    })();
+  }, []);
+
+  // スレを移ったら候補は捨てる (レス番号はスレごとの意味しか持たない)
+  useEffect(() => {
+    setNgAiCandidates(new Map());
+  }, [activeThreadUrl]);
+
+  const ngAiRuleLabel = (rule: NgAiRule) => rule.predicates.join(" かつ ");
+
+  const addNgAiRule = () => {
+    const predicates = ngAiDraft.map((p) => p.trim()).filter((p) => p !== "");
+    if (predicates.length === 0) {
+      setStatus("述語を1つ以上入力してください");
+      return;
+    }
+    const rule: NgAiRule = {
+      id: `r${Date.now()}`,
+      predicates,
+      mode: "hide",
+      threshold: NG_AI_DEFAULT_THRESHOLD,
+      addedAt: Date.now(),
+    };
+    setNgAiRules((prev) => [...prev, rule]);
+    setNgAiDraft(["", ""]);
+    setStatus(`AIルールを追加: ${ngAiRuleLabel(rule)}`);
+  };
+
+  const updateNgAiRule = (id: string, patch: Partial<NgAiRule>) => {
+    setNgAiRules((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  };
+
+  const removeNgAiRule = (id: string) => {
+    setNgAiRules((prev) => prev.filter((r) => r.id !== id));
+    setNgAiCandidates((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Map(prev);
+      next.delete(id);
+      return next;
+    });
+    // 判定キャッシュも捨てる。残しても他のルールとは混ざらないが、消したつもりの
+    // ものがディスクに残り続けるのは気持ちが悪い。
+    if (isTauriRuntime()) {
+      invoke("ai_forget_ng_rule", { ruleId: id }).catch((e) => console.warn("ai_forget_ng_rule failed", e));
+    }
+  };
+
+  /// 開いているスレを 1 本まるごと判定して候補を集める。
+  const judgeThreadWithNgAiRule = async (rule: NgAiRule) => {
+    if (!isTauriRuntime()) {
+      setStatus("判定はアプリ版でのみ動きます");
+      return;
+    }
+    const url = normalizeThreadUrl(activeThreadUrl);
+    if (!url) {
+      setStatus("スレを開いてから判定してください");
+      return;
+    }
+    const targets = responseItems.filter((r) => r.text.trim() !== "");
+    if (targets.length === 0) {
+      setStatus("判定するレスがありません");
+      return;
+    }
+    ngAiCancelRef.current = false;
+    setNgAiJudging({ ruleId: rule.id, done: 0, total: targets.length });
+    const found = new Map<number, number>();
+    try {
+      for (let i = 0; i < targets.length; i += NG_AI_JUDGE_CHUNK) {
+        if (ngAiCancelRef.current) {
+          setStatus(`判定を中止しました (${i}/${targets.length}件)`);
+          break;
+        }
+        const chunk = targets.slice(i, i + NG_AI_JUDGE_CHUNK);
+        const scores = await invoke<{ responseNo: number; prob: number; cached: boolean }[]>("ai_classify_responses", {
+          threadUrl: url,
+          ruleId: rule.id,
+          predicates: rule.predicates,
+          // 本文は表示用の整形前のものを渡す。安価やURLは残っていて構わない。
+          responses: chunk.map((r) => ({ responseNo: r.id, body: r.text })),
+        });
+        for (const s of scores) found.set(s.responseNo, s.prob);
+        setNgAiJudging({ ruleId: rule.id, done: Math.min(i + chunk.length, targets.length), total: targets.length });
+        setNgAiCandidates((prev) => {
+          const next = new Map(prev);
+          next.set(rule.id, new Map(found));
+          return next;
+        });
+      }
+      if (!ngAiCancelRef.current) {
+        const hits = [...found.values()].filter((p) => p >= rule.threshold).length;
+        setStatus(`判定完了: ${targets.length}件中 ${hits}件が閾値${rule.threshold.toFixed(2)}以上`);
+      }
+    } catch (error) {
+      const msg = String(error);
+      setStatus(msg.includes("busy") ? "AIが他の処理中です。終わってから判定してください" : `判定エラー: ${msg}`);
+    } finally {
+      setNgAiJudging(null);
+    }
+  };
+
+  const cancelNgAiJudge = () => {
+    ngAiCancelRef.current = true;
+    if (isTauriRuntime()) {
+      invoke("ai_cancel_classify").catch((e) => console.warn("ai_cancel_classify failed", e));
+    }
+  };
+
+  // 表示用。閾値以上のものを確率の高い順に並べる。
+  const ngAiCandidateRows = useMemo(() => {
+    const rows: { ruleId: string; responseNo: number; prob: number; text: string; id: string }[] = [];
+    const byNo = new Map(responseItems.map((r) => [r.id, r]));
+    for (const rule of ngAiRules) {
+      const scores = ngAiCandidates.get(rule.id);
+      if (!scores) continue;
+      for (const [no, prob] of scores) {
+        if (prob < rule.threshold) continue;
+        const resp = byNo.get(no);
+        const id = resp ? extractId(resp.time) : "";
+        rows.push({ ruleId: rule.id, responseNo: no, prob, text: resp?.text ?? "", id: id && id !== "???" ? id : "" });
+      }
+    }
+    rows.sort((a, b) => b.prob - a.prob);
+    return rows;
+  }, [ngAiCandidates, ngAiRules, responseItems]);
   useEffect(() => {
     if (!idPopup && !anchorPopup && !backRefPopup && nestedPopups.length === 0) {
       popupTopZRef.current = 610;
@@ -11998,10 +12194,12 @@ export default function App() {
       {ngPanelOpen && (
         <section className="ng-panel" role="dialog" aria-label="NGフィルタ" style={panelPosStyle("ng")}>
           <header className="ng-panel-header ng-panel-drag-header" onPointerDown={startPanelDrag("ng")}>
-            <strong>{ngPanelTab === "ng" ? "NGフィルタ" : "ハイライト"}</strong>
+            <strong>{ngPanelTab === "ng" ? "NGフィルタ" : ngPanelTab === "ai" ? "AIルール" : "ハイライト"}</strong>
             <span className="ng-panel-count">
               {ngPanelTab === "ng"
                 ? `${ngFilters.words.length}語 / ${ngFilters.ids.length}ID / ${ngFilters.names.length}名`
+                : ngPanelTab === "ai"
+                ? `${ngAiRules.length}ルール`
                 : `${highlightFilters.words.length}語 / ${highlightFilters.ids.length}ID / ${highlightFilters.names.length}名`}
             </span>
             {ngPanelTab === "ng" && (
@@ -12015,6 +12213,9 @@ export default function App() {
           <div className="ng-panel-tabs">
             <button className={ngPanelTab === "ng" ? "active-toggle" : ""} onClick={() => setNgPanelTab("ng")}>NG (非表示/あぼーん)</button>
             <button className={ngPanelTab === "highlight" ? "active-toggle" : ""} onClick={() => setNgPanelTab("highlight")}>ハイライト (強調)</button>
+            {ngAiReady && (
+              <button className={ngPanelTab === "ai" ? "active-toggle" : ""} onClick={() => setNgPanelTab("ai")}>AIルール</button>
+            )}
           </div>
           {ngPanelTab === "ng" && (<>
           <div className="ng-panel-add">
@@ -12263,6 +12464,124 @@ export default function App() {
               </div>
             ))}
           </div>
+          </>)}
+          {ngPanelTab === "ai" && (<>
+          <div className="ng-ai-note">
+            自然文のルールでレスを判定します。<strong>「〜である。」の平叙文</strong>で書き、
+            条件が複数あるなら1行に詰めずに分けてください (すべて満たしたものだけが候補になります)。
+            判定はこの端末の中だけで行われ、外部には送信されません。
+          </div>
+          <div className="ng-ai-add">
+            {ngAiDraft.map((v, i) => (
+              <input
+                key={i}
+                value={v}
+                onChange={(e) => setNgAiDraft((prev) => prev.map((p, j) => (j === i ? e.target.value : p)))}
+                placeholder={i === 0 ? "例: この書き込みは政治の話題である。" : "例: この書き込みは他人を罵倒している。"}
+              />
+            ))}
+            <div className="ng-ai-add-actions">
+              {ngAiDraft.length < NG_AI_MAX_PREDICATES && (
+                <button onClick={() => setNgAiDraft((prev) => [...prev, ""])}>述語を追加</button>
+              )}
+              {ngAiDraft.length > 1 && (
+                <button onClick={() => setNgAiDraft((prev) => prev.slice(0, -1))}>最後を削除</button>
+              )}
+              <button onClick={addNgAiRule}>ルールを追加</button>
+            </div>
+          </div>
+          <div className="ng-ai-rules">
+            {ngAiRules.length === 0 && <div className="ng-ai-empty">まだAIルールがありません</div>}
+            {ngAiRules.map((rule) => {
+              const judging = ngAiJudging?.ruleId === rule.id ? ngAiJudging : null;
+              const scores = ngAiCandidates.get(rule.id);
+              const hits = scores ? [...scores.values()].filter((p) => p >= rule.threshold).length : null;
+              return (
+                <div key={rule.id} className={`ng-ai-rule${rule.disabled ? " disabled" : ""}`}>
+                  <div className="ng-ai-rule-head">
+                    <label className="ng-ai-enable" title="このルールを使う">
+                      <input
+                        type="checkbox"
+                        checked={!rule.disabled}
+                        onChange={(e) => updateNgAiRule(rule.id, { disabled: e.target.checked ? undefined : true })}
+                      />
+                    </label>
+                    <span className="ng-ai-rule-text">{ngAiRuleLabel(rule)}</span>
+                    <button className="ng-ai-remove" onClick={() => removeNgAiRule(rule.id)} title="このルールを削除">×</button>
+                  </div>
+                  <div className="ng-ai-rule-controls">
+                    <label title="この確率以上を候補にします。0.8 で1000レスあたり6件ほど誤って拾う程度です。">
+                      閾値
+                      <input
+                        type="number"
+                        min={0.5}
+                        max={0.99}
+                        step={0.05}
+                        value={rule.threshold}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          if (Number.isFinite(v) && v > 0 && v <= 1) updateNgAiRule(rule.id, { threshold: v });
+                        }}
+                      />
+                    </label>
+                    <label title="候補をどう扱うか">
+                      モード
+                      <select
+                        value={rule.mode}
+                        onChange={(e) => updateNgAiRule(rule.id, { mode: e.target.value as NgMode })}
+                        className="ng-mode-select"
+                      >
+                        <option value="hide">非表示</option>
+                        <option value="abone">あぼーん</option>
+                      </select>
+                    </label>
+                    {judging ? (
+                      <>
+                        <span className="ng-ai-progress">判定中 {judging.done}/{judging.total}</span>
+                        <button onClick={cancelNgAiJudge}>中止</button>
+                      </>
+                    ) : (
+                      <button onClick={() => void judgeThreadWithNgAiRule(rule)} disabled={ngAiJudging !== null}>
+                        このスレを判定
+                      </button>
+                    )}
+                    {hits !== null && !judging && <span className="ng-ai-hits">候補 {hits}件</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {ngAiCandidateRows.length > 0 && (
+            <div className="ng-ai-candidates">
+              <div className="ng-ai-candidates-head">候補 {ngAiCandidateRows.length}件 (クリックでそのレスへ移動)</div>
+              <ul>
+                {ngAiCandidateRows.map((row) => (
+                  <li key={`${row.ruleId}#${row.responseNo}`}>
+                    <button
+                      className="ng-ai-candidate"
+                      onClick={() => {
+                        selectResponseAndScroll(row.responseNo);
+                        setStatus(`>>${row.responseNo} へ移動 (P=${row.prob.toFixed(3)})`);
+                      }}
+                    >
+                      <span className="ng-ai-prob">{row.prob.toFixed(3)}</span>
+                      <span className="ng-ai-no">&gt;&gt;{row.responseNo}</span>
+                      <span className="ng-ai-body">{row.text.replace(/<[^>]*>/g, " ").slice(0, 90)}</span>
+                    </button>
+                    {row.id && (
+                      <button
+                        className="ng-ai-add-id"
+                        title={`このレスのID (${row.id}) を通常のNGに追加する`}
+                        onClick={() => addNgEntry("ids", row.id)}
+                      >
+                        IDをNG
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           </>)}
         </section>
       )}
