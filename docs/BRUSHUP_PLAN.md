@@ -650,7 +650,7 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 
 ## アイディア(2026-09-21。着手前にユーザー確認必須)
 
-### [N23] 曖昧 NG(自然文ルールによる AI 判定 NG) — ステータス: ⏸ 見送り(2026-09-21。再検討条件は本節末尾)
+### [N23] 曖昧 NG(自然文ルールによる AI 判定 NG) — ステータス: ⏸ 見送り(2026-09-21。2026-09-27 に ollaya / Laya を再評価して見送り継続。再検討条件は本節末尾)
 
 **背景**: 現在の NG は「ワード / ID / 名前 / スレタイ」の文字列一致(正規表現含む)のみ。「政治ネタで煽っているレス」「特定の話題を延々と繰り返す人」のような、文字列では書けない条件を NG にしたいという発想。きっかけは TypeSafe AI の判定特化モデル Jev(2026-09-15 発表、分類・採点結果を確率つきで返す)の記事だが、**Jev は不採用**(下記)。
 
@@ -677,6 +677,7 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 - 速度の参考値(mizchi 氏の記事 https://zenn.dev/mizchi/articles/laya-mlx-60fps): Apple Silicon の MLX で 1 判定 8ms(約 90 判定/秒)、WebGPU fp16 で約 20 判定/秒、WASM で約 5 判定/秒。上記 3 の「速度が最大の課題」は、生成 LLM の yes/no 判定より大幅に軽くなる可能性がある
 - **課題**: Ember の推論基盤は llama.cpp(GGUF)で、Laya は BERT 系エンコーダ。llama.cpp の BERT 対応で GGUF 化して分類ヘッドまで動かせるかは未確認。動かない場合は別の推論ランタイム(ONNX Runtime など)を追加することになり、新規 crate の承認が必要
 - MLX 移植の本体: https://github.com/mizorewww/laya-mlx(Apache-2.0、2026-09-19 公開、2026-09-22 確認)。上記 zenn 記事はこの実装の測定。README の公称値は M3 Max・FP16 で短い質問 1 件 P50 13.4 ms(英語 421M)/ 7.4 ms(多言語 322M)、ピークメモリ 940 / 690 MiB、上流 PyTorch 版と 63/63 問で選択ラベル一致。**Apple Silicon + Python 3.11+ + macOS 14+ 限定**の Python パッケージなので、Rust/Tauri の Ember からそのまま使えず Windows では動かない。採用するなら上記「課題」の別ランタイム問題は変わらず
+- **(2026-09-27 追記)** クロスプラットフォームの実行基盤 **ollaya**(Rust、ONNX Runtime)が公開され、上記の「Apple Silicon 限定」は解消した。ただし日本語版(`laya:multilingual`)は zero-shot の型付き判定がほぼ偶然(0.362)で、本節の用途には現時点では使えない。評価の詳細は下記「別方式の検証: ollaya」
 - 判断の質が「ルール文(説明文)の書き方」に強く依存する点は Jev と共通。ユーザーが書く自然文ルールでそのまま精度が出るかは要検証
 
 **同方式の実証例: SemIf(旧 OpenJev。2026-09-21 追記)**: https://openjev.com — TypeSafe とは無関係の独立研究プロジェクト。汎用 GGUF モデル(Qwen3 0.6B / MiniCPM5 2B / Qwen3.5 4B)を wllama(llama.cpp の WASM 版)+ WebGPU でブラウザ実行し、「選択肢の logit を直接読む方式」と「JSON を生成させる方式」を同じ質問で比較するデモ。独自評価(英語)の精度は MiniCPM5 2B 68.6%、Qwen3.5 4B 81.3%。専用モデルなしでも上記 2 の「1 トークン判定 + logit 確率」が成立する裏付けになる。Laya と違い **Ember の llama-cpp-2 / GGUF 基盤にそのまま乗る**構成で、Qwen3.5-4B はカタログ収録済み。
@@ -746,6 +747,7 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 2. Mac M2 で probe を Qwen3.5-4B で回し、Metal の実数を取る。RTX はユーザー報告があれば追記
 3. 本実装の前に、**「手動で 1 スレ判定して該当レス一覧 + 確率を表示するだけ」の試作**(`core-ai` に `score_options` を足し、App.tsx に一覧を出す程度。遅延 NG・キャッシュ・スケジューラは作らない)で、実スレ 5〜10 本 × ルール 3〜4 本の偽陽性を数える。許容範囲なら上記計画 3〜4 に進み、ダメなら却下に落として理由を記録する
 4. 別プロジェクト(React Native Expo / llama.rn)で同方式の `judge()` を先に動かして実スレ規模の手応えを見てからでも遅くない(llama.rn は 0.12.7 以降なら Qwen3.5 でも状態スナップショットによるプレフィックス共有が効く。0.12.4 では効かない — 上記「訂正」参照)。**2026-09-21 に FeedOwn 側で 12 件の実機検証まで実施済み**(上記「モバイル実測」)。実スレ規模はどちら側でも未計測
+- **(2026-09-27 追記)** 上記 1〜4 は生成 LLM(GGUF)前提の条件。判定専用モデル(Laya)の線は別ルートで、こちらの条件は「`laya:multilingual` 相当の**多言語**モデルが typed-decisions 相当にファインチューンされて出ること」。詳細は下記「別方式の検証: ollaya」
 
 **別方式の検証: クロスエンコーダ (reranker) GGUF — 不採用(2026-09-26。検証プローブ `scripts/probe_rerank_ng.rs`、`gpustack/bge-reranker-v2-m3-GGUF` Q4_K_M(438 MB)、Windows / 32 スレッド CPU)**:
 
@@ -759,6 +761,31 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 - **速度は圧勝**: 約 30 ms / 件(CPU)。方式 A の Qwen3.5-4B が 1.6 秒 / 件なので **53 倍**で、新着 100 件 × ルール 3 本が 8 分 → 9 秒。モデルロード 0.58 秒。ただし判定が出ない以上、速度は意味を持たない
 - **結論**: N23 の判定器としては**不採用**。精度不足ではなく、reranker が出すのは「クエリに対する文書の検索関連度」であって「この文がこの述語を満たすか」ではないという原理的な不一致で、チューニングで埋まる差ではない。5ch のレスは「政治の話題で他人を罵倒している」という問いへの答えではないので、構造上どれも正側に来ない
 - **副産物(N23 とは別の話)**: 30 ms / 件で話題の AUC 0.9 が取れるのは、並べ替え・絞り込み系の機能(スレ内の意味検索、関連レス抽出、スレの話題から外れたレスの提示)には十分な性能。NG のような絶対判断ではなく相対順位を使う用途なら素直に乗る。**この線は [N24] で追って調査し、2026-09-26 に見送り**
+
+**別方式の検証: ollaya(判定専用モデルのローカル実行基盤) — 現時点では不成立(2026-09-27。ソース調査のみ、実測なし)**:
+
+https://github.com/ollaya-dev/ollaya (Apache-2.0、Rust、2026-09-23 公開)。「Ollama が LLM を動かすように判定モデルをローカルで動かす」デーモン + CLI で、`laya` / `decider` / `kev` / `nli` / `gliclass` / `jevk5` / `winnow` などを名前で pull して `POST /v1/systemone`(TypeSafe 互換)・`POST /api/decide` で提供する。上記「代替候補: Laya」の**実行系の問題を解決している**ため再評価した(Jev 本体は不採用のまま。ollaya は TypeSafe とは無関係の独立プロジェクト)。
+
+- **解決される点**:
+  - ローカル実行・API キー不要・重みは HF から commit pin + sha256 検証(再ホストしない)。「すべてローカル完結・外部送信なし」方針と衝突しない
+  - **Windows / Mac / Linux バイナリがある**ので、laya-mlx の「Apple Silicon + Python 限定」は解消
+  - 速度(Laya モデルカード値、Tesla T4): `laya:multilingual` が **1 問 32.8 ms**、10 問バッチ 72.3 ms。`laya:en` は 39.5 / 158.6 ms。RTX 4090 fp16 で 5 問 9.1 ms(multilingual)。見送り理由 2(Qwen3.5-4B で 1.6 秒 / 件)を桁で潰せる水準
+  - サイズ: `laya:multilingual` は重み 614 MB(fp16 safetensors)+ ONNX グラフ 3 MB。Qwen3.5-4B Q4(2.5 GB)より軽い。CPU では fp32 に広げて動かす
+  - reranker 不採用の原理的理由(検索関連度 ≠ 述語の充足)には当たらない。Laya は「state + 型付き質問 → 確率」が設計そのもので、`noul`(yes/no)が曖昧 NG の形に一致する
+- **設計上の収穫(ollaya を使わなくても効く)**: Laya は**1 回の forward pass で複数の質問に答える**ので、「政治の話題で他人を罵倒している」を「政治の話題か」「罵倒しているか」に分解して AND を取る UI にできる。SemIf 方式・reranker の両検証で唯一かつ共通の誤りが「複合条件の片側だけで反応する」ケースだったので、見送り理由 1(偽陽性)への直接の回答になり得る。**この分解は既存の `score_options` 案(質問 2 本を別々に判定して AND)でも実装できる**
+- **不成立の理由 1: 日本語 × 自由記述ルールが空白のマスに落ちる**(最大の問題。Laya モデルカードの Limitations に明記):
+  - 日本語が使えるのは `laya:multilingual`(mmBERT-base 322M、100+ 言語)だが、**base checkpoint は zero-shot の typed decisions で 0.362 = ほぼ偶然**。さらに**温度の再フィットなしで出荷**されており(`laya:en` は ECE 0.081、multilingual は値なし)、閾値 UI が信用できない。見送り理由 2 で問題にした「確率が飽和して閾値が効かない」と同じ穴
+  - zero-shot に強いのは `laya:typed-decisions`(0.766、Jev 1.13 の 0.727 より上)だが **English only**(ModernBERT-large 421M)
+  - つまり「日本語が読めるモデル」と「ユーザーが書いた任意の質問に答えられるモデル」が別物。N23 は両方を同時に要求する
+  - カタログの他モデルも英語前提: `decider` は「English only, per the model card」、`nli` / `gliclass` は DeBERTa-v3-large(英語)。`qwen3guard` は質問が固定(安全性カテゴリ)
+- **不成立の理由 2: ランタイムが別系統**。Ember は llama.cpp / GGUF、Laya は ONNX Runtime。選択肢は
+  - (a) `ort` + `tokenizers` を core-ai に追加し、onnxruntime の共有ライブラリをプラットフォームごとに同梱 → **新規 crate 承認 + 配布物の構成変更**が必要
+  - (b) ユーザーに ollaya デーモンを別途インストールさせて `http://localhost:11435` に HTTP → localhost なので外部送信には当たらないが、**見送り理由 5(対象ユーザーが薄い)が決定的に悪化**する(AI 有効 + モデル DL + 別ソフトの導入)
+  - ollaya の crate(`ollaya-runner` / `ollaya-decision`)は **crates.io 未公開**。git 依存にすると `ort` / `tokenizers` / `ndarray` / `axum` / `tokio` / `libloading` が付いてくる
+- **不成立の理由 3: 既存基盤にそのまま乗る GGUF 勢は逆に重い**。`jevk5`(Qwen3.5-4B Q8_0、4.48 GB、RTX 4090 で 5 問 288 ms、CPU 未計測)、`winnow:e4b`(Gemma 4 E4B Q8_0、8.01 GB、**24 コア CPU で 5.1 秒 / 決定**)、`winnow:12b`(12.67 GB、16 GB GPU が下限)。Qwen3.5-4B Q4 より大きく遅いので見送り理由 2 は変わらない
+- **変わらない点**: 見送り理由 1(実スレ規模の偽陽性率が未計測)・3(遅延 NG の UX = 読んでいる最中にレスが消える)・4(インフラ先行の計画順序)は、モデルを差し替えても一切解決しない
+- **結論**: 現時点では**不成立**(却下ではない)。Laya の Limitations 自身が「多言語版は zero-shot の型付き判定がほぼ偶然」と言っているので、日本語の自由記述ルールでは動かない可能性が高い。ただし ollaya は Laya の実行系の問題(Apple Silicon 限定・クラウド依存)を全部解いているので、**多言語側が typed-decisions 相当にファインチューンされて出た時点で再検討の筆頭になる**。監視対象: https://huggingface.co/convaiinnovations/laya
+- **検証したくなった場合の最小手順(Ember に一切手を入れない)**: ollaya を Windows にインストール(`irm https://ollaya.dev/install.ps1 | iex`)→ `ollaya pull laya:multilingual` → `scripts/probe_ng_llm.rs` の日本語 12 件をそのまま `POST /api/decide` の `noul` で投げ、精度と Windows CPU のレイテンシを測る。0.362 という公称値を 5ch のレスで裏取りする形。**ollaya のインストールはユーザー承認が必要**
 
 **対象ファイル(想定)**: `apps/desktop/src/App.tsx`(NG パネル・`ngResultMap`)、`apps/desktop/src-tauri/src/lib.rs`(判定コマンド)、`crates/core-ai/src/lib.rs`(yes/no 判定 API と logit 取得)、`crates/core-store/src/lib.rs`(判定キャッシュ)、`apps/desktop/scripts/smoke_ui_playwright.mjs`
 
