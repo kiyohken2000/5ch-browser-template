@@ -5599,6 +5599,10 @@ export default function App() {
   })();
 
   const activeThreadUrl = activeTabIndex >= 0 && activeTabIndex < threadTabs.length ? threadTabs[activeTabIndex].threadUrl : threadUrl.trim();
+  // 曖昧 NG の判定ループは数十秒続くので、その途中で今どのスレを見ているかを知る必要が
+  // ある。state のクロージャは古い値を掴んだままなので ref で現在値を読む。
+  const activeThreadUrlRef = useRef(activeThreadUrl);
+  activeThreadUrlRef.current = activeThreadUrl;
   useEffect(() => {
     setNextThreadCandidates([]);
     setNextThreadSearched(false);
@@ -5697,6 +5701,14 @@ export default function App() {
           // 本文は表示用の整形前のものを渡す。安価やURLは残っていて構わない。
           responses: chunk.map((r) => ({ responseNo: r.id, body: r.text })),
         });
+        // 待っている間に別のスレへ移っていたら、ここで止める。レス番号だけで
+        // 突き合わせているので、前のスレのスコアを今のスレに反映すると
+        // 無関係なレスが隠れてしまう。反映する前に確認する。
+        if (normalizeThreadUrl(activeThreadUrlRef.current) !== url) {
+          ngAiCancelRef.current = true;
+          setStatus(`スレを移ったので判定を中止しました (${Math.min(i + chunk.length, targets.length)}/${targets.length}件)`);
+          break;
+        }
         for (const s of scores) found.set(s.responseNo, s.prob);
         setNgAiJudging({ ruleId: rule.id, done: Math.min(i + chunk.length, targets.length), total: targets.length, ...progress });
         setNgAiCandidates((prev) => {
