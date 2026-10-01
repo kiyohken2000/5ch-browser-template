@@ -2773,6 +2773,8 @@ export default function App() {
   const [threadPaneHidden, setThreadPaneHidden] = useState(false);
   // 板を選んだらスレ一覧を出し、スレを開いたら畳む自動開閉。既定オフ。
   const [threadPaneAutoToggle, setThreadPaneAutoToggle] = useState(false);
+  // 自動開閉で畳んだスレ一覧を、マウスの「戻る」ボタンで出し直す。既定オフ。
+  const [threadPaneBackRestore, setThreadPaneBackRestore] = useState(false);
   const resizeDragRef = useRef<ResizeDragState | null>(null);
   const [threadColWidths, setThreadColWidths] = useState<Record<string, number>>({ ...DEFAULT_COL_WIDTHS });
   const [threadColVisible, setThreadColVisible] = useState<Record<ToggleableThreadColKey, boolean>>({ ...DEFAULT_COL_VISIBLE });
@@ -7755,6 +7757,7 @@ export default function App() {
           boardPaneHidden?: boolean;
           threadPaneHidden?: boolean;
           threadPaneAutoToggle?: boolean;
+          threadPaneBackRestore?: boolean;
           fontSize?: number;
           boardsFontSize?: number;
           threadsFontSize?: number;
@@ -7825,6 +7828,7 @@ export default function App() {
         if (typeof parsed.boardPaneHidden === "boolean") setBoardPaneHidden(parsed.boardPaneHidden);
         if (typeof parsed.threadPaneHidden === "boolean") setThreadPaneHidden(parsed.threadPaneHidden);
         if (typeof parsed.threadPaneAutoToggle === "boolean") setThreadPaneAutoToggle(parsed.threadPaneAutoToggle);
+        if (typeof parsed.threadPaneBackRestore === "boolean") setThreadPaneBackRestore(parsed.threadPaneBackRestore);
         const fallbackFs = typeof parsed.fontSize === "number" ? parsed.fontSize : 12;
         setBoardsFontSize(typeof parsed.boardsFontSize === "number" ? parsed.boardsFontSize : fallbackFs);
         setThreadsFontSize(typeof parsed.threadsFontSize === "number" ? parsed.threadsFontSize : fallbackFs);
@@ -8719,6 +8723,24 @@ export default function App() {
     };
   }, [mouseGestureEnabled, activeTabIndex, threadTabs, gestureBindings]);
 
+  // マウスの「戻る」(第4ボタン) で、自動開閉が畳んだスレ一覧を出し直す。
+  // mousedown ではなく mouseup で見る: レスペインの onMouseDown が先に走るので、
+  // 畳む処理より後に出し直さないと一瞬で畳まれ直す。
+  useEffect(() => {
+    if (!threadPaneAutoToggle || !threadPaneBackRestore) return;
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button !== 3) return;
+      // 既定の「戻る」を止める。履歴は1件なので実際には何も起きないが、
+      // WebView 側の実装に任せない。
+      e.preventDefault();
+      setThreadPaneHidden(false);
+      setFocusedPane("threads");
+      threadListScrollRef.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener("mouseup", onMouseUp);
+    return () => window.removeEventListener("mouseup", onMouseUp);
+  }, [threadPaneAutoToggle, threadPaneBackRestore]);
+
   // 書き込み中は積んでおいて、終わってから最新の 1 件だけ書く。
   const flushLayoutPrefs = () => {
     if (layoutPrefsSavingRef.current) return;
@@ -8758,6 +8780,7 @@ export default function App() {
       boardPaneHidden,
       threadPaneHidden,
       threadPaneAutoToggle,
+      threadPaneBackRestore,
       boardsFontSize,
       threadsFontSize,
       responsesFontSize,
@@ -8817,7 +8840,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -11112,7 +11135,12 @@ export default function App() {
           onClick={(e) => e.stopPropagation()}
         />
         )}
-        <section className="pane responses" onMouseDown={() => { setFocusedPane("responses"); if (threadPaneAutoToggle) setThreadPaneHidden(true); }} style={{ '--fs-delta': `${responsesFontSize - 12}px` } as React.CSSProperties}>
+        <section className="pane responses" onMouseDown={(e) => {
+          setFocusedPane("responses");
+          // 畳むのは左クリックのときだけ。右クリック (ジェスチャの開始) や
+          // 戻るボタンまで拾うと、スレ一覧を出し直した直後にまた畳んでしまう。
+          if (e.button === 0 && threadPaneAutoToggle) setThreadPaneHidden(true);
+        }} style={{ '--fs-delta': `${responsesFontSize - 12}px` } as React.CSSProperties}>
           {activeTabIndex >= 0 && activeTabIndex < threadTabs.length && (
             <div className="thread-title-bar">
               <span className="thread-title-text" title={threadTabs[activeTabIndex].title}>
@@ -14035,6 +14063,11 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={threadPaneAutoToggle} onChange={(e) => setThreadPaneAutoToggle(e.target.checked)} />
                   <span title="板を選ぶとスレ一覧が出て、スレを開くかレスペインを触ると隠れます">スレ一覧を自動で開閉する</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={threadPaneBackRestore} disabled={!threadPaneAutoToggle} onChange={(e) => setThreadPaneBackRestore(e.target.checked)} />
+                  <span title="自動開閉で隠れたスレ一覧を、マウスの戻るボタンで出し直します">マウスの戻るボタンでスレ一覧に戻る</span>
+                  <span className="settings-hint">自動開閉が有効なときだけ</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={autoScrollToSelected} onChange={(e) => setAutoScrollToSelected(e.target.checked)} />

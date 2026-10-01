@@ -1864,6 +1864,34 @@ try {
   assert(composeDockPref === true, `compose docking should persist, got ${composeDockPref}`);
   console.log("smoke-ui: compose dock setting ok");
 
+  // マウスの戻るボタンでスレ一覧に戻る設定 (既定 OFF、自動開閉が ON のときだけ触れる)
+  const autoToggleBox = page
+    .locator(".settings-body label.settings-row", { hasText: "スレ一覧を自動で開閉する" })
+    .locator('input[type="checkbox"]');
+  const backRestoreBox = page
+    .locator(".settings-body label.settings-row", { hasText: "マウスの戻るボタンでスレ一覧に戻る" })
+    .locator('input[type="checkbox"]');
+  assert((await backRestoreBox.count()) === 1, "settings should have a back-button restore toggle");
+  assert(!(await backRestoreBox.isChecked()), "back-button restore should default to off");
+  assert(await backRestoreBox.isDisabled(), "back-button restore should be locked while auto toggle is off");
+  await autoToggleBox.check();
+  assert(await backRestoreBox.isEnabled(), "enabling auto toggle should unlock back-button restore");
+  await backRestoreBox.check();
+  await new Promise((r) => setTimeout(r, 150));
+  const backRestorePref = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").threadPaneBackRestore;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(backRestorePref === true, `back-button restore should persist, got ${backRestorePref}`);
+  // 既定に戻してから先へ進む
+  await backRestoreBox.uncheck();
+  await autoToggleBox.uncheck();
+  assert(await backRestoreBox.isDisabled(), "back-button restore should lock again when auto toggle is off");
+  console.log("smoke-ui: thread pane back-button restore setting ok");
+
   // close settings
   await page.click('.settings-header button:has-text("閉じる")');
   await new Promise((r) => setTimeout(r, 100));
@@ -2902,6 +2930,42 @@ try {
   await boardPage.click(".pane.responses");
   await new Promise((r) => setTimeout(r, 200));
   assert((await threadPaneDisplay()) === "none", "touching the responses pane should hide the thread pane again");
+
+  // マウスの「戻る」(第4ボタン) でスレ一覧へ戻す。Playwright は戻るボタンを押せないので、
+  // WebView が出すのと同じイベントを直接投げる。
+  const pressBackButton = () =>
+    boardPage.evaluate(() => window.dispatchEvent(new MouseEvent("mouseup", { button: 3, bubbles: true })));
+  await pressBackButton();
+  await new Promise((r) => setTimeout(r, 150));
+  assert((await threadPaneDisplay()) === "none", "the back button should do nothing while its setting is off");
+
+  await boardPage.click('.menu-item:has-text("ファイル")');
+  await new Promise((r) => setTimeout(r, 100));
+  await boardPage.click('.menu-dropdown button:has-text("設定")');
+  await new Promise((r) => setTimeout(r, 200));
+  const backRestore = await boardPage.$('.settings-body label:has-text("マウスの戻るボタンでスレ一覧に戻る") input[type="checkbox"]');
+  assert(backRestore, "settings should have a back-button restore toggle");
+  await backRestore.check();
+  await boardPage.click('.settings-header button:has-text("閉じる")');
+  await new Promise((r) => setTimeout(r, 200));
+
+  await pressBackButton();
+  await new Promise((r) => setTimeout(r, 150));
+  assert((await threadPaneDisplay()) !== "none", "the back button should bring the thread pane back");
+
+  // 右クリック (ジェスチャの開始) でレスペインを触っても畳まない。畳んでしまうと、
+  // 戻るで出した直後にまた隠れる。
+  await boardPage.$eval(".pane.responses", (el) =>
+    el.dispatchEvent(new MouseEvent("mousedown", { button: 2, bubbles: true })),
+  );
+  await new Promise((r) => setTimeout(r, 150));
+  assert((await threadPaneDisplay()) !== "none", "a right click should not collapse the thread pane");
+
+  // 左クリックは従来どおり畳む
+  await boardPage.click(".pane.responses");
+  await new Promise((r) => setTimeout(r, 200));
+  assert((await threadPaneDisplay()) === "none", "a left click should still hide the thread pane");
+  console.log("smoke-ui: thread pane back-button restore ok");
 
   // 自動開閉をオンにしたまま使うと、境界線の位置が再起動で既定に戻るという報告の回帰用。
   // px と比率の両方が復元されること (比率は px がある側の分岐で読み捨てられていた)。
