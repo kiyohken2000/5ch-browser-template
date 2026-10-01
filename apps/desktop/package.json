@@ -1,7 +1,7 @@
 {
   "name": "ember",
   "private": true,
-  "version": "0.0.272",
+  "version": "0.0.273",
   "type": "module",
   "scripts": {
     "dev": "vite --port 1420",

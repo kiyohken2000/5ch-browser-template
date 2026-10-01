@@ -1955,6 +1955,10 @@ export default function App() {
   // 削除完了メッセージ。数秒で自動的に消す
   const [nameClearMsg, setNameClearMsg] = useState("");
   const [composeMail, setComposeMail] = useState("");
+  // 書き込み欄を開いたときの sage の初期値。設定画面で変えるもので、これだけが保存される
+  const [composeSageDefault, setComposeSageDefault] = useState(false);
+  // この書き込みだけの sage。開くたびに既定値へ戻すので、1回限りのつもりで入れた
+  // チェック (誤操作も含む) が全スレ・再起動後まで残り続けることがない
   const [composeSage, setComposeSage] = useState(false);
   const [composeBody, setComposeBody] = useState("");
   const [composePreview, setComposePreview] = useState(false);
@@ -5277,6 +5281,10 @@ export default function App() {
     }
   };
 
+  // メール欄に手で "sage" と打つ人がいる。チェックボックスと実際に送る値がずれると
+  // 「チェックは入っていないのに sage で飛ぶ」状態になるので、表示上は同じものとして扱う。
+  const composeMailIsSage = composeMail.trim().toLowerCase() === "sage";
+  const composeSageChecked = composeSage || composeMailIsSage;
   const composeMailValue = composeSage ? "sage" : composeMail;
   const boardItems = ["お気に入り", "ニュース", "ソフトウェア", "ネットワーク", "NGT (テスト)"];
   const fallbackThreadItems = [
@@ -7197,6 +7205,12 @@ export default function App() {
         if (saved !== null) setComposeName(saved);
       }
     }
+    // sage を既定へ戻すのは閉→開のときだけ。開いたまま引用するときも
+    // (appendComposeQuote) ここを通るので、書いている最中にチェックが外れないよう
+    // 遷移を見る。本文を残す設定で下書きが残っているときも、書いたときのままにする。
+    if (!composeOpen && !(composeKeepDraft && composeBody.trim().length > 0)) {
+      setComposeSage(composeSageDefault);
+    }
     setComposeOpen(true);
     if (!opts?.keepBody) {
       // 位置 (composePos) はここでリセットしない — 前回動かした位置を保持する。
@@ -7917,7 +7931,11 @@ export default function App() {
         if (typeof cp.name === "string" && !cp.forgetName) setComposeName(cp.name);
         if (typeof cp.fontSize === "number") setComposeFontSize(cp.fontSize);
         if (typeof cp.mail === "string") setComposeMail(cp.mail);
-        if (typeof cp.sage === "boolean") setComposeSage(cp.sage);
+        // 保存されているのは既定値。起動直後に書き込み欄を開いたときの値も同じ。
+        if (typeof cp.sage === "boolean") {
+          setComposeSageDefault(cp.sage);
+          setComposeSage(cp.sage);
+        }
         try {
           const nh = localStorage.getItem(NAME_HISTORY_KEY);
           if (nh) setNameHistory(JSON.parse(nh));
@@ -8888,8 +8906,8 @@ export default function App() {
   }, [settingsOpen]);
 
   useEffect(() => {
-    saveUiJson(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeForgetName ? "" : composeName, mail: composeMail, sage: composeSage, fontSize: composeFontSize, forgetName: composeForgetName, keepDraft: composeKeepDraft }));
-  }, [composeName, composeMail, composeSage, composeFontSize, composeForgetName, composeKeepDraft]);
+    saveUiJson(COMPOSE_PREFS_KEY, JSON.stringify({ name: composeForgetName ? "" : composeName, mail: composeMail, sage: composeSageDefault, fontSize: composeFontSize, forgetName: composeForgetName, keepDraft: composeKeepDraft }));
+  }, [composeName, composeMail, composeSageDefault, composeFontSize, composeForgetName, composeKeepDraft]);
 
   useEffect(() => {
     if (suppressThreadScrollRef.current) {
@@ -9986,8 +10004,17 @@ export default function App() {
         メール
         <input value={composeMailValue} onChange={(e) => setComposeMail(e.target.value)} disabled={composeSage} />
       </label>
-      <label className="check">
-        <input type="checkbox" checked={composeSage} onChange={(e) => setComposeSage(e.target.checked)} />
+      <label className="check" title="この書き込みだけ sage にする (開いたときの初期状態は設定で変えられる)">
+        <input
+          type="checkbox"
+          checked={composeSageChecked}
+          onChange={(e) => {
+            setComposeSage(e.target.checked);
+            // メール欄に残った "sage" も一緒に外す。残しておくとチェックを
+            // 外したのに sage で飛ぶ、という食い違いがそのまま続く。
+            if (!e.target.checked && composeMailIsSage) setComposeMail("");
+          }}
+        />
         sage
       </label>
     </div>
@@ -14098,8 +14125,9 @@ export default function App() {
                   </select>
                 </label>
                 <label className="settings-row">
-                  <input type="checkbox" checked={composeSage} onChange={(e) => setComposeSage(e.target.checked)} />
+                  <input type="checkbox" checked={composeSageDefault} onChange={(e) => setComposeSageDefault(e.target.checked)} />
                   <span>sage</span>
+                  <span className="settings-hint">書き込み欄を開いたときの初期状態</span>
                 </label>
                 <label className="settings-row">
                   <input

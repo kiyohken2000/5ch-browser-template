@@ -303,6 +303,26 @@ try {
   await page.click(".compose-header button:has-text('閉じる')");
   console.log("smoke-ui: compose target and meta ok");
 
+  // sage: メール欄に手で書いた "sage" もチェックに出る / 外せばメール欄からも消える。
+  // チェックは「この書き込みだけ」で、開き直すと設定の初期状態へ戻る。
+  await page.click(".thread-title-actions button[title='書き込み']");
+  await page.waitForSelector(".compose-window");
+  const sageBox = ".compose-window .compose-grid label.check input[type='checkbox']";
+  const mailInput = ".compose-window .compose-grid > label:nth-child(2) > input";
+  assert((await page.isChecked(sageBox)) === false, "sage should start unchecked");
+  await page.fill(mailInput, "sage");
+  await page.waitForFunction((sel) => document.querySelector(sel)?.checked === true, sageBox, { timeout: 3000 });
+  await page.uncheck(sageBox);
+  const mailAfterUncheck = await page.$eval(mailInput, (el) => el.value);
+  assert(mailAfterUncheck === "", `unchecking sage should clear the mail field, got: ${JSON.stringify(mailAfterUncheck)}`);
+  await page.check(sageBox);
+  await page.click(".compose-header button:has-text('閉じる')");
+  await page.click(".thread-title-actions button[title='書き込み']");
+  await page.waitForSelector(".compose-window");
+  assert((await page.isChecked(sageBox)) === false, "sage should fall back to the default when compose is reopened");
+  await page.click(".compose-header button:has-text('閉じる')");
+  console.log("smoke-ui: compose sage ok");
+
   // anchor-ref spans have data-anchor attribute
   const anchorRef = await page.$(".anchor-ref[data-anchor]");
   assert(anchorRef, "fallback responses should render >>N as anchor-ref");
