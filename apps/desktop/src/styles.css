@@ -4174,6 +4174,19 @@ a.body-link-image:hover::after {
   line-height: 1;
   padding: 0 5px;
 }
+/* 一括削除。絞り込み欄と同じ行に置くので、ラベルは折り返させない */
+.my-post-clear,
+.my-post-clear-confirm {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.my-post-clear-confirm {
+  color: #b00020;
+  font-weight: 700;
+}
+.dark .my-post-clear-confirm {
+  color: #ff8a80;
+}
 .my-post-section {
   margin-top: 10px;
   padding: 4px 0 2px;

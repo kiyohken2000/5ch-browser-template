@@ -1892,6 +1892,23 @@ try {
   assert(await backRestoreBox.isDisabled(), "back-button restore should lock again when auto toggle is off");
   console.log("smoke-ui: thread pane back-button restore setting ok");
 
+  // 書き込み履歴を残さない設定 (既定 OFF、settings.json 側へ永続化される)
+  const noHistoryBox = page
+    .locator(".settings-body label.settings-row", { hasText: "書き込み履歴を残さない" })
+    .locator('input[type="checkbox"]');
+  assert((await noHistoryBox.count()) === 1, "settings should have a no-post-history toggle");
+  assert(!(await noHistoryBox.isChecked()), "keeping post history should be the default");
+  await noHistoryBox.check();
+  await new Promise((r) => setTimeout(r, 150));
+  const noHistoryPref = await page.evaluate(() => localStorage.getItem("desktop.myPostRecordDisabled.v1"));
+  assert(noHistoryPref === "true", `the no-post-history setting should persist, got ${noHistoryPref}`);
+  // 既定に戻してから先へ進む (以降のテストに記録オフを持ち越さない)
+  await noHistoryBox.uncheck();
+  await new Promise((r) => setTimeout(r, 150));
+  const noHistoryReverted = await page.evaluate(() => localStorage.getItem("desktop.myPostRecordDisabled.v1"));
+  assert(noHistoryReverted === "false", `unchecking should persist false, got ${noHistoryReverted}`);
+  console.log("smoke-ui: post history opt-out setting ok");
+
   // close settings
   await page.click('.settings-header button:has-text("閉じる")');
   await new Promise((r) => setTimeout(r, 100));
@@ -2354,6 +2371,57 @@ try {
     await page.waitForFunction(() => document.querySelectorAll(".my-post-item").length === 1, null, { timeout: 2000 });
     const filtered = await page.$eval(".my-post-item .response-viewer-no", (el) => el.textContent || "");
     assert(filtered === ">>12", `filtering by body should keep only >>12, got ${filtered}`);
+
+    // 一括削除: 2 段階の確認を挟み、絞り込み中は表示中のぶんだけ消す
+    const clearButton = page.locator(".post-history-search .my-post-clear");
+    const clearLabel = await clearButton.textContent();
+    assert(clearLabel === "表示中の1件を削除", `the filtered clear button should name its target, got ${JSON.stringify(clearLabel)}`);
+    await clearButton.click();
+    await page.click(".post-history-search button:has-text('キャンセル')");
+    await page.waitForFunction(() => document.querySelectorAll(".my-post-item").length === 1, null, { timeout: 2000 });
+    // 確認待ちのまま絞り込みを変えたら、消す対象が変わるので確認も取り消す
+    await clearButton.click();
+    await page.fill(".post-history-search input", "エアコンが");
+    await page.waitForFunction(
+      () => !document.querySelector(".post-history-search .my-post-clear-confirm"),
+      null,
+      { timeout: 2000 },
+    );
+    await clearButton.click();
+    await page.click(".post-history-search .my-post-clear-confirm");
+    await page.waitForFunction(() => document.querySelectorAll(".my-post-item").length === 0, null, { timeout: 2000 });
+    const afterFiltered = await page.evaluate(() => {
+      try {
+        return JSON.parse(localStorage.getItem("desktop.myPosts.v1") || "{}");
+      } catch {
+        return {};
+      }
+    });
+    const kept3333 = afterFiltered["https://rio2016.5ch.io/test/read.cgi/base/3333333333/"] || [];
+    const kept4444 = afterFiltered["https://rio2016.5ch.io/test/read.cgi/base/4444444444/"] || [];
+    assert(kept3333.length === 1 && kept3333[0].no === 34, `only >>12 should be gone, got ${JSON.stringify(kept3333)}`);
+    assert(kept4444.length === 1, `the other thread should be untouched, got ${JSON.stringify(kept4444)}`);
+
+    // 絞り込みを外すと残り全件が対象になる
+    await page.fill(".post-history-search input", "");
+    await page.waitForFunction(() => document.querySelectorAll(".my-post-item").length === 2, null, { timeout: 2000 });
+    const clearAllLabel = await clearButton.textContent();
+    assert(clearAllLabel === "すべて削除 (2件)", `the unfiltered clear button should offer all rows, got ${JSON.stringify(clearAllLabel)}`);
+    await clearButton.click();
+    await page.click(".post-history-search .my-post-clear-confirm");
+    await page.waitForFunction(
+      () => (document.querySelector(".post-history-body")?.textContent || "").includes("まだ書き込みがありません"),
+      null,
+      { timeout: 2000 },
+    );
+    const afterAll = await page.evaluate(() => localStorage.getItem("desktop.myPosts.v1"));
+    assert(afterAll === "{}", `clearing everything should empty the store, got ${afterAll}`);
+    assert(
+      (await clearButton.count()) === 0,
+      "the clear button should disappear once there is nothing left to delete",
+    );
+    console.log("smoke-ui: post history bulk delete ok");
+
     await page.click(".settings-panel .settings-header button:has-text('閉じる')");
     // 後続のテストに自分のレス記録を持ち越さない
     await page.evaluate(() => {

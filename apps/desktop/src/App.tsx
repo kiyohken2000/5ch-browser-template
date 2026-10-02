@@ -664,6 +664,9 @@ const THREAD_FETCH_TIMES_KEY = "desktop.threadFetchTimes.v1";
 const WINDOW_STATE_KEY = "desktop.windowState.v1";
 const SEARCH_HISTORY_KEY = "desktop.searchHistory.v1";
 const MY_POSTS_KEY = "desktop.myPosts.v1";
+// 書き込み履歴を残さない (既定オフ = 残す)。オンの間は新しい書き込みを記録しないので、
+// そのレスには [自分] マーカーも付かなくなる。既に溜まっている分はそのまま残る。
+const MY_POST_RECORD_DISABLED_KEY = "desktop.myPostRecordDisabled.v1";
 // 通知の「ここまで確認済み」境界。スレURL -> レス番号。単調増加なので、これだけで
 // 重複通知を防げる (通知済みレスの集合を持たなくてよい)。
 const NOTIFY_STATE_KEY = "desktop.notifyState.v1";
@@ -751,6 +754,7 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   threadSortPersistEnabled: THREAD_SORT_PERSIST_KEY,
   autoRefreshPersistEnabled: AUTO_REFRESH_PERSIST_KEY,
   postLogPrefs: POST_LOG_PREFS_KEY,
+  myPostRecordDisabled: MY_POST_RECORD_DISABLED_KEY,
   ngIdExpireDays: NG_ID_EXPIRE_DAYS_KEY,
   ngChainReplies: NG_CHAIN_REPLIES_KEY,
   hlIdExpireDays: HL_ID_EXPIRE_DAYS_KEY,
@@ -2002,6 +2006,21 @@ export default function App() {
     try { const v = localStorage.getItem(MY_POSTS_KEY); if (v) return normalizeMyPosts(JSON.parse(v)); } catch { /* ignore */ }
     return {};
   });
+  // 一括削除を押したあとの確認待ち。記憶した名前の削除と同じ 2 段階にする。
+  const [myPostClearArmed, setMyPostClearArmed] = useState(false);
+  const [myPostRecordDisabled, setMyPostRecordDisabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(MY_POST_RECORD_DISABLED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  // 記録するかの判定は再取得の useEffect から読むので、ref にも写しておく。
+  const myPostRecordDisabledRef = useRef(myPostRecordDisabled);
+  myPostRecordDisabledRef.current = myPostRecordDisabled;
+  useEffect(() => {
+    saveUiSetting(MY_POST_RECORD_DISABLED_KEY, String(myPostRecordDisabled));
+  }, [myPostRecordDisabled]);
   const pendingMyPostRef = useRef<{ threadUrl: string; title: string; body: string; prevCount: number } | null>(null);
   // 書き込み履歴からレスを開いたときの飛び先。スレを開いてレスが載るのを待ってから飛ぶ。
   const pendingResponseJumpRef = useRef<{ threadUrl: string; no: number } | null>(null);
@@ -2895,6 +2914,11 @@ export default function App() {
   useEffect(() => {
     const pending = pendingMyPostRef.current;
     if (!pending) return;
+    // 「書き込み履歴を残さない」なら、どのレスが自分のものかを照合せずに捨てる。
+    if (myPostRecordDisabledRef.current) {
+      pendingMyPostRef.current = null;
+      return;
+    }
     if (fetchedResponses.length <= pending.prevCount) return;
     pendingMyPostRef.current = null;
     const normalizedBody = pending.body.replace(/\s+/g, " ").trim();
@@ -6289,6 +6313,14 @@ export default function App() {
     return rows;
   }, [myPosts, recentPostedThreads, recentOpenedThreads, favorites.threads]);
 
+  // 絞り込み後の行。一括削除は「表示中のぶんだけ」を対象にするので、一覧の描画側だけ
+  // でなくボタン側からも同じ結果を見られるようにしておく。
+  const myPostVisibleRows = useMemo(() => {
+    const q = postHistoryQuery.trim().toLowerCase();
+    if (q === "") return myPostRows;
+    return myPostRows.filter((r) => r.title.toLowerCase().includes(q) || r.body.toLowerCase().includes(q));
+  }, [myPostRows, postHistoryQuery]);
+
   // 本文を持たない履歴 (旧形式からの移行分) を、SQLite のスレキャッシュから埋める。
   // キャッシュに残っていないスレはどうしようもないので、1 セッション 1 回だけ試す。
   const myPostBackfillTriedRef = useRef<Set<string>>(new Set());
@@ -6354,6 +6386,11 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postHistoryOpen]);
 
+  // 確認待ちのまま絞り込みを変えたり閉じたりすると、消す対象が変わってしまう。戻す。
+  useEffect(() => {
+    setMyPostClearArmed(false);
+  }, [postHistoryOpen, postHistoryQuery]);
+
   const openMyPost = (row: { threadUrl: string; no: number; title: string }) => {
     const url = normalizeThreadUrl(row.threadUrl);
     pendingResponseJumpRef.current = { threadUrl: url, no: row.no };
@@ -6376,6 +6413,28 @@ export default function App() {
       const next = { ...prev };
       if (kept.length > 0) next[threadUrl] = kept;
       else delete next[threadUrl];
+      saveUiJson(MY_POSTS_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // 書き込み履歴をまとめて消す。渡した行だけ落とすので、全件でも絞り込み結果でも同じ。
+  const removeMyPostRows = (rows: { threadUrl: string; no: number }[]) => {
+    if (rows.length === 0) return;
+    const dropByUrl = new Map<string, Set<number>>();
+    for (const r of rows) {
+      const set = dropByUrl.get(r.threadUrl);
+      if (set) set.add(r.no);
+      else dropByUrl.set(r.threadUrl, new Set([r.no]));
+    }
+    setMyPosts((prev) => {
+      const next: MyPostsMap = {};
+      for (const [url, list] of Object.entries(prev)) {
+        const drop = dropByUrl.get(url);
+        const kept = drop ? list.filter((e) => !drop.has(e.no)) : list;
+        // 全部消えたスレは丸ごと落とす (空配列を残すとファイルに溜まり続ける)。
+        if (kept.length > 0) next[url] = kept;
+      }
       saveUiJson(MY_POSTS_KEY, JSON.stringify(next));
       return next;
     });
@@ -14215,6 +14274,11 @@ export default function App() {
                     onClick={() => { setSettingsOpen(false); setPostHistoryQuery(""); setPostHistoryOpen(true); }}
                   >自分のレス一覧を開く</button>
                 </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={myPostRecordDisabled} onChange={(e) => setMyPostRecordDisabled(e.target.checked)} />
+                  <span title="これ以降の書き込みを履歴に記録しません。溜まっている履歴は自分のレス一覧から削除できます">書き込み履歴を残さない</span>
+                  <span className="settings-hint">新しい書き込みに [自分] マーカーが付かなくなります</span>
+                </label>
               </fieldset>
               <fieldset>
                 <legend>5chプレミアム Ronin/BE</legend>
@@ -14899,12 +14963,33 @@ export default function App() {
                 {postHistoryQuery !== "" && (
                   <button type="button" onClick={() => setPostHistoryQuery("")}>×</button>
                 )}
+                {myPostVisibleRows.length > 0 && (
+                  myPostClearArmed ? (
+                    <>
+                      <button
+                        type="button"
+                        className="my-post-clear-confirm"
+                        onClick={() => {
+                          const n = myPostVisibleRows.length;
+                          removeMyPostRows(myPostVisibleRows);
+                          setMyPostClearArmed(false);
+                          setStatus(`書き込み履歴を${n}件削除しました`);
+                        }}
+                      >本当に削除する</button>
+                      <button type="button" onClick={() => setMyPostClearArmed(false)}>キャンセル</button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="my-post-clear"
+                      title="消した履歴のレスには [自分] マーカーが付かなくなります"
+                      onClick={() => setMyPostClearArmed(true)}
+                    >{postHistoryQuery.trim() === "" ? `すべて削除 (${myPostVisibleRows.length}件)` : `表示中の${myPostVisibleRows.length}件を削除`}</button>
+                  )
+                )}
               </div>
               {(() => {
-                const q = postHistoryQuery.trim().toLowerCase();
-                const rows = q === ""
-                  ? myPostRows
-                  : myPostRows.filter((r) => r.title.toLowerCase().includes(q) || r.body.toLowerCase().includes(q));
+                const rows = myPostVisibleRows;
                 if (myPostRows.length === 0) {
                   return <p style={{ padding: "8px", color: "var(--sub)" }}>まだ書き込みがありません</p>;
                 }
