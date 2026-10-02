@@ -648,6 +648,29 @@ P1 = すぐやるべき(低リスク・高効果)、P2 = 次のリリースサ�
 
 ---
 
+## ユーザー要望(2026-10-02)
+
+### [N27] 書き込み履歴の一括削除と「履歴を残さない」設定 — ステータス: ✅ 完了 (2026-10-02)
+
+**背景**: 「書き込み履歴残さない はできないかな？ もしくは一括削除。今見たら 200 くらい溜まってたわ。DAT 落ちしたようなスレッドの履歴も残ってたし」というユーザー報告。[N25] で一覧を作ったが、溜まる一方だった。
+
+- `desktop.myPosts.v1` は書き込み成功時に追記するだけで、**上限も自動削除も無い**。消す手段は行ごとの × (`removeMyPost`) だけだった。
+- 開発機の実データを数えると 643 スレ / 1210 件 / 254 KB。報告者の 200 件より多い。
+- **「古い履歴だけ自動削除」は既存データに効かない**。1210 件のうち **1194 件が [N25] の移行分で日時を持たない** (`at=0`) ため、日時で切ると全部残るか全部消えるかになる。
+- 「DAT 落ちしたスレだけ消す」も不可。落ちているかは取得するまで分からず、643 スレ分の取得が必要になる。
+
+**変更内容**:
+1. 履歴一覧の絞り込み欄に一括削除を追加。絞り込みなしは「すべて削除 (N件)」、絞り込み中は「表示中のN件を削除」で、**検索で対象を絞ってから消せる**(日時不明の移行分を掃除する用途をこれで兼ねる)。
+2. 誤爆が痛いので「記憶した名前を削除」と同じ 2 段階確認 (`myPostClearArmed`)。**確認待ちのまま絞り込みが変わったら取り消す** — 消す対象が変わってしまうため。
+3. 削除は `removeMyPostRows()` 1 本で全件・絞り込みの両方を処理する。全部消えたスレはキーごと落とす(空配列を残すとファイルに溜まり続ける)。
+4. 設定の書き込みセクションに「書き込み履歴を残さない」を追加(既定オフ、`desktop.myPostRecordDisabled.v1` → `data/settings.json`)。オンの間は再取得後の自己レス照合自体を行わない。
+5. `myPosts` は履歴一覧専用ではなく `[自分]` ラベル・自分宛ハイライト・絞り込み「自分のレスだけ」も見ているので、**4 をオンにすると新規レスにマーカーが付かなくなる**。設定のヒントに明記した。既存の履歴は残るので、消すのは 1 のほう。
+6. 描画とボタンが同じ絞り込み結果を見るよう `myPostVisibleRows` の `useMemo` に切り出した。
+
+**対象ファイル**: `apps/desktop/src/App.tsx`、`apps/desktop/src/styles.css`、`apps/desktop/scripts/smoke_ui_playwright.mjs`
+
+---
+
 ## アイディア(2026-09-21。着手前にユーザー確認必須)
 
 ### [N23] 曖昧 NG(自然文ルールによる AI 判定 NG) — ステータス: ✅ 採用 / 未着手(2026-09-27 承認。ゼロショット NLI 分類器 + 述語 AND + 閾値 0.8。実装計画は本節末尾。2026-09-21〜09-26 は生成 LLM / reranker / Laya で見送っていた経緯を下に残す)
@@ -1069,6 +1092,59 @@ https://github.com/ollaya-dev/ollaya (Apache-2.0、Rust、2026-09-23 公開)。�
 **対象ファイル(想定)**: `crates/core-ai/src/lib.rs`(`rerank_scores` とモデルキャッシュの 2 スロット化)、`apps/desktop/src-tauri/src/lib.rs`(検索コマンド)、`apps/desktop/src/App.tsx`(レス検索欄のモード切替・進捗 UI)、`apps/desktop/src-tauri/ai-models.json`、`apps/desktop/scripts/smoke_ui_playwright.mjs`
 
 **完了条件(採用した場合)**: レス検索欄で AI 検索モードに切り替えると、対象範囲のレスが関連度順に並ぶ。キャンセル可能で進捗が見える。ローカル完結で外部送信なし。モデル未有効時は UI に出ない。smoke green。
+
+---
+
+### [N28] 曖昧 NG の判定器を設定で切り替えられるようにする — ステータス: ⏸ 見送り(2026-10-02。再検討条件は本節末尾)
+
+**背景**: Strands Decider 2B と Cloudflare の clef / clef-flash が公開されたのを受けて、[N23] で入れた判定器を複数モデルから選べるようにできないかを調べた。結論は**候補が無い**ため見送り。切り替えの配線自体は小さい。
+
+**Ember 側の受け入れ条件** (`classify_entailment`, `crates/core-ai/src/lib.rs`):
+
+1. llama.cpp が **sequence classifier** として読める GGUF (`LlamaPoolingType::Rank`)
+2. 分類ヘッドの出力が**ちょうど 2 ラベル** (`CLASSIFY_N_LABELS`)
+3. トークン並びが **XLM-R 流の `<s> 前提 </s></s> 仮説 </s>`**
+
+現行 `MoritzLaurer/bge-m3-zeroshot-v2.0` は `XLMRobertaForSequenceClassification` / 2 ラベル `{entailment, not_entailment}` / hidden 1024・24 層 / maxpos 8194 / MIT、GGUF 上は arch `bert` で 438 MB (Q4_K_M)。
+
+**調べた候補** (全件 config.json / GGUF メタで実測):
+
+| 候補 | arch | ラベル | maxpos | 既製 GGUF | 必要な改修 |
+|---|---|---|---|---|---|
+| bge-m3-zeroshot-v2.0-**c** | XLM-R large | 2 | 8194 | 要変換 | なし |
+| **bge-reranker-v2-m3** | XLM-R large | **1** | 8194 | **あり** (gpustack, 24.6k DL, Apache-2.0) | 1 ロジット + sigmoid |
+| multilingual-MiniLMv2-**L6**-mnli-xnli | XLM-R MiniLM 6層/384 | **3** | **514** | なし | 3 ラベル対応 |
+| multilingual-MiniLMv2-L12-mnli-xnli | 同 12層/384 | 3 | 514 | なし | 3 ラベル対応 |
+| joeddav/xlm-roberta-large-xnli (1.97M DL) | XLM-R large | 3 | 514 | なし | 3 ラベル対応 |
+| mjwong/multilingual-e5-large-xnli | XLM-R large | 3 | 514 | なし | 3 ラベル対応 |
+| ModernBERT-large-zeroshot-v2.0 | ModernBERT | 2 | 8192 | なし | **英語専用** + llama-cpp-2 更新 |
+| deberta-v3-large-zeroshot-v2.0 (181k DL) | DeBERTa-v3 | 2 | — | — | **llama.cpp 恒久非対応** |
+
+**見送り理由**:
+
+1. **精度を上げる道が無い**。この用途の本命 `deberta-v3-large-zeroshot-v2.0` は llama.cpp が disentangled attention 非対応で読めない。`-c` 版は f1_macro **0.59 vs 現行 0.673** で、商用データ縛りがクリーンなだけの下位互換。**現行モデルは、llama.cpp が読める 2 ラベル多言語 NLI の中で実質最良だった**。
+2. **軽量枠(MiniLMv2-L6 など)は日本語が保証されない**。XNLI の 15 言語に**日本語は含まれない** (en/fr/es/de/el/bg/ru/tr/ar/vi/th/zh/hi/sw/ur)。XLM-R の言語間転移に頼る形になり、変換して実測するまで使えるか分からない。現行 bge-m3 が日本語を明示サポートしているのが強みで、そこが崩れると軽量枠の意味も無くなる。
+3. **既製 GGUF がある唯一の候補 `bge-reranker-v2-m3` は意味が変わる**。出力 1 ロジットのリランカーなので判定が「含意」から「関連度」になる。[N24] で同じモデルを測ったときは絶対判断に使えなかった。
+4. **決定モデル勢は llama.cpp 側が全部未マージ**(2026-10-02 時点)。
+   - clef / clef-flash: PR #29831 (**draft**、「make gguf」未着手)。スコア計算が rerank 方式ではなく質問スパン / 選択肢スパンごとの平均で、新 API `llama_batch_ext_set_decision_order()` の追加が必要。vision 未対応、1 バッチ 1 シーケンス制限、別の未マージ PR #29622 依存。9B / 27B で Q4 でも 5.7 GB / 16 GB
+   - laya: PR #29363 (2026-09-24 から open)。`Beko2210/statim-decide-multilingual-base` (arch `laya`、0.3 GB、mmBERT ベース、多言語) のようなサイズ感の良い候補はここに居る
+   - lev / julia-1 / openjev / kev: PR #29818 (`/v1/systemone` API ごと追加、open)
+   - strands-decider: PR も issue も**ゼロ**。HF 実体 `StrandsAgents/strands-decider-2B-hobson-v19` は PEFT/LoRA アダプタで GGUF 無し (ONNX のみ)
+5. **Ember は llama-cpp-2 0.1.154 (2026-08-05) 固定で最新が 0.1.158**。マージされてもバインディング追従が別途かかる。参考: ModernBERT の classifier_pooling (PR #29627) は 2026-09-29 マージなので 0.1.154 には入っていない。
+
+**3 ラベル対応をする場合の落とし穴** (再検討時に忘れないこと):
+
+- **ラベル順がモデルごとに違う**。joeddav は `{0:contradiction, 1:neutral, 2:entailment}`、MoritzLaurer は `{0:entailment, 1:neutral, 2:contradiction}`。現行の `softmax2(logits[0], logits[1])` は使えず、GGUF の `*.classifier.output_labels` から entailment の位置を引く必要がある。受け皿の `classifier_labels` は `core-ai` に既にある
+- **XNLI 系は maxpos 514**。`CLASSIFY_N_CTX = 2048` 固定では超過する。カタログの `contextLength` を使う形にする
+
+**再検討する場合の条件(この順で)**:
+
+1. **日本語を明示サポートする 2 ラベル NLI 分類器**が新しく出たら、現行との差し替え候補としてまず単体で測る(上の手書き 12 件 + 実スレ規模の適合率、[N23] と同じ手順)。現行より良くないなら切り替え機能ごと不要
+2. 軽量枠を狙う場合は、`multilingual-MiniLMv2-L6-mnli-xnli` を自前 GGUF 変換して**日本語で効くかだけを先に見る**。現行と同じ `XLMRobertaForSequenceClassification` なので変換手順は流用できる。日本語で崩れるなら却下に落として記録する
+3. laya (PR #29363) がマージされ、かつ llama-cpp-2 が追従したら、0.3 GB 級の多言語決定モデルが射程に入る。clef (#29831) は新 API 追加を伴うのでさらに後
+4. 切り替え機能を入れるのは**2 件目の候補が実測で通ってから**。モデル ID は `App.tsx` の `NG_CLASSIFIER_MODEL_ID` と `apps/desktop/src-tauri/src/lib.rs` の同名定数にハードコードされているだけで、カタログは既に `kind` / `classifierLabels` を持つのでスキーマ変更は不要
+
+**対象ファイル(想定)**: `crates/core-ai/src/lib.rs`(ラベル数とラベル順、ctx)、`apps/desktop/src-tauri/src/lib.rs`(`NG_CLASSIFIER_MODEL_ID` の設定化)、`apps/desktop/src/App.tsx`(AI 設定の判定器セクションを列挙セレクトに)、`apps/desktop/src-tauri/ai-models.json`、`apps/desktop/scripts/smoke_ui_playwright.mjs`
 
 ### 却下・取り下げ分(再提案しないこと)
 
