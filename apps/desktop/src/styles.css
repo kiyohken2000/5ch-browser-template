@@ -1244,6 +1244,37 @@ li.fav-drag-over {
   overflow-x: auto;
 }
 
+/* 長文の折りたたみ: 先頭 --collapse-lines 行だけ見せる。
+   高さは .response-body の line-height に合わせる (aa は 1.2 なので別指定)。
+   レス行の背景色は選択・ホバー・自分のレスで変わるので、下端をぼかす代わりに
+   「続きを読む」ボタンで続きがあることを示す。 */
+.response-body.collapsed {
+  max-height: calc(var(--collapse-lines, 10) * 1.5em);
+  overflow-y: hidden;
+}
+
+.response-body.aa.collapsed {
+  max-height: calc(var(--collapse-lines, 10) * 1.2em);
+  overflow-y: hidden;
+}
+
+.response-collapse-toggle {
+  margin: 2px 0 0 24px;
+  padding: 1px 8px;
+  font-size: calc(11px + var(--fs-delta, 0px));
+  font-family: inherit;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.response-collapse-toggle:hover {
+  border-color: var(--accent);
+  text-decoration: underline;
+}
+
 
 .anchor-ref {
   color: #0066cc;

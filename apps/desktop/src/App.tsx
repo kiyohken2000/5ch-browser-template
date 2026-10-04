@@ -1114,6 +1114,16 @@ const responseHtmlToPlainText = (html: string): string => {
     })
     .join("\n");
 };
+// 長文レスの折りたたみ (ChMate の「長文の表示省略」相当)。
+// 行数しきい値を 0 にして文字数だけで判定するとき、折りたたみ時に見せる行数。
+const COLLAPSE_PREVIEW_LINES_DEFAULT = 10;
+// 本文の「見た目」の行数と文字数。NG ワードの照合対象は dat の生ボディで
+// <a> アンカーやエンティティが残っているため文字数が膨らむが、折りたたみは
+// 表示テキストを基準に数えて見た目とずれないようにする。
+const measureResponseBody = (html: string): { lines: number; chars: number } => {
+  const plain = responseHtmlToPlainText(html);
+  return { lines: plain.split("\n").length, chars: plain.replace(/\n/g, "").length };
+};
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const highlightHtmlPreservingTags = (html: string, query: string) => {
   const q = query.trim();
@@ -2325,6 +2335,13 @@ export default function App() {
   const [ogpDomainTab, setOgpDomainTab] = useState<"allow" | "block">("allow");
   const [ogpDomainInput, setOgpDomainInput] = useState("");
   const [responseBodyBottomPad, setResponseBodyBottomPad] = useState(false);
+  // 長文レスを先頭だけ見せて「続きを読む」で展開する。しきい値 0 はその条件を使わない
+  // (行数・文字数の両方が 0 なら折りたたみ自体が無効)。
+  const [collapseLongEnabled, setCollapseLongEnabled] = useState(false);
+  const [collapseLongLines, setCollapseLongLines] = useState(20);
+  const [collapseLongChars, setCollapseLongChars] = useState(500);
+  // 展開済みのレス番。スレ切替でクリアする
+  const [expandedLongResponses, setExpandedLongResponses] = useState<Set<number>>(new Set());
   // 日付・IDを右端ではなく名前の隣に置く。ペインが広いと右端まで視線を動かす必要があるため
   const [responseMetaInline, setResponseMetaInline] = useState(false);
   // メール欄 (sage など) を名前の右に出すか。dat には入っているが表示先が無かった。
@@ -6592,6 +6609,36 @@ export default function App() {
   }, [responseItems, ngFilters, ngChainReplies, ngChainRefMap]);
   const ngFilteredCount = ngResultMap.size;
 
+  // 折りたたみ対象のレスと、その実測値 (「続きを読む」のラベルに出す)。
+  // しきい値は「以上」。レス数が多いスレでも毎描画で数えないよう memo に閉じ込める。
+  const longResponseMap = useMemo(() => {
+    const map = new Map<number, { lines: number; chars: number }>();
+    if (!collapseLongEnabled) return map;
+    if (collapseLongLines <= 0 && collapseLongChars <= 0) return map;
+    for (const r of responseItems) {
+      const m = measureResponseBody(r.text);
+      const byLines = collapseLongLines > 0 && m.lines >= collapseLongLines;
+      const byChars = collapseLongChars > 0 && m.chars >= collapseLongChars;
+      if (byLines || byChars) map.set(r.id, m);
+    }
+    return map;
+  }, [responseItems, collapseLongEnabled, collapseLongLines, collapseLongChars]);
+  const collapsePreviewLines = collapseLongLines > 0 ? collapseLongLines : COLLAPSE_PREVIEW_LINES_DEFAULT;
+
+  // レス番はスレごとの連番なので、スレを切り替えたら展開状態を持ち越さない
+  useEffect(() => {
+    setExpandedLongResponses((prev) => (prev.size === 0 ? prev : new Set()));
+  }, [threadUrl]);
+
+  const toggleLongResponse = (responseNo: number) => {
+    setExpandedLongResponses((prev) => {
+      const next = new Set(prev);
+      if (next.has(responseNo)) next.delete(responseNo);
+      else next.add(responseNo);
+      return next;
+    });
+  };
+
   const visibleResponseItems = responseItems.filter((r) => {
     const ngResult = ngResultMap.get(r.id);
     if (ngResult === "hide") return false;
@@ -7864,6 +7911,9 @@ export default function App() {
           threadColVisible?: Record<string, boolean>;
           threadColOrder?: string[];
           responseBodyBottomPad?: boolean;
+          collapseLongEnabled?: boolean;
+          collapseLongLines?: number;
+          collapseLongChars?: number;
           responseMetaInline?: boolean;
           showResponseMail?: boolean;
           titleClickRefresh?: boolean;
@@ -7961,6 +8011,13 @@ export default function App() {
         if (parsed.threadColVisible && typeof parsed.threadColVisible === "object") setThreadColVisible((prev) => ({ ...prev, ...parsed.threadColVisible }));
         if (Array.isArray(parsed.threadColOrder)) setThreadColOrder(normalizeThreadColOrder(parsed.threadColOrder));
         if (typeof parsed.responseBodyBottomPad === "boolean") setResponseBodyBottomPad(parsed.responseBodyBottomPad);
+        if (typeof parsed.collapseLongEnabled === "boolean") setCollapseLongEnabled(parsed.collapseLongEnabled);
+        if (typeof parsed.collapseLongLines === "number" && parsed.collapseLongLines >= 0) {
+          setCollapseLongLines(Math.min(999, Math.round(parsed.collapseLongLines)));
+        }
+        if (typeof parsed.collapseLongChars === "number" && parsed.collapseLongChars >= 0) {
+          setCollapseLongChars(Math.min(99999, Math.round(parsed.collapseLongChars)));
+        }
         if (typeof parsed.responseMetaInline === "boolean") setResponseMetaInline(parsed.responseMetaInline);
         if (typeof parsed.showResponseMail === "boolean") setShowResponseMail(parsed.showResponseMail);
         if (typeof parsed.titleClickRefresh === "boolean") setTitleClickRefresh(parsed.titleClickRefresh);
@@ -8886,6 +8943,9 @@ export default function App() {
       threadColVisible,
       threadColOrder,
       responseBodyBottomPad,
+      collapseLongEnabled,
+      collapseLongLines,
+      collapseLongChars,
       responseMetaInline,
       showResponseMail,
       titleClickRefresh,
@@ -8899,7 +8959,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -11636,6 +11696,9 @@ export default function App() {
                 const idHlColor = id ? hlIdEntries.find((e) => id.toLowerCase().includes(e.value.toLowerCase()))?.color : undefined;
                 const isNew = newResponseStart !== null && r.id >= newResponseStart;
                 const isFirstNew = isNew && r.id === newResponseStart;
+                // 長文の折りたたみ。あぼーん・曖昧NGは本文自体を出さないので下の分岐で先に抜ける
+                const longMetrics = longResponseMap.get(r.id);
+                const longCollapsed = !!longMetrics && !expandedLongResponses.has(r.id);
                 // あぼーん: レス番だけ残して名前・日時・ID・本文は出さない。
                 // レス番が飛ばないので「>>N が抜けている」と悩まずに済む。
                 // レス番クリックのメニュー (NG 追加や再表示) は通常レスと同じく使える。
@@ -11832,7 +11895,16 @@ export default function App() {
                         )}
                       </span>
                     </div>
-                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}`} dangerouslySetInnerHTML={{ __html: (threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html) + (responseBodyBottomPad ? "<br><br>" : "") }} />
+                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}${longCollapsed ? " collapsed" : ""}`} style={longCollapsed ? ({ "--collapse-lines": collapsePreviewLines } as CSSProperties) : undefined} dangerouslySetInnerHTML={{ __html: (threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html) + (responseBodyBottomPad ? "<br><br>" : "") }} />
+                    {longMetrics && (
+                      <button
+                        type="button"
+                        className="response-collapse-toggle"
+                        onClick={(e) => { e.stopPropagation(); toggleLongResponse(r.id); }}
+                      >
+                        {longCollapsed ? `続きを読む (${longMetrics.lines}行 / ${longMetrics.chars}文字)` : "折りたたむ"}
+                      </button>
+                    )}
                     {responseTranslations[r.id] && (() => {
                       const tr = responseTranslations[r.id];
                       const langLabel = translationLangLabel(tr.lang);
@@ -14107,6 +14179,24 @@ export default function App() {
                   <input type="checkbox" checked={responseBodyBottomPad} onChange={(e) => setResponseBodyBottomPad(e.target.checked)} />
                   <span>レス本文の末尾に空行を追加</span>
                 </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={collapseLongEnabled} onChange={(e) => setCollapseLongEnabled(e.target.checked)} />
+                  <span title="しきい値を超えたレスは先頭だけ表示し、「続きを読む」で全文を出します">長いレスを折りたたむ</span>
+                </label>
+                {collapseLongEnabled && (
+                  <>
+                    <label className="settings-row settings-sub-row">
+                      <span>折りたたむ行数</span>
+                      <input type="number" value={collapseLongLines} min={0} max={999} onChange={(e) => setCollapseLongLines(Math.max(0, Math.min(999, Math.round(Number(e.target.value) || 0))))} />
+                      <span className="settings-hint">0 = 行数では判定しない</span>
+                    </label>
+                    <label className="settings-row settings-sub-row">
+                      <span>折りたたむ文字数</span>
+                      <input type="number" value={collapseLongChars} min={0} max={99999} onChange={(e) => setCollapseLongChars(Math.max(0, Math.min(99999, Math.round(Number(e.target.value) || 0))))} />
+                      <span className="settings-hint">0 = 文字数では判定しない</span>
+                    </label>
+                  </>
+                )}
                 <label className="settings-row">
                   <input type="checkbox" checked={responseMetaInline} onChange={(e) => setResponseMetaInline(e.target.checked)} />
                   <span title="オフのときはレスペインの右端に寄せます">日付・IDを名前の隣に表示</span>

@@ -1691,6 +1691,96 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: wheel row scroll setting ok");
 
+  // 長文レスの折りたたみ (既定 OFF、ON のときだけ行数・文字数のしきい値が出る)。
+  // 未取得時のサンプルレスはどれも短いので、しきい値を下げて畳ませて確認する。
+  const collapseToggle = await page.$('.settings-body label:has-text("長いレスを折りたたむ") input[type="checkbox"]');
+  assert(collapseToggle, "settings should have a long-response collapse toggle");
+  assert(!(await collapseToggle.isChecked()), "long-response collapse should default to off");
+  assert(
+    !(await page.$('.settings-body label:has-text("折りたたむ行数")')),
+    "collapse thresholds should be hidden while the toggle is off",
+  );
+  assert(
+    !(await page.$(".response-collapse-toggle")),
+    "no 続きを読む button should render while collapsing is off",
+  );
+  await collapseToggle.check();
+  await new Promise((r) => setTimeout(r, 120));
+  const collapseLinesInput = await page.$('.settings-body label:has-text("折りたたむ行数") input[type="number"]');
+  const collapseCharsInput = await page.$('.settings-body label:has-text("折りたたむ文字数") input[type="number"]');
+  assert(collapseLinesInput, "collapse line threshold input should appear when the toggle is on");
+  assert(collapseCharsInput, "collapse char threshold input should appear when the toggle is on");
+  assert((await collapseLinesInput.inputValue()) === "20", "collapse line threshold should default to 20");
+  assert((await collapseCharsInput.inputValue()) === "500", "collapse char threshold should default to 500");
+  // サンプルレスはどれも 20 行・500 文字に届かないので、既定では何も畳まれない
+  assert(await page.$('.response-scroll .response-block[data-response-no="1"]'), "sample response >>1 should be present");
+  assert(
+    !(await page.$(".response-collapse-toggle")),
+    "short sample responses should not be collapsed at the default thresholds",
+  );
+  // 文字数だけで判定させる (行数 0)。>>1 は 13 文字なのでしきい値 5 で対象になる
+  await collapseLinesInput.fill("0");
+  await collapseCharsInput.fill("5");
+  await new Promise((r) => setTimeout(r, 120));
+  const collapsedBody = await page.$('.response-scroll .response-block[data-response-no="1"] .response-body.collapsed');
+  assert(collapsedBody, "a response over the char threshold should get .collapsed");
+  const readVars = () => collapsedBody.evaluate((el) => ({
+    lines: el.style.getPropertyValue("--collapse-lines"),
+    maxHeight: Number.parseFloat(window.getComputedStyle(el).maxHeight),
+  }));
+  // 行数しきい値 0 のときのプレビュー行数は既定の 10 行
+  const varsDefault = await readVars();
+  assert(varsDefault.lines === "10", `char-only mode should preview 10 lines, got ${varsDefault.lines}`);
+  assert(
+    Number.isFinite(varsDefault.maxHeight) && varsDefault.maxHeight > 0,
+    `max-height should be applied to a collapsed body, got ${varsDefault.maxHeight}`,
+  );
+  const expandBtn = await page.$('.response-scroll .response-block[data-response-no="1"] .response-collapse-toggle');
+  assert(expandBtn, "a collapsed response should offer a 続きを読む button");
+  const expandLabel = await expandBtn.textContent();
+  assert(
+    /^続きを読む \(1行 \/ \d+文字\)$/.test(expandLabel.trim()),
+    `the button should report the measured size, got ${expandLabel}`,
+  );
+  // 折りたたむ高さは行数しきい値に追従する (10 行 → 3 行で約 3/10)
+  await collapseLinesInput.fill("3");
+  await new Promise((r) => setTimeout(r, 120));
+  const vars3 = await readVars();
+  assert(vars3.lines === "3", `preview lines should follow the line threshold, got ${vars3.lines}`);
+  const heightRatio = vars3.maxHeight / varsDefault.maxHeight;
+  assert(
+    Math.abs(heightRatio - 0.3) < 0.05,
+    `max-height should scale with the threshold, got ${vars3.maxHeight}px vs ${varsDefault.maxHeight}px`,
+  );
+  // 設定パネルは .lightbox-overlay 付きのモーダルで裏のレスペインを覆うため、
+  // 人気レスのテストと同じく evaluate 経由でクリックする。
+  await page.evaluate(() =>
+    document.querySelector('.response-scroll .response-block[data-response-no="1"] .response-collapse-toggle').click(),
+  );
+  await new Promise((r) => setTimeout(r, 120));
+  assert(
+    !(await page.$('.response-scroll .response-block[data-response-no="1"] .response-body.collapsed')),
+    "clicking 続きを読む should expand the response",
+  );
+  const collapseBackLabel = await page.$eval(
+    '.response-scroll .response-block[data-response-no="1"] .response-collapse-toggle',
+    (el) => el.textContent,
+  );
+  assert(collapseBackLabel === "折りたたむ", `an expanded response should offer 折りたたむ, got ${collapseBackLabel}`);
+  // 両方 0 なら折りたたみ自体が止まる
+  await collapseLinesInput.fill("0");
+  await collapseCharsInput.fill("0");
+  await new Promise((r) => setTimeout(r, 120));
+  assert(
+    !(await page.$(".response-collapse-toggle")),
+    "with both thresholds at 0 nothing should be collapsed",
+  );
+  await collapseLinesInput.fill("20");
+  await collapseCharsInput.fill("500");
+  await collapseToggle.uncheck();
+  await new Promise((r) => setTimeout(r, 120));
+  console.log("smoke-ui: long response collapse ok");
+
   // IDホバーポップアップの設定 (既定 ON、切り替えは layoutPrefs に永続化される)
   const idPopupToggle = await page.$('.settings-body label:has-text("IDのマウスオーバーで同一IDのレスをポップアップ") input[type="checkbox"]');
   assert(idPopupToggle, "settings should have ID hover popup toggle");
