@@ -255,6 +255,25 @@ try {
   }
   console.log("smoke-ui: auto-read on click ok");
 
+  // 今開いているスレの行を押し直しても読書位置 (選択レス) を先頭に戻さない。
+  // スレ一覧へ戻ってから同じスレを押す操作でレスが >>1 に飛んでいた。
+  await page.waitForSelector(".thread-tab-bar .thread-tab");
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", ctrlKey: true, shiftKey: true, bubbles: true })
+    );
+  });
+  const selectedResponseNoKept = await page.$eval(".response-block.selected .response-no", (el) => Number(el.textContent));
+  assert(selectedResponseNoKept > 1, `the setup should select a response below the top, got >>${selectedResponseNoKept}`);
+  await page.click(".threads tbody tr:first-child td:nth-child(2)");
+  await new Promise((r) => setTimeout(r, 150));
+  const selectedResponseNoAfterReclick = await page.$eval(".response-block.selected .response-no", (el) => Number(el.textContent));
+  assert(
+    selectedResponseNoAfterReclick === selectedResponseNoKept,
+    `re-clicking the active thread row should keep the reading position, got >>${selectedResponseNoAfterReclick} (was >>${selectedResponseNoKept})`,
+  );
+  console.log("smoke-ui: active thread re-click keeps reading position ok");
+
   // sticky thread table headers
   const threadTh = await page.$(".threads th");
   if (threadTh) {
@@ -2007,6 +2026,26 @@ try {
   await autoToggleBox.uncheck();
   assert(await backRestoreBox.isDisabled(), "back-button restore should lock again when auto toggle is off");
   console.log("smoke-ui: thread pane back-button restore setting ok");
+
+  // 投稿後も書き込み欄を閉じない設定 (既定 OFF、composePrefs へ永続化される)
+  const keepOpenBox = page
+    .locator(".settings-body label.settings-row", { hasText: "書き込み後も閉じない" })
+    .locator('input[type="checkbox"]');
+  assert((await keepOpenBox.count()) === 1, "settings should have a 書き込み後も閉じない toggle");
+  assert(!(await keepOpenBox.isChecked()), "書き込み後も閉じない should default to off");
+  await keepOpenBox.check();
+  await new Promise((r) => setTimeout(r, 150));
+  const keepOpenPref = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.composePrefs.v1") || "{}").keepOpenAfterPost;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(keepOpenPref === true, `書き込み後も閉じない should persist, got ${keepOpenPref}`);
+  // 既定に戻してから先へ進む
+  await keepOpenBox.uncheck();
+  console.log("smoke-ui: keep compose open after post setting ok");
 
   // 書き込み履歴を残さない設定 (既定 OFF、settings.json 側へ永続化される)
   const noHistoryBox = page
