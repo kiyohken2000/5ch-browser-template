@@ -4097,6 +4097,11 @@ a.body-link-image:hover::after {
   border-color: #555;
 }
 
+/* 書き込み履歴は高さを固定する。.settings-panel は max-height だけなので中身に
+   追従して縮み、絞り込みを打つたびにウィンドウが伸び縮みして中央寄せでずれる。 */
+.post-history-panel {
+  height: 80vh;
+}
 .settings-panel > .post-history-body {
   padding: 4px 8px;
   overflow-y: auto;

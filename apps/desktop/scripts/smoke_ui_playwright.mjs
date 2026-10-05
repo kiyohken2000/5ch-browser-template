@@ -1752,6 +1752,32 @@ try {
     Math.abs(heightRatio - 0.3) < 0.05,
     `max-height should scale with the threshold, got ${vars3.maxHeight}px vs ${varsDefault.maxHeight}px`,
   );
+  // 折りたたみ後の表示文字数 (既定 0 = 文字数では切らない)。0 のままなら本文は丸ごと
+  // DOM に残り、値を入れるとその文字数 + 「…」だけになる。
+  const previewCharsInput = await page.$('.settings-body label:has-text("折りたたみ後の表示文字数") input[type="number"]');
+  assert(previewCharsInput, "collapse preview char input should appear when the toggle is on");
+  assert((await previewCharsInput.inputValue()) === "0", "collapse preview chars should default to 0");
+  const bodyText = () => collapsedBody.evaluate((el) => el.textContent);
+  const fullText = await bodyText();
+  assert(fullText.length > 6, `the sample response should be long enough to truncate, got ${fullText.length} chars`);
+  assert(!fullText.endsWith("…"), "nothing should be truncated while the preview char count is 0");
+  await previewCharsInput.fill("5");
+  await new Promise((r) => setTimeout(r, 120));
+  const cutText = await bodyText();
+  assert(cutText === `${fullText.slice(0, 5)}…`, `the collapsed body should be cut to 5 chars + …, got ${cutText}`);
+  // 「続きを読む」のラベルは切り詰めではなく元の本文の実測値を出し続ける
+  const cutLabel = await page.$eval(
+    '.response-scroll .response-block[data-response-no="1"] .response-collapse-toggle',
+    (el) => el.textContent.trim(),
+  );
+  assert(
+    /^続きを読む \(1行 \/ \d+文字\)$/.test(cutLabel),
+    `the button should still report the full measured size, got ${cutLabel}`,
+  );
+  await previewCharsInput.fill("0");
+  await new Promise((r) => setTimeout(r, 120));
+  assert((await bodyText()) === fullText, "clearing the preview char count should restore the full body");
+
   // 設定パネルは .lightbox-overlay 付きのモーダルで裏のレスペインを覆うため、
   // 人気レスのテストと同じく evaluate 経由でクリックする。
   await page.evaluate(() =>
@@ -2457,8 +2483,19 @@ try {
     const toggleLabel = await firstToggle.textContent();
     assert(toggleLabel === "畳む", `the toggle should flip to 畳む, got ${JSON.stringify(toggleLabel)}`);
     await firstToggle.click();
+    // ウィンドウの大きさは絞り込みの件数に追従しない (打つたびに伸び縮みしない)
+    const panelBox = () => page.$eval(".post-history-panel", (el) => {
+      const r = el.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) };
+    });
+    const boxAll = await panelBox();
     await page.fill(".post-history-search input", "エアコン");
     await page.waitForFunction(() => document.querySelectorAll(".my-post-item").length === 1, null, { timeout: 2000 });
+    const boxFiltered = await panelBox();
+    assert(
+      boxFiltered.h === boxAll.h && boxFiltered.w === boxAll.w,
+      `filtering should not resize the post history window, got ${JSON.stringify(boxFiltered)} vs ${JSON.stringify(boxAll)}`,
+    );
     const filtered = await page.$eval(".my-post-item .response-viewer-no", (el) => el.textContent || "");
     assert(filtered === ">>12", `filtering by body should keep only >>12, got ${filtered}`);
 

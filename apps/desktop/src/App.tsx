@@ -1124,6 +1124,68 @@ const measureResponseBody = (html: string): { lines: number; chars: number } => 
   const plain = responseHtmlToPlainText(html);
   return { lines: plain.split("\n").length, chars: plain.replace(/\n/g, "").length };
 };
+// 閉じタグを持たない要素。切り詰めで「閉じ直す」対象から外す。
+const HTML_VOID_TAGS = new Set(["br", "img", "hr", "input", "wbr", "source", "area", "col"]);
+// エンティティ 1 つ・サロゲートペア 1 つをそれぞれ 1 文字として数えるためのトークン分割。
+// `&amp;` を 5 文字と数えたり絵文字を半分で切ったりしないようにする。
+const HTML_TEXT_CHAR_RE = /&(?:#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);|[\s\S]/gu;
+// 折りたたみ時に見せる本文を文字数で切り詰める。サニタイズ済み HTML をタグ境界で
+// 分割してテキストノードだけ数えるので、タグや属性の途中では切れない。切った時点で
+// 開いたままのタグは閉じ直す (innerHTML にそのまま入るため、閉じ忘れると後続の
+// レスまで巻き込んでレイアウトが崩れる)。
+const truncateResponseHtml = (html: string, maxChars: number): string => {
+  if (maxChars <= 0) return html;
+  const open: string[] = [];
+  // 見たばかりのタグは保留し、後ろに文字が続いたときだけ出力する。切った位置の先に
+  // ある <img> を「0 文字だから」と通してしまうと、省略したのに高さが減らない。
+  let pending: string[] = [];
+  let out = "";
+  let used = 0;
+  let dropped = false;
+  const flushTags = () => {
+    for (const tag of pending) {
+      const m = /^<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9-]*)/.exec(tag);
+      if (m) {
+        const name = m[2].toLowerCase();
+        if (m[1] === "/") {
+          const at = open.lastIndexOf(name);
+          if (at >= 0) open.splice(at, 1);
+        } else if (!HTML_VOID_TAGS.has(name) && !tag.endsWith("/>")) {
+          open.push(name);
+        }
+      }
+      out += tag;
+    }
+    pending = [];
+  };
+  for (const part of html.split(/(<[^>]+>)/g)) {
+    if (!part) continue;
+    if (part.startsWith("<")) {
+      pending.push(part);
+      continue;
+    }
+    const tokens = part.match(HTML_TEXT_CHAR_RE);
+    if (!tokens) continue;
+    if (used + tokens.length <= maxChars) {
+      flushTags();
+      used += tokens.length;
+      out += part;
+      continue;
+    }
+    const take = maxChars - used;
+    if (take > 0) {
+      flushTags();
+      out += tokens.slice(0, take).join("");
+    }
+    dropped = true;
+    break;
+  }
+  // しきい値に届かなければ元の HTML をそのまま返す (余計な「…」を足さない)
+  if (!dropped) return html;
+  out += "…";
+  for (let i = open.length - 1; i >= 0; i--) out += `</${open[i]}>`;
+  return out;
+};
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const highlightHtmlPreservingTags = (html: string, query: string) => {
   const q = query.trim();
@@ -2340,6 +2402,9 @@ export default function App() {
   const [collapseLongEnabled, setCollapseLongEnabled] = useState(false);
   const [collapseLongLines, setCollapseLongLines] = useState(20);
   const [collapseLongChars, setCollapseLongChars] = useState(500);
+  // 折りたたんだ状態で見せる文字数。0 なら文字数では切らず、行数ぶんの高さだけで省略する
+  // (従来の挙動)。行数の高さ制限とは AND で効くので、短いほうが見た目を決める。
+  const [collapsePreviewChars, setCollapsePreviewChars] = useState(0);
   // 展開済みのレス番。スレ切替でクリアする
   const [expandedLongResponses, setExpandedLongResponses] = useState<Set<number>>(new Set());
   // 日付・IDを右端ではなく名前の隣に置く。ペインが広いと右端まで視線を動かす必要があるため
@@ -7914,6 +7979,7 @@ export default function App() {
           collapseLongEnabled?: boolean;
           collapseLongLines?: number;
           collapseLongChars?: number;
+          collapsePreviewChars?: number;
           responseMetaInline?: boolean;
           showResponseMail?: boolean;
           titleClickRefresh?: boolean;
@@ -8017,6 +8083,9 @@ export default function App() {
         }
         if (typeof parsed.collapseLongChars === "number" && parsed.collapseLongChars >= 0) {
           setCollapseLongChars(Math.min(99999, Math.round(parsed.collapseLongChars)));
+        }
+        if (typeof parsed.collapsePreviewChars === "number" && parsed.collapsePreviewChars >= 0) {
+          setCollapsePreviewChars(Math.min(99999, Math.round(parsed.collapsePreviewChars)));
         }
         if (typeof parsed.responseMetaInline === "boolean") setResponseMetaInline(parsed.responseMetaInline);
         if (typeof parsed.showResponseMail === "boolean") setShowResponseMail(parsed.showResponseMail);
@@ -8946,6 +9015,7 @@ export default function App() {
       collapseLongEnabled,
       collapseLongLines,
       collapseLongChars,
+      collapsePreviewChars,
       responseMetaInline,
       showResponseMail,
       titleClickRefresh,
@@ -8959,7 +9029,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled) return;
@@ -11895,7 +11965,12 @@ export default function App() {
                         )}
                       </span>
                     </div>
-                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}${longCollapsed ? " collapsed" : ""}`} style={longCollapsed ? ({ "--collapse-lines": collapsePreviewLines } as CSSProperties) : undefined} dangerouslySetInnerHTML={{ __html: (threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html) + (responseBodyBottomPad ? "<br><br>" : "") }} />
+                    <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}${longCollapsed ? " collapsed" : ""}`} style={longCollapsed ? ({ "--collapse-lines": collapsePreviewLines } as CSSProperties) : undefined} dangerouslySetInnerHTML={{ __html: (() => {
+                      const full = threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html;
+                      // 折りたたみ中だけ表示文字数で切る。切り詰めは常にサニタイズ後の HTML に対して行う
+                      const shown = longCollapsed && collapsePreviewChars > 0 ? truncateResponseHtml(full, collapsePreviewChars) : full;
+                      return shown + (responseBodyBottomPad ? "<br><br>" : "");
+                    })() }} />
                     {longMetrics && (
                       <button
                         type="button"
@@ -14195,6 +14270,11 @@ export default function App() {
                       <input type="number" value={collapseLongChars} min={0} max={99999} onChange={(e) => setCollapseLongChars(Math.max(0, Math.min(99999, Math.round(Number(e.target.value) || 0))))} />
                       <span className="settings-hint">0 = 文字数では判定しない</span>
                     </label>
+                    <label className="settings-row settings-sub-row">
+                      <span>折りたたみ後の表示文字数</span>
+                      <input type="number" value={collapsePreviewChars} min={0} max={99999} onChange={(e) => setCollapsePreviewChars(Math.max(0, Math.min(99999, Math.round(Number(e.target.value) || 0))))} />
+                      <span className="settings-hint">0 = 文字数では省略しない (行数ぶん表示)</span>
+                    </label>
                   </>
                 )}
                 <label className="settings-row">
@@ -15037,7 +15117,7 @@ export default function App() {
       )}
       {postHistoryOpen && (
         <div className="lightbox-overlay" onClick={() => setPostHistoryOpen(false)}>
-          <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="settings-panel post-history-panel" onClick={(e) => e.stopPropagation()}>
             <header className="settings-header">
               <strong>書き込み履歴 ({myPostRows.length}件)</strong>
               <button onClick={() => setPostHistoryOpen(false)}>閉じる</button>
