@@ -2729,6 +2729,23 @@ button.search-history-btn:hover {
 .ng-panel-options {
   padding: 4px 8px;
   border-bottom: 1px solid #d0d0d0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.ng-postcount-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: normal;
+  color: var(--sub);
+  cursor: pointer;
+}
+.ng-postcount-setting select:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .ng-chain-setting {
   display: inline-flex;

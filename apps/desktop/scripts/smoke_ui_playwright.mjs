@@ -550,8 +550,8 @@ try {
   await page.selectOption(".ng-panel-add select:not(.ng-mode-select)", "words");
   console.log("smoke-ui: ng id auto-expire ok");
 
-  // NG ワードの ID 連鎖: プレースホルダの >>2 と >>4 は同じ ID。UPLIFT (>>2 に一致) を
-  // あぼーんで登録し、ID連鎖を ON にすると >>4 もあぼーんになる。
+  // NG ワードの ID 連鎖: プレースホルダの >>2 / >>4 / >>5 は同じ ID。UPLIFT (>>2 に一致) を
+  // あぼーんで登録し、ID連鎖を ON にすると >>4 / >>5 もあぼーんになる。
   await page.selectOption(".ng-panel-add .ng-mode-select", "abone");
   await page.fill(".ng-panel-add input", "UPLIFT");
   await page.click(".ng-panel-add button:has-text('追加')");
@@ -569,8 +569,9 @@ try {
   assert(chainOnText === "ID連鎖ON", `ID連鎖 toggle should turn ON, got ${chainOnText}`);
   const aboneAfterChain = await page.$$eval(".response-block.abone-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
   assert(
-    aboneAfterChain.includes("2") && aboneAfterChain.includes("4") && !aboneAfterChain.includes("1") && !aboneAfterChain.includes("3"),
-    `ID連鎖 should abone the same-ID >>4 only, got ${JSON.stringify(aboneAfterChain)}`,
+    aboneAfterChain.includes("2") && aboneAfterChain.includes("4") && aboneAfterChain.includes("5")
+      && !aboneAfterChain.includes("1") && !aboneAfterChain.includes("3"),
+    `ID連鎖 should abone the same-ID responses only, got ${JSON.stringify(aboneAfterChain)}`,
   );
   await page.click(".ng-remove");
   console.log("smoke-ui: ng word id chain ok");
@@ -607,6 +608,43 @@ try {
   await chainRepliesBox.uncheck();
   await page.selectOption(".ng-panel-add .ng-mode-select", "hide");
   console.log("smoke-ui: ng chain replies ok");
+
+  // 連投 ID の自動 NG: プレースホルダの ID:SmokeSame は >>2 / >>4 / >>5 の 3 レス。
+  // しきい値 3 でこの 3 件だけが消え、1 レスだけの >>1 / >>3 は残る。
+  const postCountSelect = await page.$(".ng-postcount-select");
+  assert(postCountSelect, "NG panel should have the 連投ID自動NG threshold select");
+  assert((await postCountSelect.inputValue()) === "0", "連投ID自動NG should default to 無効");
+  const postCountModeSelect = await page.$(".ng-postcount-setting .ng-mode-select:not(.ng-postcount-select)");
+  assert(postCountModeSelect, "連投ID自動NG should have a mode select");
+  assert(await postCountModeSelect.isDisabled(), "the mode select should be disabled while the threshold is 無効");
+  await page.selectOption(".ng-postcount-select", "3");
+  assert(!(await postCountModeSelect.isDisabled()), "the mode select should become enabled once a threshold is set");
+  const frequentHidden = await page.$$eval(".response-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+  assert(
+    !frequentHidden.includes("2") && !frequentHidden.includes("4") && !frequentHidden.includes("5")
+      && frequentHidden.includes("1") && frequentHidden.includes("3"),
+    `連投ID自動NG should hide the 3-post ID only, got ${JSON.stringify(frequentHidden)}`,
+  );
+  // あぼーんモードならレス番は残る
+  await page.selectOption(".ng-postcount-setting .ng-mode-select:not(.ng-postcount-select)", "abone");
+  const frequentAbone = await page.$$eval(".response-block.abone-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+  assert(
+    frequentAbone.includes("2") && frequentAbone.includes("4") && frequentAbone.includes("5") && !frequentAbone.includes("1"),
+    `連投ID自動NG in あぼーん mode should keep the response numbers, got ${JSON.stringify(frequentAbone)}`,
+  );
+  // NG リストには登録しない (ID は日替わりなので溜めない)
+  const ngIdsAfterPostCount = await page.$$eval(".ng-list li", (els) => els.map((el) => el.textContent));
+  assert(
+    !ngIdsAfterPostCount.some((t) => t.includes("SmokeSame")),
+    `連投ID自動NG must not add the ID to the NG list, got ${JSON.stringify(ngIdsAfterPostCount)}`,
+  );
+  // しきい値を上げれば誰も対象にならない
+  await page.selectOption(".ng-postcount-select", "50");
+  const frequentNone = await page.$$eval(".response-block.abone-block", (els) => els.length);
+  assert(frequentNone === 0, `no ID reaches 50 posts, so nothing should be NG, got ${frequentNone}`);
+  await page.selectOption(".ng-postcount-setting .ng-mode-select:not(.ng-postcount-select)", "hide");
+  await page.selectOption(".ng-postcount-select", "0");
+  console.log("smoke-ui: ng frequent id auto filter ok");
 
   // switch to Highlight tab, add and remove a highlight word
   await page.click(".ng-panel-tabs button:has-text('ハイライト')");

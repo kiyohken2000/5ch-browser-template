@@ -533,6 +533,8 @@ React の描画前に呼ぶ）がファイルの内容を流し込む。
 | `autoRefreshPersistEnabled` | `desktop.autoRefreshPersistEnabled.v1` | 自動更新の状態を記憶するか |
 | `postLogPrefs` | `desktop.postLogPrefs.v1` | 書き込みログを保存するか |
 | `ngIdExpireDays` | `desktop.ngIdExpireDays.v1` | NG ID の自動削除日数（0 = 無効） |
+| `ngIdPostCount` | `desktop.ngIdPostCount.v1` | 連投 ID を自動 NG にするレス数しきい値（0 = 無効） |
+| `ngIdPostCountMode` | `desktop.ngIdPostCountMode.v1` | 連投 ID 自動 NG のモード（`hide` / `abone`） |
 | `hlIdExpireDays` | `desktop.hlIdExpireDays.v1` | 強調 (ハイライト) ID の自動削除日数（0 = 無効） |
 | `ex0chEnabled` | `desktop.ex0chEnabled.v1` | ex0ch の板を一覧に含めるか |
 | `aiPrefs` | `desktop.aiPrefs.v1` | 推論バックエンド、翻訳の有効/無効 |

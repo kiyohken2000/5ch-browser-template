@@ -683,6 +683,10 @@ const DISMISSED_UPDATE_VERSION_KEY = "desktop.dismissedUpdateVersion.v1";
 const NG_ID_EXPIRE_DAYS_KEY = "desktop.ngIdExpireDays.v1";
 // NG になったレスへ安価を打ったレスも連鎖してあぼーんにする (既定オフ)
 const NG_CHAIN_REPLIES_KEY = "desktop.ngChainReplies.v1";
+// スレ内で N レス以上書いた ID を自動 NG にする閾値 (0 = 無効) と、そのモード。
+// 5ch の ID は日替わりなので NG リストには入れず、開いているスレの中だけで効かせる。
+const NG_ID_POST_COUNT_KEY = "desktop.ngIdPostCount.v1";
+const NG_ID_POST_COUNT_MODE_KEY = "desktop.ngIdPostCountMode.v1";
 // 曖昧 NG (AI ルール) の定義
 const NG_AI_RULES_KEY = "desktop.ngAiRules.v1";
 // 判定器が導入済みかを覚えておく。起動直後に Tauri へ問い合わせるまでの間タブが
@@ -757,6 +761,8 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   myPostRecordDisabled: MY_POST_RECORD_DISABLED_KEY,
   ngIdExpireDays: NG_ID_EXPIRE_DAYS_KEY,
   ngChainReplies: NG_CHAIN_REPLIES_KEY,
+  ngIdPostCount: NG_ID_POST_COUNT_KEY,
+  ngIdPostCountMode: NG_ID_POST_COUNT_MODE_KEY,
   hlIdExpireDays: HL_ID_EXPIRE_DAYS_KEY,
   ex0chEnabled: EX0CH_ENABLED_KEY,
   aiPrefs: AI_PREFS_KEY,
@@ -769,6 +775,8 @@ const UI_JSON_SETTINGS_MIGRATED_KEY = "desktop.uiJsonSettingsMigrated.v1";
 // NG ID 自動削除の選択肢 (日数)。0 = 無効 (既定)。5ch の ID は日替わりなので
 // NG ID だけが際限なく溜まる。ワード / 名前は恒久的なものなので対象外。
 const NG_ID_EXPIRE_DAY_OPTIONS = [0, 1, 3, 7, 30];
+// 連投 ID 自動 NG のレス数しきい値 (0 = 無効)。「以上」判定。
+const NG_ID_POST_COUNT_OPTIONS = [0, 3, 5, 10, 20, 30, 50];
 const NG_DAY_MS = 86400000;
 // 残り時間の表示。1 日未満は時間表示にする (1日設定だと「残り1日」のまま
 // 変化せず、あとどれくらいで消えるか分からないため)。
@@ -2158,6 +2166,30 @@ export default function App() {
   useEffect(() => {
     saveUiSetting(NG_CHAIN_REPLIES_KEY, String(ngChainReplies));
   }, [ngChainReplies]);
+  const [ngIdPostCount, setNgIdPostCount] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(NG_ID_POST_COUNT_KEY);
+      if (raw === null) return 0;
+      const n = Number(raw);
+      return NG_ID_POST_COUNT_OPTIONS.includes(n) ? n : 0;
+    } catch {
+      return 0;
+    }
+  });
+  useEffect(() => {
+    saveUiSetting(NG_ID_POST_COUNT_KEY, String(ngIdPostCount));
+  }, [ngIdPostCount]);
+  // 連投 ID に当てるモード。画像 NG は連投対策としては意味がないので 2 択。
+  const [ngIdPostCountMode, setNgIdPostCountMode] = useState<NgMode>(() => {
+    try {
+      return localStorage.getItem(NG_ID_POST_COUNT_MODE_KEY) === "abone" ? "abone" : "hide";
+    } catch {
+      return "hide";
+    }
+  });
+  useEffect(() => {
+    saveUiSetting(NG_ID_POST_COUNT_MODE_KEY, ngIdPostCountMode);
+  }, [ngIdPostCountMode]);
   const [hlIdExpireDays, setHlIdExpireDays] = useState<number>(() => {
     try {
       const raw = localStorage.getItem(HL_ID_EXPIRE_DAYS_KEY);
@@ -5685,11 +5717,13 @@ export default function App() {
           };
         })
       : [
-          // >>2 と >>4 は同じ ID (スモークテストで NG ワードの ID 連鎖を確認する)
+          // >>2 / >>4 / >>5 は同じ ID。スモークテストで NG ワードの ID 連鎖と、
+          // 連投 ID の自動 NG (3 レス以上) を確認するため 3 件に揃えてある。
           { id: 1, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:00 ID:Smoke0001", text: "投稿フロートレース準備完了", beNumber: null, watchoi: null },
           { id: 2, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "sage", time: "2026/03/07 10:02 ID:SmokeSame", text: "BE/UPLIFT/どんぐりログイン確認済み", beNumber: null, watchoi: null },
           { id: 3, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:04 ID:Smoke0003", text: ">>1 次: subject/dat取得連携", beNumber: null, watchoi: null },
           { id: 4, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:06 ID:SmokeSame", text: ">>3 参考 https://example.com/page を参照", beNumber: null, watchoi: null },
+          { id: 5, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:08 ID:SmokeSame", text: "スレ一覧とレス表示の疎通まで確認完了", beNumber: null, watchoi: null },
         ]),
   ], [fetchedResponses]);
   const extractId = (time: string) => {
@@ -6634,7 +6668,7 @@ export default function App() {
     return { backRefMap: map, ngChainRefMap: chainMap };
   }, [responseItems]);
 
-  // evalNg が見るのは ngFilters だけなので、依存はその 4 つで足りる。
+  // evalNg が見るのは ngFilters だけなので、依存はそれと各パスが読む設定で足りる。
   const ngResultMap = useMemo(() => {
     const map = new Map<number, NgMode>();
     // 1 パス目: エントリに直接一致したレス。「ID連鎖」付きワードに当たったレスの
@@ -6661,7 +6695,24 @@ export default function App() {
         if (m) map.set(r.id, strongerNgMode(map.get(r.id) ?? null, m));
       }
     }
-    // 3 パス目: 連鎖あぼーん。NG (非表示 / あぼーん) になったレスへ安価を打ったレスも
+    // 3 パス目: 連投 ID の自動 NG。スレ内でしきい値以上書いた ID のレスをまとめて NG に
+    // する。ID は日替わりなので NG リストには登録せず、このスレの表示中だけ効かせる。
+    // >>1 はスレの説明が入るので残す (ID連鎖・連鎖あぼーんと同じ扱い)。
+    if (ngIdPostCount > 0) {
+      const counts = new Map<string, number>();
+      for (const r of responseItems) {
+        const id = extractId(r.time);
+        if (id && id !== "???") counts.set(id, (counts.get(id) ?? 0) + 1);
+      }
+      for (const r of responseItems) {
+        if (r.id === 1) continue;
+        const id = extractId(r.time);
+        if (!id || id === "???") continue;
+        if ((counts.get(id) ?? 0) < ngIdPostCount) continue;
+        map.set(r.id, strongerNgMode(map.get(r.id) ?? null, ngIdPostCountMode));
+      }
+    }
+    // 4 パス目: 連鎖あぼーん。NG (非表示 / あぼーん) になったレスへ安価を打ったレスも
     // あぼーんにする。responseItems は昇順なので、返信の返信にも順に波及する。
     // >>1 への安価は対象外 (スレ主のレスが NG だと全レスが消えてしまうため)。
     if (ngChainReplies) {
@@ -6676,7 +6727,7 @@ export default function App() {
       }
     }
     return map;
-  }, [responseItems, ngFilters, ngChainReplies, ngChainRefMap]);
+  }, [responseItems, ngFilters, ngChainReplies, ngChainRefMap, ngIdPostCount, ngIdPostCountMode]);
   const ngFilteredCount = ngResultMap.size;
 
   // 折りたたみ対象のレスと、その実測値 (「続きを読む」のラベルに出す)。
@@ -12868,6 +12919,30 @@ export default function App() {
             >
               <input type="checkbox" checked={ngChainReplies} onChange={(e) => setNgChainReplies(e.target.checked)} />
               NGレスへの返信も連鎖あぼーん
+            </label>
+            <label
+              className="ng-postcount-setting"
+              title="開いているスレで指定レス数以上書いているIDを自動でNGにします。IDは日替わりなのでNGリストには登録されず、スレを開いている間だけ効きます。>>1 は対象外です。"
+            >
+              連投IDを自動NG
+              <select
+                className="ng-mode-select ng-postcount-select"
+                value={ngIdPostCount}
+                onChange={(e) => setNgIdPostCount(Number(e.target.value))}
+              >
+                {NG_ID_POST_COUNT_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n === 0 ? "無効" : `${n}レス以上`}</option>
+                ))}
+              </select>
+              <select
+                className="ng-mode-select"
+                value={ngIdPostCountMode}
+                disabled={ngIdPostCount === 0}
+                onChange={(e) => setNgIdPostCountMode(e.target.value as NgMode)}
+              >
+                <option value="hide">非表示</option>
+                <option value="abone">あぼーん</option>
+              </select>
             </label>
           </div>
           {ngBulkOpen && (
