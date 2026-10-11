@@ -1507,10 +1507,39 @@ try {
     els.map((e) => e.textContent?.trim()),
   );
   assert(
-    uiZoomLabels.length === 3 && uiZoomLabels.includes("標準") && uiZoomLabels.includes("大") && uiZoomLabels.includes("特大"),
-    `UI size should offer 3 steps, got ${uiZoomLabels}`,
+    uiZoomLabels.join(",") === "最小,小,標準,大,特大",
+    `UI size should offer 5 steps from 最小 to 特大, got ${uiZoomLabels}`,
+  );
+  // 倍率 1 未満は WebView のズームなので Rust 側のクランプ (0.5〜3.0) の内側であること。
+  const uiZoomValues = await page.$$eval(".settings-body select.ui-zoom-select option", (els) => els.map((e) => Number(e.value)));
+  assert(
+    uiZoomValues.every((v) => v >= 0.5 && v <= 3),
+    `UI size steps must stay inside the backend clamp, got ${uiZoomValues}`,
   );
   console.log("smoke-ui: UI size setting ok");
+
+  // タブ幅。既定は「標準」で、狭いを選ぶとタブバーに tabs-narrow が付くこと
+  // (実際に詰まるかはタブを開いた状態で別途見る)。
+  const tabWidthSelect = await page.$(".settings-body select.tab-width-select");
+  assert(tabWidthSelect, "settings should have a tab width select");
+  assert((await tabWidthSelect.inputValue()) === "normal", "tab width should default to 標準");
+  const tabWidthLabels = await page.$$eval(".settings-body select.tab-width-select option", (els) =>
+    els.map((e) => e.textContent?.trim()),
+  );
+  assert(tabWidthLabels.join(",") === "標準,狭い", `tab width should offer 標準/狭い, got ${tabWidthLabels}`);
+  await tabWidthSelect.selectOption("narrow");
+  await new Promise((r) => setTimeout(r, 200));
+  assert(
+    await page.$(".thread-tab-bar-wrap.tabs-narrow"),
+    "picking 狭い should put tabs-narrow on the tab bar",
+  );
+  await tabWidthSelect.selectOption("normal");
+  await new Promise((r) => setTimeout(r, 200));
+  assert(
+    !(await page.$(".thread-tab-bar-wrap.tabs-narrow")),
+    "going back to 標準 should drop tabs-narrow",
+  );
+  console.log("smoke-ui: tab width setting ok");
 
   // UI サイズを上げても縦積みに切り替わらないこと。
   // 縦積みの判定は CSS ピクセル上の幅ではなく、倍率を掛け戻した物理的な幅で行う。
@@ -2161,7 +2190,26 @@ try {
   await page.waitForSelector(".pane.responses .compose-window.compose-docked");
   console.log("smoke-ui: compose header dock toggle ok");
 
-  await page.click(".compose-header button:has-text('閉じる')");
+  // 固定時はヘッダを薄くする。高さを決めていたのは素の「閉じる」ボタンだったので
+  // アイコンに替え、投稿先はすぐ上に見えているのでスレタイ行も出さない。
+  assert(
+    !(await page.$(".compose-window.compose-docked .compose-target")),
+    "docked compose should not repeat the thread title in its header",
+  );
+  assert(
+    await page.$('.compose-window.compose-docked .compose-header button[title="書き込み欄を閉じる"]'),
+    "docked compose should close from an icon button, not the tall 閉じる button",
+  );
+  const dockedHeaderHeight = await page.$eval(
+    ".compose-window.compose-docked .compose-header",
+    (el) => el.getBoundingClientRect().height,
+  );
+  assert(
+    dockedHeaderHeight <= 22,
+    `docked compose header should stay slim, got ${dockedHeaderHeight}px`,
+  );
+
+  await page.click('.compose-header button[title="書き込み欄を閉じる"]');
   await new Promise((r) => setTimeout(r, 100));
   // 既定 (浮かせる) に戻してから先へ進む
   await (await page.$('.menu-item:has-text("ファイル")')).click();
@@ -3447,6 +3495,116 @@ try {
   );
   await prefsFromFilePage.close();
   console.log("smoke-ui: layout prefs seeded from file before render ok");
+
+  // タブが開いている状態での表示の詰め方。タブ幅「狭い」が実際にタブを縮めること、
+  // タブ一覧から直接タブへ飛べること、レスナビバーを隠していても Ctrl+F で
+  // 検索欄が出ること。どれもタブが要るので復元の種をそのまま使う。
+  const densityPage = await context.newPage();
+  await densityPage.addInitScript(([tabs, prefs]) => {
+    localStorage.setItem("desktop.threadTabs.v1", tabs);
+    localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+    localStorage.setItem("desktop.layoutPrefs.v1", prefs);
+    localStorage.setItem("desktop.tabWidth.v1", "narrow");
+  }, [seedTabs, JSON.stringify({ restoreSession: true, responseNavBarVisible: false })]);
+  await densityPage.goto(targetUrl, { waitUntil: "load" });
+  await densityPage.waitForSelector(".row-splitter");
+  await new Promise((r) => setTimeout(r, 800));
+
+  // 「狭い」は max-width / padding / 文字サイズをまとめて詰める。クラスが付いた
+  // だけで CSS が効いていないと意味が無いので、実測値まで見る。
+  assert(await densityPage.$(".thread-tab-bar-wrap.tabs-narrow"), "tabWidth narrow should be restored from localStorage");
+  const narrowTab = await densityPage.$eval(".thread-tab:not(.placeholder)", (el) => {
+    const s = getComputedStyle(el);
+    return { fontSize: s.fontSize, maxWidth: s.maxWidth };
+  });
+  assert(narrowTab.fontSize === "10px", `narrow tabs should shrink the font, got ${narrowTab.fontSize}`);
+  assert(narrowTab.maxWidth === "130px", `narrow tabs should cap the width, got ${narrowTab.maxWidth}`);
+
+  // タブ一覧。開いているタブが全部並び、今見ているタブに印が付き、選ぶと飛べること。
+  assert(!(await densityPage.$(".tab-list-dropdown")), "the tab list should start closed");
+  await densityPage.click(".tab-list-btn");
+  await densityPage.waitForSelector(".tab-list-dropdown");
+  const tabListTitles = await densityPage.$$eval(".tab-list-item-title", (els) => els.map((el) => el.textContent));
+  assert(
+    tabListTitles.join(",") === "復元タブA,復元タブB",
+    `the tab list should show every open tab, got ${JSON.stringify(tabListTitles)}`,
+  );
+  const tabListActive = await densityPage.$$eval(".tab-list-item", (els) => els.findIndex((el) => el.classList.contains("active")));
+  assert(tabListActive === 1, `the tab list should mark the active tab, got index ${tabListActive}`);
+  await densityPage.click(".tab-list-item:first-child");
+  await new Promise((r) => setTimeout(r, 300));
+  assert(!(await densityPage.$(".tab-list-dropdown")), "picking a tab should close the list");
+  const switchedTitle = await densityPage.$eval(".thread-tab.active .thread-tab-title", (el) => el.textContent);
+  assert(switchedTitle === "復元タブA", `picking from the tab list should switch tabs, got ${switchedTitle}`);
+
+  // レスナビバーを隠すと検索欄ごと消えるので、Ctrl+F が無反応になっていた。
+  // 一時的に出して focus し、Escape で元の隠した状態へ戻ること。
+  assert(!(await densityPage.$(".response-nav-bar")), "the nav bar should stay hidden while the setting is off");
+  await densityPage.keyboard.press("Control+f");
+  await densityPage.waitForSelector(".response-nav-bar");
+  const searchFocused = await densityPage.evaluate(() => document.activeElement?.className ?? "");
+  assert(
+    searchFocused.includes("thread-search"),
+    `Ctrl+F should focus the response search once the bar is shown, got "${searchFocused}"`,
+  );
+  await densityPage.keyboard.press("Escape");
+  await new Promise((r) => setTimeout(r, 250));
+  assert(
+    !(await densityPage.$(".response-nav-bar")),
+    "Escape should fold the temporary nav bar back, leaving the setting untouched",
+  );
+  await densityPage.close();
+  console.log("smoke-ui: tab density and nav bar reveal ok");
+
+  // タブ一覧がレス本文の下に潜らないこと。タブバーの中に absolute で置くと、
+  // ガラスモードでは backdrop-filter の重ね合わせ文脈に閉じ込められて本文に
+  // 隠れ、タブが多いときは .pane.responses の overflow で下が切れていた。
+  // タブを多めに開いた状態で、実際に一番上に描かれているかを当たって確かめる。
+  const manyTabs = JSON.stringify({
+    tabs: Array.from({ length: 14 }, (_, i) => ({
+      threadUrl: `https://mao.5ch.io/test/read.cgi/ngt/${9000 + i}/`,
+      title: `重なり確認スレ ${i + 1}`,
+    })),
+    activeIndex: 1,
+  });
+  for (const prefs of [{}, { glassMode: true }, { glassMode: true, composeDocked: true }]) {
+    const stackPage = await context.newPage();
+    await stackPage.addInitScript(([t, p]) => {
+      localStorage.setItem("desktop.threadTabs.v1", t);
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", JSON.stringify({ restoreSession: true, ...p }));
+    }, [manyTabs, prefs]);
+    await stackPage.goto(targetUrl, { waitUntil: "load" });
+    await stackPage.waitForSelector(".row-splitter");
+    await new Promise((r) => setTimeout(r, 800));
+    await stackPage.click(".tab-list-btn");
+    await stackPage.waitForSelector(".tab-list-dropdown");
+    const stack = await stackPage.evaluate(() => {
+      const dd = document.querySelector(".tab-list-dropdown");
+      const r = dd.getBoundingClientRect();
+      const covered = [];
+      for (let f = 0.05; f < 1; f += 0.1) {
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height * f);
+        if (!(hit && hit.closest(".tab-list-dropdown"))) {
+          covered.push(`${f.toFixed(2)}:${hit ? hit.className || hit.tagName : "null"}`);
+        }
+      }
+      let clippedBy = null;
+      for (let el = dd.parentElement; el && el !== document.body; el = el.parentElement) {
+        if (getComputedStyle(el).overflow !== "visible") {
+          if (r.bottom > el.getBoundingClientRect().bottom + 1) clippedBy = el.className;
+          break;
+        }
+      }
+      return { covered, clippedBy, height: Math.round(r.height) };
+    });
+    const label = JSON.stringify(prefs);
+    assert(stack.height > 200, `the tab list should be tall with 14 tabs (${label}), got ${stack.height}px`);
+    assert(stack.covered.length === 0, `the tab list must stay on top (${label}), covered at ${stack.covered.join(", ")}`);
+    assert(!stack.clippedBy, `the tab list must not be clipped (${label}), clipped by ${stack.clippedBy}`);
+    await stackPage.close();
+  }
+  console.log("smoke-ui: tab list stays above the thread body ok");
 
   console.log("smoke-ui: ok");
 } finally {

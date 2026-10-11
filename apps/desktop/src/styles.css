@@ -3294,6 +3294,76 @@ button.search-history-btn:hover {
   color: #a04040;
 }
 
+/* === タブ幅「狭い」 ===
+   文字サイズ・左右の余白・最大幅をまとめて詰める。要望は「フォントを小さく」
+   「枠を狭く」の両方だったので、片方だけ効かせずにここで一括で効かせる。 */
+.thread-tab-bar-wrap.tabs-narrow {
+  min-height: 20px;
+}
+.thread-tab-bar-wrap.tabs-narrow .thread-tab {
+  padding: 1px 4px;
+  font-size: 10px;
+  max-width: 130px;
+  min-width: 48px;
+  gap: 2px;
+}
+.thread-tab-bar-wrap.tabs-narrow .tab-res-count {
+  font-size: 8px;
+  margin-left: 0;
+}
+.thread-tab-bar-wrap.tabs-narrow .thread-tab-close {
+  font-size: 10px;
+  padding: 0 1px;
+}
+
+/* === 開いているタブの一覧 ===
+   タブバーの中に absolute で置くと、ガラスモードのタブバーが backdrop-filter で
+   作る重ね合わせ文脈に閉じ込められて本文の下に潜り、タブが多いときは
+   .pane.responses の overflow で下が切れる。他のメニューと同じく fixed にして
+   シェル直下に置く。z-index はバー (150/200) と書き込み欄 (300) より上。 */
+.tab-list-dropdown {
+  position: fixed;
+  z-index: 310;
+  width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #a0a0a0;
+  background: #ffffff;
+  box-shadow: 0 6px 16px rgba(20, 20, 20, 0.2);
+}
+
+.tab-list-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tab-list-item:hover {
+  background: #e0e8f0;
+}
+
+.tab-list-item.active {
+  font-weight: 600;
+  /* 今どれを見ているかを色でも示す。太字だけだと一覧の中で埋もれる。 */
+  background: #d8e4f0;
+}
+
+.tab-list-item-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-list-item-count {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--sub);
+}
+
 .tab-res-count {
   font-size: 9px;
   color: var(--sub);
@@ -4365,6 +4435,17 @@ a.body-link-image:hover::after {
 }
 .dark .search-history-item:hover {
   background: #3c3c3c;
+}
+.dark .tab-list-dropdown {
+  background: #2d2d30;
+  border-color: #555;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+.dark .tab-list-item:hover {
+  background: #3c3c3c;
+}
+.dark .tab-list-item.active {
+  background: #37506b;
 }
 .dark .search-history-btn {
   color: #aaa;
@@ -6145,6 +6226,33 @@ a.body-link-image:hover::after {
     inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
+/* === tab-list-dropdown glass === */
+.shell.glass .tab-list-dropdown {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.shell.glass .tab-list-item:hover {
+  background: rgba(0, 102, 204, 0.18);
+}
+
+.shell.glass .tab-list-item.active {
+  background: rgba(0, 102, 204, 0.26);
+}
+
+.shell.glass.dark .tab-list-dropdown {
+  background: rgba(30, 30, 40, 0.85);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
 .shell.glass.dark .search-history-item:hover {
   background: rgba(0, 102, 204, 0.32);
 }
@@ -7053,6 +7161,20 @@ a.body-link-image:hover::after {
 
 .compose-window.compose-docked .compose-header {
   cursor: default;
+  /* レス本文を 1 行でも広く使いたいので、固定時はヘッダを詰める。 */
+  padding: 1px 6px;
+  gap: 4px;
+}
+
+.compose-window.compose-docked .compose-header > strong {
+  font-size: 11px;
+  /* スレタイ (.compose-target = flex: 1) を出さない分の余白をここで吸う。
+     吸わないと icon 側の margin-left: auto が余白を分け合ってアイコンが散る。 */
+  margin-right: auto;
+}
+
+.compose-window.compose-docked .compose-header-icon {
+  margin-left: 0;
 }
 
 /* 縦が足りないときは本文の入力欄から先に詰める。ここを詰めないと、書き込みボタンの
