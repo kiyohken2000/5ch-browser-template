@@ -681,8 +681,10 @@ const POST_LOG_PREFS_KEY = "desktop.postLogPrefs.v1";
 const THREAD_CATEGORIES_KEY = "desktop.threadCategories.v2";
 const DISMISSED_UPDATE_VERSION_KEY = "desktop.dismissedUpdateVersion.v1";
 const NG_ID_EXPIRE_DAYS_KEY = "desktop.ngIdExpireDays.v1";
-// NG になったレスへ安価を打ったレスも連鎖してあぼーんにする (既定オフ)
+// NG になったレスへ安価を打ったレスも連鎖して NG にする (既定オフ) と、そのモード。
+// 以前はあぼーん固定だったので、既定値はあぼーんのまま互換を保つ。
 const NG_CHAIN_REPLIES_KEY = "desktop.ngChainReplies.v1";
+const NG_CHAIN_REPLIES_MODE_KEY = "desktop.ngChainRepliesMode.v1";
 // スレ内で N レス以上書いた ID を自動 NG にする閾値 (0 = 無効) と、そのモード。
 // 5ch の ID は日替わりなので NG リストには入れず、開いているスレの中だけで効かせる。
 const NG_ID_POST_COUNT_KEY = "desktop.ngIdPostCount.v1";
@@ -761,6 +763,7 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   myPostRecordDisabled: MY_POST_RECORD_DISABLED_KEY,
   ngIdExpireDays: NG_ID_EXPIRE_DAYS_KEY,
   ngChainReplies: NG_CHAIN_REPLIES_KEY,
+  ngChainRepliesMode: NG_CHAIN_REPLIES_MODE_KEY,
   ngIdPostCount: NG_ID_POST_COUNT_KEY,
   ngIdPostCountMode: NG_ID_POST_COUNT_MODE_KEY,
   hlIdExpireDays: HL_ID_EXPIRE_DAYS_KEY,
@@ -1021,6 +1024,17 @@ export async function bootstrapUiJson(): Promise<void> {
     localStorage.setItem(UI_JSON_MIGRATED_KEY, "1");
   } catch (e) {
     console.warn("failed to save the ui json migration flag", e);
+  }
+  // layout_prefs は専用のコマンド (save_layout_prefs / load_layout_prefs) で書いて
+  // いるので UI_JSON_FILES には入っていない。ただし起動時の復元は localStorage の
+  // 同期読みが本番で、ファイルからの読み込みはタブ復元に間に合わない。localStorage
+  // だけ失われた環境で restoreSession などが既定値に戻ってしまうので、ここで先に
+  // 流し込む。書き込み経路は従来どおりなので、ファイル側が正となる。
+  try {
+    const raw = await invoke<string>("load_layout_prefs");
+    if (raw) localStorage.setItem(LAYOUT_PREFS_KEY, raw);
+  } catch (e) {
+    console.warn("bootstrapUiJson layout_prefs failed", e);
   }
   await bootstrapUiSettings();
 }
@@ -2166,6 +2180,18 @@ export default function App() {
   useEffect(() => {
     saveUiSetting(NG_CHAIN_REPLIES_KEY, String(ngChainReplies));
   }, [ngChainReplies]);
+  // 連鎖させるレスに当てるモード。画像 NG は返信側に当てても意味がないので 2 択。
+  // 未保存のときは従来の挙動 (あぼーん) を維持する。
+  const [ngChainRepliesMode, setNgChainRepliesMode] = useState<NgMode>(() => {
+    try {
+      return localStorage.getItem(NG_CHAIN_REPLIES_MODE_KEY) === "hide" ? "hide" : "abone";
+    } catch {
+      return "abone";
+    }
+  });
+  useEffect(() => {
+    saveUiSetting(NG_CHAIN_REPLIES_MODE_KEY, ngChainRepliesMode);
+  }, [ngChainRepliesMode]);
   const [ngIdPostCount, setNgIdPostCount] = useState<number>(() => {
     try {
       const raw = localStorage.getItem(NG_ID_POST_COUNT_KEY);
@@ -2630,6 +2656,8 @@ export default function App() {
   const tabCacheRef = useRef<Map<string, { responses: ThreadResponseItem[]; selectedResponse: number; scrollResponseNo?: number; newResponseStart?: number | null }>>(new Map());
   const closedTabsRef = useRef<{ threadUrl: string; title: string }[]>([]);
   const tabsRestoredRef = useRef(false);
+  // このセッションで一度でもタブを持ったか (下の保存エフェクトのコメント参照)。
+  const tabsDirtyRef = useRef(false);
   const lastBoardUrlRef = useRef("");
   const pendingLastBoardRef = useRef<{ boardName: string; url: string } | null>(null);
   const [selectedBoard, setSelectedBoard] = useState("Favorite");
@@ -6712,8 +6740,8 @@ export default function App() {
         map.set(r.id, strongerNgMode(map.get(r.id) ?? null, ngIdPostCountMode));
       }
     }
-    // 4 パス目: 連鎖あぼーん。NG (非表示 / あぼーん) になったレスへ安価を打ったレスも
-    // あぼーんにする。responseItems は昇順なので、返信の返信にも順に波及する。
+    // 4 パス目: NG レスへの返信の連鎖。NG (非表示 / あぼーん) になったレスへ安価を打った
+    // レスも NG にする。responseItems は昇順なので、返信の返信にも順に波及する。
     // >>1 への安価は対象外 (スレ主のレスが NG だと全レスが消えてしまうため)。
     if (ngChainReplies) {
       for (const r of responseItems) {
@@ -6722,12 +6750,12 @@ export default function App() {
         if (mode !== "hide" && mode !== "abone") continue;
         for (const from of ngChainRefMap.get(r.id) ?? []) {
           if (from === r.id || from === 1) continue;
-          map.set(from, strongerNgMode(map.get(from) ?? null, "abone"));
+          map.set(from, strongerNgMode(map.get(from) ?? null, ngChainRepliesMode));
         }
       }
     }
     return map;
-  }, [responseItems, ngFilters, ngChainReplies, ngChainRefMap, ngIdPostCount, ngIdPostCountMode]);
+  }, [responseItems, ngFilters, ngChainReplies, ngChainRepliesMode, ngChainRefMap, ngIdPostCount, ngIdPostCountMode]);
   const ngFilteredCount = ngResultMap.size;
 
   // 折りたたみ対象のレスと、その実測値 (「続きを読む」のラベルに出す)。
@@ -8387,6 +8415,14 @@ export default function App() {
 
   useEffect(() => {
     if (!tabsRestoredRef.current) return;
+    // 起動直後は、復元した setThreadTabs がまだ反映されていない空の状態で走る。
+    // ここで書くと保存済みのタブを空で上書きしてしまう (復元しない設定のときは
+    // 上書きしたまま誰も戻さないので、後から設定を ON にしても何も戻らなくなる)。
+    // StrictMode では effect が 2 回走るので実行回数では数えず、「このセッションで
+    // まだ一度もタブを持っていない」状態の空書き込みだけを落とす。タブを一度でも
+    // 持てば以降は空も書くので、全部閉じた状態はそのまま保存される。
+    if (threadTabs.length === 0 && !tabsDirtyRef.current) return;
+    tabsDirtyRef.current = true;
     saveUiJson(THREAD_TABS_KEY, JSON.stringify({ tabs: threadTabs, activeIndex: activeTabIndex }));
   }, [threadTabs, activeTabIndex]);
 
@@ -12915,10 +12951,19 @@ export default function App() {
           <div className="ng-panel-options">
             <label
               className="ng-chain-setting"
-              title="非表示・あぼーんになったレスへ安価 (>>N) を打ったレスも、あぼーんにします。返信の返信にも波及します。>>1 への安価と範囲アンカー (>>1-100) は対象外です。"
+              title="非表示・あぼーんになったレスへ安価 (>>N) を打ったレスも NG にします。返信の返信にも波及します。>>1 への安価と範囲アンカー (>>1-100) は対象外です。"
             >
               <input type="checkbox" checked={ngChainReplies} onChange={(e) => setNgChainReplies(e.target.checked)} />
-              NGレスへの返信も連鎖あぼーん
+              NGレスへの返信も連鎖
+              <select
+                className="ng-mode-select"
+                value={ngChainRepliesMode}
+                disabled={!ngChainReplies}
+                onChange={(e) => setNgChainRepliesMode(e.target.value as NgMode)}
+              >
+                <option value="hide">非表示</option>
+                <option value="abone">あぼーん</option>
+              </select>
             </label>
             <label
               className="ng-postcount-setting"

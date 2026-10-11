@@ -2759,6 +2759,10 @@ button.search-history-btn:hover {
 .ng-chain-setting input {
   margin: 0;
 }
+.ng-chain-setting select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 
 .ng-panel-bulk {
   padding: 4px 8px 6px;

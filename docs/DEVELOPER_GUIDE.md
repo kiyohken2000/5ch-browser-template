@@ -493,6 +493,11 @@ UI の内部状態のみ。実体は WebView2 / WKWebView の LevelDB なので*
 `Value::String` だった場合を旧形式（JSON 文字列を素通しで保存していた頃のファイル）
 として扱うので、古いファイルもそのまま読める。次の保存で新形式に書き直される。
 
+起動時の復元は `desktop.layoutPrefs.v1` の**同期読み**が本番で、`load_layout_prefs` の
+非同期読み込みはタブ復元などに間に合わない。そのため `bootstrapUiJson()`（描画前）で
+`layout_prefs.json` を localStorage へ先に流し込む。これが無いと localStorage だけ
+失われた環境で `restoreSession` が既定値（オフ）に戻り、タブが復元されない。
+
 ### 手編集できる UI 状態（`data/*.json`）
 
 `save_ui_json` / `load_ui_json` / `delete_ui_json` の汎用コマンドで `data/<name>.json` に保存する。
@@ -533,6 +538,8 @@ React の描画前に呼ぶ）がファイルの内容を流し込む。
 | `autoRefreshPersistEnabled` | `desktop.autoRefreshPersistEnabled.v1` | 自動更新の状態を記憶するか |
 | `postLogPrefs` | `desktop.postLogPrefs.v1` | 書き込みログを保存するか |
 | `ngIdExpireDays` | `desktop.ngIdExpireDays.v1` | NG ID の自動削除日数（0 = 無効） |
+| `ngChainReplies` | `desktop.ngChainReplies.v1` | NG レスへの返信も連鎖させるか |
+| `ngChainRepliesMode` | `desktop.ngChainRepliesMode.v1` | 連鎖させるレスのモード（`hide` / `abone`、既定 `abone`） |
 | `ngIdPostCount` | `desktop.ngIdPostCount.v1` | 連投 ID を自動 NG にするレス数しきい値（0 = 無効） |
 | `ngIdPostCountMode` | `desktop.ngIdPostCountMode.v1` | 連投 ID 自動 NG のモード（`hide` / `abone`） |
 | `hlIdExpireDays` | `desktop.hlIdExpireDays.v1` | 強調 (ハイライト) ID の自動削除日数（0 = 無効） |

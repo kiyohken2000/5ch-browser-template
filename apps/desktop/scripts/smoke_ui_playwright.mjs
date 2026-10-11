@@ -576,12 +576,19 @@ try {
   await page.click(".ng-remove");
   console.log("smoke-ui: ng word id chain ok");
 
-  // 連鎖あぼーん: >>4 は >>3 に安価を打っている。「次:」で >>3 をあぼーんにし、
-  // 連鎖トグルを ON にすると >>4 もあぼーんになる。>>3 は >>1 にも安価を打っているが、
+  // NGレスへの返信の連鎖: >>4 は >>3 に安価を打っている。「次:」で >>3 をあぼーんにし、
+  // 連鎖トグルを ON にすると >>4 も連鎖する。>>3 は >>1 にも安価を打っているが、
   // >>1 が NG でも >>1 への安価は連鎖しない。
   const chainRepliesBox = await page.$(".ng-chain-setting input[type='checkbox']");
-  assert(chainRepliesBox, "NG panel should have the 連鎖あぼーん checkbox");
-  assert(!(await chainRepliesBox.isChecked()), "連鎖あぼーん should default to off");
+  assert(chainRepliesBox, "NG panel should have the 連鎖 checkbox");
+  assert(!(await chainRepliesBox.isChecked()), "連鎖 should default to off");
+  const chainModeSelect = await page.$(".ng-chain-setting .ng-mode-select");
+  assert(chainModeSelect, "NG レスへの返信の連鎖 should have a mode select");
+  assert(await chainModeSelect.isDisabled(), "the chain mode select should be disabled while the chain is off");
+  assert(
+    (await chainModeSelect.inputValue()) === "abone",
+    `the chain mode should default to あぼーん for backward compatibility, got ${await chainModeSelect.inputValue()}`,
+  );
   await page.fill(".ng-panel-add input", "次:");
   await page.click(".ng-panel-add button:has-text('追加')");
   const aboneNoChain = await page.$$eval(".response-block.abone-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
@@ -593,8 +600,22 @@ try {
   const aboneChained = await page.$$eval(".response-block.abone-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
   assert(
     aboneChained.includes("3") && aboneChained.includes("4") && !aboneChained.includes("1"),
-    `連鎖あぼーん should abone the reply >>4, got ${JSON.stringify(aboneChained)}`,
+    `連鎖 should abone the reply >>4, got ${JSON.stringify(aboneChained)}`,
   );
+  // モードを「非表示」にすると、連鎖した >>4 はレス番ごと消える (>>3 は NG 側の設定どおりあぼーんのまま)
+  assert(!(await chainModeSelect.isDisabled()), "the chain mode select should become enabled once the chain is on");
+  await page.selectOption(".ng-chain-setting .ng-mode-select", "hide");
+  const chainedHidden = await page.$$eval(".response-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+  assert(
+    !chainedHidden.includes("4") && chainedHidden.includes("3") && chainedHidden.includes("1"),
+    `連鎖 in 非表示 mode should hide the reply >>4 entirely, got ${JSON.stringify(chainedHidden)}`,
+  );
+  const chainedHiddenAbone = await page.$$eval(".response-block.abone-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+  assert(
+    chainedHiddenAbone.includes("3") && !chainedHiddenAbone.includes("4"),
+    `>>3 should stay abone while the chained >>4 is hidden, got ${JSON.stringify(chainedHiddenAbone)}`,
+  );
+  await page.selectOption(".ng-chain-setting .ng-mode-select", "abone");
   await page.click(".ng-remove");
   // >>1 への安価は連鎖しない: >>1 をあぼーんにしても >>3 は残る
   await page.fill(".ng-panel-add input", "トレース準備");
@@ -3356,6 +3377,76 @@ try {
   );
   await ipcPage.close();
   console.log("smoke-ui: layout prefs write recovers from a stuck ipc ok");
+
+  // タブ復元。保存は restoreSession に関係なく走るので、復元しない設定のときに
+  // 起動直後の保存が空のタブで上書きしてしまうと、設定を後から ON にしても何も
+  // 戻らなくなる。復元する / しないの両方で保存済みのタブが残ること。
+  const SMOKE_TABS = [
+    { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1111111111/", title: "復元タブA" },
+    { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/2222222222/", title: "復元タブB" },
+  ];
+  const seedTabs = JSON.stringify({ tabs: SMOKE_TABS, activeIndex: 1 });
+  const openRestorePage = async (initScript, arg) => {
+    const p = await context.newPage();
+    await p.addInitScript(initScript, arg);
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector(".row-splitter");
+    await new Promise((r) => setTimeout(r, 800));
+    const titles = await p.$$eval(".thread-tab:not(.placeholder) .thread-tab-title", (els) => els.map((el) => el.textContent));
+    const stored = await p.evaluate(() => localStorage.getItem("desktop.threadTabs.v1"));
+    await p.close();
+    return { titles, stored };
+  };
+  const seedLocal = ([tabs, prefs]) => {
+    localStorage.setItem("desktop.threadTabs.v1", tabs);
+    localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+    if (prefs) localStorage.setItem("desktop.layoutPrefs.v1", prefs);
+  };
+
+  const restoreOn = await openRestorePage(seedLocal, [seedTabs, JSON.stringify({ restoreSession: true })]);
+  assert(
+    restoreOn.titles.join(",") === "復元タブA,復元タブB",
+    `restoreSession on should restore the saved tabs, got ${JSON.stringify(restoreOn.titles)}`,
+  );
+  assert(
+    JSON.parse(restoreOn.stored).tabs.length === 2 && JSON.parse(restoreOn.stored).activeIndex === 1,
+    `restoring must keep the saved tabs and the active index, got ${restoreOn.stored}`,
+  );
+
+  const restoreOff = await openRestorePage(seedLocal, [seedTabs, JSON.stringify({ restoreSession: false })]);
+  assert(restoreOff.titles.length === 0, `restoreSession off should not restore tabs, got ${JSON.stringify(restoreOff.titles)}`);
+  assert(
+    JSON.parse(restoreOff.stored).tabs.length === 2,
+    `restoreSession off must not wipe the saved tabs, got ${restoreOff.stored}`,
+  );
+  console.log("smoke-ui: thread tab restore ok");
+
+  // layout_prefs は専用コマンドで保存しているので UI_JSON_FILES に入っていない。
+  // localStorage だけ失われた環境でも、描画前にファイルから流し込むことで
+  // restoreSession が既定値に戻らないこと (タブが消えないこと)。
+  const prefsFromFilePage = await context.newPage();
+  await prefsFromFilePage.addInitScript((tabs) => {
+    localStorage.setItem("desktop.threadTabs.v1", tabs);
+    localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+    window.__TAURI_INTERNALS__ = {
+      transformCallback: (cb) => cb,
+      invoke: (cmd) => {
+        if (cmd === "load_layout_prefs") return Promise.resolve(JSON.stringify({ restoreSession: true }));
+        if (cmd === "save_layout_prefs") return Promise.resolve(null);
+        return Promise.reject(new Error("smoke stub: " + cmd));
+      },
+    };
+  }, seedTabs);
+  await prefsFromFilePage.goto(targetUrl, { waitUntil: "load" });
+  await prefsFromFilePage.waitForSelector(".row-splitter");
+  await new Promise((r) => setTimeout(r, 800));
+  const prefsFromFileTabs = await prefsFromFilePage.$$eval(".thread-tab:not(.placeholder) .thread-tab-title", (els) => els.map((el) => el.textContent));
+  assert(
+    prefsFromFileTabs.join(",") === "復元タブA,復元タブB",
+    `restoreSession must be read from the file before render, got ${JSON.stringify(prefsFromFileTabs)}`,
+  );
+  await prefsFromFilePage.close();
+  console.log("smoke-ui: layout prefs seeded from file before render ok");
 
   console.log("smoke-ui: ok");
 } finally {
