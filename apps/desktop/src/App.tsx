@@ -2692,6 +2692,11 @@ export default function App() {
   // このセッションで一度でもタブを持ったか (下の保存エフェクトのコメント参照)。
   const tabsDirtyRef = useRef(false);
   const lastBoardUrlRef = useRef("");
+  // 今 fetchedThreads に入っているスレ一覧を、どの URL で取ったか。
+  // 既読を引き直すときに threadUrl (= 開いているスレの URL) から板を導くと、
+  // スレと一覧の板が違うとき (別の板のタブを開いている / 復元した) に read_status の
+  // 突き合わせが全部外れて既読が空になるため、取得時の URL をそのまま覚えておく。
+  const fetchedThreadsBoardUrlRef = useRef("");
   const pendingLastBoardRef = useRef<{ boardName: string; url: string } | null>(null);
   const [selectedBoard, setSelectedBoard] = useState("Favorite");
   // ハイライト判定用。同名・別URLの板 (bbymobile と mobile の「モバイル」など) を
@@ -4343,6 +4348,23 @@ export default function App() {
   };
 
   const selectBoard = (board: BoardEntry) => {
+    // 自動開閉でスレ一覧が畳まれているときに「今いる板」をもう一度クリックするのは、
+    // 板の切り替えではなく一覧を出し直したい操作。そこで通常の板選択を走らせると
+    // スレ一覧フィルタ (お気に入り / 最近開いた / 最近書き込んだ) が解除されるので、
+    // 出すだけにして取得もフィルタ解除もしない。別の板なら従来どおり切り替える。
+    if (
+      threadPaneAutoToggle &&
+      threadPaneHidden &&
+      (showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly) &&
+      lastBoardUrlRef.current === board.url
+    ) {
+      setThreadPaneHidden(false);
+      setFocusedPane("threads");
+      setTimeout(() => {
+        threadListScrollRef.current?.focus({ preventScroll: true });
+      }, 60);
+      return;
+    }
     setSelectedBoard(board.boardName);
     setShowRecentOpenedOnly(false);
     setShowRecentPostedOnly(false);
@@ -4490,6 +4512,7 @@ export default function App() {
       });
       await loadReadStatusForBoard(url, rows);
       setFetchedThreads(rows);
+      fetchedThreadsBoardUrlRef.current = url;
       markNewThreads(url, rows, true);
       if (!keepSortOnRefreshRef.current && !threadSortPersistEnabledRef.current) {
         setThreadSortKey("id");
@@ -4589,11 +4612,21 @@ export default function App() {
         limit: null,
       });
       setFetchedThreads(rows);
+      fetchedThreadsBoardUrlRef.current = url;
       void loadReadStatusForBoard(url, rows);
       markNewThreads(url, rows, false);
     } catch {
       // silent refresh — ignore errors
     }
+  };
+
+  // スレ一覧フィルタを解除して板のスレ一覧へ戻るときに、既読の ● と既読数を引き直す。
+  // threadReadMap / threadLastReadCount のキーは「今表示しているリストでの index + 1」
+  // なので、フィルタ側のキーのまま板一覧を出すと数字がずれる。板URLは fetchedThreads を
+  // 取ったときの URL を使う (threadUrl から導くと開いているスレの板になってしまう)。
+  const reloadFetchedThreadsReadStatus = () => {
+    const url = fetchedThreadsBoardUrlRef.current || threadUrl.trim();
+    if (url && fetchedThreads.length > 0) void loadReadStatusForBoard(url, fetchedThreads);
   };
 
   const fetchSavedThreadCounts = async (
@@ -7400,8 +7433,7 @@ export default function App() {
   const exitThreadSearch = () => {
     setShowThreadSearchOnly(false);
     setThreadSearchResult(null);
-    const url = threadUrl.trim();
-    if (url && fetchedThreads.length > 0) void loadReadStatusForBoard(url, fetchedThreads);
+    reloadFetchedThreadsReadStatus();
   };
 
   const purgeThreadCache = (url: string) => {
@@ -8144,7 +8176,13 @@ export default function App() {
         }
         if (parsed.paneLayoutMode === "classic" || parsed.paneLayoutMode === "river") setPaneLayoutMode(parsed.paneLayoutMode);
         if (typeof parsed.boardPaneHidden === "boolean") setBoardPaneHidden(parsed.boardPaneHidden);
-        if (typeof parsed.threadPaneHidden === "boolean") setThreadPaneHidden(parsed.threadPaneHidden);
+        // 自動開閉のときの「隠れている」は、スレを開いたりレスペインを触った結果の
+        // 一時的な状態なので起動時には戻さない。戻すと、復元した板・スレ一覧フィルタが
+        // 最初から見えないままになる (既読の ● と既読数はスレ一覧にしか出ないので、
+        // 復元自体は成功しているのに既読が消えたように見える)。
+        if (typeof parsed.threadPaneHidden === "boolean" && parsed.threadPaneAutoToggle !== true) {
+          setThreadPaneHidden(parsed.threadPaneHidden);
+        }
         if (typeof parsed.threadPaneAutoToggle === "boolean") setThreadPaneAutoToggle(parsed.threadPaneAutoToggle);
         if (typeof parsed.threadPaneBackRestore === "boolean") setThreadPaneBackRestore(parsed.threadPaneBackRestore);
         const fallbackFs = typeof parsed.fontSize === "number" ? parsed.fontSize : 12;
@@ -9115,7 +9153,9 @@ export default function App() {
       responseTopRatio,
       paneLayoutMode,
       boardPaneHidden,
-      threadPaneHidden,
+      // 自動開閉中は畳んだ状態を持ち越さない。true のまま保存すると、あとで
+      // 自動開閉を切ったときに、覚えのない「隠れたまま起動」が一度だけ起きる。
+      threadPaneHidden: threadPaneAutoToggle ? false : threadPaneHidden,
       threadPaneAutoToggle,
       threadPaneBackRestore,
       boardsFontSize,
@@ -10955,8 +10995,7 @@ export default function App() {
               else if (showCachedOnly) { setShowCachedOnly(false); setCachedThreadList([]); }
               else if (showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly) {
                 setShowFavoritesOnly(false); setShowRecentOpenedOnly(false); setShowRecentPostedOnly(false);
-                const url = threadUrl.trim();
-                if (url && fetchedThreads.length > 0) void loadReadStatusForBoard(url, fetchedThreads);
+                reloadFetchedThreadsReadStatus();
               } else {
                 setThreadFilterMenuOpen((v) => !v);
               }
@@ -10994,8 +11033,7 @@ export default function App() {
                   setShowCachedOnly(false); setShowThreadSearchOnly(false); setShowRecentOpenedOnly(false); setShowRecentPostedOnly(false);
                   void fetchFavNewCounts();
                 } else {
-                  const url = threadUrl.trim();
-                  if (url && fetchedThreads.length > 0) void loadReadStatusForBoard(url, fetchedThreads);
+                  reloadFetchedThreadsReadStatus();
                 }
               }}>{showFavoritesOnly ? "\u2713 " : ""}お気に入りスレ</button>
               <button onClick={() => {
@@ -11006,8 +11044,7 @@ export default function App() {
                   setShowCachedOnly(false); setShowThreadSearchOnly(false); setShowFavoritesOnly(false); setShowRecentPostedOnly(false);
                   void fetchSavedThreadCounts(recentOpenedThreads, "recent-opened");
                 } else {
-                  const url = threadUrl.trim();
-                  if (url && fetchedThreads.length > 0) void loadReadStatusForBoard(url, fetchedThreads);
+                  reloadFetchedThreadsReadStatus();
                 }
               }}>{showRecentOpenedOnly ? "\u2713 " : ""}最近開いたスレ ({recentOpenedThreads.length})</button>
               <button onClick={() => {
@@ -11018,8 +11055,7 @@ export default function App() {
                   setShowCachedOnly(false); setShowThreadSearchOnly(false); setShowFavoritesOnly(false); setShowRecentOpenedOnly(false);
                   void fetchSavedThreadCounts(recentPostedThreads, "recent-posted");
                 } else {
-                  const url = threadUrl.trim();
-                  if (url && fetchedThreads.length > 0) void loadReadStatusForBoard(url, fetchedThreads);
+                  reloadFetchedThreadsReadStatus();
                 }
               }}>{showRecentPostedOnly ? "\u2713 " : ""}最近書き込んだスレ ({recentPostedThreads.length})</button>
             </div>

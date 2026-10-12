@@ -3469,6 +3469,203 @@ try {
   );
   console.log("smoke-ui: thread tab restore ok");
 
+  // 「スレ一覧を自動で開閉する」と「起動時に前回のタブ・板・スレ一覧フィルタを復元」を
+  // 両方オンにすると、復元した板・フィルタのスレ一覧が最初から見えないという報告の回帰用。
+  // 自動開閉の「隠れている」はスレを開いた結果の一時状態なので起動時には戻さない。
+  // 既読の ● と既読数はスレ一覧にしか出ないので、隠れていると復元できていても消えて見える。
+  {
+    const RESTORE_RECENT = [
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1111111111/", title: "復元履歴A", boardUrl: "https://mao.5ch.io/ngt/", updatedAt: 1 },
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/2222222222/", title: "復元履歴B", boardUrl: "https://mao.5ch.io/ngt/", updatedAt: 2 },
+    ];
+    const openPaneRestore = async (prefs) => {
+      const p = await context.newPage();
+      await p.addInitScript((arg) => {
+        localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+        localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+        localStorage.setItem("desktop.threadFilterMode.v1", "recent-opened");
+        localStorage.setItem("desktop.recentOpenedThreads.v1", arg.recent);
+      }, { prefs: JSON.stringify(prefs), recent: JSON.stringify(RESTORE_RECENT) });
+      await p.goto(targetUrl, { waitUntil: "load" });
+      await p.waitForSelector(".status-bar");
+      await new Promise((r) => setTimeout(r, 700));
+      const display = await p.$eval(".pane.threads", (el) => getComputedStyle(el).display);
+      const filterTitle = await p.$eval(".title-split-main", (el) => el.getAttribute("title") || "");
+      await p.close();
+      return { display, filterTitle };
+    };
+    const basePrefs = { restoreSession: true, lastBoard: { boardName: "ngt", url: "https://mao.5ch.io/ngt/" } };
+
+    const autoOn = await openPaneRestore({ ...basePrefs, threadPaneAutoToggle: true, threadPaneHidden: true });
+    assert(
+      autoOn.display !== "none",
+      "with the auto toggle on, a collapsed thread pane must not come back collapsed on the next launch",
+    );
+    assert(
+      autoOn.filterTitle.includes("最近開いたスレ表示中"),
+      `the restored thread filter should still be applied, got ${autoOn.filterTitle}`,
+    );
+
+    // 手動で隠した状態は従来どおり覚えておく (自動開閉がオフのときだけの設定扱い)。
+    const autoOff = await openPaneRestore({ ...basePrefs, threadPaneAutoToggle: false, threadPaneHidden: true });
+    assert(
+      autoOff.display === "none",
+      "without the auto toggle, a manually hidden thread pane should stay hidden across launches",
+    );
+    console.log("smoke-ui: auto toggle does not persist a collapsed thread pane ok");
+  }
+
+  // 自動開閉で畳まれている状態で「今いる板」をもう一度クリックするのは一覧を出す操作で、
+  // 板の切り替えではない。ここで板選択を走らせると復元したフィルタが解除されてしまう。
+  {
+    const p = await context.newPage();
+    await p.addInitScript(() => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem(
+        "desktop.layoutPrefs.v1",
+        JSON.stringify({
+          restoreSession: true,
+          threadPaneAutoToggle: true,
+          lastBoard: { boardName: "ngt", url: "https://mao.5ch.io/ngt/" },
+        }),
+      );
+      localStorage.setItem("desktop.threadFilterMode.v1", "recent-opened");
+      localStorage.setItem(
+        "desktop.recentOpenedThreads.v1",
+        JSON.stringify([
+          { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1111111111/", title: "復元履歴A", boardUrl: "https://mao.5ch.io/ngt/", updatedAt: 1 },
+        ]),
+      );
+      localStorage.setItem(
+        "desktop.boardCategories.v1",
+        JSON.stringify([
+          {
+            categoryName: "テスト",
+            boards: [
+              { boardName: "ngt", url: "https://mao.5ch.io/ngt/" },
+              { boardName: "別の板", url: "https://mao.5ch.io/other/" },
+            ],
+          },
+        ]),
+      );
+      localStorage.setItem("desktop.expandedCategories.v1", JSON.stringify(["テスト"]));
+    });
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector(".board-tree .board-item");
+    await new Promise((r) => setTimeout(r, 700));
+    const paneDisplay = () => p.$eval(".pane.threads", (el) => getComputedStyle(el).display);
+    const filterOn = () => p.$eval(".title-split-main", (el) => el.classList.contains("active-toggle"));
+    assert(await filterOn(), "the restored thread filter should be active before the board click");
+
+    // 自動開閉で畳む (レスペインを触ったときと同じ状態にする)
+    await p.click(".pane.responses");
+    await new Promise((r) => setTimeout(r, 200));
+    assert((await paneDisplay()) === "none", "the auto toggle should collapse the thread pane");
+    // 畳んだ状態をそのまま保存すると、あとで自動開閉を切ったときに一度だけ
+    // 「覚えのない隠れたまま起動」が起きる。自動開閉中は持ち越さないこと。
+    const savedWhileCollapsed = await p.evaluate(
+      () => JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").threadPaneHidden,
+    );
+    assert(
+      savedWhileCollapsed === false,
+      `the auto toggle must not persist the collapsed pane, got ${savedWhileCollapsed}`,
+    );
+
+    const boards = await p.$$(".board-tree .board-item");
+    await boards[0].click();
+    await new Promise((r) => setTimeout(r, 300));
+    assert((await paneDisplay()) !== "none", "clicking the current board should reveal the collapsed thread pane");
+    assert(await filterOn(), "revealing the pane from the current board must not clear the thread filter");
+
+    // 別の板は従来どおり切り替えるので、フィルタは解除される
+    await p.click(".pane.responses");
+    await new Promise((r) => setTimeout(r, 200));
+    await boards[1].click();
+    await new Promise((r) => setTimeout(r, 300));
+    assert((await paneDisplay()) !== "none", "selecting another board should reveal the thread pane too");
+    assert(!(await filterOn()), "selecting another board should still drop the thread filter");
+    await p.close();
+    console.log("smoke-ui: revealing the pane from the current board keeps the filter ok");
+  }
+
+  // スレ一覧フィルタを解除して板のスレ一覧へ戻したときの既読。板URLを「開いているスレ」
+  // から導くと、別の板のタブを開いている (= 起動時にタブと板を復元した) ときに
+  // read_status の突き合わせが全部外れて既読が空になる。一覧を取ったときの URL を使うこと。
+  // 既読の読み込みは Tauri IPC なので、ここだけランタイムを装って応答を差し込む。
+  {
+    const BOARD_A = "https://mao.5ch.io/ngt/";
+    const THREAD_B = "https://mao.5ch.io/test/read.cgi/other/3333333333/";
+    const p = await context.newPage();
+    await p.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+      localStorage.setItem("desktop.threadFilterMode.v1", "recent-opened");
+      localStorage.setItem("desktop.recentOpenedThreads.v1", arg.recent);
+      localStorage.setItem("desktop.threadTabs.v1", arg.tabs);
+      const rowsByBoard = {
+        "https://mao.5ch.io/ngt/": [
+          { threadKey: "1111111111", title: "板Aスレ1", responseCount: 100, threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1111111111/" },
+          { threadKey: "2222222222", title: "板Aスレ2", responseCount: 120, threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/2222222222/" },
+        ],
+        "https://mao.5ch.io/other/": [
+          { threadKey: "3333333333", title: "板Bスレ", responseCount: 10, threadUrl: "https://mao.5ch.io/test/read.cgi/other/3333333333/" },
+        ],
+      };
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve("");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "load_thread_cache") return Promise.resolve(null);
+          if (cmd === "fetch_thread_list") return Promise.resolve(rowsByBoard[args.threadUrl] ?? []);
+          if (cmd === "load_read_status") {
+            return Promise.resolve({
+              "https://mao.5ch.io/ngt/": { "1111111111": 50, "2222222222": 70 },
+              "https://mao.5ch.io/other/": { "3333333333": 5 },
+            });
+          }
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, {
+      prefs: JSON.stringify({ restoreSession: true, lastBoard: { boardName: "ngt", url: BOARD_A } }),
+      recent: JSON.stringify([{ threadUrl: THREAD_B, title: "板Bスレ", boardUrl: "https://mao.5ch.io/other/", updatedAt: 1 }]),
+      tabs: JSON.stringify({ tabs: [{ threadUrl: THREAD_B, title: "板Bスレ" }], activeIndex: 0 }),
+    });
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector(".pane.threads tbody tr");
+    await new Promise((r) => setTimeout(r, 900));
+
+    const readColumnValues = async () => {
+      const headers = await p.$$eval(".pane.threads thead th", (els) => els.map((e) => (e.textContent || "").trim()));
+      const idx = headers.findIndex((h) => h.startsWith("既読"));
+      assert(idx >= 0, `thread list should have a 既読 column, got ${JSON.stringify(headers)}`);
+      return p.$$eval(
+        `.pane.threads tbody tr td:nth-child(${idx + 1})`,
+        (els) => els.map((e) => (e.textContent || "").trim()),
+      );
+    };
+
+    // 起動直後は復元したフィルタ (最近開いたスレ = 板Bのスレ) が出ている
+    const restoredFilterActive = await p.$eval(".title-split-main", (el) => el.classList.contains("active-toggle"));
+    assert(restoredFilterActive, "the restored thread filter should be active before clearing it");
+    assert(
+      (await readColumnValues()).join(",") === "5",
+      `the restored filter list should show its own read count, got ${JSON.stringify(await readColumnValues())}`,
+    );
+
+    // フィルタを解除して板Aのスレ一覧へ戻す
+    await p.click(".title-split-main");
+    await new Promise((r) => setTimeout(r, 600));
+    const boardReads = await readColumnValues();
+    assert(
+      boardReads.join(",") === "50,70",
+      `clearing the filter must restore the board's read counts, got ${JSON.stringify(boardReads)}`,
+    );
+    await p.close();
+    console.log("smoke-ui: read counts survive clearing the filter with a tab from another board ok");
+  }
+
   // layout_prefs は専用コマンドで保存しているので UI_JSON_FILES に入っていない。
   // localStorage だけ失われた環境でも、描画前にファイルから流し込むことで
   // restoreSession が既定値に戻らないこと (タブが消えないこと)。
