@@ -4042,8 +4042,19 @@ export default function App() {
     // scrollToResponseNo は最大 2 秒かけて再アンカーし続けるので、タブに戻った直後に
     // New や「続き」を押すと、飛んだ先から元の読書位置へ引き戻されていた。
     scrollAnchorSeqRef.current++;
-    forceResponseScrollRef.current = true;
+    // 選択の変化に頼らず自分でスクロールする。setSelectedResponse だけでは、すでに同じ
+    // レスを選択していると state が変わらず selectedResponse の effect が起動せず、
+    // New を 2 回目以降押しても「ここから新着」へまったく動かなかった。
+    // 着地も上端合わせになる。effect の scrollIntoView({ block: "nearest" }) は対象が
+    // 画面より下にあると下端合わせになるため、新着の数レス手前に着地していた。
+    forceResponseScrollRef.current = false;
     setSelectedResponse(id);
+    if (id <= 1) {
+      const container = responseScrollRef.current;
+      if (container) container.scrollTop = 0;
+    } else {
+      scrollToResponseNo(id);
+    }
   };
 
   const toggleCategory = (name: string) => {
@@ -4971,12 +4982,12 @@ export default function App() {
         setNewResponseStart(prevCount + 1);
         setStatus(`新着 ${rows.length - prevCount} レス (${rows.length})`);
       } else if (opts?.keepSelection && !opts?.isRefresh) {
-        // 表示を切り替えるだけの取得 (スレ一覧から戻る / URL 欄 / 自動更新) では
-        // 既存のマーカーを消さない。消していたため、自動更新が一度空振りしただけで、
-        // またスレ一覧から開いているスレへ戻るだけで (行クリックが取り直す)
-        // 「ここから新着」と New ボタンが消えていた。
+        // 自動更新の空振りと URL 欄からの表示だけは既存のマーカーを消さない。
+        // 読んでいる最中にタイマーが一度空振りしただけで、「ここから新着」と
+        // New ボタンが勝手に消えていたため。
         // レスが減った (dat の取り直し) ときだけ範囲外になるので畳む。
-        // 手動の新着取得 (isRefresh) は 0 件ならマーカーを消す — 下の else へ落とす。
+        // 新着取得 (isRefresh: 新着取得ボタン / タブのダブルクリック / スレ一覧からの選び直し) は
+        // 0 件ならマーカーを消す — 下の else へ落とす。
         setNewResponseStart((prev) => (prev !== null && prev <= rows.length ? prev : null));
         setStatus(`responses loaded: ${rows.length}`);
       } else {
@@ -11497,7 +11508,9 @@ export default function App() {
                         const alreadyOpen = threadTabs.some((tab) => tab.threadUrl === clickedUrl);
                         openThreadInTab(clickedUrl, t.title);
                         if (alreadyOpen && !isActiveTab) {
-                          void fetchResponsesFromCurrent(clickedUrl, { keepSelection: true });
+                          // スレ一覧から選び直すのも新着取得扱いにする。
+                          // 新着 0 件なら「ここから新着」と New を消す (isRefresh)。
+                          void fetchResponsesFromCurrent(clickedUrl, { keepSelection: true, isRefresh: true });
                         }
                         // persist read status
                         if (showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly || showThreadSearchOnly) {

@@ -3667,16 +3667,20 @@ try {
   }
 
   // 板一覧で別のスレを見たあとに元スレへ戻ると「ここから新着」へ行けないという報告の回帰用。
-  //  - 戻るときの行クリックはスレを取り直す。そこで「新着なし」と判定してマーカーを
-  //    消していたため、New ボタンごと無くなっていた (自動更新の空振りでも同じ)。
   //  - 読書位置の復元 (scrollToResponseNo) は最大 2 秒かけて再アンカーし続ける。
   //    打ち切らないと、新着へのジャンプも New ボタンも元の読書位置へ引き戻される。
+  //  - New は選択がすでにマーカーのレスだと state が変わらず、自動スクロールの
+  //    effect が起動せずに 2 回目以降が死んでいた。着地も下端合わせで数レス手前になっていた。
+  //  - 新着取得 (新着取得ボタン / スレ一覧からの選び直し) で新着 0 件ならマーカーと New を消す。
+  //    自動更新の空振りだけは消さない (読んでいる最中に勝手に消えないように)。
   {
     const BOARD = "https://mao.5ch.io/ngt/";
     const THREAD_1 = "https://mao.5ch.io/test/read.cgi/ngt/1111111111/";
     const THREAD_2 = "https://mao.5ch.io/test/read.cgi/ngt/2222222222/";
-    // 留守中に増えるケースと増えないケースの両方を通す
-    for (const grows of [true, false]) {
+    //  grows      : 留守中に増えている → 戻ると新着の先頭へ
+    //  flat       : 留守中に増えていない → New の着地と、戻ったときにマーカーを消すこと
+    //  refreshBtn : 新着取得ボタンで 0 件だったときにマーカーを消すこと
+    for (const mode of ["grows", "flat", "refreshBtn"]) {
       const p = await context.newPage();
       await p.addInitScript((arg) => {
         localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
@@ -3730,7 +3734,7 @@ try {
         boards: JSON.stringify([{ categoryName: "テスト", boards: [{ boardName: "ngt", url: BOARD }] }]),
         thread1: THREAD_1,
         thread2: THREAD_2,
-        sizes1: grows ? [60, 80, 95, 95] : [60, 80, 80, 80],
+        sizes1: mode === "grows" ? [60, 80, 95, 95] : [60, 80, 80, 80],
       });
       await p.goto(targetUrl, { waitUntil: "load" });
       await p.waitForSelector(".pane.threads tbody tr");
@@ -3762,14 +3766,49 @@ try {
         await rows[i].click();
       };
 
-      // スレ1 を開き、>>40 まで読んでから同じ行をもう一度押す (= 更新) と新着 >>61 になる
       await rowClick(0);
       await new Promise((r) => setTimeout(r, 1200));
+
+      if (mode === "refreshBtn") {
+        // タイトル横の新着取得ボタンで新着 >>61 を作り、もう一度押して 0 件なら消すこと
+        const refreshBtn = await p.$('.thread-title-actions button[title="新着取得"]');
+        assert(refreshBtn, "the thread title should have a refresh button");
+        await refreshBtn.click();
+        await new Promise((r) => setTimeout(r, 1800));
+        assert(
+          (await newStart()) === 61,
+          `the refresh button should mark >>61 as the first new response, got ${await newStart()}`,
+        );
+        await refreshBtn.click();
+        await new Promise((r) => setTimeout(r, 1800));
+        assert(
+          (await newStart()) === null,
+          `an empty manual refresh must drop the new-response marker, got ${await newStart()}`,
+        );
+        assert(!(await p.$(".nav-new-btn")), "an empty manual refresh must drop the New button");
+        await p.close();
+        continue;
+      }
+
+      // >>40 まで読んでから同じ行をもう一度押す (= 更新) と新着 >>61 になる
       await scrollTo(40);
       await new Promise((r) => setTimeout(r, 300));
       await rowClick(0);
       await new Promise((r) => setTimeout(r, 1500));
       assert((await newStart()) === 61, `the refresh should mark >>61 as the first new response, got ${await newStart()}`);
+
+      if (mode === "flat") {
+        // New はマーカーのレスを画面の先頭に持ってくること。
+        // 2 回目以降も動くこと (選択が変わらないと effect が起動せず死んでいた)。
+        for (const round of [1, 2, 3]) {
+          await scrollTo(10);
+          await new Promise((r) => setTimeout(r, 600));
+          await (await p.$(".nav-new-btn")).click();
+          await new Promise((r) => setTimeout(r, 2600));
+          const landed = await topVisibleNo();
+          assert(landed === 61, `New press #${round} must land on the marker, got >>${landed}`);
+        }
+      }
 
       // また >>40 付近まで戻って読み、別のスレを見てから元スレへ戻る
       await scrollTo(40);
@@ -3779,7 +3818,7 @@ try {
       await new Promise((r) => setTimeout(r, 1500));
       await rowClick(0);
 
-      if (grows) {
+      if (mode === "grows") {
         // 新着があるなら、読書位置の復元に引き戻されず新着の先頭で落ち着くこと
         await new Promise((r) => setTimeout(r, 2600));
         assert((await newStart()) === 81, `coming back should mark >>81 as the first new response, got ${await newStart()}`);
@@ -3788,33 +3827,17 @@ try {
           `coming back must settle on the new responses, got >>${await topVisibleNo()}`,
         );
       } else {
-        // 新着が無い取り直しでマーカーを消さないこと。戻った直後に New を押しても
-        // 再アンカーに引き戻されず、新着の手前まで戻らないこと。
-        await new Promise((r) => setTimeout(r, 200));
-        assert((await newStart()) === 61, `coming back must keep the new-response marker, got ${await newStart()}`);
-        const newBtn = await p.$(".nav-new-btn");
-        assert(newBtn, "coming back must keep the New button");
-        await newBtn.click();
-        await new Promise((r) => setTimeout(r, 2600));
-        const landed = await topVisibleNo();
-        assert(
-          landed >= 57 && landed <= 61,
-          `New must not be dragged back to the old reading position, got >>${landed}`,
-        );
-        // 手動の新着取得ボタンで 0 件だったときはマーカーと New を消すこと
-        const refreshBtn = await p.$('.thread-title-actions button[title="新着取得"]');
-        assert(refreshBtn, "the thread title should have a refresh button");
-        await refreshBtn.click();
-        await new Promise((r) => setTimeout(r, 1500));
+        // 留守中に新着が無かったら、選び直しは新着取得扱いなのでマーカーと New を消すこと
+        await new Promise((r) => setTimeout(r, 2000));
         assert(
           (await newStart()) === null,
-          `an empty manual refresh must drop the new-response marker, got ${await newStart()}`,
+          `coming back with no new responses must drop the marker, got ${await newStart()}`,
         );
-        assert(!(await p.$(".nav-new-btn")), "an empty manual refresh must drop the New button");
+        assert(!(await p.$(".nav-new-btn")), "coming back with no new responses must drop the New button");
       }
       await p.close();
     }
-    console.log("smoke-ui: coming back to a thread keeps and reaches the new-response marker ok");
+    console.log("smoke-ui: the new-response marker lands, repeats and clears on an empty refresh ok");
   }
 
   // layout_prefs は専用コマンドで保存しているので UI_JSON_FILES に入っていない。
