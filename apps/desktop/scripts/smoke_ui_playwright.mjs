@@ -3801,6 +3801,16 @@ try {
           landed >= 57 && landed <= 61,
           `New must not be dragged back to the old reading position, got >>${landed}`,
         );
+        // 手動の新着取得ボタンで 0 件だったときはマーカーと New を消すこと
+        const refreshBtn = await p.$('.thread-title-actions button[title="新着取得"]');
+        assert(refreshBtn, "the thread title should have a refresh button");
+        await refreshBtn.click();
+        await new Promise((r) => setTimeout(r, 1500));
+        assert(
+          (await newStart()) === null,
+          `an empty manual refresh must drop the new-response marker, got ${await newStart()}`,
+        );
+        assert(!(await p.$(".nav-new-btn")), "an empty manual refresh must drop the New button");
       }
       await p.close();
     }

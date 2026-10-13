@@ -4103,7 +4103,7 @@ export default function App() {
       if (existingIndex === activeTabIndex) {
         setThreadUrl(url);
         setLocationInput(url);
-        void fetchResponsesFromCurrent(url, { keepSelection: true });
+        void fetchResponsesFromCurrent(url, { keepSelection: true, isRefresh: true });
         return;
       }
       if (activeTabIndex >= 0 && activeTabIndex < threadTabs.length) {
@@ -4861,7 +4861,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startupBoardFetchDone, favorites.threads, recentOpenedThreads, recentPostedThreads]);
 
-  const fetchResponsesFromCurrent = async (targetThreadUrl?: string, opts?: { keepSelection?: boolean; resetScroll?: boolean }) => {
+  const fetchResponsesFromCurrent = async (targetThreadUrl?: string, opts?: { keepSelection?: boolean; resetScroll?: boolean; isRefresh?: boolean }) => {
     const url = (targetThreadUrl ?? threadUrl).trim();
     if (!url) return;
     if (!/\/test\/read\.cgi\/[^/]+\/[^/]+/.test(new URL(url, "https://dummy").pathname)) {
@@ -4970,11 +4970,13 @@ export default function App() {
       if (prevCount > 0 && rows.length > prevCount) {
         setNewResponseStart(prevCount + 1);
         setStatus(`新着 ${rows.length - prevCount} レス (${rows.length})`);
-      } else if (opts?.keepSelection) {
-        // 新着が無かった取得で既存のマーカーを消さない。消していたため、自動更新が
-        // 一度空振りしただけで、またスレ一覧から開いているスレへ戻るだけで
-        // (行クリックが取り直す) 「ここから新着」と New ボタンが消えていた。
+      } else if (opts?.keepSelection && !opts?.isRefresh) {
+        // 表示を切り替えるだけの取得 (スレ一覧から戻る / URL 欄 / 自動更新) では
+        // 既存のマーカーを消さない。消していたため、自動更新が一度空振りしただけで、
+        // またスレ一覧から開いているスレへ戻るだけで (行クリックが取り直す)
+        // 「ここから新着」と New ボタンが消えていた。
         // レスが減った (dat の取り直し) ときだけ範囲外になるので畳む。
+        // 手動の新着取得 (isRefresh) は 0 件ならマーカーを消す — 下の else へ落とす。
         setNewResponseStart((prev) => (prev !== null && prev <= rows.length ? prev : null));
         setStatus(`responses loaded: ${rows.length}`);
       } else {
@@ -7510,7 +7512,7 @@ export default function App() {
 
   const fetchNewResponses = () => {
     runOnActiveThread((url) => {
-      void fetchResponsesFromCurrent(url, { keepSelection: true }).then(() => {
+      void fetchResponsesFromCurrent(url, { keepSelection: true, isRefresh: true }).then(() => {
         setTimeout(() => {
           responseScrollRef.current?.focus({ preventScroll: true });
         }, 60);
@@ -11676,7 +11678,7 @@ export default function App() {
                   }, 60);
                 }}
                 onDoubleClick={() => {
-                  void fetchResponsesFromCurrent(tab.threadUrl, { keepSelection: true }).then(() => {
+                  void fetchResponsesFromCurrent(tab.threadUrl, { keepSelection: true, isRefresh: true }).then(() => {
                     setTimeout(() => {
                       responseScrollRef.current?.focus({ preventScroll: true });
                     }, 60);
