@@ -4038,6 +4038,10 @@ export default function App() {
   // レスを選択しつつ、autoScrollToSelected の設定に関わらず必ず表示位置までスクロールする。
   // Top/New/続き/End/ジャンプ など明示的な移動操作用。
   const selectResponseAndScroll = (id: number) => {
+    // 進行中の読書位置復元・末尾追従ループを打ち切る (scrollResponsesToTop と同じ seq 更新)。
+    // scrollToResponseNo は最大 2 秒かけて再アンカーし続けるので、タブに戻った直後に
+    // New や「続き」を押すと、飛んだ先から元の読書位置へ引き戻されていた。
+    scrollAnchorSeqRef.current++;
     forceResponseScrollRef.current = true;
     setSelectedResponse(id);
   };
@@ -4895,10 +4899,11 @@ export default function App() {
         // auto-refresh: keep current selection, don't reset
         // scroll to first new response if there are new ones
         if (prevCount > 0 && rows.length > prevCount) {
-          setTimeout(() => {
-            const newEl = responseScrollRef.current?.querySelector(`[data-response-no="${prevCount + 1}"]`);
-            if (newEl) newEl.scrollIntoView({ block: "start" });
-          }, 50);
+          // scrollIntoView を一度呼ぶだけだと、読書位置の復元 (scrollToResponseNo) が
+          // 最大 2 秒かけて再アンカーし続けるため新着位置から引き戻されていた。
+          // スレ一覧から開いているスレへ戻ると、復元と新着ジャンプが必ずこの順で重なる。
+          // scrollToResponseNo は進行中の再アンカーを打ち切るので、こちらが後勝ちになる。
+          scrollToResponseNo(prevCount + 1);
         }
       } else if (opts?.resetScroll) {
         setSelectedResponse(rows.length > 0 ? rows[0].responseNo : 1);
@@ -4965,6 +4970,13 @@ export default function App() {
       if (prevCount > 0 && rows.length > prevCount) {
         setNewResponseStart(prevCount + 1);
         setStatus(`新着 ${rows.length - prevCount} レス (${rows.length})`);
+      } else if (opts?.keepSelection) {
+        // 新着が無かった取得で既存のマーカーを消さない。消していたため、自動更新が
+        // 一度空振りしただけで、またスレ一覧から開いているスレへ戻るだけで
+        // (行クリックが取り直す) 「ここから新着」と New ボタンが消えていた。
+        // レスが減った (dat の取り直し) ときだけ範囲外になるので畳む。
+        setNewResponseStart((prev) => (prev !== null && prev <= rows.length ? prev : null));
+        setStatus(`responses loaded: ${rows.length}`);
       } else {
         setNewResponseStart(null);
         setStatus(`responses loaded: ${rows.length}`);

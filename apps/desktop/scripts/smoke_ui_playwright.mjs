@@ -3666,6 +3666,147 @@ try {
     console.log("smoke-ui: read counts survive clearing the filter with a tab from another board ok");
   }
 
+  // 板一覧で別のスレを見たあとに元スレへ戻ると「ここから新着」へ行けないという報告の回帰用。
+  //  - 戻るときの行クリックはスレを取り直す。そこで「新着なし」と判定してマーカーを
+  //    消していたため、New ボタンごと無くなっていた (自動更新の空振りでも同じ)。
+  //  - 読書位置の復元 (scrollToResponseNo) は最大 2 秒かけて再アンカーし続ける。
+  //    打ち切らないと、新着へのジャンプも New ボタンも元の読書位置へ引き戻される。
+  {
+    const BOARD = "https://mao.5ch.io/ngt/";
+    const THREAD_1 = "https://mao.5ch.io/test/read.cgi/ngt/1111111111/";
+    const THREAD_2 = "https://mao.5ch.io/test/read.cgi/ngt/2222222222/";
+    // 留守中に増えるケースと増えないケースの両方を通す
+    for (const grows of [true, false]) {
+      const p = await context.newPage();
+      await p.addInitScript((arg) => {
+        localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+        localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+        localStorage.setItem("desktop.boardCategories.v1", arg.boards);
+        localStorage.setItem("desktop.expandedCategories.v1", JSON.stringify(["テスト"]));
+        const mkRows = (n) => {
+          const out = [];
+          for (let i = 1; i <= n; i++) {
+            out.push({
+              responseNo: i,
+              name: "名無し",
+              mail: "",
+              dateAndId: "2026/10/13(月) 00:00:00.00 ID:abcdefgh",
+              body: "レス本文 " + i + " 行目のダミーです。",
+            });
+          }
+          return out;
+        };
+        // スレ1 は 60 → 80 (手動更新で新着 >>61) → 留守中に 95 まで増えるか据え置き
+        const calls = {};
+        const sizes = { [arg.thread1]: arg.sizes1, [arg.thread2]: [30, 30, 30, 30] };
+        window.__TAURI_INTERNALS__ = {
+          transformCallback: (cb) => cb,
+          invoke: (cmd, args) => {
+            if (cmd === "load_layout_prefs") return Promise.resolve("");
+            if (cmd === "save_layout_prefs") return Promise.resolve(null);
+            if (cmd === "load_thread_cache") return Promise.resolve(null);
+            if (cmd === "save_thread_cache") return Promise.resolve(null);
+            if (cmd === "load_read_status") return Promise.resolve({});
+            if (cmd === "save_read_status") return Promise.resolve(null);
+            if (cmd === "load_ui_json") return Promise.resolve("");
+            if (cmd === "save_ui_json") return Promise.resolve(null);
+            if (cmd === "fetch_thread_list") {
+              return Promise.resolve([
+                { threadKey: "1111111111", title: "新着スレ1", responseCount: 95, threadUrl: arg.thread1 },
+                { threadKey: "2222222222", title: "新着スレ2", responseCount: 30, threadUrl: arg.thread2 },
+              ]);
+            }
+            if (cmd === "fetch_thread_responses_command") {
+              const u = args.threadUrl;
+              const n = calls[u] ?? 0;
+              calls[u] = n + 1;
+              return Promise.resolve({ responses: mkRows((sizes[u] ?? [10, 10, 10, 10])[Math.min(n, 3)]), title: null });
+            }
+            return Promise.reject(new Error("smoke stub: " + cmd));
+          },
+        };
+      }, {
+        prefs: JSON.stringify({ restoreSession: true, lastBoard: { boardName: "ngt", url: BOARD } }),
+        boards: JSON.stringify([{ categoryName: "テスト", boards: [{ boardName: "ngt", url: BOARD }] }]),
+        thread1: THREAD_1,
+        thread2: THREAD_2,
+        sizes1: grows ? [60, 80, 95, 95] : [60, 80, 80, 80],
+      });
+      await p.goto(targetUrl, { waitUntil: "load" });
+      await p.waitForSelector(".pane.threads tbody tr");
+      await new Promise((r) => setTimeout(r, 900));
+
+      // レスペインの一番上に見えているレス番 (= 読んでいる位置)
+      const topVisibleNo = () => p.evaluate(() => {
+        const c = document.querySelector(".response-scroll");
+        if (!c) return "no-container";
+        const top = c.getBoundingClientRect().top;
+        for (const el of c.querySelectorAll("[data-response-no]")) {
+          if (el.getBoundingClientRect().bottom > top) return Number(el.dataset.responseNo);
+        }
+        return 0;
+      });
+      // 「ここから新着」の直後に並んでいるレス番
+      const newStart = () => p.evaluate(() => {
+        const sep = document.querySelector(".new-response-separator");
+        const el = sep?.nextElementSibling;
+        return el ? Number(el.dataset.responseNo) : null;
+      });
+      const scrollTo = (no) => p.evaluate((n) => {
+        const c = document.querySelector(".response-scroll");
+        const el = c.querySelector(`[data-response-no="${n}"]`);
+        c.scrollTop += el.getBoundingClientRect().top - c.getBoundingClientRect().top;
+      }, no);
+      const rowClick = async (i) => {
+        const rows = await p.$$(".pane.threads tbody tr");
+        await rows[i].click();
+      };
+
+      // スレ1 を開き、>>40 まで読んでから同じ行をもう一度押す (= 更新) と新着 >>61 になる
+      await rowClick(0);
+      await new Promise((r) => setTimeout(r, 1200));
+      await scrollTo(40);
+      await new Promise((r) => setTimeout(r, 300));
+      await rowClick(0);
+      await new Promise((r) => setTimeout(r, 1500));
+      assert((await newStart()) === 61, `the refresh should mark >>61 as the first new response, got ${await newStart()}`);
+
+      // また >>40 付近まで戻って読み、別のスレを見てから元スレへ戻る
+      await scrollTo(40);
+      await new Promise((r) => setTimeout(r, 400));
+      assert((await topVisibleNo()) === 40, `the reading position should be >>40, got ${await topVisibleNo()}`);
+      await rowClick(1);
+      await new Promise((r) => setTimeout(r, 1500));
+      await rowClick(0);
+
+      if (grows) {
+        // 新着があるなら、読書位置の復元に引き戻されず新着の先頭で落ち着くこと
+        await new Promise((r) => setTimeout(r, 2600));
+        assert((await newStart()) === 81, `coming back should mark >>81 as the first new response, got ${await newStart()}`);
+        assert(
+          (await topVisibleNo()) === 81,
+          `coming back must settle on the new responses, got >>${await topVisibleNo()}`,
+        );
+      } else {
+        // 新着が無い取り直しでマーカーを消さないこと。戻った直後に New を押しても
+        // 再アンカーに引き戻されず、新着の手前まで戻らないこと。
+        await new Promise((r) => setTimeout(r, 200));
+        assert((await newStart()) === 61, `coming back must keep the new-response marker, got ${await newStart()}`);
+        const newBtn = await p.$(".nav-new-btn");
+        assert(newBtn, "coming back must keep the New button");
+        await newBtn.click();
+        await new Promise((r) => setTimeout(r, 2600));
+        const landed = await topVisibleNo();
+        assert(
+          landed >= 57 && landed <= 61,
+          `New must not be dragged back to the old reading position, got >>${landed}`,
+        );
+      }
+      await p.close();
+    }
+    console.log("smoke-ui: coming back to a thread keeps and reaches the new-response marker ok");
+  }
+
   // layout_prefs は専用コマンドで保存しているので UI_JSON_FILES に入っていない。
   // localStorage だけ失われた環境でも、描画前にファイルから流し込むことで
   // restoreSession が既定値に戻らないこと (タブが消えないこと)。
