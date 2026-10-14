@@ -432,7 +432,14 @@ try {
     if (r.h - r.tBottom >= 360 + 8) {
       assert(r.pTop >= r.tBottom, `back-ref popup should open below ▼N when there is room, got ${JSON.stringify(r)}`);
     }
-    // ホバー表示の ▼N ポップアップはポップアップ自体から離れたときに閉じる
+    // ▼N から直接離れたときも閉じる。ポップアップに入らずに横へ抜けると、以前は
+    // ポップアップに入り直すかどこかをクリックするまで残り続けていた。
+    await page.mouse.move(5, 5);
+    await new Promise((res) => setTimeout(res, 300));
+    assert(!(await page.$(".back-ref-popup")), "leaving ▼N without entering the popup should close it");
+    // ホバー表示の ▼N ポップアップはポップアップ自体から離れたときにも閉じる
+    await trigger.hover();
+    await page.waitForSelector(".back-ref-popup", { timeout: 2000 });
     await page.hover(".back-ref-popup");
     await page.mouse.move(5, 5);
     await new Promise((res) => setTimeout(res, 300));

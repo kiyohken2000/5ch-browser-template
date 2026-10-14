@@ -12150,8 +12150,27 @@ export default function App() {
                           }}
                           onMouseEnter={(e) => {
                             if (isTouchMode()) return;
+                            if (anchorPopupCloseTimer.current) {
+                              clearTimeout(anchorPopupCloseTimer.current);
+                              anchorPopupCloseTimer.current = null;
+                            }
                             const rect = (e.target as HTMLElement).getBoundingClientRect();
                             setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, anchorBottom: rect.bottom, responseIds: backRefMap.get(r.id)! });
+                          }}
+                          onMouseLeave={(ev) => {
+                            if (isTouchMode()) return;
+                            // ▼N から離れたら閉じる。これが無いと、ポップアップに入ってから出るか
+                            // どこかをクリックするまでポップアップが残り続けていた。
+                            const next = ev.relatedTarget as HTMLElement | null;
+                            if (next?.closest?.(".anchor-popup")) return;
+                            if (anchorPopupCloseTimer.current) clearTimeout(anchorPopupCloseTimer.current);
+                            // ▼N とポップアップの間には数 px の隙間があるので、渡る間の猶予を取る
+                            // (ポップアップ側の onMouseEnter がこのタイマーを解除する)。
+                            anchorPopupCloseTimer.current = setTimeout(() => {
+                              setBackRefPopup(null);
+                              setNestedPopups([]);
+                              anchorPopupCloseTimer.current = null;
+                            }, 80);
                           }}
                         >
                           ▼{backRefMap.get(r.id)!.length}
