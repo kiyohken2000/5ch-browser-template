@@ -1505,6 +1505,228 @@ const emitDeleteExplosion = (x: number, y: number, count = 4) => {
   }
 };
 
+// --- 入力コンボ演出 (設定 > 書き込み > 入力コンボ演出) ------------------------------
+// 入力時コンフェティと同じく React の外で DOM を足し、animationend で捨てる。連打しても
+// 要素が積み上がらないよう同時表示数に上限を設け、animationend が来ない場合に備えて
+// タイマーでも必ず回収する (回収漏れは要素が残り続けてカウンタが詰まる)。
+const COMBO_RESET_MS = 1200;
+const COMBO_MAX_PIECES = 400;
+let comboLivePieces = 0;
+
+const spawnComboPiece = (className: string, vars: Record<string, string>, text?: string) => {
+  if (comboLivePieces >= COMBO_MAX_PIECES) return null;
+  const piece = document.createElement("span");
+  piece.className = className;
+  if (text) piece.textContent = text;
+  for (const [key, value] of Object.entries(vars)) piece.style.setProperty(key, value);
+  comboLivePieces += 1;
+  document.body.appendChild(piece);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    comboLivePieces -= 1;
+    piece.remove();
+  };
+  piece.addEventListener("animationend", release, { once: true });
+  window.setTimeout(release, 4000);
+  return piece;
+};
+
+const comboRankOf = (combo: number): string | null =>
+  combo >= 40 ? "S" : combo >= 30 ? "A" : combo >= 20 ? "B" : combo >= 10 ? "C" : null;
+
+// COMBO 表示は打鍵ごとに作り直すと重いので、1 個を使い回して文字だけ差し替える。
+let comboBadgeEl: HTMLDivElement | null = null;
+let comboBadgeTimer: number | null = null;
+const hideComboBadge = () => {
+  if (comboBadgeTimer !== null) {
+    window.clearTimeout(comboBadgeTimer);
+    comboBadgeTimer = null;
+  }
+  comboBadgeEl?.remove();
+  comboBadgeEl = null;
+};
+const showComboBadge = (combo: number, x: number, y: number) => {
+  if (combo < 2) return;
+  if (!comboBadgeEl) {
+    comboBadgeEl = document.createElement("div");
+    comboBadgeEl.className = "typing-combo-badge";
+    document.body.appendChild(comboBadgeEl);
+  }
+  const rank = comboRankOf(combo);
+  comboBadgeEl.textContent = rank ? `${combo} COMBO ${rank}` : `${combo} COMBO`;
+  comboBadgeEl.dataset.rank = rank ?? "";
+  // キャレットの右上に出す。画面外へはみ出さないように寄せる
+  comboBadgeEl.style.setProperty("--x", `${clamp(x + 20, 8, Math.max(8, window.innerWidth - 190))}px`);
+  comboBadgeEl.style.setProperty("--y", `${clamp(y - 34, 8, Math.max(8, window.innerHeight - 44))}px`);
+  // 打鍵ごとに跳ねさせる (アニメーションを巻き戻して再生する)
+  comboBadgeEl.classList.remove("pop");
+  void comboBadgeEl.offsetWidth;
+  comboBadgeEl.classList.add("pop");
+  if (comboBadgeTimer !== null) window.clearTimeout(comboBadgeTimer);
+  comboBadgeTimer = window.setTimeout(hideComboBadge, COMBO_RESET_MS);
+};
+
+type ComboBannerVariant = "fire" | "mega" | "shipped";
+const COMBO_BANNER_MARKS: Record<ComboBannerVariant, string[]> = {
+  fire: ["🔥", "✨"],
+  mega: ["💥", "✨", "⭐"],
+  shipped: ["🚀", "✨", "🎉"],
+};
+const emitComboBanner = (text: string, variant: ComboBannerVariant) => {
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  const addCentered = (className: string, text2?: string) => {
+    const el = document.createElement("div");
+    el.className = `${className} ${variant}`;
+    if (text2) el.textContent = text2;
+    el.style.setProperty("--x", `${cx}px`);
+    el.style.setProperty("--y", `${cy}px`);
+    document.body.appendChild(el);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      el.remove();
+    };
+    el.addEventListener("animationend", release, { once: true });
+    window.setTimeout(release, 2500);
+  };
+  addCentered("typing-combo-ring");
+  addCentered("typing-combo-banner", text);
+  const marks = COMBO_BANNER_MARKS[variant];
+  const sparks = 40;
+  for (let i = 0; i < sparks; i += 1) {
+    const angle = (Math.PI * 2 * i) / sparks + (Math.random() - 0.5) * 0.4;
+    const dist = 140 + Math.random() * 320;
+    spawnComboPiece(
+      "typing-combo-spark",
+      {
+        "--x": `${cx}px`,
+        "--y": `${cy}px`,
+        "--tx": `${(Math.cos(angle) * dist).toFixed(1)}px`,
+        "--ty": `${(Math.sin(angle) * dist).toFixed(1)}px`,
+        "--rot": `${Math.round((Math.random() - 0.5) * 240)}deg`,
+        "--sc": (0.8 + Math.random() * 1.1).toFixed(2),
+        "--dur": `${700 + Math.floor(Math.random() * 600)}ms`,
+        "--delay": `${Math.floor(Math.random() * 180)}ms`,
+      },
+      marks[i % marks.length],
+    );
+  }
+  // 節目は花火も上げる。SHIPPED は一番多く
+  launchFireworks(variant === "shipped" ? 6 : 4);
+};
+
+// --- 花火 -------------------------------------------------------------------
+// 画面下から上がって、頂点で弾けて降る。玉は animationend で弾けさせるので、
+// 上がりきる前に消えた場合 (安全タイマーでの回収) は弾けないだけで漏れはしない。
+const FIREWORK_HUES = [0, 20, 45, 120, 190, 280, 320];
+const FIREWORK_MARKS = ["✨", "💖", "⭐", "🎉", "💫", "🔥", "🎊", "🌟"];
+
+const burstFirework = (x: number, y: number, hue: number) => {
+  const petals = 26;
+  for (let i = 0; i < petals; i += 1) {
+    const angle = (Math.PI * 2 * i) / petals + (Math.random() - 0.5) * 0.25;
+    const dist = 70 + Math.random() * 150;
+    const emoji = Math.random() < 0.3;
+    spawnComboPiece(
+      emoji ? "typing-firework-mark" : "typing-firework-petal",
+      {
+        "--x": `${x}px`,
+        "--y": `${y}px`,
+        "--tx": `${(Math.cos(angle) * dist).toFixed(1)}px`,
+        "--ty": `${(Math.sin(angle) * dist).toFixed(1)}px`,
+        "--h": String(hue),
+        "--sc": (0.7 + Math.random() * 0.9).toFixed(2),
+        "--rot": `${Math.round((Math.random() - 0.5) * 300)}deg`,
+        "--dur": `${900 + Math.floor(Math.random() * 500)}ms`,
+        "--delay": `${Math.floor(Math.random() * 120)}ms`,
+      },
+      emoji ? FIREWORK_MARKS[Math.floor(Math.random() * FIREWORK_MARKS.length)] : undefined,
+    );
+  }
+};
+
+const launchFireworks = (count: number) => {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  for (let i = 0; i < count; i += 1) {
+    const x = w * (0.12 + Math.random() * 0.76);
+    const apexY = h * (0.12 + Math.random() * 0.35);
+    const hue = FIREWORK_HUES[Math.floor(Math.random() * FIREWORK_HUES.length)];
+    const rise = `${600 + Math.floor(Math.random() * 400)}ms`;
+    const delay = `${i * 140 + Math.floor(Math.random() * 120)}ms`;
+    const rocket = spawnComboPiece("typing-firework-rocket", {
+      "--x": `${x}px`,
+      "--y": `${h}px`,
+      "--ty": `${(apexY - h).toFixed(1)}px`,
+      "--h": String(hue),
+      "--dur": rise,
+      "--delay": delay,
+    });
+    rocket?.addEventListener("animationend", () => burstFirework(x, apexY, hue), { once: true });
+  }
+};
+
+const COMBO_MILESTONES: { at: number; label: (combo: number) => string; variant: ComboBannerVariant }[] = [
+  { at: 30, label: (n) => `ON FIRE x${n}`, variant: "fire" },
+  { at: 50, label: () => "MEGA HIT", variant: "mega" },
+  { at: 100, label: (n) => `UNSTOPPABLE x${n}`, variant: "mega" },
+];
+
+// キャレット直前の文字列に反応する語。打ち終えた瞬間に 1 回だけ出す
+const KEYWORD_EFFECTS: { id: string; re: RegExp; marks: string[] }[] = [
+  { id: "love", re: /(好きだよ|好き|すき|スキ)$/, marks: ["💕", "😍", "🥰", "💖", "💗"] },
+  { id: "kusa", re: /(ｗｗ+|ww+|草|わろた|笑笑)$/, marks: ["🌱", "🌿", "☘️"] },
+  { id: "otsu", re: /(乙|おつ|おつかれ|お疲れ)$/, marks: ["✨", "🫡", "⭐"] },
+  { id: "thanks", re: /(ありがとう|ありがと|サンキュ|thx)$/i, marks: ["🙏", "✨", "💫"] },
+  { id: "congrats", re: /(おめでとう|おめ|祝)$/, marks: ["🎉", "🎊", "🥳"] },
+];
+const matchKeywordEffect = (beforeCaret: string) => {
+  const tail = beforeCaret.slice(-12);
+  return KEYWORD_EFFECTS.find((k) => k.re.test(tail)) ?? null;
+};
+const emitKeywordBurst = (x: number, y: number, marks: string[]) => {
+  // まず全方位に弾けさせ、そのあと上へ舞い上がらせる
+  const petals = 20;
+  for (let i = 0; i < petals; i += 1) {
+    const angle = (Math.PI * 2 * i) / petals + (Math.random() - 0.5) * 0.3;
+    const dist = 70 + Math.random() * 150;
+    spawnComboPiece(
+      "typing-keyword-mark",
+      {
+        "--x": `${x}px`,
+        "--y": `${y}px`,
+        "--tx": `${(Math.cos(angle) * dist).toFixed(1)}px`,
+        "--ty": `${(Math.sin(angle) * dist).toFixed(1)}px`,
+        "--rot": `${Math.round((Math.random() - 0.5) * 200)}deg`,
+        "--sc": (0.8 + Math.random() * 1.0).toFixed(2),
+        "--dur": `${800 + Math.floor(Math.random() * 400)}ms`,
+        "--delay": `${Math.floor(Math.random() * 100)}ms`,
+      },
+      marks[i % marks.length],
+    );
+  }
+  for (let i = 0; i < 14; i += 1) {
+    spawnComboPiece(
+      "typing-keyword-mark",
+      {
+        "--x": `${x}px`,
+        "--y": `${y}px`,
+        "--tx": `${((Math.random() - 0.5) * 300).toFixed(1)}px`,
+        "--ty": `${(-(80 + Math.random() * 260)).toFixed(1)}px`,
+        "--rot": `${Math.round((Math.random() - 0.5) * 160)}deg`,
+        "--sc": (0.9 + Math.random() * 1.1).toFixed(2),
+        "--dur": `${1000 + Math.floor(Math.random() * 600)}ms`,
+        "--delay": `${120 + Math.floor(Math.random() * 300)}ms`,
+      },
+      marks[i % marks.length],
+    );
+  }
+};
+
 const ID_COLORS = [
   "#c41a1a", "#1a8fc4", "#1aaa3e", "#b06d15", "#8c1ac4",
   "#c41a8a", "#0d8a7a", "#6b6b00", "#2d5faa", "#aa2d5f",
@@ -2451,6 +2673,7 @@ export default function App() {
   }, [postLogEnabled]);
   const [composeSubmitKey, setComposeSubmitKey] = useState<"shift" | "ctrl">("shift");
   const [typingConfettiEnabled, setTypingConfettiEnabled] = useState(false);
+  const [typingComboEnabled, setTypingComboEnabled] = useState(false);
   const [imageSizeLimit, setImageSizeLimit] = useState(0); // KB, 0 = unlimited
   // 画像一覧サブペイン用: HEAD で調べた URL→バイト数 (null = 不明)。本文と同じサイズ制限を掛けるために使う
   const [imageSizeMap, setImageSizeMap] = useState<Record<string, number | null>>({});
@@ -3053,6 +3276,9 @@ export default function App() {
   const [threadSearchHistory, setThreadSearchHistory] = useState<string[]>([]);
   const [responseSearchHistory, setResponseSearchHistory] = useState<string[]>([]);
   const lastTypingConfettiTsRef = useRef(0);
+  // 入力コンボの進行状況。1 打鍵ごとに更新するので state ではなく ref で持つ (再描画させない)
+  const typingComboRef = useRef({ count: 0, lastTs: 0, milestone: 0, rank: "" });
+  const typingKeywordRef = useRef({ id: "", ts: 0 });
   const [searchHistoryDropdown, setSearchHistoryDropdown] = useState<{ type: "thread" | "response" } | null>(null);
   const [searchHistoryMenu, setSearchHistoryMenu] = useState<{ x: number; y: number; type: "thread" | "response"; word: string } | null>(null);
   const searchHistoryMenuRef = useRef<HTMLDivElement>(null);
@@ -5235,6 +5461,7 @@ export default function App() {
         setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl: postTargetUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
       } else if (r.submitSummary) {
         setComposeResult({ ok: true, message: `Post submitted: ${r.submitSummary}` });
+        if (typingComboEnabled) emitComboBanner("SHIPPED!!", "shipped");
         setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl: postTargetUrl, body: composeBody.slice(0, 100), ok: true }, ...prev].slice(0, 50));
         const postedTitle = threadTabs.find((t) => t.threadUrl === postTargetUrl)?.title ?? postTargetUrl;
         pushRecentPostedThread(postTargetUrl, postedTitle);
@@ -5445,6 +5672,7 @@ export default function App() {
         setNewThreadResult({ ok: false, message: `エラー: ${r.bodyPreview}` });
       } else {
         setNewThreadResult({ ok: true, message: `スレ立て成功 (status=${r.status})` });
+        if (typingComboEnabled) emitComboBanner("SHIPPED!!", "shipped");
         void appendKakikomiLog({
           kind: "new_thread",
           threadUrl: r.threadUrl ?? boardUrl,
@@ -8147,6 +8375,7 @@ export default function App() {
           keepSortOnRefresh?: boolean;
           composeSubmitKey?: "shift" | "ctrl";
           typingConfettiEnabled?: boolean;
+          typingComboEnabled?: boolean;
           imageSizeLimit?: number;
           hoverPreviewEnabled?: boolean;
           idPopupEnabled?: boolean;
@@ -8230,6 +8459,7 @@ export default function App() {
         if (typeof parsed.keepSortOnRefresh === "boolean") setKeepSortOnRefresh(parsed.keepSortOnRefresh);
         if (parsed.composeSubmitKey === "shift" || parsed.composeSubmitKey === "ctrl") setComposeSubmitKey(parsed.composeSubmitKey);
         if (typeof parsed.typingConfettiEnabled === "boolean") setTypingConfettiEnabled(parsed.typingConfettiEnabled);
+        if (typeof parsed.typingComboEnabled === "boolean") setTypingComboEnabled(parsed.typingComboEnabled);
         if (typeof parsed.imageSizeLimit === "number") setImageSizeLimit(parsed.imageSizeLimit);
         if (typeof parsed.hoverPreviewEnabled === "boolean") setHoverPreviewEnabled(parsed.hoverPreviewEnabled);
         if (typeof parsed.idPopupEnabled === "boolean") setIdPopupEnabled(parsed.idPopupEnabled);
@@ -9200,6 +9430,7 @@ export default function App() {
       keepSortOnRefresh,
       composeSubmitKey,
       typingConfettiEnabled,
+      typingComboEnabled,
       imageSizeLimit,
       hoverPreviewEnabled,
       idPopupEnabled,
@@ -9246,10 +9477,10 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
-    if (!typingConfettiEnabled) return;
+    if (!typingConfettiEnabled && !typingComboEnabled) return;
     const onInput = (ev: Event) => {
       const target = ev.target;
       if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
@@ -9264,15 +9495,63 @@ export default function App() {
       const point = getCaretClientPoint(target);
       if (!point) return;
       lastTypingConfettiTsRef.current = now;
+      if (typingConfettiEnabled) {
+        if (isDelete) {
+          emitDeleteExplosion(point.x, point.y);
+        } else {
+          emitTypingConfetti(point.x, point.y);
+        }
+      }
+      if (!typingComboEnabled) return;
+      const combo = typingComboRef.current;
       if (isDelete) {
-        emitDeleteExplosion(point.x, point.y);
-      } else {
-        emitTypingConfetti(point.x, point.y);
+        // 消したらコンボは途切れる
+        combo.count = 0;
+        combo.milestone = 0;
+        combo.rank = "";
+        hideComboBadge();
+        return;
+      }
+      // しばらく手が止まっていたら仕切り直し
+      if (now - combo.lastTs > COMBO_RESET_MS) {
+        combo.count = 0;
+        combo.milestone = 0;
+        combo.rank = "";
+      }
+      combo.lastTs = now;
+      combo.count += 1;
+      showComboBadge(combo.count, point.x, point.y);
+      // ランクが上がった瞬間にも花火を 1 発
+      const rank = comboRankOf(combo.count) ?? "";
+      if (rank !== combo.rank) {
+        combo.rank = rank;
+        if (rank) launchFireworks(2);
+      }
+      // 1 打鍵で 1 ずつ増えるので、またぐ節目は多くても 1 つ
+      for (const milestone of COMBO_MILESTONES) {
+        if (combo.count >= milestone.at && combo.milestone < milestone.at) {
+          combo.milestone = milestone.at;
+          emitComboBanner(milestone.label(combo.count), milestone.variant);
+          break;
+        }
+      }
+      const keyword = matchKeywordEffect(target.value.slice(0, target.selectionStart ?? 0));
+      if (keyword) {
+        // 同じ語を打ち続けている間 (「ｗｗｗ」など) は連発させない
+        const last = typingKeywordRef.current;
+        if (last.id !== keyword.id || now - last.ts > 2000) {
+          typingKeywordRef.current = { id: keyword.id, ts: now };
+          emitKeywordBurst(point.x, point.y, keyword.marks);
+        }
       }
     };
     window.addEventListener("input", onInput, true);
-    return () => window.removeEventListener("input", onInput, true);
-  }, [typingConfettiEnabled]);
+    return () => {
+      window.removeEventListener("input", onInput, true);
+      typingComboRef.current = { count: 0, lastTs: 0, milestone: 0, rank: "" };
+      hideComboBadge();
+    };
+  }, [typingConfettiEnabled, typingComboEnabled]);
 
   useEffect(() => {
     if (isTauriRuntime()) {
@@ -14775,6 +15054,11 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={typingConfettiEnabled} onChange={(e) => setTypingConfettiEnabled(e.target.checked)} />
                   <span>入力時コンフェティ</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" className="typing-combo-toggle" checked={typingComboEnabled} onChange={(e) => setTypingComboEnabled(e.target.checked)} />
+                  <span>入力コンボ演出</span>
+                  <span className="settings-hint">連続入力で COMBO とランク、節目で大きな演出。「好き」「草」などの語にも反応し、書き込み成功時にも出る</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={postLogEnabled} onChange={(e) => setPostLogEnabled(e.target.checked)} />

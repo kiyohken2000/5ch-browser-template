@@ -2469,6 +2469,66 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: compose keep-draft setting ok");
 
+  // --- 入力コンボ演出 (既定 OFF。ON のときだけ COMBO バッジとキーワード演出が出る) ---
+  await (await page.$('.menu-item:has-text("ファイル")')).click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("設定")');
+  await page.waitForSelector(".settings-panel");
+  const comboToggle = await page.$(".settings-body input.typing-combo-toggle");
+  assert(comboToggle, "settings should have a typing combo toggle");
+  assert(!(await comboToggle.isChecked()), "typing combo should default to off");
+  await page.click('.settings-header button:has-text("閉じる")');
+  await new Promise((r) => setTimeout(r, 100));
+  // OFF のうちは何打っても出ない
+  await page.click(".thread-title-actions button[title='書き込み']");
+  await page.waitForSelector(".compose-window textarea.compose-body");
+  await page.type(".compose-window textarea.compose-body", "あいうえお", { delay: 80 });
+  assert(!(await page.$(".typing-combo-badge")), "combo badge must not appear while the setting is off");
+  await page.fill(".compose-window textarea.compose-body", "");
+  await page.click(".compose-header button:has-text('閉じる')");
+  await new Promise((r) => setTimeout(r, 100));
+  // ON にすると layoutPrefs に永続化される
+  await (await page.$('.menu-item:has-text("ファイル")')).click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("設定")');
+  await page.waitForSelector(".settings-panel");
+  await page.check(".settings-body input.typing-combo-toggle");
+  await new Promise((r) => setTimeout(r, 150));
+  const comboPref = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").typingComboEnabled;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(comboPref === true, `typing combo should persist to layoutPrefs, got ${comboPref}`);
+  await page.click('.settings-header button:has-text("閉じる")');
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click(".thread-title-actions button[title='書き込み']");
+  await page.waitForSelector(".compose-window textarea.compose-body");
+  // 連続して打つと COMBO が出て、数が伸びる
+  await page.type(".compose-window textarea.compose-body", "あいうえお", { delay: 80 });
+  const comboText = await page.$eval(".typing-combo-badge", (el) => el.textContent || "");
+  assert(/^\d+ COMBO/.test(comboText), `combo badge should show the count, got: ${JSON.stringify(comboText)}`);
+  // 手が止まればコンボは切れてバッジも消える
+  await page.waitForFunction(() => !document.querySelector(".typing-combo-badge"), null, { timeout: 3000 });
+  // 「好き」で打ち終えるとキーワード演出が出る
+  await page.type(".compose-window textarea.compose-body", "好き", { delay: 80 });
+  assert(await page.$(".typing-keyword-mark"), "typing a keyword should emit its burst");
+  await page.fill(".compose-window textarea.compose-body", "");
+  await page.click(".compose-header button:has-text('閉じる')");
+  await new Promise((r) => setTimeout(r, 100));
+  // 既定 (OFF) に戻してから先へ進む
+  await (await page.$('.menu-item:has-text("ファイル")')).click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("設定")');
+  await page.waitForSelector(".settings-panel");
+  await page.uncheck(".settings-body input.typing-combo-toggle");
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.settings-header button:has-text("閉じる")');
+  await new Promise((r) => setTimeout(r, 100));
+  console.log("smoke-ui: typing combo setting ok");
+
   // --- 保存ログ一覧 (全板) がスレ一覧フィルタのメニューに並んでいる ---
   // 一覧の中身は Tauri IPC (load_all_cached_threads) 依存なので、ブラウザ環境では
   // 項目が既存の「dat落ちキャッシュ」と並んで出ていることだけを検証する。

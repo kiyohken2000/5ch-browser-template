@@ -5191,10 +5191,200 @@ a.body-link-image:hover::after {
   border-color: #4a90d9;
 }
 
+/* --- 入力コンボ演出 (設定 > 書き込み > 入力コンボ演出) --- */
+.typing-combo-badge {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate3d(var(--x), var(--y), 0);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  color: #ff8a3d;
+  text-shadow: 0 0 6px rgba(255, 138, 61, 0.65), 0 2px 3px rgba(0, 0, 0, 0.45);
+}
+.typing-combo-badge[data-rank="C"] { color: #7ec8ff; text-shadow: 0 0 6px rgba(126, 200, 255, 0.65), 0 2px 3px rgba(0, 0, 0, 0.45); }
+.typing-combo-badge[data-rank="B"] { color: #8affc0; text-shadow: 0 0 6px rgba(138, 255, 192, 0.65), 0 2px 3px rgba(0, 0, 0, 0.45); }
+.typing-combo-badge[data-rank="A"] { color: #ffd34d; text-shadow: 0 0 8px rgba(255, 211, 77, 0.75), 0 2px 3px rgba(0, 0, 0, 0.45); }
+.typing-combo-badge[data-rank="S"] { color: #ff5f6d; text-shadow: 0 0 10px rgba(255, 95, 109, 0.85), 0 2px 3px rgba(0, 0, 0, 0.5); }
+.typing-combo-badge.pop {
+  animation: typing-combo-pop 180ms ease-out;
+}
+
+@keyframes typing-combo-pop {
+  0% { transform: translate3d(var(--x), var(--y), 0) scale(1.35); }
+  100% { transform: translate3d(var(--x), var(--y), 0) scale(1); }
+}
+
+.typing-combo-banner {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 10000;
+  font-size: 54px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  white-space: nowrap;
+  transform: translate3d(var(--x), var(--y), 0) translate(-50%, -50%);
+  animation: typing-combo-banner-in 1400ms ease-out forwards;
+}
+.typing-combo-banner.fire {
+  color: #ff7a18;
+  text-shadow: 0 0 18px rgba(255, 122, 24, 0.8), 0 4px 6px rgba(0, 0, 0, 0.5);
+}
+.typing-combo-banner.mega {
+  color: #ff3d7f;
+  text-shadow: 0 0 18px rgba(255, 61, 127, 0.8), 0 4px 6px rgba(0, 0, 0, 0.5);
+}
+.typing-combo-banner.shipped {
+  color: #9b6bff;
+  text-shadow: 0 0 18px rgba(155, 107, 255, 0.85), 0 4px 6px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes typing-combo-banner-in {
+  0% { opacity: 0; transform: translate3d(var(--x), var(--y), 0) translate(-50%, -50%) scale(0.5); }
+  18% { opacity: 1; transform: translate3d(var(--x), var(--y), 0) translate(-50%, -50%) scale(1.12); }
+  32% { transform: translate3d(var(--x), var(--y), 0) translate(-50%, -50%) scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate3d(var(--x), var(--y), 0) translate(-50%, -50%) scale(1.06); }
+}
+
+.typing-combo-ring {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 160px;
+  height: 160px;
+  margin: -80px 0 0 -80px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  pointer-events: none;
+  z-index: 9998;
+  transform: translate3d(var(--x), var(--y), 0) scale(0.2);
+  animation: typing-combo-ring-out 900ms ease-out forwards;
+}
+.typing-combo-ring.fire { color: #ff7a18; }
+.typing-combo-ring.mega { color: #ff3d7f; }
+.typing-combo-ring.shipped { color: #6bc6ff; }
+
+@keyframes typing-combo-ring-out {
+  0% { opacity: 0.9; transform: translate3d(var(--x), var(--y), 0) scale(0.2); }
+  100% { opacity: 0; transform: translate3d(var(--x), var(--y), 0) scale(4.2); }
+}
+
+.typing-combo-spark,
+.typing-keyword-mark {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 9999;
+  font-size: 20px;
+  line-height: 1;
+  transform: translate3d(var(--x), var(--y), 0);
+}
+.typing-combo-spark {
+  font-size: 24px;
+  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) forwards;
+}
+.typing-keyword-mark {
+  font-size: 26px;
+  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) forwards;
+}
+
+@keyframes typing-combo-fly {
+  0% { opacity: 0; transform: translate3d(var(--x), var(--y), 0) rotate(0deg) scale(0.6); }
+  15% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate3d(calc(var(--x) + var(--tx)), calc(var(--y) + var(--ty)), 0) rotate(var(--rot, 0deg)) scale(var(--sc, 1.1));
+  }
+}
+
+/* 花火: 下から上がる玉と、頂点で弾ける花弁 */
+.typing-firework-rocket {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 5px;
+  height: 14px;
+  margin: -7px 0 0 -2px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 9998;
+  background: linear-gradient(to top, hsla(var(--h), 95%, 70%, 0), hsl(var(--h), 95%, 72%));
+  box-shadow: 0 0 10px hsla(var(--h), 95%, 70%, 0.9);
+  transform: translate3d(var(--x), var(--y), 0);
+  animation: typing-firework-rise var(--dur) cubic-bezier(0.2, 0.7, 0.4, 1) var(--delay, 0ms) forwards;
+}
+
+@keyframes typing-firework-rise {
+  0% { opacity: 0; transform: translate3d(var(--x), var(--y), 0) scaleY(0.6); }
+  12% { opacity: 1; }
+  85% { opacity: 1; }
+  100% {
+    opacity: 0.2;
+    transform: translate3d(var(--x), calc(var(--y) + var(--ty)), 0) scaleY(1.4);
+  }
+}
+
+.typing-firework-petal {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9999;
+  background: hsl(var(--h), 95%, 68%);
+  box-shadow: 0 0 10px hsla(var(--h), 95%, 68%, 0.95);
+  transform: translate3d(var(--x), var(--y), 0);
+  animation: typing-firework-burst var(--dur) ease-out var(--delay, 0ms) forwards;
+}
+.typing-firework-mark {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 9999;
+  font-size: 22px;
+  line-height: 1;
+  transform: translate3d(var(--x), var(--y), 0);
+  animation: typing-firework-burst var(--dur) ease-out var(--delay, 0ms) forwards;
+}
+
+/* 弾けたあと、尾を引いて落ちる */
+@keyframes typing-firework-burst {
+  0% { opacity: 0; transform: translate3d(var(--x), var(--y), 0) rotate(0deg) scale(0.3); }
+  10% { opacity: 1; }
+  65% {
+    opacity: 1;
+    transform: translate3d(calc(var(--x) + var(--tx)), calc(var(--y) + var(--ty)), 0) rotate(var(--rot, 0deg)) scale(var(--sc, 1));
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(calc(var(--x) + var(--tx) * 1.15), calc(var(--y) + var(--ty) + 90px), 0) rotate(var(--rot, 0deg)) scale(calc(var(--sc, 1) * 0.6));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .typing-confetti-piece,
-  .delete-explosion-piece {
-    /* コンフェティはアプリ内設定で制御するため、OS設定を無視 */
+  .delete-explosion-piece,
+  .typing-combo-badge,
+  .typing-combo-banner,
+  .typing-combo-ring,
+  .typing-combo-spark,
+  .typing-keyword-mark,
+  .typing-firework-rocket,
+  .typing-firework-petal,
+  .typing-firework-mark {
+    /* 入力演出はアプリ内設定で制御するため、OS設定を無視 */
   }
 }
 
