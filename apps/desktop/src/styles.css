@@ -5541,6 +5541,221 @@ a.body-link-image:hover::after {
   }
 }
 
+/* フリーズは枠が青白く光ったまま長く回り続ける */
+.typing-slot.frozen-glow {
+  border-color: #7fd8ff;
+  box-shadow: 0 0 22px rgba(127, 216, 255, 0.85), 0 0 48px rgba(80, 170, 255, 0.5), 0 6px 18px rgba(0, 0, 0, 0.55);
+  animation: typing-slot-freeze-glow 440ms ease-in-out infinite;
+}
+
+/* フリーズは終盤まで等速で回す。通常のイージングのままだと早々に減速して間延びする */
+.typing-slot.frozen .typing-slot-strip {
+  animation: typing-slot-spin-freeze var(--dur) forwards;
+}
+
+@keyframes typing-slot-spin-freeze {
+  0% {
+    transform: translateY(0);
+    animation-timing-function: linear;
+  }
+  72% {
+    transform: translateY(calc(var(--end) * 0.84));
+    animation-timing-function: cubic-bezier(0.25, 0.6, 0.2, 1);
+  }
+  94% {
+    transform: translateY(calc(var(--end) - 12px));
+    animation-timing-function: ease-out;
+  }
+  100% { transform: translateY(var(--end)); }
+}
+
+@keyframes typing-slot-freeze-glow {
+  0%, 100% { transform: translate3d(var(--x), var(--y), 0) scale(1); }
+  50% { transform: translate3d(calc(var(--x) + 2px), var(--y), 0) scale(1.04); }
+}
+
+.typing-slot-freeze {
+  position: absolute;
+  left: 50%;
+  top: -24px;
+  transform: translateX(-50%);
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  white-space: nowrap;
+  color: #bdeaff;
+  text-shadow: 0 0 10px rgba(127, 216, 255, 0.95), 0 2px 3px rgba(0, 0, 0, 0.6);
+  animation: typing-slot-freeze-tag 520ms ease-in-out infinite;
+}
+
+@keyframes typing-slot-freeze-tag {
+  0%, 100% { opacity: 0.65; transform: translateX(-50%) scale(1); }
+  50% { opacity: 1; transform: translateX(-50%) scale(1.14); }
+}
+
+/* 「おしい」の 3 本目はここから 1 コマずつ落ちる */
+.typing-slot-strip.stepping {
+  transition: transform 240ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+
+/* 「ｗ」の連打で画面の下から生える草 */
+.typing-grass {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 9998;
+  font-size: var(--h, 32px);
+  line-height: 1;
+  transform-origin: bottom center;
+  animation: typing-grass-grow var(--dur) ease-out var(--delay, 0ms) forwards;
+}
+
+@keyframes typing-grass-grow {
+  0% {
+    opacity: 0;
+    transform: translate3d(var(--x), var(--y), 0) translateY(-100%) rotate(0deg) scale(0.6, 0.1);
+  }
+  22% {
+    opacity: 1;
+    transform: translate3d(var(--x), var(--y), 0) translateY(-100%) rotate(var(--rot, 0deg)) scale(1, 1);
+  }
+  70% {
+    opacity: 1;
+    transform: translate3d(var(--x), var(--y), 0) translateY(-100%) rotate(calc(var(--rot, 0deg) * -0.6)) scale(1, 1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--x), var(--y), 0) translateY(-100%) rotate(var(--rot, 0deg)) scale(1, 1);
+  }
+}
+
+/* >>123 を打ち終えたときに光らせるレス */
+.typing-anchor-flash {
+  animation: typing-anchor-flash 1400ms ease-out;
+}
+
+@keyframes typing-anchor-flash {
+  0% { box-shadow: 0 0 0 0 rgba(255, 190, 60, 0); background-color: rgba(255, 196, 70, 0); }
+  14% { box-shadow: inset 0 0 0 2px rgba(255, 170, 40, 0.95), 0 0 0 3px rgba(255, 190, 60, 0.85); background-color: rgba(255, 196, 70, 0.38); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 190, 60, 0); background-color: rgba(255, 196, 70, 0); }
+}
+
+/* 入力欄そのものがコンボ数に応じて赤熱する。border は触らず box-shadow だけで乗せる */
+[data-combo-heat] {
+  transition: box-shadow 180ms linear;
+}
+[data-combo-heat="1"] { box-shadow: 0 0 0 1px rgba(255, 168, 56, 0.85), 0 0 14px rgba(255, 168, 56, 0.55); }
+[data-combo-heat="2"] { box-shadow: 0 0 0 2px rgba(255, 128, 36, 0.9), 0 0 20px rgba(255, 128, 36, 0.65); }
+[data-combo-heat="3"] { box-shadow: 0 0 0 2px rgba(255, 84, 32, 0.85), 0 0 24px rgba(255, 96, 32, 0.6); }
+[data-combo-heat="4"] { box-shadow: 0 0 0 2px rgba(255, 48, 24, 0.95), 0 0 34px rgba(255, 72, 24, 0.8), 0 0 64px rgba(255, 130, 0, 0.45); }
+
+/* 揺れるのは入力欄だけ。画面全体は揺らさない (ガラスモードのぼかしが崩れる) */
+.typing-heat-shake {
+  animation: typing-heat-shake 130ms ease-in-out;
+}
+
+@keyframes typing-heat-shake {
+  0% { transform: translate(0, 0); }
+  30% { transform: translate(-1.5px, 1px); }
+  60% { transform: translate(1.5px, -1px); }
+  100% { transform: translate(0, 0); }
+}
+
+.typing-heat-flame {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 9999;
+  font-size: 18px;
+  line-height: 1;
+  transform: translate3d(var(--x), var(--y), 0);
+  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) forwards;
+}
+
+/* 送信中のロケット。クリックは通す */
+.typing-send-pad {
+  position: fixed;
+  left: 50%;
+  bottom: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+  z-index: 10000;
+  transform: translateX(-50%);
+}
+.typing-send-rocket {
+  font-size: 30px;
+  line-height: 1;
+  animation: typing-send-idle 900ms ease-in-out infinite;
+}
+.typing-send-charge {
+  position: relative;
+  width: 86px;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(130, 150, 180, 0.35);
+}
+.typing-send-charge::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #6bc6ff, #9b6bff);
+  animation: typing-send-charge 900ms ease-in-out infinite;
+}
+.typing-send-label {
+  padding: 1px 8px;
+  border-radius: 9px;
+  background: rgba(18, 22, 32, 0.72);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #cfe6ff;
+}
+.typing-send-pad.launch .typing-send-charge,
+.typing-send-pad.crash .typing-send-charge {
+  opacity: 0;
+}
+.typing-send-pad.launch .typing-send-rocket {
+  animation: typing-send-launch 820ms cubic-bezier(0.3, 0.05, 0.2, 1) forwards;
+}
+.typing-send-pad.crash .typing-send-rocket {
+  animation: typing-send-crash 620ms ease-in forwards;
+}
+.typing-send-pad.crash .typing-send-label {
+  color: #ffb3aa;
+}
+
+@keyframes typing-send-idle {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-4px) rotate(2deg); }
+}
+
+@keyframes typing-send-charge {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+@keyframes typing-send-launch {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  18% { transform: translateY(-10px) scale(1.18); }
+  100% { opacity: 0; transform: translateY(-70vh) scale(0.7); }
+}
+
+@keyframes typing-send-crash {
+  0% { opacity: 1; transform: translateY(0) rotate(0deg); }
+  35% { transform: translateY(-6px) rotate(42deg); }
+  100% { opacity: 0; transform: translateY(14px) rotate(118deg); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .typing-confetti-piece,
   .delete-explosion-piece,
@@ -5556,7 +5771,14 @@ a.body-link-image:hover::after {
   .typing-slot-strip,
   .typing-slot-coin,
   .typing-slot-label,
-  .typing-slot-puff {
+  .typing-slot-puff,
+  .typing-slot-freeze,
+  .typing-grass,
+  .typing-anchor-flash,
+  .typing-heat-shake,
+  .typing-heat-flame,
+  .typing-send-rocket,
+  .typing-send-charge::after {
     /* 入力演出はアプリ内設定で制御するため、OS設定を無視 */
   }
 }

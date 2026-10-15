@@ -1687,14 +1687,27 @@ const COMBO_MILESTONES: { at: number; label: (combo: number) => string; variant:
   { at: 50, label: () => "MEGA HIT", variant: "mega" },
   { at: 100, label: (n) => `UNSTOPPABLE x${n}`, variant: "mega" },
 ];
+// 節目の表を使い切ったあとは静かになってしまうので、以降は一定間隔で出し続ける
+// (ランクも 40 の S で打ち止めなので、ここを切らすと花火が上がらなくなる)
+const COMBO_MILESTONE_REPEAT_FROM = 100;
+const COMBO_MILESTONE_REPEAT_EVERY = 50;
 
 // キャレット直前の文字列に反応する語。打ち終えた瞬間に 1 回だけ出す
 const KEYWORD_EFFECTS: { id: string; re: RegExp; marks: string[] }[] = [
   { id: "love", re: /(好きだよ|好き|すき|スキ)$/, marks: ["💕", "😍", "🥰", "💖", "💗"] },
-  { id: "kusa", re: /(ｗｗ+|ww+|草|わろた|笑笑)$/, marks: ["🌱", "🌿", "☘️"] },
+  // 「ｗ」の連打は草が生える演出 (emitGrassGrow) に回すので、ここでは拾わない
+  { id: "kusa", re: /(草|わろた|笑笑)$/, marks: ["🌱", "🌿", "☘️"] },
   { id: "otsu", re: /(乙|おつ|おつかれ|お疲れ)$/, marks: ["✨", "🫡", "⭐"] },
   { id: "thanks", re: /(ありがとう|ありがと|サンキュ|thx)$/i, marks: ["🙏", "✨", "💫"] },
   { id: "congrats", re: /(おめでとう|おめ|祝)$/, marks: ["🎉", "🎊", "🥳"] },
+  { id: "kami", re: /(神|神様|かみさま)$/, marks: ["👑", "✨", "🙏", "🌟"] },
+  { id: "naita", re: /(泣いた|泣ける|涙)$/, marks: ["😭", "💧", "🥲"] },
+  { id: "kowai", re: /(怖い|こわい|恐怖|ゾッと)$/, marks: ["👻", "💀", "😱"] },
+  { id: "umasou", re: /(うまそう|美味そう|美味しそう|うまい|美味い)$/, marks: ["🍜", "🍖", "🤤", "🍺"] },
+  { id: "samui", re: /(寒い|さむい|寒すぎ)$/, marks: ["🥶", "❄️", "🧊"] },
+  { id: "atsui", re: /(暑い|あつい|猛暑|暑すぎ)$/, marks: ["🔥", "🌡️", "☀️", "💦"] },
+  { id: "morning", re: /(おはよう|おはよ|おは)$/, marks: ["☀️", "🌅", "🐓"] },
+  { id: "night", re: /(おやすみ|おやす|眠い|ねむい|寝る)$/, marks: ["🌙", "💤", "⭐", "😴"] },
 ];
 const matchKeywordEffect = (beforeCaret: string) => {
   const tail = beforeCaret.slice(-12);
@@ -1748,20 +1761,25 @@ const SLOT_PUFF_MARKS = ["💨", "💭", "☁️"];
 const SLOT_CELL_PX = 48;
 const SLOT_REEL_LOOPS = 6;
 const SLOT_TRIGGERS = [7, 77, 777];
-type SlotOutcome = "jackpot" | "triple" | "near" | "miss";
+// 「惜しい」の 3 本目はここで指定したコマ数だけ残して止め、1 コマずつ落とす
+const SLOT_NEAR_STEPS = 3;
+type SlotOutcome = "freeze" | "jackpot" | "triple" | "near" | "miss";
 
+// 当たり / おしい / ハズレ を 1/3 ずつ。当たりの中の内訳がフリーズ 3% と 777 8%
 const rollSlotOutcome = (): SlotOutcome => {
   const r = Math.random();
-  if (r < 0.05) return "jackpot";
-  if (r < 0.17) return "triple";
-  if (r < 0.45) return "near";
+  if (r < 0.03) return "freeze";
+  if (r < 0.11) return "jackpot";
+  if (r < 1 / 3) return "triple";
+  if (r < 2 / 3) return "near";
   return "miss";
 };
 
 // 「惜しい」は 7 7 から外れる形。ハズレはゾロ目にも 7 7 にもならない組み合わせ
 const slotReelsFor = (outcome: SlotOutcome): number[] => {
   const other = () => 1 + Math.floor(Math.random() * (SLOT_SYMBOLS.length - 1));
-  if (outcome === "jackpot") return [0, 0, 0];
+  // フリーズは長回しのあと 777 で確定
+  if (outcome === "freeze" || outcome === "jackpot") return [0, 0, 0];
   if (outcome === "triple") {
     const s = other();
     return [s, s, s];
@@ -1839,6 +1857,8 @@ const hideComboSlot = () => {
 const emitComboSlot = (x: number, y: number) => {
   if (slotEl) return;
   const outcome = rollSlotOutcome();
+  const frozen = outcome === "freeze";
+  const won = frozen || outcome === "jackpot" || outcome === "triple";
   const stops = slotReelsFor(outcome);
   const root = document.createElement("div");
   root.className = "typing-slot";
@@ -1855,9 +1875,11 @@ const emitComboSlot = (x: number, y: number) => {
     reel.className = "typing-slot-reel";
     const strip = document.createElement("div");
     strip.className = "typing-slot-strip";
-    // ループ分を並べた最後に停止絵柄を置き、そこまで一気に送る
+    // ループ分を並べた最後に停止絵柄を置き、そこまで一気に送る。フリーズは
+    // 長く回す分だけコマ数も増やさないと、同じ距離を間延びして送るだけになる
     const cells: string[] = [];
-    for (let loop = 0; loop < SLOT_REEL_LOOPS; loop += 1) {
+    const loops = frozen ? SLOT_REEL_LOOPS * 3 : SLOT_REEL_LOOPS;
+    for (let loop = 0; loop < loops; loop += 1) {
       for (const symbol of SLOT_SYMBOLS) cells.push(symbol);
     }
     cells.push(SLOT_SYMBOLS[stops[r]]);
@@ -1867,22 +1889,61 @@ const emitComboSlot = (x: number, y: number) => {
       cell.textContent = symbol;
       strip.appendChild(cell);
     }
-    // 惜しいときは 3 つ目をたっぷり粘らせる
-    const dur = 900 + r * 260 + (outcome === "near" && r === 2 ? 800 : 0);
-    settleMs = Math.max(settleMs, dur);
-    strip.style.setProperty("--end", `${-(cells.length - 1) * SLOT_CELL_PX}px`);
+    // 惜しいときは 3 本目をコマ送りで落とすので、その分だけ手前で止める
+    const stepped = outcome === "near" && r === 2;
+    const endIndex = cells.length - 1 - (stepped ? SLOT_NEAR_STEPS : 0);
+    // フリーズは全リールが止まらずに回り続ける
+    const dur = frozen ? 2800 + r * 280 : 900 + r * 260;
+    strip.style.setProperty("--end", `${-endIndex * SLOT_CELL_PX}px`);
     strip.style.setProperty("--dur", `${dur}ms`);
     reel.appendChild(strip);
     root.appendChild(reel);
-    slotTimers.push(window.setTimeout(() => reel.classList.add("stopped"), dur));
+    if (stepped) {
+      // CSS アニメーションから引き継ぐので、切るのと同時に今の位置を inline に焼く
+      slotTimers.push(
+        window.setTimeout(() => {
+          strip.style.animation = "none";
+          strip.style.transform = `translateY(${-endIndex * SLOT_CELL_PX}px)`;
+          strip.classList.add("stepping");
+        }, dur),
+      );
+      for (let step = 1; step <= SLOT_NEAR_STEPS; step += 1) {
+        const at = dur + 260 + step * 340;
+        slotTimers.push(
+          window.setTimeout(() => {
+            strip.style.transform = `translateY(${-(endIndex + step) * SLOT_CELL_PX}px)`;
+            if (step === SLOT_NEAR_STEPS) reel.classList.add("stopped");
+          }, at),
+        );
+        settleMs = Math.max(settleMs, at);
+      }
+    } else {
+      settleMs = Math.max(settleMs, dur);
+      slotTimers.push(window.setTimeout(() => reel.classList.add("stopped"), dur));
+    }
+  }
+  if (frozen) {
+    // frozen はリールの回り方 (等速で長回し) を決めるので最後まで外さない。
+    // 枠の光りだけを別クラスにして、当たりの演出に移るときに外す
+    root.classList.add("frozen", "frozen-glow");
+    slotTimers.push(
+      window.setTimeout(() => {
+        const tag = document.createElement("span");
+        tag.className = "typing-slot-freeze";
+        tag.textContent = "FREEZE!!";
+        root.appendChild(tag);
+      }, 420),
+    );
   }
   document.body.appendChild(root);
   slotEl = root;
   slotTimers.push(
     window.setTimeout(() => {
-      if (outcome === "jackpot") {
+      if (frozen || outcome === "jackpot") {
+        root.classList.remove("frozen-glow");
+        root.querySelector(".typing-slot-freeze")?.remove();
         root.classList.add("win");
-        emitComboBanner("777 JACKPOT!!", "jackpot");
+        emitComboBanner(frozen ? "FREEZE 777!!" : "777 JACKPOT!!", "jackpot");
         showSlotCoins();
       } else if (outcome === "triple") {
         root.classList.add("win");
@@ -1898,7 +1959,149 @@ const emitComboSlot = (x: number, y: number) => {
       }
     }, settleMs + 220),
   );
-  slotTimers.push(window.setTimeout(hideComboSlot, settleMs + (outcome === "jackpot" || outcome === "triple" ? 1800 : 1500)));
+  slotTimers.push(window.setTimeout(hideComboSlot, settleMs + (won ? 1800 : 1500)));
+};
+
+// --- 草 / アンカー / 入力欄の熱 / 打鍵速度 ----------------------------------
+// どれも「入力コンボ演出」のトグルに相乗りする (設定項目は増やさない)。
+
+// 「ｗ」を連打した分だけ画面の下から草が伸びる。連打が長いほど背が高くなる
+const GRASS_MARKS = ["🌱", "🌿", "☘️", "🍀"];
+const WARA_TAIL_RE = /[wWｗＷ]+$/;
+const GRASS_MIN_RUN = 3;
+const countTrailingWara = (beforeCaret: string): number => {
+  const matched = WARA_TAIL_RE.exec(beforeCaret);
+  return matched ? matched[0].length : 0;
+};
+const emitGrassGrow = (run: number) => {
+  const grow = Math.min(run, 30);
+  const blades = 2 + Math.floor(grow / 6);
+  for (let i = 0; i < blades; i += 1) {
+    spawnComboPiece(
+      "typing-grass",
+      {
+        "--x": `${Math.round(Math.random() * window.innerWidth)}px`,
+        "--y": `${window.innerHeight}px`,
+        "--h": `${Math.round(24 + grow * 2.4 + Math.random() * 16)}px`,
+        "--rot": `${Math.round((Math.random() - 0.5) * 36)}deg`,
+        "--dur": `${1400 + Math.floor(Math.random() * 700)}ms`,
+        "--delay": `${Math.floor(Math.random() * 90)}ms`,
+      },
+      GRASS_MARKS[Math.floor(Math.random() * GRASS_MARKS.length)],
+    );
+  }
+};
+
+// >>123 を打ち終えたら、その番号のレスが開いていれば光らせる
+const ANCHOR_TAIL_RE = /(?:>>|＞＞|&gt;&gt;)\s?(\d{1,4})$/;
+let anchorFlashEl: HTMLElement | null = null;
+let anchorFlashTimer: number | null = null;
+const hideAnchorFlash = () => {
+  if (anchorFlashTimer !== null) {
+    window.clearTimeout(anchorFlashTimer);
+    anchorFlashTimer = null;
+  }
+  anchorFlashEl?.classList.remove("typing-anchor-flash");
+  anchorFlashEl = null;
+};
+const flashAnchorTarget = (container: HTMLElement | null, no: number) => {
+  if (!container) return;
+  const target = container.querySelector<HTMLElement>(`[data-response-no="${no}"]`);
+  if (!target) return;
+  hideAnchorFlash();
+  target.classList.add("typing-anchor-flash");
+  anchorFlashEl = target;
+  anchorFlashTimer = window.setTimeout(hideAnchorFlash, 1400);
+};
+
+// 入力欄そのものがコンボ数に応じて赤熱し、最高段では炎が上がる。
+// 属性は React が管理していないので、消すときは必ずこちらで落とす。
+const INPUT_HEAT_STEPS = [10, 20, 30, 40];
+const HEAT_FLAME_MARKS = ["🔥", "💥", "✨"];
+let heatedInputEl: HTMLElement | null = null;
+const clearInputHeat = () => {
+  if (!heatedInputEl) return;
+  heatedInputEl.classList.remove("typing-heat-shake");
+  delete heatedInputEl.dataset.comboHeat;
+  heatedInputEl = null;
+};
+const emitHeatFlames = (el: HTMLElement) => {
+  const rect = el.getBoundingClientRect();
+  if (rect.width <= 0) return;
+  for (let i = 0; i < 3; i += 1) {
+    spawnComboPiece(
+      "typing-heat-flame",
+      {
+        "--x": `${Math.round(rect.left + rect.width * Math.random())}px`,
+        "--y": `${Math.round(rect.top + 4)}px`,
+        "--tx": `${Math.round((Math.random() - 0.5) * 50)}px`,
+        "--ty": `${-(30 + Math.round(Math.random() * 54))}px`,
+        "--rot": `${Math.round((Math.random() - 0.5) * 80)}deg`,
+        "--sc": (0.7 + Math.random() * 0.6).toFixed(2),
+        "--dur": `${600 + Math.floor(Math.random() * 400)}ms`,
+        "--delay": `${Math.floor(Math.random() * 120)}ms`,
+      },
+      HEAT_FLAME_MARKS[i % HEAT_FLAME_MARKS.length],
+    );
+  }
+};
+const applyInputHeat = (el: HTMLElement, combo: number) => {
+  let level = 0;
+  for (let i = 0; i < INPUT_HEAT_STEPS.length; i += 1) {
+    if (combo >= INPUT_HEAT_STEPS[i]) level = i + 1;
+  }
+  if (level === 0) {
+    clearInputHeat();
+    return;
+  }
+  if (heatedInputEl && heatedInputEl !== el) clearInputHeat();
+  heatedInputEl = el;
+  el.dataset.comboHeat = String(level);
+  // 揺れは入力欄だけ。打鍵ごとに巻き戻して掛け直す (画面全体は揺らさない)
+  if (level >= 3) {
+    el.classList.remove("typing-heat-shake");
+    void el.offsetWidth;
+    el.classList.add("typing-heat-shake");
+  }
+  if (level >= 4 && combo % 4 === 0) emitHeatFlames(el);
+};
+
+// --- 送信中の演出 -----------------------------------------------------------
+// 送信ボタンを押してから結果が返るまで、画面下でロケットが待機する。成功なら
+// 打ち上げ、失敗は短く墜落させる (エラー表示を隠さないよう小さく短く)。
+let sendPadEl: HTMLDivElement | null = null;
+let sendPadTimers: number[] = [];
+const hideSendPad = () => {
+  for (const timer of sendPadTimers) window.clearTimeout(timer);
+  sendPadTimers = [];
+  sendPadEl?.remove();
+  sendPadEl = null;
+};
+const showSendPad = () => {
+  hideSendPad();
+  const root = document.createElement("div");
+  root.className = "typing-send-pad";
+  const rocket = document.createElement("span");
+  rocket.className = "typing-send-rocket";
+  rocket.textContent = "🚀";
+  const charge = document.createElement("span");
+  charge.className = "typing-send-charge";
+  const label = document.createElement("span");
+  label.className = "typing-send-label";
+  label.textContent = "送信中…";
+  root.append(rocket, charge, label);
+  document.body.appendChild(root);
+  sendPadEl = root;
+};
+const finishSendPad = (ok: boolean) => {
+  const root = sendPadEl;
+  if (!root) return;
+  for (const timer of sendPadTimers) window.clearTimeout(timer);
+  sendPadTimers = [];
+  const label = root.querySelector<HTMLElement>(".typing-send-label");
+  if (label) label.textContent = ok ? "発射！" : "失敗";
+  root.classList.add(ok ? "launch" : "crash");
+  sendPadTimers.push(window.setTimeout(hideSendPad, ok ? 900 : 700));
 };
 
 const ID_COLORS = [
@@ -3453,6 +3656,8 @@ export default function App() {
   // 入力コンボの進行状況。1 打鍵ごとに更新するので state ではなく ref で持つ (再描画させない)
   const typingComboRef = useRef({ count: 0, lastTs: 0, milestone: 0, rank: "", slot: 0 });
   const typingKeywordRef = useRef({ id: "", ts: 0 });
+  const typingWaraRef = useRef(0);
+  const typingAnchorRef = useRef(0);
   const [searchHistoryDropdown, setSearchHistoryDropdown] = useState<{ type: "thread" | "response" } | null>(null);
   const [searchHistoryMenu, setSearchHistoryMenu] = useState<{ x: number; y: number; type: "thread" | "response"; word: string } | null>(null);
   const searchHistoryMenuRef = useRef<HTMLDivElement>(null);
@@ -5609,6 +5814,8 @@ export default function App() {
     setComposeSubmitting(true);
     setPostFlowTraceProbe("running...");
     setComposeResult(null);
+    // 結果が返るまで画面下でロケットが待機する (成功で打ち上げ / 失敗で墜落)
+    if (typingComboEnabled) showSendPad();
     try {
       const r = await invoke<PostFlowTrace>("probe_post_flow_trace", {
         threadUrl: postTargetUrl,
@@ -5629,12 +5836,15 @@ export default function App() {
         ].join("\n")
       );
       if (r.blocked) {
+        finishSendPad(false);
         setComposeResult({ ok: false, message: "Flow blocked" });
       } else if (r.submitSummary?.includes("error=true") || r.submitSummary?.includes("err_detected=true")) {
+        finishSendPad(false);
         setComposeResult({ ok: false, message: `Post failed: ${r.submitSummary}\nconfirm: ${r.confirmSummary ?? "-"}\nretry: ${r.finalizeSummary ?? "-"}` });
         setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl: postTargetUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
       } else if (r.submitSummary) {
         setComposeResult({ ok: true, message: `Post submitted: ${r.submitSummary}` });
+        finishSendPad(true);
         if (typingComboEnabled) {
           emitComboBanner("SHIPPED!!", "shipped");
           emitComboSlot(window.innerWidth / 2, window.innerHeight - 40);
@@ -5679,8 +5889,12 @@ export default function App() {
             responseScrollRef.current.scrollTop = responseScrollRef.current.scrollHeight;
           }
         }, 100);
+      } else {
+        // 送信の結果が読めなかったときも待機したままにはしない
+        finishSendPad(false);
       }
     } catch (error) {
+      finishSendPad(false);
       setPostFlowTraceProbe(`error: ${String(error)}`);
       setComposeResult({ ok: false, message: `Error: ${String(error)}` });
       setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl: postTargetUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
@@ -5836,6 +6050,7 @@ export default function App() {
     }
     setNewThreadSubmitting(true);
     setNewThreadResult(null);
+    if (typingComboEnabled) showSendPad();
     const boardUrl = getBoardUrlFromThreadUrl(threadUrl);
     try {
       const r = await invoke<{ status: number; containsError: boolean; bodyPreview: string; threadUrl: string | null }>("create_thread_command", {
@@ -5846,9 +6061,11 @@ export default function App() {
         message: newThreadBody,
       });
       if (r.containsError) {
+        finishSendPad(false);
         setNewThreadResult({ ok: false, message: `エラー: ${r.bodyPreview}` });
       } else {
         setNewThreadResult({ ok: true, message: `スレ立て成功 (status=${r.status})` });
+        finishSendPad(true);
         if (typingComboEnabled) {
           emitComboBanner("SHIPPED!!", "shipped");
           emitComboSlot(window.innerWidth / 2, window.innerHeight - 40);
@@ -5884,6 +6101,7 @@ export default function App() {
         }, 1500);
       }
     } catch (error) {
+      finishSendPad(false);
       setNewThreadResult({ ok: false, message: `Error: ${String(error)}` });
     } finally {
       setNewThreadSubmitting(false);
@@ -9690,7 +9908,9 @@ export default function App() {
         combo.milestone = 0;
         combo.rank = "";
         combo.slot = 0;
+        typingWaraRef.current = 0;
         hideComboBadge();
+        clearInputHeat();
         return;
       }
       // しばらく手が止まっていたら仕切り直し
@@ -9699,10 +9919,12 @@ export default function App() {
         combo.milestone = 0;
         combo.rank = "";
         combo.slot = 0;
+        clearInputHeat();
       }
       combo.lastTs = now;
       combo.count += 1;
       showComboBadge(combo.count, point.x, point.y);
+      applyInputHeat(target, combo.count);
       // ランクが上がった瞬間にも花火を 1 発
       const rank = comboRankOf(combo.count) ?? "";
       if (rank !== combo.rank) {
@@ -9717,6 +9939,15 @@ export default function App() {
           break;
         }
       }
+      // 表の最後 (100) を越えてからは 50 コンボごとに出し続ける
+      if (
+        combo.count > COMBO_MILESTONE_REPEAT_FROM &&
+        combo.count % COMBO_MILESTONE_REPEAT_EVERY === 0 &&
+        combo.milestone < combo.count
+      ) {
+        combo.milestone = combo.count;
+        emitComboBanner(`UNSTOPPABLE x${combo.count}`, "mega");
+      }
       // 7 / 77 / 777 でスロットを回す (節目のバナーと数字が被らない)
       for (const at of SLOT_TRIGGERS) {
         if (combo.count >= at && combo.slot < at) {
@@ -9725,22 +9956,41 @@ export default function App() {
           break;
         }
       }
-      const keyword = matchKeywordEffect(target.value.slice(0, target.selectionStart ?? 0));
+      const beforeCaret = target.value.slice(0, target.selectionStart ?? 0);
+      const keyword = matchKeywordEffect(beforeCaret);
       if (keyword) {
-        // 同じ語を打ち続けている間 (「ｗｗｗ」など) は連発させない
+        // 同じ語を打ち続けている間は連発させない
         const last = typingKeywordRef.current;
         if (last.id !== keyword.id || now - last.ts > 2000) {
           typingKeywordRef.current = { id: keyword.id, ts: now };
           emitKeywordBurst(point.x, point.y, keyword.marks);
         }
       }
+      // 「ｗ」は打った分だけ草を生やす。伸びたときだけ足すので連打が止まれば止まる
+      const wara = countTrailingWara(beforeCaret);
+      if (wara >= GRASS_MIN_RUN && wara > typingWaraRef.current) emitGrassGrow(wara);
+      typingWaraRef.current = wara;
+      // >>123 を打ち終えたら、その番号のレスが開いていれば光らせる
+      const anchor = ANCHOR_TAIL_RE.exec(beforeCaret);
+      const anchorNo = anchor ? Number(anchor[1]) : 0;
+      if (anchorNo > 0 && anchorNo !== typingAnchorRef.current) {
+        typingAnchorRef.current = anchorNo;
+        flashAnchorTarget(responseScrollRef.current, anchorNo);
+      } else if (anchorNo === 0) {
+        typingAnchorRef.current = 0;
+      }
     };
     window.addEventListener("input", onInput, true);
     return () => {
       window.removeEventListener("input", onInput, true);
       typingComboRef.current = { count: 0, lastTs: 0, milestone: 0, rank: "", slot: 0 };
+      typingWaraRef.current = 0;
+      typingAnchorRef.current = 0;
       hideComboBadge();
       hideComboSlot();
+      clearInputHeat();
+      hideAnchorFlash();
+      hideSendPad();
     };
   }, [typingConfettiEnabled, typingComboEnabled]);
 

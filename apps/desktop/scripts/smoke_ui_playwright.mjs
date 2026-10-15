@@ -2523,13 +2523,61 @@ try {
   assert(slotEl, "reaching 7 combo should spin the slot");
   const slotOutcome = await slotEl.getAttribute("data-outcome");
   assert(
-    ["jackpot", "triple", "near", "miss"].includes(slotOutcome || ""),
+    ["freeze", "jackpot", "triple", "near", "miss"].includes(slotOutcome || ""),
     `slot outcome should be decided up front, got ${JSON.stringify(slotOutcome)}`,
   );
   const slotReels = await page.$$(".typing-slot .typing-slot-reel");
   assert(slotReels.length === 3, `slot should have 3 reels, got ${slotReels.length}`);
   // 回り終わると片付けられる
   await page.waitForFunction(() => !document.querySelector(".typing-slot"), null, { timeout: 10000 });
+  await page.fill(".compose-window textarea.compose-body", "");
+  // コンボが伸びると入力欄が赤熱する
+  await page.waitForFunction(() => !document.querySelector(".typing-combo-badge"), null, { timeout: 3000 });
+  await page.type(".compose-window textarea.compose-body", "あいうえおかきくけこさ", { delay: 50 });
+  const heatLevel = await page.getAttribute(".compose-window textarea.compose-body", "data-combo-heat");
+  assert(Number(heatLevel) >= 1, `10 combo should heat the input, got ${JSON.stringify(heatLevel)}`);
+  // コンボが切れれば熱も落ちる
+  await page.waitForFunction(() => !document.querySelector(".typing-combo-badge"), null, { timeout: 3000 });
+  await page.type(".compose-window textarea.compose-body", "x", { delay: 50 });
+  const heatAfter = await page.getAttribute(".compose-window textarea.compose-body", "data-combo-heat");
+  assert(heatAfter === null, `heat should clear once the combo breaks, got ${JSON.stringify(heatAfter)}`);
+  // 「ｗ」の連打で草が生える
+  await page.fill(".compose-window textarea.compose-body", "");
+  await page.type(".compose-window textarea.compose-body", "ｗｗｗ", { delay: 60 });
+  assert(await page.$(".typing-grass"), "typing ｗｗｗ should grow grass");
+  // 100 コンボを越えてからも 50 ごとに節目のバナーが出続ける
+  await page.fill(".compose-window textarea.compose-body", "");
+  await page.waitForFunction(() => !document.querySelector(".typing-combo-badge"), null, { timeout: 3000 });
+  await page.evaluate(() => {
+    window.__seenBanners = [];
+    new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeType === 1 && node.classList.contains("typing-combo-banner")) {
+            window.__seenBanners.push(node.textContent || "");
+          }
+        }
+      }
+    }).observe(document.body, { childList: true });
+  });
+  await page.type(".compose-window textarea.compose-body", "あ".repeat(160), { delay: 60 });
+  const seenBanners = await page.evaluate(() => window.__seenBanners);
+  assert(
+    seenBanners.some((t) => /UNSTOPPABLE x1[5-9]\d/.test(t)),
+    `combos past 100 should keep firing milestones, got ${JSON.stringify(seenBanners)}`,
+  );
+  // >>N を打ち終えると、その番号のレスが光る
+  await page.fill(".compose-window textarea.compose-body", "");
+  const anchorFlashNo = await page.$eval(
+    ".response-scroll .response-block[data-response-no]",
+    (el) => el.getAttribute("data-response-no"),
+  );
+  await page.type(".compose-window textarea.compose-body", `>>${anchorFlashNo}`, { delay: 60 });
+  assert(
+    await page.$(`.response-scroll .response-block[data-response-no="${anchorFlashNo}"].typing-anchor-flash`),
+    `typing >>${anchorFlashNo} should flash that response`,
+  );
+  await page.waitForFunction(() => !document.querySelector(".typing-anchor-flash"), null, { timeout: 3000 });
   await page.fill(".compose-window textarea.compose-body", "");
   await page.click(".compose-header button:has-text('閉じる')");
   await new Promise((r) => setTimeout(r, 100));
