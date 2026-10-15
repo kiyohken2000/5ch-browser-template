@@ -1510,7 +1510,7 @@ const emitDeleteExplosion = (x: number, y: number, count = 4) => {
 // 要素が積み上がらないよう同時表示数に上限を設け、animationend が来ない場合に備えて
 // タイマーでも必ず回収する (回収漏れは要素が残り続けてカウンタが詰まる)。
 const COMBO_RESET_MS = 1200;
-const COMBO_MAX_PIECES = 400;
+const COMBO_MAX_PIECES = 900;
 let comboLivePieces = 0;
 
 const spawnComboPiece = (className: string, vars: Record<string, string>, text?: string) => {
@@ -1529,7 +1529,7 @@ const spawnComboPiece = (className: string, vars: Record<string, string>, text?:
     piece.remove();
   };
   piece.addEventListener("animationend", release, { once: true });
-  window.setTimeout(release, 4000);
+  window.setTimeout(release, 9000);
   return piece;
 };
 
@@ -1568,11 +1568,18 @@ const showComboBadge = (combo: number, x: number, y: number) => {
   comboBadgeTimer = window.setTimeout(hideComboBadge, COMBO_RESET_MS);
 };
 
-type ComboBannerVariant = "fire" | "mega" | "shipped";
+type ComboBannerVariant = "fire" | "mega" | "shipped" | "jackpot";
 const COMBO_BANNER_MARKS: Record<ComboBannerVariant, string[]> = {
   fire: ["🔥", "✨"],
   mega: ["💥", "✨", "⭐"],
   shipped: ["🚀", "✨", "🎉"],
+  jackpot: ["7️⃣", "💰", "✨", "🎰"],
+};
+const COMBO_BANNER_FIREWORKS: Record<ComboBannerVariant, number> = {
+  fire: 8,
+  mega: 11,
+  shipped: 13,
+  jackpot: 22,
 };
 const emitComboBanner = (text: string, variant: ComboBannerVariant) => {
   const cx = window.innerWidth / 2;
@@ -1615,8 +1622,8 @@ const emitComboBanner = (text: string, variant: ComboBannerVariant) => {
       marks[i % marks.length],
     );
   }
-  // 節目は花火も上げる。SHIPPED は一番多く
-  launchFireworks(variant === "shipped" ? 6 : 4);
+  // 節目は花火も上げる。JACKPOT が一番多く
+  launchFireworks(COMBO_BANNER_FIREWORKS[variant]);
 };
 
 // --- 花火 -------------------------------------------------------------------
@@ -1625,11 +1632,10 @@ const emitComboBanner = (text: string, variant: ComboBannerVariant) => {
 const FIREWORK_HUES = [0, 20, 45, 120, 190, 280, 320];
 const FIREWORK_MARKS = ["✨", "💖", "⭐", "🎉", "💫", "🔥", "🎊", "🌟"];
 
-const burstFirework = (x: number, y: number, hue: number) => {
-  const petals = 26;
+const burstRing = (x: number, y: number, hue: number, petals: number, spread: number, delayBase: number) => {
   for (let i = 0; i < petals; i += 1) {
     const angle = (Math.PI * 2 * i) / petals + (Math.random() - 0.5) * 0.25;
-    const dist = 70 + Math.random() * 150;
+    const dist = spread * (0.55 + Math.random() * 0.75);
     const emoji = Math.random() < 0.3;
     spawnComboPiece(
       emoji ? "typing-firework-mark" : "typing-firework-petal",
@@ -1639,25 +1645,31 @@ const burstFirework = (x: number, y: number, hue: number) => {
         "--tx": `${(Math.cos(angle) * dist).toFixed(1)}px`,
         "--ty": `${(Math.sin(angle) * dist).toFixed(1)}px`,
         "--h": String(hue),
-        "--sc": (0.7 + Math.random() * 0.9).toFixed(2),
+        "--sc": (0.8 + Math.random() * 1.0).toFixed(2),
         "--rot": `${Math.round((Math.random() - 0.5) * 300)}deg`,
-        "--dur": `${900 + Math.floor(Math.random() * 500)}ms`,
-        "--delay": `${Math.floor(Math.random() * 120)}ms`,
+        "--dur": `${1700 + Math.floor(Math.random() * 900)}ms`,
+        "--delay": `${delayBase + Math.floor(Math.random() * 140)}ms`,
       },
       emoji ? FIREWORK_MARKS[Math.floor(Math.random() * FIREWORK_MARKS.length)] : undefined,
     );
   }
 };
 
+// 外側の大きな輪 → 少し遅れて内側の小さな輪。二重咲きにして見えている時間を伸ばす
+const burstFirework = (x: number, y: number, hue: number) => {
+  burstRing(x, y, hue, 40, 300, 0);
+  burstRing(x, y, (hue + 40) % 360, 22, 150, 260);
+};
+
 const launchFireworks = (count: number) => {
   const w = window.innerWidth;
   const h = window.innerHeight;
   for (let i = 0; i < count; i += 1) {
-    const x = w * (0.12 + Math.random() * 0.76);
-    const apexY = h * (0.12 + Math.random() * 0.35);
+    const x = w * (0.08 + Math.random() * 0.84);
+    const apexY = h * (0.08 + Math.random() * 0.4);
     const hue = FIREWORK_HUES[Math.floor(Math.random() * FIREWORK_HUES.length)];
-    const rise = `${600 + Math.floor(Math.random() * 400)}ms`;
-    const delay = `${i * 140 + Math.floor(Math.random() * 120)}ms`;
+    const rise = `${900 + Math.floor(Math.random() * 600)}ms`;
+    const delay = `${i * 230 + Math.floor(Math.random() * 160)}ms`;
     const rocket = spawnComboPiece("typing-firework-rocket", {
       "--x": `${x}px`,
       "--y": `${h}px`,
@@ -1725,6 +1737,168 @@ const emitKeywordBurst = (x: number, y: number, marks: string[]) => {
       marks[i % marks.length],
     );
   }
+};
+
+// --- 777 スロット演出 ------------------------------------------------------
+// コンボの 7 / 77 / 777 と書き込み成功で回す。止まる絵柄は回し始めに抽選して
+// 決め打ちにするので、リールの停止位置と当たり判定が食い違うことはない。
+const SLOT_SYMBOLS = ["7️⃣", "🍒", "🔔", "⭐", "🍉", "🍋"];
+const SLOT_COIN_MARKS = ["💰", "🪙", "✨", "💎"];
+const SLOT_PUFF_MARKS = ["💨", "💭", "☁️"];
+const SLOT_CELL_PX = 48;
+const SLOT_REEL_LOOPS = 6;
+const SLOT_TRIGGERS = [7, 77, 777];
+type SlotOutcome = "jackpot" | "triple" | "near" | "miss";
+
+const rollSlotOutcome = (): SlotOutcome => {
+  const r = Math.random();
+  if (r < 0.05) return "jackpot";
+  if (r < 0.17) return "triple";
+  if (r < 0.45) return "near";
+  return "miss";
+};
+
+// 「惜しい」は 7 7 から外れる形。ハズレはゾロ目にも 7 7 にもならない組み合わせ
+const slotReelsFor = (outcome: SlotOutcome): number[] => {
+  const other = () => 1 + Math.floor(Math.random() * (SLOT_SYMBOLS.length - 1));
+  if (outcome === "jackpot") return [0, 0, 0];
+  if (outcome === "triple") {
+    const s = other();
+    return [s, s, s];
+  }
+  if (outcome === "near") return [0, 0, other()];
+  for (let i = 0; i < 20; i += 1) {
+    const a = Math.floor(Math.random() * SLOT_SYMBOLS.length);
+    const b = Math.floor(Math.random() * SLOT_SYMBOLS.length);
+    const c = Math.floor(Math.random() * SLOT_SYMBOLS.length);
+    if (a === b && b === c) continue;
+    if (a === 0 && b === 0) continue;
+    return [a, b, c];
+  }
+  return [1, 2, 3];
+};
+
+// ハズレはリールの上から煙が上がる。負けた感を出したいので小さく短く
+const showSlotPuffs = (root: HTMLElement, count: number) => {
+  const rect = root.getBoundingClientRect();
+  for (let i = 0; i < count; i += 1) {
+    spawnComboPiece(
+      "typing-slot-puff",
+      {
+        "--x": `${Math.round(rect.left + rect.width * (0.15 + Math.random() * 0.7))}px`,
+        "--y": `${Math.round(rect.top + rect.height * 0.3)}px`,
+        "--tx": `${Math.round((Math.random() - 0.5) * 90)}px`,
+        "--ty": `${-(40 + Math.round(Math.random() * 70))}px`,
+        "--rot": `${Math.round((Math.random() - 0.5) * 120)}deg`,
+        "--sc": (0.7 + Math.random() * 0.7).toFixed(2),
+        "--dur": `${700 + Math.floor(Math.random() * 400)}ms`,
+        "--delay": `${Math.floor(Math.random() * 180)}ms`,
+      },
+      SLOT_PUFF_MARKS[i % SLOT_PUFF_MARKS.length],
+    );
+  }
+};
+
+const showSlotLabel = (root: HTMLElement, text: string, near: boolean) => {
+  const label = document.createElement("span");
+  label.className = near ? "typing-slot-label near" : "typing-slot-label";
+  label.textContent = text;
+  root.appendChild(label);
+};
+
+const showSlotCoins = () => {
+  const h = window.innerHeight;
+  for (let i = 0; i < 46; i += 1) {
+    spawnComboPiece(
+      "typing-slot-coin",
+      {
+        "--x": `${Math.round(Math.random() * window.innerWidth)}px`,
+        "--y": `${-40 - Math.floor(Math.random() * 140)}px`,
+        "--ty": `${h + 160}px`,
+        "--tx": `${Math.round((Math.random() - 0.5) * 120)}px`,
+        "--rot": `${Math.round((Math.random() - 0.5) * 720)}deg`,
+        "--sc": (0.8 + Math.random() * 1.0).toFixed(2),
+        "--dur": `${1100 + Math.floor(Math.random() * 800)}ms`,
+        "--delay": `${Math.floor(Math.random() * 500)}ms`,
+      },
+      SLOT_COIN_MARKS[i % SLOT_COIN_MARKS.length],
+    );
+  }
+};
+
+// リールは 1 組しか出さない。演出中の要素はタイマーで必ず回收する
+let slotEl: HTMLDivElement | null = null;
+let slotTimers: number[] = [];
+const hideComboSlot = () => {
+  for (const timer of slotTimers) window.clearTimeout(timer);
+  slotTimers = [];
+  slotEl?.remove();
+  slotEl = null;
+};
+
+const emitComboSlot = (x: number, y: number) => {
+  if (slotEl) return;
+  const outcome = rollSlotOutcome();
+  const stops = slotReelsFor(outcome);
+  const root = document.createElement("div");
+  root.className = "typing-slot";
+  root.dataset.outcome = outcome;
+  const width = SLOT_CELL_PX * 3 + 30;
+  root.style.setProperty("--x", `${clamp(x - width / 2, 8, Math.max(8, window.innerWidth - width - 8))}px`);
+  root.style.setProperty(
+    "--y",
+    `${clamp(y - SLOT_CELL_PX - 76, 8, Math.max(8, window.innerHeight - SLOT_CELL_PX - 40))}px`,
+  );
+  let settleMs = 0;
+  for (let r = 0; r < 3; r += 1) {
+    const reel = document.createElement("div");
+    reel.className = "typing-slot-reel";
+    const strip = document.createElement("div");
+    strip.className = "typing-slot-strip";
+    // ループ分を並べた最後に停止絵柄を置き、そこまで一気に送る
+    const cells: string[] = [];
+    for (let loop = 0; loop < SLOT_REEL_LOOPS; loop += 1) {
+      for (const symbol of SLOT_SYMBOLS) cells.push(symbol);
+    }
+    cells.push(SLOT_SYMBOLS[stops[r]]);
+    for (const symbol of cells) {
+      const cell = document.createElement("span");
+      cell.className = "typing-slot-cell";
+      cell.textContent = symbol;
+      strip.appendChild(cell);
+    }
+    // 惜しいときは 3 つ目をたっぷり粘らせる
+    const dur = 900 + r * 260 + (outcome === "near" && r === 2 ? 800 : 0);
+    settleMs = Math.max(settleMs, dur);
+    strip.style.setProperty("--end", `${-(cells.length - 1) * SLOT_CELL_PX}px`);
+    strip.style.setProperty("--dur", `${dur}ms`);
+    reel.appendChild(strip);
+    root.appendChild(reel);
+    slotTimers.push(window.setTimeout(() => reel.classList.add("stopped"), dur));
+  }
+  document.body.appendChild(root);
+  slotEl = root;
+  slotTimers.push(
+    window.setTimeout(() => {
+      if (outcome === "jackpot") {
+        root.classList.add("win");
+        emitComboBanner("777 JACKPOT!!", "jackpot");
+        showSlotCoins();
+      } else if (outcome === "triple") {
+        root.classList.add("win");
+        emitComboBanner("SLOT HIT!", "fire");
+      } else if (outcome === "near") {
+        root.classList.add("lose", "near");
+        showSlotLabel(root, "おしい！", true);
+        showSlotPuffs(root, 8);
+      } else {
+        root.classList.add("lose");
+        showSlotLabel(root, "ハズレ", false);
+        showSlotPuffs(root, 4);
+      }
+    }, settleMs + 220),
+  );
+  slotTimers.push(window.setTimeout(hideComboSlot, settleMs + (outcome === "jackpot" || outcome === "triple" ? 1800 : 1500)));
 };
 
 const ID_COLORS = [
@@ -3277,7 +3451,7 @@ export default function App() {
   const [responseSearchHistory, setResponseSearchHistory] = useState<string[]>([]);
   const lastTypingConfettiTsRef = useRef(0);
   // 入力コンボの進行状況。1 打鍵ごとに更新するので state ではなく ref で持つ (再描画させない)
-  const typingComboRef = useRef({ count: 0, lastTs: 0, milestone: 0, rank: "" });
+  const typingComboRef = useRef({ count: 0, lastTs: 0, milestone: 0, rank: "", slot: 0 });
   const typingKeywordRef = useRef({ id: "", ts: 0 });
   const [searchHistoryDropdown, setSearchHistoryDropdown] = useState<{ type: "thread" | "response" } | null>(null);
   const [searchHistoryMenu, setSearchHistoryMenu] = useState<{ x: number; y: number; type: "thread" | "response"; word: string } | null>(null);
@@ -5461,7 +5635,10 @@ export default function App() {
         setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl: postTargetUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
       } else if (r.submitSummary) {
         setComposeResult({ ok: true, message: `Post submitted: ${r.submitSummary}` });
-        if (typingComboEnabled) emitComboBanner("SHIPPED!!", "shipped");
+        if (typingComboEnabled) {
+          emitComboBanner("SHIPPED!!", "shipped");
+          emitComboSlot(window.innerWidth / 2, window.innerHeight - 40);
+        }
         setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl: postTargetUrl, body: composeBody.slice(0, 100), ok: true }, ...prev].slice(0, 50));
         const postedTitle = threadTabs.find((t) => t.threadUrl === postTargetUrl)?.title ?? postTargetUrl;
         pushRecentPostedThread(postTargetUrl, postedTitle);
@@ -5672,7 +5849,10 @@ export default function App() {
         setNewThreadResult({ ok: false, message: `エラー: ${r.bodyPreview}` });
       } else {
         setNewThreadResult({ ok: true, message: `スレ立て成功 (status=${r.status})` });
-        if (typingComboEnabled) emitComboBanner("SHIPPED!!", "shipped");
+        if (typingComboEnabled) {
+          emitComboBanner("SHIPPED!!", "shipped");
+          emitComboSlot(window.innerWidth / 2, window.innerHeight - 40);
+        }
         void appendKakikomiLog({
           kind: "new_thread",
           threadUrl: r.threadUrl ?? boardUrl,
@@ -9509,6 +9689,7 @@ export default function App() {
         combo.count = 0;
         combo.milestone = 0;
         combo.rank = "";
+        combo.slot = 0;
         hideComboBadge();
         return;
       }
@@ -9517,6 +9698,7 @@ export default function App() {
         combo.count = 0;
         combo.milestone = 0;
         combo.rank = "";
+        combo.slot = 0;
       }
       combo.lastTs = now;
       combo.count += 1;
@@ -9525,13 +9707,21 @@ export default function App() {
       const rank = comboRankOf(combo.count) ?? "";
       if (rank !== combo.rank) {
         combo.rank = rank;
-        if (rank) launchFireworks(2);
+        if (rank) launchFireworks(5);
       }
       // 1 打鍵で 1 ずつ増えるので、またぐ節目は多くても 1 つ
       for (const milestone of COMBO_MILESTONES) {
         if (combo.count >= milestone.at && combo.milestone < milestone.at) {
           combo.milestone = milestone.at;
           emitComboBanner(milestone.label(combo.count), milestone.variant);
+          break;
+        }
+      }
+      // 7 / 77 / 777 でスロットを回す (節目のバナーと数字が被らない)
+      for (const at of SLOT_TRIGGERS) {
+        if (combo.count >= at && combo.slot < at) {
+          combo.slot = at;
+          emitComboSlot(point.x, point.y);
           break;
         }
       }
@@ -9548,8 +9738,9 @@ export default function App() {
     window.addEventListener("input", onInput, true);
     return () => {
       window.removeEventListener("input", onInput, true);
-      typingComboRef.current = { count: 0, lastTs: 0, milestone: 0, rank: "" };
+      typingComboRef.current = { count: 0, lastTs: 0, milestone: 0, rank: "", slot: 0 };
       hideComboBadge();
+      hideComboSlot();
     };
   }, [typingConfettiEnabled, typingComboEnabled]);
 

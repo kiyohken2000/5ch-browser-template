@@ -5244,6 +5244,10 @@ a.body-link-image:hover::after {
   color: #9b6bff;
   text-shadow: 0 0 18px rgba(155, 107, 255, 0.85), 0 4px 6px rgba(0, 0, 0, 0.5);
 }
+.typing-combo-banner.jackpot {
+  color: #ffd700;
+  text-shadow: 0 0 22px rgba(255, 215, 0, 0.95), 0 0 44px rgba(255, 140, 0, 0.7), 0 4px 6px rgba(0, 0, 0, 0.55);
+}
 
 @keyframes typing-combo-banner-in {
   0% { opacity: 0; transform: translate3d(var(--x), var(--y), 0) translate(-50%, -50%) scale(0.5); }
@@ -5270,6 +5274,7 @@ a.body-link-image:hover::after {
 .typing-combo-ring.fire { color: #ff7a18; }
 .typing-combo-ring.mega { color: #ff3d7f; }
 .typing-combo-ring.shipped { color: #6bc6ff; }
+.typing-combo-ring.jackpot { color: #ffd700; }
 
 @keyframes typing-combo-ring-out {
   0% { opacity: 0.9; transform: translate3d(var(--x), var(--y), 0) scale(0.2); }
@@ -5373,6 +5378,169 @@ a.body-link-image:hover::after {
   }
 }
 
+/* 777 スロット: 窓を overflow: hidden で切り、帯を translateY で送って回す */
+.typing-slot {
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: flex;
+  gap: 3px;
+  padding: 6px;
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: 10000;
+  background: linear-gradient(180deg, #2a2118, #15110c);
+  border: 2px solid #c9a227;
+  box-shadow: 0 0 14px rgba(201, 162, 39, 0.5), 0 6px 18px rgba(0, 0, 0, 0.55);
+  transform: translate3d(var(--x), var(--y), 0);
+  animation: typing-slot-in 220ms ease-out;
+}
+.typing-slot.win {
+  animation: typing-slot-win 520ms ease-in-out 2;
+}
+/* ハズレは色が抜けて小さく震える。「おしい」はもっと大きく震える */
+.typing-slot.lose {
+  border-color: #6b6b6b;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+  animation: typing-slot-lose 380ms ease-in-out 1;
+}
+.typing-slot.lose .typing-slot-reel {
+  filter: grayscale(0.85) brightness(0.88);
+}
+.typing-slot.lose.near {
+  border-color: #e0912b;
+  box-shadow: 0 0 18px rgba(224, 145, 43, 0.6), 0 6px 18px rgba(0, 0, 0, 0.55);
+  animation: typing-slot-near 300ms ease-in-out 3;
+}
+.typing-slot.lose.near .typing-slot-reel {
+  filter: none;
+}
+
+@keyframes typing-slot-lose {
+  0%, 100% { transform: translate3d(var(--x), var(--y), 0); }
+  30% { transform: translate3d(var(--x), var(--y), 0) translate(-4px, 3px) rotate(-1.5deg); }
+  70% { transform: translate3d(var(--x), var(--y), 0) translate(4px, 3px) rotate(1.5deg); }
+}
+
+@keyframes typing-slot-near {
+  0%, 100% { transform: translate3d(var(--x), var(--y), 0); }
+  25% { transform: translate3d(var(--x), var(--y), 0) translateX(-8px) rotate(-3deg); }
+  75% { transform: translate3d(var(--x), var(--y), 0) translateX(8px) rotate(3deg); }
+}
+
+.typing-slot-label {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #d6d6d6;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.7), 0 2px 4px rgba(0, 0, 0, 0.6);
+  animation: typing-slot-label-in 1300ms ease-out forwards;
+}
+.typing-slot-label.near {
+  font-size: 24px;
+  color: #ffb648;
+  text-shadow: 0 0 12px rgba(255, 182, 72, 0.85), 0 2px 4px rgba(0, 0, 0, 0.6);
+}
+
+@keyframes typing-slot-label-in {
+  0% { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.7); }
+  20% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1.1); }
+  34% { transform: translateX(-50%) translateY(0) scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(1); }
+}
+
+.typing-slot-puff {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 10001;
+  font-size: 22px;
+  line-height: 1;
+  transform: translate3d(var(--x), var(--y), 0);
+  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) forwards;
+}
+
+@keyframes typing-slot-in {
+  0% { opacity: 0; transform: translate3d(var(--x), var(--y), 0) scale(0.7); }
+  100% { opacity: 1; transform: translate3d(var(--x), var(--y), 0) scale(1); }
+}
+
+@keyframes typing-slot-win {
+  0%, 100% { box-shadow: 0 0 14px rgba(201, 162, 39, 0.5), 0 6px 18px rgba(0, 0, 0, 0.55); }
+  50% { box-shadow: 0 0 34px rgba(255, 215, 0, 1), 0 6px 18px rgba(0, 0, 0, 0.55); }
+}
+
+.typing-slot-reel {
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #fdf6e3, #e8dcc0);
+  box-shadow: inset 0 3px 7px rgba(0, 0, 0, 0.4), inset 0 -3px 7px rgba(0, 0, 0, 0.3);
+}
+.typing-slot-reel.stopped {
+  background: linear-gradient(180deg, #fffdf5, #f2e9d2);
+}
+
+.typing-slot-strip {
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+  animation: typing-slot-spin var(--dur) forwards;
+}
+
+.typing-slot-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 48px;
+  height: 48px;
+  font-size: 30px;
+  line-height: 1;
+}
+
+/* 最後に少し行き過ぎて戻ると停止がカツンと決まる */
+@keyframes typing-slot-spin {
+  0% {
+    transform: translateY(0);
+    animation-timing-function: cubic-bezier(0.22, 0.62, 0.2, 1);
+  }
+  86% {
+    transform: translateY(calc(var(--end) - 12px));
+    animation-timing-function: ease-out;
+  }
+  100% { transform: translateY(var(--end)); }
+}
+
+.typing-slot-coin {
+  position: fixed;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 9999;
+  font-size: 26px;
+  line-height: 1;
+  transform: translate3d(var(--x), var(--y), 0);
+  animation: typing-slot-coin-fall var(--dur) linear var(--delay, 0ms) forwards;
+}
+
+@keyframes typing-slot-coin-fall {
+  0% { opacity: 0; transform: translate3d(var(--x), var(--y), 0) rotate(0deg) scale(var(--sc, 1)); }
+  10% { opacity: 1; }
+  85% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate3d(calc(var(--x) + var(--tx)), calc(var(--y) + var(--ty)), 0) rotate(var(--rot, 0deg)) scale(var(--sc, 1));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .typing-confetti-piece,
   .delete-explosion-piece,
@@ -5383,7 +5551,12 @@ a.body-link-image:hover::after {
   .typing-keyword-mark,
   .typing-firework-rocket,
   .typing-firework-petal,
-  .typing-firework-mark {
+  .typing-firework-mark,
+  .typing-slot,
+  .typing-slot-strip,
+  .typing-slot-coin,
+  .typing-slot-label,
+  .typing-slot-puff {
     /* 入力演出はアプリ内設定で制御するため、OS設定を無視 */
   }
 }

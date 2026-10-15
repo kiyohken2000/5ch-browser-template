@@ -2515,6 +2515,21 @@ try {
   // 「好き」で打ち終えるとキーワード演出が出る
   await page.type(".compose-window textarea.compose-body", "好き", { delay: 80 });
   assert(await page.$(".typing-keyword-mark"), "typing a keyword should emit its burst");
+  // 7 コンボで 777 スロットが回る
+  await page.fill(".compose-window textarea.compose-body", "");
+  await page.waitForFunction(() => !document.querySelector(".typing-combo-badge"), null, { timeout: 3000 });
+  await page.type(".compose-window textarea.compose-body", "あいうえおかきく", { delay: 60 });
+  const slotEl = await page.$(".typing-slot");
+  assert(slotEl, "reaching 7 combo should spin the slot");
+  const slotOutcome = await slotEl.getAttribute("data-outcome");
+  assert(
+    ["jackpot", "triple", "near", "miss"].includes(slotOutcome || ""),
+    `slot outcome should be decided up front, got ${JSON.stringify(slotOutcome)}`,
+  );
+  const slotReels = await page.$$(".typing-slot .typing-slot-reel");
+  assert(slotReels.length === 3, `slot should have 3 reels, got ${slotReels.length}`);
+  // 回り終わると片付けられる
+  await page.waitForFunction(() => !document.querySelector(".typing-slot"), null, { timeout: 10000 });
   await page.fill(".compose-window textarea.compose-body", "");
   await page.click(".compose-header button:has-text('閉じる')");
   await new Promise((r) => setTimeout(r, 100));
