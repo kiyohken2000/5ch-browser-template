@@ -3886,11 +3886,42 @@ try {
         const el = sep?.nextElementSibling;
         return el ? Number(el.dataset.responseNo) : null;
       });
+      // scrollTop を直接書くだけでは、読書位置の復元 (scrollToResponseNo) が
+      // 50/200/450/800/1300/2000ms の再アンカーで引き戻してしまう。復元は実入力
+      // (wheel / touchmove / keydown) でしか止まらないので、人が触ったのと同じように
+      // wheel を 1 発撃ってから動かす。遅いランナーではこの引き戻しで実際に落ちた
+      // (>>40 へ送ったのに >>61 のままだった)。
       const scrollTo = (no) => p.evaluate((n) => {
         const c = document.querySelector(".response-scroll");
+        c.dispatchEvent(new WheelEvent("wheel", { deltaY: 0, bubbles: true }));
         const el = c.querySelector(`[data-response-no="${n}"]`);
         c.scrollTop += el.getBoundingClientRect().top - c.getBoundingClientRect().top;
       }, no);
+      // アプリ側の再アンカーが終わるのを待つ。固定の待ち時間だと遅い環境で足りない。
+      const settleScroll = (timeoutMs = 4000) => p.evaluate((limit) => new Promise((resolve) => {
+        const c = document.querySelector(".response-scroll");
+        if (!c) {
+          resolve("no-container");
+          return;
+        }
+        const deadline = Date.now() + limit;
+        let last = c.scrollTop;
+        let stable = 0;
+        const tick = () => {
+          if (c.scrollTop === last) {
+            stable += 1;
+          } else {
+            stable = 0;
+            last = c.scrollTop;
+          }
+          if (stable >= 6 || Date.now() > deadline) {
+            resolve(c.scrollTop);
+            return;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }), timeoutMs);
       const rowClick = async (i) => {
         const rows = await p.$$(".pane.threads tbody tr");
         await rows[i].click();
@@ -3933,8 +3964,13 @@ try {
         for (const round of [1, 2, 3]) {
           await scrollTo(10);
           await new Promise((r) => setTimeout(r, 600));
+          // ここで >>10 に居ないと New が最初から着地点に居ることになり、
+          // 着地の検査が素通りしてしまう
+          const left = await topVisibleNo();
+          assert(left === 10, `New press #${round} should start from >>10, got >>${left}`);
           await (await p.$(".nav-new-btn")).click();
           await new Promise((r) => setTimeout(r, 2600));
+          await settleScroll();
           const landed = await topVisibleNo();
           assert(landed === 61, `New press #${round} must land on the marker, got >>${landed}`);
         }
@@ -3942,7 +3978,7 @@ try {
 
       // また >>40 付近まで戻って読み、別のスレを見てから元スレへ戻る
       await scrollTo(40);
-      await new Promise((r) => setTimeout(r, 400));
+      await settleScroll();
       assert((await topVisibleNo()) === 40, `the reading position should be >>40, got ${await topVisibleNo()}`);
       await rowClick(1);
       await new Promise((r) => setTimeout(r, 1500));
@@ -3951,6 +3987,7 @@ try {
       if (mode === "grows") {
         // 新着があるなら、読書位置の復元に引き戻されず新着の先頭で落ち着くこと
         await new Promise((r) => setTimeout(r, 2600));
+        await settleScroll();
         assert((await newStart()) === 81, `coming back should mark >>81 as the first new response, got ${await newStart()}`);
         assert(
           (await topVisibleNo()) === 81,
