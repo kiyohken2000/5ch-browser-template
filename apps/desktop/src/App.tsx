@@ -14545,15 +14545,27 @@ export default function App() {
       {youtubeContextMenu && (
         <div ref={youtubeContextMenuRef} className="thread-menu image-context-menu" style={{ left: youtubeContextMenu.x, top: youtubeContextMenu.y }} onClick={(e) => e.stopPropagation()}>
           {!isMacPlatform && (
-            <button onClick={() => {
-              const url = youtubeContextMenu.url;
-              const videoId = extractYoutubeVideoId(url);
-              if (videoId) {
-                launchYoutubePip(videoId, url);
-                setStatus("PiPで再生中");
-              }
-              setYoutubeContextMenu(null);
-            }}>PiPで再生</button>
+            <>
+              <button onClick={() => {
+                const url = youtubeContextMenu.url;
+                const videoId = extractYoutubeVideoId(url);
+                if (videoId) {
+                  launchYoutubePip(videoId, url);
+                  setStatus("PiPで再生中");
+                }
+                setYoutubeContextMenu(null);
+              }}>PiPで再生</button>
+              {/* 再生窓はタイトルバーもタスクバーも無く、閉じる手段が窓の中にしか
+                  無い。中身が描画されない状態になると本体から閉じる術がなくなるので、
+                  ここに外からの非常口を置く。 */}
+              <button onClick={() => {
+                if (isTauriRuntime()) {
+                  void invoke("close_youtube_pip").catch((err) => console.warn("close_youtube_pip failed", err));
+                }
+                setYoutubeContextMenu(null);
+                setStatus("再生窓を閉じました");
+              }}>再生窓を閉じる</button>
+            </>
           )}
           <button onClick={() => {
             const url = youtubeContextMenu.url;

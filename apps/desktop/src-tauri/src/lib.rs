@@ -1643,6 +1643,10 @@ fn delete_thread_cache(thread_url: String) -> Result<(), String> {
 
 #[tauri::command]
 fn quit_app(window: tauri::WebviewWindow) -> Result<(), String> {
+    // PiP 窓は decorations なし + skip_taskbar なので、本体だけ閉じると
+    // 「全ウィンドウが閉じるまで終了しない」Tauri の既定動作でプロセスが
+    // 居残り、OS 側から閉じる手段も無くなる。必ず連れて閉じる。
+    let _ = close_youtube_pip(window.app_handle().clone());
     window.close().map_err(|e| e.to_string())
 }
 
@@ -1783,6 +1787,18 @@ fn position_visible_on_any_monitor(
     })
 }
 
+/// PiP ページが読み込みのたびに引く動画 ID。`initialization_script` は窓を
+/// 作ったときの値を焼き込むので、再読み込みでは古い動画に戻ってしまう。
+static PIP_VIDEO_ID: Mutex<String> = Mutex::new(String::new());
+
+#[tauri::command]
+fn get_pip_video_id() -> Result<String, String> {
+    Ok(PIP_VIDEO_ID
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone())
+}
+
 fn persist_youtube_pip_bounds(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("youtube-pip") {
         let scale = w.scale_factor().unwrap_or(1.0);
@@ -1831,13 +1847,23 @@ async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(),
 
         let label = "youtube-pip";
 
+        {
+            let mut cur = PIP_VIDEO_ID.lock().unwrap_or_else(|e| e.into_inner());
+            *cur = video_id.clone();
+        }
+
         let inject_script = format!(
             "window.__pipVideoId={}; if (typeof loadPipVideo === 'function') loadPipVideo();",
             serde_json::to_string(&video_id).unwrap_or_else(|_| "\"\"".into())
         );
 
         if let Some(existing) = app.get_webview_window(label) {
-            existing.eval(&inject_script).map_err(|e| e.to_string())?;
+            // eval ではなく再読み込みで作り直す。WebView の描画プロセスが落ちて
+            // 真っ白になっている窓には eval が届かないが、reload なら復帰する。
+            // 動画 ID は PIP_VIDEO_ID から読み直されるので、別の動画に差し替える
+            // 用途でもこれで足りる。reload 自体が失敗したらフロント側が外部
+            // ブラウザにフォールバックする。
+            existing.reload().map_err(|e| e.to_string())?;
             let _ = existing.set_focus();
             return Ok(());
         }
@@ -1856,11 +1882,18 @@ async fn open_youtube_pip(app: tauri::AppHandle, video_id: String) -> Result<(),
         .decorations(false)
         .resizable(true)
         .skip_taskbar(true)
+        // 既定の白ではなく黒。pip.html 自身も黒なので、白い窓が出たときは
+        // 「WebView の中身が一度も描画されていない」と切り分けられる。
+        .background_color(tauri::window::Color(0, 0, 0, 255))
         .initialization_script(&inject_script)
         .inner_size(width, height);
 
         if let Some(b) = saved.as_ref() {
             if let (Some(px), Some(py)) = (b.x, b.y) {
+                // 閉じるボタンとドラッグ領域は窓の上端 28px にしか無いので、y が
+                // 負のまま復元するとタイトルバーが画面外に出て閉じる手段が消える。
+                // x が負でも ✕ は右端にあるため、下の可視判定だけで足りる。
+                let py = py.max(0.0);
                 if position_visible_on_any_monitor(&app, px, py, width, height) {
                     builder = builder.position(px, py);
                 }
@@ -3509,6 +3542,9 @@ pub fn run() {
                             }
                         }
                         tauri::WindowEvent::CloseRequested { .. } => {
+                            // PiP 窓を残すとプロセスが終了しないまま、タスクバーにも
+                            // 出ない窓だけが居残る。本体と一緒に閉じる。
+                            let _ = close_youtube_pip(win_clone.app_handle().clone());
                             let is_maximized = win_clone.is_maximized().unwrap_or(false);
                             if is_maximized {
                                 if let Ok(mut prev) = core_store::load_json::<WindowSize>("window_size.json") {
@@ -3600,6 +3636,7 @@ pub fn run() {
             set_ui_zoom,
             open_youtube_pip,
             close_youtube_pip,
+            get_pip_video_id,
             start_pip_drag,
             download_images,
             ai_list_models,

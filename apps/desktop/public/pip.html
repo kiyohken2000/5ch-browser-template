@@ -46,17 +46,31 @@
     <iframe id="player" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
   </div>
   <script>
-    function loadPipVideo() {
-      var v = window.__pipVideoId;
+    function setPipVideo(v) {
       var player = document.getElementById('player');
+      var err = document.getElementById('err');
       if (!player) return;
       if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) {
+        if (err) err.remove();
+        player.style.display = '';
         player.src = 'https://www.youtube-nocookie.com/embed/' + v + '?autoplay=1&playsinline=1&rel=0';
-        document.title = 'YouTube PiP';
       } else {
         player.style.display = 'none';
-        document.querySelector('.player-wrap').insertAdjacentHTML('beforeend', '<div class="err">Invalid video ID</div>');
+        if (!err) {
+          document.querySelector('.player-wrap').insertAdjacentHTML('beforeend', '<div class="err" id="err">Invalid video ID</div>');
+        }
       }
+    }
+    // 動画 ID は Rust 側が持っている値を正とする。window.__pipVideoId は窓を
+    // 作ったときの初期化スクリプトが焼き込む値なので、再読み込み後は古い動画の
+    // ID が残る。IPC が使えないときのフォールバックに留める。
+    function loadPipVideo() {
+      tauriInvoke('get_pip_video_id').then(function (v) {
+        setPipVideo(v || window.__pipVideoId);
+      }).catch(function (e) {
+        console.warn('get_pip_video_id failed', e);
+        setPipVideo(window.__pipVideoId);
+      });
     }
     function tauriInvoke(cmd) {
       var ipc = window.__TAURI_INTERNALS__;
