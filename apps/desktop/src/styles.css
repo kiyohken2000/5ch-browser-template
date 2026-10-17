@@ -3538,6 +3538,28 @@ a.body-link-image:hover::after {
   border-color: #8a6040;
 }
 
+/* サムネイルの自動読み込みを切っているときの常設プレースホルダ。
+   サイズ制限で弾いた警告色と区別し、全レスに並んでも気にならない無彩色にする。 */
+.thumb-gate-manual {
+  color: #667080;
+  background: #f2f4f7;
+  border-style: solid;
+  border-color: #c8cdd4;
+}
+.thumb-gate-manual:hover {
+  background: #e6ebf2;
+  border-color: #9aa5b1;
+}
+.dark .thumb-gate-manual {
+  color: #9aa5b1;
+  background: #1f2328;
+  border-color: #3a4048;
+}
+.dark .thumb-gate-manual:hover {
+  background: #2a3038;
+  border-color: #4a525c;
+}
+
 .settings-hint {
   font-size: 11px;
   color: #888;

@@ -2199,7 +2199,7 @@ const ogpDomainAllowed = (url: string, allow: string[], block: string[]): boolea
   return true;
 };
 
-const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
+const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
   let safe = html
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<a\s[^>]*>(.*?)<\/a>/gi, "$1")
@@ -2216,6 +2216,9 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   }
   safe = safe.replace(/\n/g, "<br>");
   const collectedThumbs: string[] = [];
+  // サムネイルの自動読み込みを切っているときは <img> を作らず、プレースホルダだけ置く。
+  // クリックで実体に差し替える処理はサイズ制限のゲートと同じものを使い回す。
+  const manualThumbs = opts?.thumbAutoLoad === false;
   const sizeGated = opts?.imageSizeLimitKb && opts.imageSizeLimitKb > 0;
   if (!opts?.hideImages) {
     safe = safe.replace(
@@ -2223,7 +2226,9 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
       (match) => {
         const href = normalizeExternalUrl(match);
         if (!href) return match;
-        if (sizeGated) {
+        if (manualThumbs) {
+          collectedThumbs.push(`<span class="thumb-link thumb-size-gate" data-lightbox-src="${href}"><span class="thumb-gate-blocked thumb-gate-manual" data-reveal-src="${href}">クリックで表示</span></span>`);
+        } else if (sizeGated) {
           collectedThumbs.push(`<span class="thumb-link thumb-size-gate" data-lightbox-src="${href}" data-gate-src="${href}" data-size-limit="${opts.imageSizeLimitKb}"><span class="thumb-gate-loading">画像を確認中…</span></span>`);
         } else {
           collectedThumbs.push(`<span class="thumb-link" data-lightbox-src="${href}"><img class="response-thumb" src="${href}" loading="lazy" referrerpolicy="no-referrer" alt="" /></span>`);
@@ -2243,7 +2248,8 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
       (match) => {
         const href = normalizeExternalUrl(match);
         if (!href) return match;
-        collectedThumbs.push(`<video class="inline-video" src="${href}#t=0.1" controls preload="metadata" playsinline></video>`);
+        // 自動読み込みを切っているときは先頭フレームの取得もしない (preload="none")。
+        collectedThumbs.push(`<video class="inline-video" src="${href}#t=0.1" controls preload="${manualThumbs ? "none" : "metadata"}" playsinline></video>`);
         return `<a class="body-link" href="${href}" target="_blank" rel="noopener">${match}</a>`;
       }
     );
@@ -2314,7 +2320,13 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
       if (seenIds.has(videoId)) continue;
       seenIds.add(videoId);
       const thumbUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-      collectedThumbs.push(`<span class="thumb-link youtube-thumb" data-lightbox-src="${href}"><img class="response-thumb youtube-thumb-img" src="${thumbUrl}" loading="lazy" referrerpolicy="no-referrer" alt="YouTube" /><span class="youtube-play-icon" aria-hidden="true">▶</span></span>`);
+      if (manualThumbs) {
+        // ▶ はサムネに重ねる作りなので、読み込む前は出さない。クリックしてサムネが
+        // 出れば ▶ も一緒に現れる。
+        collectedThumbs.push(`<span class="thumb-link youtube-thumb thumb-size-gate" data-lightbox-src="${href}"><span class="thumb-gate-blocked thumb-gate-manual" data-reveal-src="${thumbUrl}">クリックで表示</span></span>`);
+      } else {
+        collectedThumbs.push(`<span class="thumb-link youtube-thumb" data-lightbox-src="${href}"><img class="response-thumb youtube-thumb-img" src="${thumbUrl}" loading="lazy" referrerpolicy="no-referrer" alt="YouTube" /><span class="youtube-play-icon" aria-hidden="true">▶</span></span>`);
+      }
     }
   }
   if (collectedThumbs.length > 0) {
@@ -2352,7 +2364,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   }
   return { __html: safe };
 };
-const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
+const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
   let out = renderResponseBody(html, opts).__html;
   out = highlightEntriesPreservingTags(out, highlightWords);
   out = highlightHtmlPreservingTags(out, query);
@@ -3073,6 +3085,9 @@ export default function App() {
   const [thumbMaskStrength, setThumbMaskStrength] = useState(80);
   const [thumbMaskForceOnStart, setThumbMaskForceOnStart] = useState(false);
   const [youtubeThumbsEnabled, setYoutubeThumbsEnabled] = useState(true);
+  // サムネイルを自動で読み込むか。既定は ON (従来どおり)。OFF にすると本文・画像一覧の
+  // どちらも <img> を作らず、クリックするまで画像ホストへ通信しない。
+  const [thumbAutoLoadEnabled, setThumbAutoLoadEnabled] = useState(true);
   // OGP リンクカード。外部サイトへ通信が飛ぶためプライバシー配慮で既定 OFF。
   const [ogpCardsEnabled, setOgpCardsEnabled] = useState(false);
   // X ポストカード。OGP とは独立トグル (x.com は OGP を返さないので、OGP カード ON
@@ -7567,9 +7582,9 @@ export default function App() {
 
   // 画像一覧サブペインにも本文と同じサイズ制限を掛ける。
   // HEAD の結果は本文側 (imageSizeCacheRef) と共有するので、同じ URL へ二重にリクエストしない。
-  // 一覧を閉じている間や制限が 0 のときは何も送らない。
+  // 一覧を閉じている間や制限が 0 のとき、自動読み込みを切っているときは何も送らない。
   useEffect(() => {
-    if (!imageGalleryOpen || imageSizeLimit <= 0) return;
+    if (!imageGalleryOpen || imageSizeLimit <= 0 || !thumbAutoLoadEnabled) return;
     let cancelled = false;
     const cache = imageSizeCacheRef.current;
     for (const { url } of galleryImages) {
@@ -7587,7 +7602,7 @@ export default function App() {
       }).catch((e) => console.warn("image size check failed", e));
     }
     return () => { cancelled = true; };
-  }, [imageGalleryOpen, imageSizeLimit, galleryImages]);
+  }, [imageGalleryOpen, imageSizeLimit, galleryImages, thumbAutoLoadEnabled]);
 
   // OGP リンクカードの非同期取得 & 埋め込み。トグル ON 時のみ、IntersectionObserver で
   // 画面に入ったスロットだけ取得する (スレ内の全 URL へ一斉に通信しない)。
@@ -7819,7 +7834,7 @@ export default function App() {
   const renderPopupBody = (resp: typeof responseItems[number]) =>
     ngResultMap.get(resp.id) === "abone"
       ? <div className="anchor-popup-body abone-body">{ABONE_TEXT}</div>
-      : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { youtubeThumbs: youtubeThumbsEnabled })} />;
+      : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled })} />;
 
   const goFromLocationInput = () => {
     const next = rewrite5chNet(locationInput.trim());
@@ -8787,6 +8802,7 @@ export default function App() {
           thumbMaskStrength?: number;
           thumbMaskForceOnStart?: boolean;
           youtubeThumbsEnabled?: boolean;
+          thumbAutoLoadEnabled?: boolean;
           ogpCardsEnabled?: boolean;
           tweetCardsEnabled?: boolean;
           restoreSession?: boolean;
@@ -8877,6 +8893,7 @@ export default function App() {
           setThumbMaskEnabled(parsed.thumbMaskEnabled);
         }
         if (typeof parsed.youtubeThumbsEnabled === "boolean") setYoutubeThumbsEnabled(parsed.youtubeThumbsEnabled);
+        if (typeof parsed.thumbAutoLoadEnabled === "boolean") setThumbAutoLoadEnabled(parsed.thumbAutoLoadEnabled);
         if (typeof parsed.ogpCardsEnabled === "boolean") setOgpCardsEnabled(parsed.ogpCardsEnabled);
         if (typeof parsed.tweetCardsEnabled === "boolean") setTweetCardsEnabled(parsed.tweetCardsEnabled);
         if (typeof parsed.restoreSession === "boolean") { setRestoreSession(parsed.restoreSession); restoreSessionRef.current = parsed.restoreSession; }
@@ -9842,6 +9859,7 @@ export default function App() {
       thumbMaskStrength,
       thumbMaskForceOnStart,
       youtubeThumbsEnabled,
+      thumbAutoLoadEnabled,
       ogpCardsEnabled,
       tweetCardsEnabled,
       restoreSession,
@@ -9875,7 +9893,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled && !typingComboEnabled) return;
@@ -11185,7 +11203,7 @@ export default function App() {
       fontSize={composeFontSize}
     />
     {composePreview && (
-      <div className="compose-preview" dangerouslySetInnerHTML={renderResponseBody(composeBody || "(空)", { youtubeThumbs: youtubeThumbsEnabled })} />
+      <div className="compose-preview" dangerouslySetInnerHTML={renderResponseBody(composeBody || "(空)", { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled })} />
     )}
     <div className="compose-actions">
       <span className="compose-meta">{composeBody.length}文字 / {composeBody.split("\n").length}行</span>
@@ -12633,7 +12651,10 @@ export default function App() {
                   if (src) {
                     const parent = gateBlocked.closest<HTMLElement>(".thumb-size-gate");
                     if (parent) {
-                      parent.innerHTML = `<img class="response-thumb" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="" />`;
+                      // YouTube のサムネは ▶ の重ね表示ごと作り直す。
+                      parent.innerHTML = parent.classList.contains("youtube-thumb")
+                        ? `<img class="response-thumb youtube-thumb-img" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="YouTube" /><span class="youtube-play-icon" aria-hidden="true">▶</span>`
+                        : `<img class="response-thumb" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="" />`;
                     }
                   }
                   return;
@@ -12952,7 +12973,7 @@ export default function App() {
                       </span>
                     </div>
                     <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}${longCollapsed ? " collapsed" : ""}`} style={longCollapsed ? ({ "--collapse-lines": collapsePreviewLines } as CSSProperties) : undefined} dangerouslySetInnerHTML={{ __html: (() => {
-                      const full = threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html;
+                      const full = threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html;
                       // 折りたたみ中だけ表示文字数で切る。切り詰めは常にサニタイズ後の HTML に対して行う
                       const shown = longCollapsed && collapsePreviewChars > 0 ? truncateResponseHtml(full, collapsePreviewChars) : full;
                       return shown + (responseBodyBottomPad ? "<br><br>" : "");
@@ -13043,7 +13064,9 @@ export default function App() {
                   {galleryImages.map((img, i) => {
                     // 制限が有効な間はサイズが分かるまで出さない。分かってから超過判定する
                     const imgSize = imageSizeMap[img.url];
-                    const gated = imageSizeLimit > 0 && !revealedGalleryImages.has(img.url);
+                    // 自動読み込みを切っている間は、サイズも見ずにプレースホルダのままにする
+                    const manualGated = !thumbAutoLoadEnabled && !revealedGalleryImages.has(img.url);
+                    const gated = !manualGated && imageSizeLimit > 0 && !revealedGalleryImages.has(img.url);
                     const sizeChecking = gated && imgSize === undefined;
                     const sizeBlocked = gated && typeof imgSize === "number" && imgSize > imageSizeLimit * 1024;
                     return (
@@ -13052,7 +13075,7 @@ export default function App() {
                         className="image-gallery-thumb-wrap"
                         onMouseMove={(e) => {
                           if (isTouchMode()) return;
-                          if (sizeChecking || sizeBlocked) return;
+                          if (manualGated || sizeChecking || sizeBlocked) return;
                           if (!e.ctrlKey && !hoverPreviewEnabled) return;
                           showHoverPreview(img.url);
                         }}
@@ -13069,6 +13092,10 @@ export default function App() {
                           }, 300);
                         }}
                         onClick={() => {
+                          if (manualGated) {
+                            setRevealedGalleryImages((prev) => new Set(prev).add(img.url));
+                            return;
+                          }
                           if (sizeChecking) return;
                           if (sizeBlocked) {
                             setRevealedGalleryImages((prev) => new Set(prev).add(img.url));
@@ -13085,7 +13112,9 @@ export default function App() {
                           }
                         }}
                       >
-                        {sizeChecking ? (
+                        {manualGated ? (
+                          <span className="thumb-gate-blocked thumb-gate-manual">クリックで表示</span>
+                        ) : sizeChecking ? (
                           <span className="thumb-gate-loading">画像を確認中…</span>
                         ) : sizeBlocked ? (
                           <span className="thumb-gate-blocked">サイズ制限 ({formatImageByteSize(imgSize as number)}) により非表示 — クリックで表示</span>
@@ -14979,7 +15008,7 @@ export default function App() {
                   )}
                   {ngResultMap.get(r.id) === "abone"
                     ? <span className="id-popup-text abone-body">{ABONE_TEXT}</span>
-                    : <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled })} />}
+                    : <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled })} />}
                 </div>
                 );
               })}
@@ -15379,6 +15408,11 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={restoreSession} onChange={(e) => setRestoreSession(e.target.checked)} />
                   <span title="スレ一覧フィルタ (お気に入り / 最近開いた / 最近書き込んだ) の選択状態も復元します">起動時に前回のタブ・板・スレ一覧フィルタを復元</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={thumbAutoLoadEnabled} onChange={(e) => setThumbAutoLoadEnabled(e.target.checked)} />
+                  <span title="オフにすると本文と画像一覧のサムネイルを自動で取得しません。プレースホルダをクリックしたときだけ読み込みます">サムネイルを自動で読み込む</span>
+                  <span className="settings-hint">オフ = クリックするまで通信しない</span>
                 </label>
                 <label className="settings-row">
                   <span>画像サイズ制限 (KB)</span>

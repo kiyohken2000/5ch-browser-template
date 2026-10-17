@@ -1947,6 +1947,66 @@ try {
   assert(idPopupPrefOn === true, `ID hover popup on should persist, got ${idPopupPrefOn}`);
   console.log("smoke-ui: id hover popup setting ok");
 
+  // サムネイルの自動読み込み設定 (既定 ON = 従来どおり)。OFF にすると本文も画像一覧も
+  // <img> を作らず、プレースホルダをクリックしたときだけ画像ホストへ通信する。
+  const thumbAutoLoadToggle = await page.$('.settings-body label:has-text("サムネイルを自動で読み込む") input[type="checkbox"]');
+  assert(thumbAutoLoadToggle, "settings should have the thumbnail auto-load toggle");
+  assert(await thumbAutoLoadToggle.isChecked(), "thumbnail auto-load should default to on");
+  await thumbAutoLoadToggle.uncheck();
+  await new Promise((r) => setTimeout(r, 150));
+  const thumbAutoLoadOff = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").thumbAutoLoadEnabled;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(thumbAutoLoadOff === false, `thumbnail auto-load off should persist, got ${thumbAutoLoadOff}`);
+
+  // プレースホルダのクリックでサムネへ差し替わること (サイズ制限のゲートと同じ経路)。
+  // YouTube のサムネは ▶ の重ね表示ごと作り直されることまで見る。
+  await page.evaluate((src) => {
+    const host = document.querySelector(".response-scroll");
+    const row = document.createElement("div");
+    row.id = "smoke-gate-row";
+    row.innerHTML =
+      '<span class="thumb-link thumb-size-gate" id="smoke-gate-img" data-lightbox-src="' + src + '">' +
+      '<span class="thumb-gate-blocked" data-reveal-src="' + src + '">クリックで表示</span></span>' +
+      '<span class="thumb-link youtube-thumb thumb-size-gate" id="smoke-gate-yt" data-lightbox-src="https://www.youtube.com/watch?v=dQw4w9WgXcQ">' +
+      '<span class="thumb-gate-blocked" data-reveal-src="' + src + '">クリックで表示</span></span>';
+    host.appendChild(row);
+  }, "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==");
+  await page.evaluate(() => {
+    const opt = { bubbles: true, cancelable: true, view: window };
+    document.querySelector("#smoke-gate-img .thumb-gate-blocked").dispatchEvent(new MouseEvent("click", opt));
+    document.querySelector("#smoke-gate-yt .thumb-gate-blocked").dispatchEvent(new MouseEvent("click", opt));
+  });
+  await new Promise((r) => setTimeout(r, 150));
+  assert(
+    await page.$("#smoke-gate-img img.response-thumb"),
+    "clicking a thumbnail placeholder should load the image",
+  );
+  assert(
+    await page.$("#smoke-gate-yt img.response-thumb.youtube-thumb-img"),
+    "clicking a YouTube placeholder should load the thumbnail",
+  );
+  assert(
+    await page.$("#smoke-gate-yt .youtube-play-icon"),
+    "a revealed YouTube thumbnail should bring back the PiP play icon",
+  );
+  await page.evaluate(() => document.querySelector("#smoke-gate-row")?.remove());
+  await thumbAutoLoadToggle.check();
+  await new Promise((r) => setTimeout(r, 150));
+  const thumbAutoLoadOn = await page.evaluate(() => {
+    try {
+      return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").thumbAutoLoadEnabled;
+    } catch {
+      return undefined;
+    }
+  });
+  assert(thumbAutoLoadOn === true, `thumbnail auto-load on should persist, got ${thumbAutoLoadOn}`);
+  console.log("smoke-ui: thumbnail auto-load setting ok");
+
   // メール欄表示の設定 (既定 ON)。dat の mail は取得できていても表示先が無かったので、
   // 「名前の右に出ること」と「設定で消せること」の両方を見る。
   const mailToggle = await page.$('.settings-body label:has-text("メール欄") input[type="checkbox"]');
