@@ -3316,6 +3316,50 @@ button.search-history-btn:hover {
   padding: 0 1px;
 }
 
+/* === 多段タブ ===
+   タブバーを折り返して複数段に並べる。段数は 3 段で打ち止めにして、それ以上は
+   タブバーの中を縦スクロールさせる — 無制限にするとタブが増えたときにタブバー
+   だけでレス欄を押し潰してしまう。段数 (--tab-rows) はタブバー下端のつまみを
+   ドラッグして変えられる。タブに固定の高さを与えているのは、段の高さと
+   max-height を同じ値から計算して「次の段が半分だけ覗く」状態を作らないため。 */
+.thread-tab-bar-wrap {
+  --tab-row-h: 22px;
+}
+.thread-tab-bar-wrap.tabs-narrow {
+  --tab-row-h: 18px;
+}
+.thread-tab-bar-wrap.tabs-multi-row {
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+.tabs-multi-row .thread-tab-bar {
+  flex-wrap: wrap;
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: calc(var(--tab-row-h) * var(--tab-rows, 3));
+  scrollbar-width: thin;
+  scrollbar-color: #b8b8b8 transparent;
+}
+.tabs-multi-row .thread-tab {
+  height: var(--tab-row-h);
+}
+/* 1 段のときはスクロールバーを隠しているが、多段では縦に続きがあることを
+   示したいので細いスクロールバーを出す。 */
+.tabs-multi-row .thread-tab-bar::-webkit-scrollbar {
+  display: block;
+  width: 8px;
+}
+.tabs-multi-row .thread-tab-bar::-webkit-scrollbar-thumb {
+  background: #b8b8b8;
+  border-radius: 4px;
+}
+.dark .tabs-multi-row .thread-tab-bar {
+  scrollbar-color: #555 transparent;
+}
+.dark .tabs-multi-row .thread-tab-bar::-webkit-scrollbar-thumb {
+  background: #555;
+}
+
 /* === 開いているタブの一覧 ===
    タブバーの中に absolute で置くと、ガラスモードのタブバーが backdrop-filter で
    作る重ね合わせ文脈に閉じ込められて本文の下に潜り、タブが多いときは
@@ -7802,7 +7846,8 @@ a.body-link-image:hover::after {
 }
 
 /* 見た目とホバー、ダークモードは .row-splitter から借りる */
-.compose-dock-splitter {
+.compose-dock-splitter,
+.tab-rows-splitter {
   flex: 0 0 6px;
   height: 6px;
 }

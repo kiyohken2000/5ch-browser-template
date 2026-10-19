@@ -724,6 +724,16 @@ const TAB_WIDTH_OPTIONS: { value: TabWidthPref; label: string }[] = [
   { value: "normal", label: "標準" },
   { value: "narrow", label: "狭い" },
 ];
+// タブの多段表示。オンにするとタブバーを折り返して複数段に並べる。既定はオフ
+// (従来どおりの 1 段横スクロール)。段数は CSS 側で 3 段までに抑えて、それ以上は
+// タブバーの中を縦スクロールにしている — 無制限にするとタブが増えたときに
+// タブバーだけでレス欄を押し潰してしまう。
+const TAB_MULTI_ROW_KEY = "desktop.tabMultiRow.v1";
+// 多段タブの段数。タブバーの下端をドラッグして変えられる。1 段を下回ると多段の
+// 意味がなく、増やしすぎるとタブバーだけでレス欄を押し潰すので上下に止めを置く。
+const MIN_TAB_ROWS = 1;
+const MAX_TAB_ROWS = 8;
+const DEFAULT_TAB_ROWS = 3;
 // タッチ操作モード。タブレットにはカーソルが無いので、タップで合成される
 // mouseover の直後に mouseout が来て、ポップアップが開いた瞬間に閉じる。
 // on にするとホバー由来の開閉を止め、タップで開いてタップで閉じる形になる。
@@ -784,6 +794,7 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   aiPrefs: AI_PREFS_KEY,
   uiZoom: UI_ZOOM_KEY,
   tabWidth: TAB_WIDTH_KEY,
+  tabMultiRow: TAB_MULTI_ROW_KEY,
   touchMode: TOUCH_MODE_KEY,
 };
 // settings.json は core-store が空の {} を作るので、UI_JSON_MIGRATED_KEY とは
@@ -882,6 +893,7 @@ type ResizeDragState =
   | { mode: "thread-response"; startX: number; startBoardPx: number; startThreadPx: number }
   | { mode: "response-rows"; startY: number; startThreadPx: number; responseLayoutHeight: number }
   | { mode: "compose-dock"; startY: number; startHeightPx: number; maxHeightPx: number }
+  | { mode: "tab-rows"; startY: number; startRows: number; rowHeightPx: number }
   | { mode: "col-resize"; colKey: string; startX: number; startWidth: number; reverse: boolean };
 type PaneLayoutMode = "classic" | "river";
 // ヘッダのドラッグで移動できるパネル (NGフィルタ / スレ一覧NGワード / 画像NG / レス分類 / AIルール)
@@ -2893,6 +2905,19 @@ export default function App() {
   useEffect(() => {
     saveUiSetting(TAB_WIDTH_KEY, tabWidth);
   }, [tabWidth]);
+  const [tabMultiRow, setTabMultiRow] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(TAB_MULTI_ROW_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    saveUiSetting(TAB_MULTI_ROW_KEY, String(tabMultiRow));
+  }, [tabMultiRow]);
+  // 段数はドラッグで決める寸法なので、設定ファイルではなく他のペイン寸法と
+  // 同じ layoutPrefs に置く。
+  const [tabRows, setTabRows] = useState(DEFAULT_TAB_ROWS);
   const [touchModePref, setTouchModePref] = useState<TouchModePref>(() => {
     try {
       const raw = localStorage.getItem(TOUCH_MODE_KEY);
@@ -8515,6 +8540,24 @@ export default function App() {
     document.body.style.cursor = "row-resize";
   };
 
+  // 多段タブの段数をドラッグで変える。px ではなく段単位でスナップさせる —
+  // 中途半端な高さにすると一番下の段が半分だけ覗いて、タブが読めない帯になるため。
+  const beginTabRowsResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    // 段の高さの実体は CSS の --tab-row-h。タブ幅「狭い」で変わるので毎回読む。
+    const wrap = event.currentTarget.previousElementSibling as HTMLElement | null;
+    const rowH = wrap ? parseFloat(getComputedStyle(wrap).getPropertyValue("--tab-row-h")) : NaN;
+    resizeDragRef.current = {
+      mode: "tab-rows",
+      startY: event.clientY,
+      startRows: tabRows,
+      rowHeightPx: rowH > 0 ? rowH : 22,
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
+  };
+
   // 本文の下に固定した書き込み欄の高さを、その上端のスプリッターで変える。
   // 上へドラッグすると書き込み欄が伸びるので、移動量は引き算で効かせる。
   const beginComposeDockResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -8816,6 +8859,7 @@ export default function App() {
           composePos?: { x: number; y: number };
           composeDocked?: boolean;
           composeDockPx?: number;
+          tabRows?: number;
           threadColVisible?: Record<string, boolean>;
           threadColOrder?: string[];
           responseBodyBottomPad?: boolean;
@@ -8914,6 +8958,7 @@ export default function App() {
         if (typeof parsed.threadAgeColorEnabled === "boolean") setThreadAgeColorEnabled(parsed.threadAgeColorEnabled);
         if (typeof parsed.composeDocked === "boolean") setComposeDocked(parsed.composeDocked);
         if (typeof parsed.composeDockPx === "number") setComposeDockPx(Math.max(MIN_COMPOSE_DOCK_PX, parsed.composeDockPx));
+        if (typeof parsed.tabRows === "number") setTabRows(clamp(Math.round(parsed.tabRows), MIN_TAB_ROWS, MAX_TAB_ROWS));
         if (parsed.composeSize && typeof parsed.composeSize.w === "number" && typeof parsed.composeSize.h === "number") setComposeSize(parsed.composeSize);
         if (parsed.composePos && typeof parsed.composePos.x === "number" && typeof parsed.composePos.y === "number") {
           // 解像度やウィンドウサイズが変わってもヘッダーを掴めるように、画面内へ補正して復元する
@@ -9482,6 +9527,12 @@ export default function App() {
         return;
       }
 
+      if (drag.mode === "tab-rows") {
+        const deltaRows = Math.round((event.clientY - drag.startY) / drag.rowHeightPx);
+        setTabRows(clamp(drag.startRows + deltaRows, MIN_TAB_ROWS, MAX_TAB_ROWS));
+        return;
+      }
+
       if (drag.mode === "response-rows") {
         const deltaY = event.clientY - drag.startY;
         const maxThread = Math.max(
@@ -9873,6 +9924,7 @@ export default function App() {
       composePos: composePos ?? undefined,
       composeDocked,
       composeDockPx,
+      tabRows,
       threadColVisible,
       threadColOrder,
       responseBodyBottomPad,
@@ -9893,7 +9945,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled && !typingComboEnabled) return;
@@ -12410,7 +12462,10 @@ export default function App() {
               </span>
             </div>
           )}
-          <div className={`thread-tab-bar-wrap${tabWidth === "narrow" ? " tabs-narrow" : ""}`}>
+          <div
+            className={`thread-tab-bar-wrap${tabWidth === "narrow" ? " tabs-narrow" : ""}${tabMultiRow ? " tabs-multi-row" : ""}`}
+            style={{ "--tab-rows": tabRows } as React.CSSProperties}
+          >
           <div className="thread-tab-bar" ref={tabBarRef}>
             {threadTabs.length === 0 && (
               <div className="thread-tab placeholder active">
@@ -12456,8 +12511,20 @@ export default function App() {
                     const els = tabBarRef.current?.querySelectorAll<HTMLElement>(".thread-tab:not(.placeholder)");
                     if (!els) return;
                     els.forEach((el) => el.classList.remove("drag-over"));
+                    // 多段表示では X だけの判定だと別の段のタブに当たってしまうので、
+                    // まずポインタに一番近い段を選び、その段の中で X を見る。1 段のときは
+                    // 段が 1 つしかないので従来と同じ判定になる (タブバーの外へ縦に
+                    // はみ出していてもそのまま効く)。
+                    const rowDistance = (rect: DOMRect) =>
+                      ev.clientY < rect.top ? rect.top - ev.clientY
+                        : ev.clientY > rect.bottom ? ev.clientY - rect.bottom : 0;
+                    let nearestRow = Infinity;
+                    for (let j = 0; j < els.length; j++) {
+                      nearestRow = Math.min(nearestRow, rowDistance(els[j].getBoundingClientRect()));
+                    }
                     for (let j = 0; j < els.length; j++) {
                       const rect = els[j].getBoundingClientRect();
+                      if (rowDistance(rect) > nearestRow + 1) continue;
                       if (ev.clientX >= rect.left && ev.clientX < rect.right) {
                         if (j !== tabDragRef.current.srcIndex) {
                           els[j].classList.add("drag-over");
@@ -12505,8 +12572,13 @@ export default function App() {
               </div>
             ))}
           </div>
-          <button className="tab-scroll-btn" onClick={() => { if (tabBarRef.current) tabBarRef.current.scrollLeft -= 150; }} title="左スクロール"><ChevronLeft size={14} /></button>
-          <button className="tab-scroll-btn" onClick={() => { if (tabBarRef.current) tabBarRef.current.scrollLeft += 150; }} title="右スクロール"><ChevronRight size={14} /></button>
+          {/* 多段表示では横スクロールしないので、左右ボタンも出さない。 */}
+          {!tabMultiRow && (
+            <>
+              <button className="tab-scroll-btn" onClick={() => { if (tabBarRef.current) tabBarRef.current.scrollLeft -= 150; }} title="左スクロール"><ChevronLeft size={14} /></button>
+              <button className="tab-scroll-btn" onClick={() => { if (tabBarRef.current) tabBarRef.current.scrollLeft += 150; }} title="右スクロール"><ChevronRight size={14} /></button>
+            </>
+          )}
           {threadTabs.length > 0 && (
             <button
               className="tab-scroll-btn tab-list-btn"
@@ -12522,6 +12594,20 @@ export default function App() {
             ><ChevronDown size={14} /></button>
           )}
           </div>
+          {/* 多段のときだけ段数を変えるつまみを出す。1 段では掴む意味がないうえ、
+              つまみ自体が 6px ぶん縦を食うので出さない。 */}
+          {tabMultiRow && (
+            <div
+              className="row-splitter tab-rows-splitter"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Resize tab rows"
+              title={`タブの段数: ${tabRows} 段 (上下にドラッグで変更、ダブルクリックで ${DEFAULT_TAB_ROWS} 段に戻す)`}
+              onPointerDown={beginTabRowsResize}
+              onDoubleClick={() => setTabRows(DEFAULT_TAB_ROWS)}
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
           <div
             ref={responseBodyRef}
             className="response-layout"
@@ -15230,6 +15316,11 @@ export default function App() {
                     ))}
                   </select>
                   <span className="settings-hint">「狭い」はタブの文字と枠を詰めて、一度に見えるタブを増やします</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={tabMultiRow} onChange={(e) => setTabMultiRow(e.target.checked)} />
+                  <span title={`オンにするとタブバーを折り返して複数段に並べます。段数はタブバーの下端のドラッグで ${MIN_TAB_ROWS}〜${MAX_TAB_ROWS} 段に変えられます`}>タブを多段で表示する</span>
+                  <span className="settings-hint">横スクロールせずに開いているタブを見渡せます。段数は下端のドラッグで変更</span>
                 </label>
                 <label className="settings-row">
                   <span>タッチ操作</span>

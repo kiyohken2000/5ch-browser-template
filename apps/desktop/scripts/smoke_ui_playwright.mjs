@@ -2007,6 +2007,113 @@ try {
   assert(thumbAutoLoadOn === true, `thumbnail auto-load on should persist, got ${thumbAutoLoadOn}`);
   console.log("smoke-ui: thumbnail auto-load setting ok");
 
+  // 多段タブ (既定 OFF = 従来どおりの 1 段横スクロール)。ON にするとタブバーに
+  // tabs-multi-row が付いて折り返しになり、意味がなくなる左右スクロールボタンが消える。
+  const multiRowToggle = await page.$('.settings-body label:has-text("タブを多段で表示する") input[type="checkbox"]');
+  assert(multiRowToggle, "settings should have the multi-row tab toggle");
+  assert(!(await multiRowToggle.isChecked()), "multi-row tabs should default to off");
+  const scrollBtnsBefore = (await page.$$(".thread-tab-bar-wrap .tab-scroll-btn")).length;
+  assert(scrollBtnsBefore >= 2, `single-row tab bar should keep its scroll buttons, got ${scrollBtnsBefore}`);
+  await multiRowToggle.check();
+  await new Promise((r) => setTimeout(r, 150));
+  assert(
+    await page.$(".thread-tab-bar-wrap.tabs-multi-row"),
+    "turning on multi-row tabs should mark the tab bar",
+  );
+  const wrapped = await page.evaluate(() => {
+    const bar = document.querySelector(".thread-tab-bar");
+    return bar ? getComputedStyle(bar).flexWrap : null;
+  });
+  assert(wrapped === "wrap", `multi-row tab bar should wrap, got ${wrapped}`);
+  const scrollBtnsAfter = (await page.$$(".thread-tab-bar-wrap .tab-scroll-btn")).length;
+  assert(
+    scrollBtnsAfter === scrollBtnsBefore - 2,
+    `multi-row tabs should hide the two scroll buttons, got ${scrollBtnsAfter} (was ${scrollBtnsBefore})`,
+  );
+  const multiRowOn = await page.evaluate(() => localStorage.getItem("desktop.tabMultiRow.v1"));
+  assert(multiRowOn === "true", `multi-row tabs on should persist, got ${multiRowOn}`);
+
+  // 段数はタブバー下端のつまみを上下にドラッグして変える。px ではなく段単位で
+  // スナップするので、1 段ぶん下げたら 4 段になる。上限 8 段 / 下限 1 段。
+  const rowsSplitter = await page.$(".tab-rows-splitter");
+  assert(rowsSplitter, "multi-row tabs should show the row-count splitter");
+  const readTabRows = () => page.evaluate(() => {
+    const wrap = document.querySelector(".thread-tab-bar-wrap");
+    const bar = document.querySelector(".thread-tab-bar");
+    const rowH = parseFloat(getComputedStyle(wrap).getPropertyValue("--tab-row-h"));
+    return {
+      rows: Number(wrap.style.getPropertyValue("--tab-rows")),
+      maxRows: Math.round(parseFloat(getComputedStyle(bar).maxHeight) / rowH),
+      saved: (() => {
+        try {
+          return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").tabRows;
+        } catch {
+          return undefined;
+        }
+      })(),
+    };
+  });
+  const tabRowsBefore = await readTabRows();
+  assert(tabRowsBefore.rows === 3, `tab rows should default to 3, got ${tabRowsBefore.rows}`);
+  assert(tabRowsBefore.maxRows === 3, `tab bar should be capped at 3 rows, got ${tabRowsBefore.maxRows}`);
+
+  // 設定パネルが開いたままタブバーに被るので、実マウスではなく合成イベントで掴む
+  // (サムネイルのプレースホルダのテストと同じ理由)。ドラッグ中の移動はアプリ側が
+  // window で拾っているため、pointerdown だけつまみに直接投げる。
+  const dragRowsBy = async (dy) => {
+    await page.evaluate((delta) => {
+      const sp = document.querySelector(".tab-rows-splitter");
+      const r = sp.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      const base = { bubbles: true, cancelable: true, view: window, button: 0, clientX: x };
+      sp.dispatchEvent(new PointerEvent("pointerdown", { ...base, clientY: y }));
+      window.dispatchEvent(new PointerEvent("pointermove", { ...base, clientY: y + delta }));
+      window.dispatchEvent(new PointerEvent("pointerup", { ...base, clientY: y + delta }));
+    }, dy);
+    await new Promise((r) => setTimeout(r, 150));
+  };
+
+  const rowHeight = await page.evaluate(() =>
+    parseFloat(getComputedStyle(document.querySelector(".thread-tab-bar-wrap")).getPropertyValue("--tab-row-h")));
+  await dragRowsBy(rowHeight * 2);
+  const rowsGrown = await readTabRows();
+  assert(rowsGrown.rows === 5, `dragging down two rows should give 5 rows, got ${rowsGrown.rows}`);
+  assert(rowsGrown.maxRows === 5, `tab bar height should follow the row count, got ${rowsGrown.maxRows}`);
+  assert(rowsGrown.saved === 5, `tab rows should persist, got ${rowsGrown.saved}`);
+
+  // 下限: 大きく上へドラッグしても 1 段で止まる。
+  await dragRowsBy(-rowHeight * 20);
+  const rowsFloor = await readTabRows();
+  assert(rowsFloor.rows === 1, `tab rows should clamp to 1, got ${rowsFloor.rows}`);
+  // 上限: 大きく下へドラッグしても 8 段で止まる。
+  await dragRowsBy(rowHeight * 40);
+  const rowsCeil = await readTabRows();
+  assert(rowsCeil.rows === 8, `tab rows should clamp to 8, got ${rowsCeil.rows}`);
+
+  // ダブルクリックで既定の 3 段に戻る。
+  await page.evaluate(() => {
+    document.querySelector(".tab-rows-splitter")
+      .dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true, view: window }));
+  });
+  await new Promise((r) => setTimeout(r, 150));
+  const rowsReset = await readTabRows();
+  assert(rowsReset.rows === 3, `double-clicking the splitter should reset to 3 rows, got ${rowsReset.rows}`);
+  console.log("smoke-ui: tab row count drag ok");
+  await multiRowToggle.uncheck();
+  await new Promise((r) => setTimeout(r, 150));
+  assert(
+    !(await page.$(".thread-tab-bar-wrap.tabs-multi-row")),
+    "turning off multi-row tabs should restore the single-row tab bar",
+  );
+  const multiRowOff = await page.evaluate(() => localStorage.getItem("desktop.tabMultiRow.v1"));
+  assert(multiRowOff === "false", `multi-row tabs off should persist, got ${multiRowOff}`);
+  assert(
+    !(await page.$(".tab-rows-splitter")),
+    "the row-count splitter should go away with single-row tabs",
+  );
+  console.log("smoke-ui: multi-row tabs setting ok");
+
   // メール欄表示の設定 (既定 ON)。dat の mail は取得できていても表示先が無かったので、
   // 「名前の右に出ること」と「設定で消せること」の両方を見る。
   const mailToggle = await page.$('.settings-body label:has-text("メール欄") input[type="checkbox"]');
