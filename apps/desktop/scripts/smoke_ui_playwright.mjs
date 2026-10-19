@@ -2697,6 +2697,190 @@ try {
   assert(slotReels.length === 3, `slot should have 3 reels, got ${slotReels.length}`);
   // 回り終わると片付けられる
   await page.waitForFunction(() => !document.querySelector(".typing-slot"), null, { timeout: 10000 });
+
+  // --- ゾロ目のあとの上乗せチャンス ---
+  // 抽選は回し始めにまとめて引かれる (outcome -> 絵柄 -> 継続) ので、Math.random を
+  // 並びで差し替えれば結果を決め打ちにできる。ただし差し替えっぱなしにすると他の
+  // 呼び出しに食われるので、7 打鍵目だけ自前で dispatch して、その同期実行の間だけ
+  // 差し替える。演出中の要素は次々消えるため、MutationObserver で出た順に記録する。
+  const runSlotBonusCase = async (seq) => {
+    await page.fill(".compose-window textarea.compose-body", "");
+    await page.waitForFunction(() => !document.querySelector(".typing-combo-badge"), null, { timeout: 3000 });
+    const outcome = await page.evaluate(async (values) => {
+      window.__slotObs?.disconnect();
+      window.__slotLog = { banners: [], cards: [], tier: 0, flash: 0 };
+      const log = window.__slotLog;
+      const seen = new WeakSet();
+      window.__slotObs = new MutationObserver(() => {
+        for (const b of document.querySelectorAll(".typing-combo-banner")) {
+          if (seen.has(b)) continue;
+          seen.add(b);
+          log.banners.push({ text: b.textContent || "", cls: b.className });
+        }
+        for (const f of document.querySelectorAll(".typing-slot-flash")) {
+          if (seen.has(f)) continue;
+          seen.add(f);
+          log.flash += 1;
+        }
+        // カードは裏で生まれて 350ms 後に表になる。表が付いてから 1 回だけ数える
+        for (const c of document.querySelectorAll(".typing-slot-card")) {
+          const state = c.classList.contains("hit") ? "hit" : c.classList.contains("out") ? "out" : "";
+          if (!state || seen.has(c)) continue;
+          seen.add(c);
+          log.cards.push(state);
+        }
+        const slot = document.querySelector(".typing-slot");
+        const tier = slot && slot.dataset.tier ? Number(slot.dataset.tier) : 0;
+        if (tier > log.tier) log.tier = tier;
+      });
+      window.__slotObs.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["class", "data-tier"],
+      });
+      const ta = document.querySelector(".compose-window textarea.compose-body");
+      ta.focus();
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const fire = (ch) => {
+        ta.value += ch;
+        ta.selectionStart = ta.selectionEnd = ta.value.length;
+        ta.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: ch }));
+      };
+      // 実際のコンボ数はバッジが持っている (2 以上で出る)。React が入力欄の値を
+      // 戻したりして打鍵が 1 回落ちることがあるので、数が揃うまで打つ
+      const comboNow = () => {
+        const badge = document.querySelector(".typing-combo-badge");
+        return badge ? parseInt(badge.textContent, 10) || 0 : 0;
+      };
+      // 50ms 未満の連打は間引かれるので間を空ける
+      for (let i = 0; i < 40 && comboNow() < 6; i += 1) {
+        fire("あ");
+        await sleep(70);
+      }
+      // 次の打鍵で 7 コンボに届いてスロットが回る。ハンドラは同期実行なので、
+      // この 1 回を挟むだけでスロットの抽選だけを決め打ちにできる。打鍵が
+      // 間引かれたときは抽選自体が走らず並びも減らないので、そのまま打ち直す
+      for (let i = 0; i < 5 && !document.querySelector(".typing-slot"); i += 1) {
+        const real = Math.random;
+        const queue = values.slice();
+        Math.random = () => (queue.length ? queue.shift() : real());
+        try {
+          fire("あ");
+        } finally {
+          Math.random = real;
+        }
+        if (!document.querySelector(".typing-slot")) await sleep(70);
+      }
+      const slot = document.querySelector(".typing-slot");
+      return slot ? slot.dataset.outcome : null;
+    }, seq);
+    await page.waitForFunction(() => !document.querySelector(".typing-slot"), null, { timeout: 15000 });
+    const log = await page.evaluate(() => {
+      window.__slotObs?.disconnect();
+      return window.__slotLog;
+    });
+    return { outcome, ...log };
+  };
+
+  // 3 連勝: SLOT HIT! のあとに段位が 3 つ上がり、最後に GOD のバナーと画面フラッシュ
+  const slotWon = await runSlotBonusCase([0.2, 0.2, 0.2, 0.2, 0.2]);
+  assert(slotWon.outcome === "triple", `forced spin should be a triple, got ${JSON.stringify(slotWon.outcome)}`);
+  assert(
+    JSON.stringify(slotWon.cards) === JSON.stringify(["hit", "hit", "hit"]),
+    `3 wins should flip 3 winning cards, got ${JSON.stringify(slotWon.cards)}`,
+  );
+  assert(slotWon.tier === 3, `3 wins should reach tier 3, got ${slotWon.tier}`);
+  assert(
+    slotWon.banners.some((b) => b.text === "SLOT HIT!"),
+    `the triple should still celebrate first, got ${JSON.stringify(slotWon.banners)}`,
+  );
+  const slotTop = slotWon.banners[slotWon.banners.length - 1];
+  assert(
+    slotTop && slotTop.text === "GOD 777!!!" && slotTop.cls.includes("tier3"),
+    `tier 3 should end on the GOD banner, got ${JSON.stringify(slotTop)}`,
+  );
+  assert(
+    slotWon.banners.length === 2,
+    `the ladder should only banner once at the top, got ${JSON.stringify(slotWon.banners.map((b) => b.text))}`,
+  );
+  assert(slotWon.flash === 1, `tier 3 should flash the screen once, got ${slotWon.flash}`);
+
+  // 初回で外れ: カードは 1 枚だけで、SLOT HIT! は取り上げられない (段位も付かない)
+  const slotLost = await runSlotBonusCase([0.2, 0.2, 0.9]);
+  assert(slotLost.outcome === "triple", `forced spin should be a triple, got ${JSON.stringify(slotLost.outcome)}`);
+  assert(
+    JSON.stringify(slotLost.cards) === JSON.stringify(["out"]),
+    `a first-round miss should flip exactly one losing card, got ${JSON.stringify(slotLost.cards)}`,
+  );
+  assert(slotLost.tier === 0, `a miss should not raise the tier, got ${slotLost.tier}`);
+  assert(
+    JSON.stringify(slotLost.banners.map((b) => b.text)) === JSON.stringify(["SLOT HIT!"]),
+    `a miss must keep SLOT HIT! and add nothing, got ${JSON.stringify(slotLost.banners.map((b) => b.text))}`,
+  );
+  assert(slotLost.flash === 0, `a miss must not flash the screen, got ${slotLost.flash}`);
+  console.log("smoke-ui: slot bonus chance ok");
+
+  // --- スロットが回るコンボ数 ---
+  // 7 のあとは 22。11 は 7 の演出中に来るので弾かれる。尺が結果で変わると判定が
+  // ぶれるので、7 の回を「ハズレ」(いちばん短い 2.9 秒) に決め打ちしてから数える。
+  await page.fill(".compose-window textarea.compose-body", "");
+  await page.waitForFunction(() => !document.querySelector(".typing-combo-badge"), null, { timeout: 3000 });
+  const slotSpinsAt = await page.evaluate(async () => {
+    const ta = document.querySelector(".compose-window textarea.compose-body");
+    ta.focus();
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const fire = () => {
+      ta.value += "あ";
+      ta.selectionStart = ta.selectionEnd = ta.value.length;
+      ta.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "あ" }));
+    };
+    const comboNow = () => {
+      const badge = document.querySelector(".typing-combo-badge");
+      return badge ? parseInt(badge.textContent, 10) || 0 : 0;
+    };
+    const seen = [];
+    let last = null;
+    const step = () => {
+      const before = document.querySelector(".typing-slot");
+      fire();
+      const after = document.querySelector(".typing-slot");
+      if (after && after !== last) {
+        seen.push(comboNow());
+        last = after;
+      }
+      return before;
+    };
+    // 6 コンボまでは速く進める
+    for (let i = 0; i < 40 && comboNow() < 6; i += 1) {
+      step();
+      await sleep(70);
+    }
+    // 7 打鍵目だけ Math.random を挟んでハズレに固定する
+    for (let i = 0; i < 5 && !document.querySelector(".typing-slot"); i += 1) {
+      const real = Math.random;
+      Math.random = () => 0.9;
+      try {
+        step();
+      } finally {
+        Math.random = real;
+      }
+      if (!document.querySelector(".typing-slot")) await sleep(70);
+    }
+    // 以降は 300ms 間隔。11 は 7 の 1.2 秒後 (演出中)、22 は 4.5 秒後 (演出後) に来る
+    for (let i = 0; i < 60 && comboNow() < 23; i += 1) {
+      await sleep(300);
+      step();
+    }
+    return seen;
+  });
+  assert(
+    JSON.stringify(slotSpinsAt) === JSON.stringify([7, 22]),
+    `the slot should spin at 7 and 22 but not 11, got ${JSON.stringify(slotSpinsAt)}`,
+  );
+  await page.waitForFunction(() => !document.querySelector(".typing-slot"), null, { timeout: 15000 });
+  console.log("smoke-ui: slot trigger counts ok");
+
   await page.fill(".compose-window textarea.compose-body", "");
   // コンボが伸びると入力欄が赤熱する
   await page.waitForFunction(() => !document.querySelector(".typing-combo-badge"), null, { timeout: 3000 });

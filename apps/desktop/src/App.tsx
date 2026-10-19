@@ -1593,12 +1593,12 @@ const COMBO_BANNER_FIREWORKS: Record<ComboBannerVariant, number> = {
   shipped: 13,
   jackpot: 22,
 };
-const emitComboBanner = (text: string, variant: ComboBannerVariant) => {
+const emitComboBanner = (text: string, variant: ComboBannerVariant, extraClass?: string) => {
   const cx = window.innerWidth / 2;
   const cy = window.innerHeight / 2;
   const addCentered = (className: string, text2?: string) => {
     const el = document.createElement("div");
-    el.className = `${className} ${variant}`;
+    el.className = `${className} ${variant}${extraClass ? ` ${extraClass}` : ""}`;
     if (text2) el.textContent = text2;
     el.style.setProperty("--x", `${cx}px`);
     el.style.setProperty("--y", `${cy}px`);
@@ -1772,9 +1772,38 @@ const SLOT_COIN_MARKS = ["💰", "🪙", "✨", "💎"];
 const SLOT_PUFF_MARKS = ["💨", "💭", "☁️"];
 const SLOT_CELL_PX = 48;
 const SLOT_REEL_LOOPS = 6;
-const SLOT_TRIGGERS = [7, 77, 777];
+// スロットを回すコンボ数。7 と、22 以降の「下 2 桁がゾロ目またはキリ番」
+// (22, 33 … 99, 100, 111 … 200, 211 …)。11 を外しているのは 7 の 4 打鍵あとに来てしまい、
+// 前の演出が終わっていないので emitComboSlot の単一インスタンス制御に必ず弾かれるため。
+// 11 刻みは演出の尺 (2.9〜6.5 秒) より短いので以降もおよそ半分は弾かれるが、これは仕様 —
+// 待ち行列に積んで後から回すと、数字と演出がずれる。
+const shouldSpinSlot = (combo: number) => combo === 7 || (combo >= 22 && (combo % 100) % 11 === 0);
 // 「惜しい」の 3 本目はここで指定したコマ数だけ残して止め、1 コマずつ落とす
 const SLOT_NEAR_STEPS = 3;
+// ゾロ目のあとの上乗せチャンス。赤/黒のカードをめくり、当たりが続く限り段位が上がる。
+// 何も賭けていない (外れても取り上げない) ので、ゾロ目の SLOT HIT! はそのまま残る —
+// 当たりの回数自体は今までと変わらず、上に乗るだけ。
+// 継続はリールの停止位置と同じく回し始めにまとめて抽選する。途中で引くと演出の尺が
+// 決まらず、後片付けのタイマーを一本で組めなくなるため。
+// 777 / フリーズは最レアなので対象外 (最上位を演出で取り上げない)。
+const SLOT_BONUS_CHANCE = 0.5;
+const SLOT_BONUS_MAX = 3;
+const SLOT_BONUS_ROUND_MS = 900;
+// 最後のカードを読む間。これを置かないと 3 枚目が表になった直後にバナーが被さる
+const SLOT_BONUS_FINALE_MS = 400;
+// 段位の差はコインや花火の枚数では付けられない。JACKPOT の時点で同時表示が
+// COMBO_MAX_PIECES (900) の近くまで行っており、増やした分は spawnComboPiece が
+// null を返して黙って捨てる。なので色・画面フラッシュ・文字で差を付ける。
+const SLOT_BONUS_TIERS: { tag: string; banner: string; coins: string[] }[] = [
+  { tag: "777", banner: "777 JACKPOT!!", coins: SLOT_COIN_MARKS },
+  { tag: "MEGA", banner: "MEGA 777!!", coins: ["💎", "👑", "💰", "✨"] },
+  { tag: "GOD", banner: "GOD 777!!!", coins: ["👑", "💎", "🌟", "💰"] },
+];
+const rollSlotBonusTiers = (): number => {
+  let tiers = 0;
+  while (tiers < SLOT_BONUS_MAX && Math.random() < SLOT_BONUS_CHANCE) tiers += 1;
+  return tiers;
+};
 type SlotOutcome = "freeze" | "jackpot" | "triple" | "near" | "miss";
 
 // 当たり / おしい / ハズレ を 1/3 ずつ。当たりの中の内訳がフリーズ 3% と 777 8%
@@ -1836,7 +1865,7 @@ const showSlotLabel = (root: HTMLElement, text: string, near: boolean) => {
   root.appendChild(label);
 };
 
-const showSlotCoins = () => {
+const showSlotCoins = (marks: string[] = SLOT_COIN_MARKS) => {
   const h = window.innerHeight;
   for (let i = 0; i < 46; i += 1) {
     spawnComboPiece(
@@ -1851,9 +1880,24 @@ const showSlotCoins = () => {
         "--dur": `${1100 + Math.floor(Math.random() * 800)}ms`,
         "--delay": `${Math.floor(Math.random() * 500)}ms`,
       },
-      SLOT_COIN_MARKS[i % SLOT_COIN_MARKS.length],
+      marks[i % marks.length],
     );
   }
+};
+
+// 最上位の段位だけ画面全体を一瞬白く飛ばす。要素 1 個で済むので上限を食わない
+const flashScreen = () => {
+  const el = document.createElement("div");
+  el.className = "typing-slot-flash";
+  document.body.appendChild(el);
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    el.remove();
+  };
+  el.addEventListener("animationend", release, { once: true });
+  window.setTimeout(release, 2000);
 };
 
 // リールは 1 組しか出さない。演出中の要素はタイマーで必ず回收する
@@ -1866,12 +1910,68 @@ const hideComboSlot = () => {
   slotEl = null;
 };
 
+// 上乗せチャンス。カードを 1 枚ずつめくり、当たっている間だけ段位を上げる。
+// 段位ごとにバナーを出すと画面中央 (54px / 1400ms) で重なるので、道中は枠の色と
+// 枠内のタグだけで見せて、バナーは到達した段位のぶんを最後に 1 回だけ出す。
+const runSlotBonus = (root: HTMLElement, tiers: number, rounds: number) => {
+  // カードは消さずに横へ並べていく。1 枚ずつ入れ替えると表になっている時間が
+  // 一瞬しかなく何が出たのか追えないうえ、並べておけば連勝の経過がそのまま残る
+  const cards = document.createElement("div");
+  cards.className = "typing-slot-cards";
+  root.appendChild(cards);
+  for (let i = 0; i < rounds; i += 1) {
+    const won = i < tiers;
+    slotTimers.push(
+      window.setTimeout(() => {
+        const card = document.createElement("div");
+        card.className = "typing-slot-card";
+        card.textContent = "?";
+        cards.appendChild(card);
+        // 裏返っている間 (rotateY 90deg) に表を差し替える
+        slotTimers.push(
+          window.setTimeout(() => {
+            card.classList.add(won ? "hit" : "out");
+            card.textContent = won ? "7️⃣" : "✖";
+          }, SLOT_BONUS_ROUND_MS / 2),
+        );
+        if (!won) return;
+        root.dataset.tier = String(i + 1);
+        let tag = root.querySelector<HTMLElement>(".typing-slot-tier");
+        if (!tag) {
+          tag = document.createElement("span");
+          tag.className = "typing-slot-tier";
+          root.appendChild(tag);
+        }
+        tag.textContent = SLOT_BONUS_TIERS[i].tag;
+        tag.classList.remove("pop");
+        void tag.offsetWidth;
+        tag.classList.add("pop");
+      }, i * SLOT_BONUS_ROUND_MS),
+    );
+  }
+  if (tiers <= 0) return;
+  const top = SLOT_BONUS_TIERS[tiers - 1];
+  slotTimers.push(
+    window.setTimeout(() => {
+      // バナーと並んだカードが重なって読みにくいので、ここでカードは引き上げる
+      cards.classList.add("done");
+      emitComboBanner(top.banner, "jackpot", `tier${tiers}`);
+      showSlotCoins(top.coins);
+      if (tiers >= SLOT_BONUS_MAX) flashScreen();
+    }, rounds * SLOT_BONUS_ROUND_MS + SLOT_BONUS_FINALE_MS),
+  );
+};
+
 const emitComboSlot = (x: number, y: number) => {
   if (slotEl) return;
   const outcome = rollSlotOutcome();
   const frozen = outcome === "freeze";
   const won = frozen || outcome === "jackpot" || outcome === "triple";
   const stops = slotReelsFor(outcome);
+  // 外れたラウンドも 1 枚めくって見せるので、カードの枚数は継続数 + 1 (上限 3)
+  const bonusTiers = outcome === "triple" ? rollSlotBonusTiers() : 0;
+  const bonusRounds = outcome === "triple" ? Math.min(bonusTiers + 1, SLOT_BONUS_MAX) : 0;
+  const bonusMs = bonusRounds * SLOT_BONUS_ROUND_MS + (bonusTiers > 0 ? SLOT_BONUS_FINALE_MS : 0);
   const root = document.createElement("div");
   root.className = "typing-slot";
   root.dataset.outcome = outcome;
@@ -1958,8 +2058,10 @@ const emitComboSlot = (x: number, y: number) => {
         emitComboBanner(frozen ? "FREEZE 777!!" : "777 JACKPOT!!", "jackpot");
         showSlotCoins();
       } else if (outcome === "triple") {
+        // SLOT HIT! は従来どおり必ず出す。上乗せが外れてもこれは消さない
         root.classList.add("win");
         emitComboBanner("SLOT HIT!", "fire");
+        runSlotBonus(root, bonusTiers, bonusRounds);
       } else if (outcome === "near") {
         root.classList.add("lose", "near");
         showSlotLabel(root, "おしい！", true);
@@ -1971,7 +2073,7 @@ const emitComboSlot = (x: number, y: number) => {
       }
     }, settleMs + 220),
   );
-  slotTimers.push(window.setTimeout(hideComboSlot, settleMs + (won ? 1800 : 1500)));
+  slotTimers.push(window.setTimeout(hideComboSlot, settleMs + bonusMs + (won ? 1800 : 1500)));
 };
 
 // --- 草 / アンカー / 入力欄の熱 / 打鍵速度 ----------------------------------
@@ -10018,13 +10120,10 @@ export default function App() {
         combo.milestone = combo.count;
         emitComboBanner(`UNSTOPPABLE x${combo.count}`, "mega");
       }
-      // 7 / 77 / 777 でスロットを回す (節目のバナーと数字が被らない)
-      for (const at of SLOT_TRIGGERS) {
-        if (combo.count >= at && combo.slot < at) {
-          combo.slot = at;
-          emitComboSlot(point.x, point.y);
-          break;
-        }
+      // キリ番 / 下 2 桁ゾロ目でスロットを回す (節目のバナーと数字が被らない)
+      if (combo.slot < combo.count && shouldSpinSlot(combo.count)) {
+        combo.slot = combo.count;
+        emitComboSlot(point.x, point.y);
       }
       const beforeCaret = target.value.slice(0, target.selectionStart ?? 0);
       const keyword = matchKeywordEffect(beforeCaret);
