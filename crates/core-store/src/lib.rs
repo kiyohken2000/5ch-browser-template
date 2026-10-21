@@ -93,6 +93,20 @@ pub fn data_dir_writable() -> bool {
     portable_data_dir().map(|dir| dir_is_usable(&dir)).unwrap_or(false)
 }
 
+/// 多重起動の見張りに使うロックファイルのパス。
+///
+/// ここだけは `default_data_dir()` を通さずユーザー領域に固定する。持ち運び配置と
+/// 退避先が混ざると、同じユーザーの 2 つのインスタンスが別々のロックを掴んでしまい
+/// 見張りが成立しない (例: 1 つ目は exe 隣の `data`、2 つ目は書き込めずユーザー領域)。
+pub fn instance_lock_path() -> Result<PathBuf, StoreError> {
+    let dir = match user_profile_data_dir() {
+        Some(dir) => dir,
+        None => default_data_dir()?,
+    };
+    fs::create_dir_all(&dir)?;
+    Ok(dir.join("instance.lock"))
+}
+
 /// データディレクトリ解決中に出たメッセージの置き場。ここから直接 `append_log` を
 /// 呼ぶと `portable_data_dir()` 経由で解決中の `OnceLock` を再入してしまい、
 /// 初期化が終わらなくなる (`OnceLock::get_or_init` は再入不可)。起動時に

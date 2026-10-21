@@ -3436,6 +3436,48 @@ fn ai_unload_model() -> Result<(), String> {
 }
 
 
+/// 掴んだままにしておくためだけの入れ物。ロックはこのファイルハンドルが閉じると
+/// 解放されるので、プロセスが生きている間は手放さない。
+struct InstanceLockFile(#[allow(dead_code)] std::fs::File);
+
+enum InstanceLock {
+    /// このプロセスが 1 つ目。
+    Acquired(std::fs::File),
+    /// 生きている別インスタンスがいる。
+    AlreadyRunning,
+    /// ロック自体が使えない環境。見張りは諦める。
+    Unavailable(String),
+}
+
+/// 生きている別インスタンスがいないかをファイルロックで確かめる。
+///
+/// ロックはプロセス終了時に OS が解放するので、クラッシュや強制終了でも居残らない
+/// (ロックファイル自体は残るが、掴まれていなければ次の起動が掴み直せる)。
+fn acquire_instance_lock() -> InstanceLock {
+    let path = match core_store::instance_lock_path() {
+        Ok(path) => path,
+        Err(e) => return InstanceLock::Unavailable(e.to_string()),
+    };
+    // truncate(false) は必須。1 つ目が掴んでいるファイルを開くだけなので、
+    // 中身を切り捨てに行ってはいけない (そもそも中身は使わない)。
+    let file = match std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(&path)
+    {
+        Ok(file) => file,
+        Err(e) => return InstanceLock::Unavailable(format!("{}: {e}", path.display())),
+    };
+    match file.try_lock() {
+        Ok(()) => InstanceLock::Acquired(file),
+        Err(std::fs::TryLockError::WouldBlock) => InstanceLock::AlreadyRunning,
+        Err(std::fs::TryLockError::Error(e)) => {
+            InstanceLock::Unavailable(format!("{}: {e}", path.display()))
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Disable WebKit2GTK's DMA-BUF renderer and GPU compositing on Wayland
@@ -3494,6 +3536,35 @@ pub fn run() {
             }
         }))
         .setup(|app| {
+            // 多重起動の最後の歯止め。tauri-plugin-single-instance は Windows では
+            // 名前付きミューテックスと隠しウィンドウで判定しているが、素通りする経路が
+            // 2 つある。
+            //   1. 1 つ目を管理者として実行していると、名前付きオブジェクトに作成者の
+            //      整合性レベルのラベルが付く。2 つ目 (通常権限) の CreateMutexW は
+            //      ERROR_ALREADY_EXISTS ではなく ERROR_ACCESS_DENIED で返るので、
+            //      プラグインは「自分が 1 つ目」と誤判定する。
+            //   2. ミューテックス作成から隠しウィンドウ作成までの隙間に 2 つ目が入ると
+            //      FindWindowW が空振りする。このときプラグインは何もせず起動を続行する。
+            // どちらもそのまま 2 つ目の窓が開く。プラグインの発見経路に依存しない
+            // ファイルロックで塞ぐ。プラグインの setup はここより先に走る
+            // (tauri の App::build → initialize_plugins の後に setup フック) ので、
+            // 正常系の「既存ウィンドウを前面に出して終了」は今までどおり動く。
+            match acquire_instance_lock() {
+                InstanceLock::Acquired(file) => {
+                    app.manage(InstanceLockFile(file));
+                }
+                InstanceLock::AlreadyRunning => {
+                    let _ = core_store::append_log("another instance is running, exiting");
+                    app.cleanup_before_exit();
+                    std::process::exit(0);
+                }
+                InstanceLock::Unavailable(e) => {
+                    // ロックが作れない環境では見張りを諦めて通常起動する。
+                    // 起動できないより多重起動のほうがましなので終了はしない。
+                    eprintln!("instance lock unavailable, single-instance guard skipped: {e}");
+                }
+            }
+
             if let Some(win) = app.get_webview_window("main") {
                 // Restore saved window size, position, and maximized state
                 let saved = core_store::load_json::<WindowSize>("window_size.json").ok();
@@ -3517,6 +3588,12 @@ pub fn run() {
                         let _ = win.maximize();
                     }
                 }
+
+                // tauri.conf.json で visible: false にしてあるので、ここで初めて見せる。
+                // 既定の visible: true だと、上の多重起動チェックで終了する 2 つ目の
+                // ウィンドウが一瞬ちらつく (setup フックはウィンドウ生成の後に走る)。
+                // 位置とサイズを決めてから見せるので、復元時の飛びも出なくなる。
+                let _ = win.show();
 
                 // Track maximize state to restore saved size on un-maximize
                 let started_maximized = saved.as_ref().is_some_and(|s| s.maximized);
