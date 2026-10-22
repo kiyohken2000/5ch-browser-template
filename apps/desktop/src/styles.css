@@ -3294,6 +3294,22 @@ button.search-history-btn:hover {
   color: #a04040;
 }
 
+/* ロック中のタブは × の代わりに鍵を出す。× と同じ寸法にしてタブ幅を変えない */
+.thread-tab-lock {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  color: var(--sub);
+  cursor: pointer;
+}
+
+.thread-tab-lock:hover {
+  color: var(--ink);
+}
+
 /* === タブ幅「狭い」 ===
    文字サイズ・左右の余白・最大幅をまとめて詰める。要望は「フォントを小さく」
    「枠を狭く」の両方だったので、片方だけ効かせずにここで一括で効かせる。 */
@@ -3313,6 +3329,10 @@ button.search-history-btn:hover {
 }
 .thread-tab-bar-wrap.tabs-narrow .thread-tab-close {
   font-size: 10px;
+  padding: 0 1px;
+}
+
+.thread-tab-bar-wrap.tabs-narrow .thread-tab-lock {
   padding: 0 1px;
 }
 
@@ -3405,6 +3425,11 @@ button.search-history-btn:hover {
 .tab-list-item-count {
   flex: 0 0 auto;
   font-size: 10px;
+  color: var(--sub);
+}
+
+.tab-list-item-lock {
+  flex: 0 0 auto;
   color: var(--sub);
 }
 
@@ -5380,11 +5405,11 @@ a.body-link-image:hover::after {
 }
 .typing-combo-spark {
   font-size: 24px;
-  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) forwards;
+  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) both;
 }
 .typing-keyword-mark {
   font-size: 26px;
-  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) forwards;
+  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) both;
 }
 
 @keyframes typing-combo-fly {
@@ -5410,7 +5435,7 @@ a.body-link-image:hover::after {
   background: linear-gradient(to top, hsla(var(--h), 95%, 70%, 0), hsl(var(--h), 95%, 72%));
   box-shadow: 0 0 10px hsla(var(--h), 95%, 70%, 0.9);
   transform: translate3d(var(--x), var(--y), 0);
-  animation: typing-firework-rise var(--dur) cubic-bezier(0.2, 0.7, 0.4, 1) var(--delay, 0ms) forwards;
+  animation: typing-firework-rise var(--dur) cubic-bezier(0.2, 0.7, 0.4, 1) var(--delay, 0ms) both;
 }
 
 @keyframes typing-firework-rise {
@@ -5436,7 +5461,7 @@ a.body-link-image:hover::after {
   background: hsl(var(--h), 95%, 68%);
   box-shadow: 0 0 10px hsla(var(--h), 95%, 68%, 0.95);
   transform: translate3d(var(--x), var(--y), 0);
-  animation: typing-firework-burst var(--dur) ease-out var(--delay, 0ms) forwards;
+  animation: typing-firework-burst var(--dur) ease-out var(--delay, 0ms) both;
 }
 .typing-firework-mark {
   position: fixed;
@@ -5447,7 +5472,7 @@ a.body-link-image:hover::after {
   font-size: 22px;
   line-height: 1;
   transform: translate3d(var(--x), var(--y), 0);
-  animation: typing-firework-burst var(--dur) ease-out var(--delay, 0ms) forwards;
+  animation: typing-firework-burst var(--dur) ease-out var(--delay, 0ms) both;
 }
 
 /* 弾けたあと、尾を引いて落ちる */
@@ -5550,7 +5575,7 @@ a.body-link-image:hover::after {
   font-size: 22px;
   line-height: 1;
   transform: translate3d(var(--x), var(--y), 0);
-  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) forwards;
+  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) both;
 }
 
 @keyframes typing-slot-in {
@@ -5614,7 +5639,7 @@ a.body-link-image:hover::after {
   font-size: 26px;
   line-height: 1;
   transform: translate3d(var(--x), var(--y), 0);
-  animation: typing-slot-coin-fall var(--dur) linear var(--delay, 0ms) forwards;
+  animation: typing-slot-coin-fall var(--dur) linear var(--delay, 0ms) both;
 }
 
 @keyframes typing-slot-coin-fall {
@@ -5806,7 +5831,10 @@ a.body-link-image:hover::after {
   100% { opacity: 0; }
 }
 
-/* 「ｗ」の連打で画面の下から生える草 */
+/* 「ｗ」の連打で画面の下から生える草。
+   座標はキーフレーム側の translate3d だけで与えているので、fill-mode は forwards で
+   なく both にする。forwards だと --delay の間キーフレームが効かず、素の left/top (0,0)
+   に不透明なまま描かれてウィンドウ左上に草が点滅する。--delay を使う他の演出も同じ */
 .typing-grass {
   position: fixed;
   left: 0;
@@ -5816,7 +5844,7 @@ a.body-link-image:hover::after {
   font-size: var(--h, 32px);
   line-height: 1;
   transform-origin: bottom center;
-  animation: typing-grass-grow var(--dur) ease-out var(--delay, 0ms) forwards;
+  animation: typing-grass-grow var(--dur) ease-out var(--delay, 0ms) both;
 }
 
 @keyframes typing-grass-grow {
@@ -5879,7 +5907,7 @@ a.body-link-image:hover::after {
   font-size: 18px;
   line-height: 1;
   transform: translate3d(var(--x), var(--y), 0);
-  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) forwards;
+  animation: typing-combo-fly var(--dur) ease-out var(--delay, 0ms) both;
 }
 
 /* 送信中のロケット。クリックは通す */

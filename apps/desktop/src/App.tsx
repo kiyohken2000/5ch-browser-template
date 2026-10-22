@@ -245,7 +245,7 @@ function buildTranslationPrompt(text: string, targetLangNativeName: string): str
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban, Search,
-  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser, Flame, LayersPlus,
+  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser, Flame, LayersPlus, Lock,
 } from "lucide-react";
 
 type MenuInfo = { topLevelKeys: number; normalizedSample: string };
@@ -518,6 +518,8 @@ type AuthConfig = {
 type ThreadTab = {
   threadUrl: string;
   title: string;
+  // ロック中のタブは閉じる操作をすべて拒否し、セッション復元の設定に関係なく起動時に戻す
+  locked?: boolean;
 };
 
 const stripHtmlForMatch = (html: string): string =>
@@ -4965,9 +4967,16 @@ export default function App() {
     }
   };
 
-  const closeTab = (index: number) => {
+  // ロック中のタブは閉じない。× / 中クリック / Ctrl+W / ジェスチャ / 右クリックメニューは
+  // すべてこの関数を通るので、ここで止めれば経路ごとの対応漏れが出ない。キャッシュ削除
+  // のように閉じないと不整合になる経路だけ force で通す。
+  const closeTab = (index: number, opts?: { force?: boolean }) => {
     if (index < 0 || index >= threadTabs.length) return;
     const closing = threadTabs[index];
+    if (closing.locked && !opts?.force) {
+      setStatus("ロック中のタブです (右クリックから解除できます)");
+      return;
+    }
     closedTabsRef.current.push({ threadUrl: closing.threadUrl, title: closing.title });
     if (closedTabsRef.current.length > 20) closedTabsRef.current.shift();
     // 裏タブ (中クリック / 非アクティブタブの ×) も保存する。以前はアクティブタブしか
@@ -5032,12 +5041,14 @@ export default function App() {
 
   // keep(index) が true のタブだけ残して他を閉じる。「他のタブ」「右側」「左側」の共通処理
   const closeTabsExcept = (keep: (index: number) => boolean) => {
-    const keptIndices = threadTabs.map((_, i) => i).filter(keep);
+    // ロック中のタブは「他のタブ」「右側」「左側」「すべて」でも残す
+    const keepOrLocked = (index: number) => keep(index) || threadTabs[index].locked === true;
+    const keptIndices = threadTabs.map((_, i) => i).filter(keepOrLocked);
     if (keptIndices.length === threadTabs.length) return;
     if (keptIndices.length === 0) { closeAllTabs(); return; }
     // 閉じるタブの読書位置を保存してから捨てる (以前は保存せずに破棄していた)
     threadTabs.forEach((tab, i) => {
-      if (keep(i)) return;
+      if (keepOrLocked(i)) return;
       saveTabReadPosition(tab.threadUrl, i === activeTabIndex);
       tabCacheRef.current.delete(tab.threadUrl);
     });
@@ -5075,6 +5086,9 @@ export default function App() {
   const closeTabsLeft = (index: number) => closeTabsExcept((i) => i >= index);
 
   const closeAllTabs = () => {
+    // ロック中のタブが 1 つでもあれば、それだけ残して他を閉じる。closeTabsExcept から
+    // こちらへ戻ってくるのは「ロックが 1 つも無い」ときだけなので、往復はしない。
+    if (threadTabs.some((t) => t.locked)) { closeTabsExcept(() => false); return; }
     // 全タブぶんの読書位置を保存してから捨てる (以前は保存せずに破棄していた)
     threadTabs.forEach((tab, i) => saveTabReadPosition(tab.threadUrl, i === activeTabIndex));
     tabCacheRef.current.clear();
@@ -5082,6 +5096,13 @@ export default function App() {
     setActiveTabIndex(-1);
     setFetchedResponses([]);
     setSelectedResponse(1);
+  };
+
+  const toggleTabLock = (index: number) => {
+    const tab = threadTabs[index];
+    if (!tab) return;
+    setThreadTabs((prev) => prev.map((t, i) => (i === index ? { ...t, locked: !t.locked } : t)));
+    setStatus(tab.locked ? "タブのロックを解除しました" : "タブをロックしました");
   };
 
   const toggleThreadSort = (key: "fetched" | "id" | "datNumber" | "title" | "res" | "got" | "new" | "lastFetch" | "speed" | "since") => {
@@ -8233,7 +8254,8 @@ export default function App() {
     invoke("delete_thread_cache", { threadUrl: url }).catch((e) => console.warn("delete_thread_cache failed", e));
     // close tab
     const tabIdx = threadTabs.findIndex((t) => t.threadUrl === url);
-    if (tabIdx >= 0) closeTab(tabIdx);
+    // キャッシュを消したタブを残すと中身の無いタブになるので、ロック中でも閉じる
+    if (tabIdx >= 0) closeTab(tabIdx, { force: true });
     // clear memory cache
     tabCacheRef.current.delete(url);
     // clear fetch timestamp
@@ -9234,16 +9256,23 @@ export default function App() {
       setStartupBoardFetchDone(true);
     }
     // Restore thread tabs
-    if (restoreSessionRef.current) try {
+    // セッション復元が OFF でも、ロック中のタブだけは必ず戻す。ロックは「このタブは
+    // 勝手に消えるな」という明示なので、起動のたびに消えるなら意味が無い。
+    try {
       const tabsRaw = localStorage.getItem(THREAD_TABS_KEY);
       if (tabsRaw) {
         const parsed = JSON.parse(tabsRaw) as { tabs: ThreadTab[]; activeIndex: number };
-        if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
-          setThreadTabs(parsed.tabs);
+        const savedTabs = Array.isArray(parsed.tabs) ? parsed.tabs : [];
+        const restoredTabs = restoreSessionRef.current ? savedTabs : savedTabs.filter((t) => t.locked);
+        if (restoredTabs.length > 0) {
+          setThreadTabs(restoredTabs);
           const idx = typeof parsed.activeIndex === "number" ? parsed.activeIndex : 0;
-          const safeIdx = Math.min(idx, parsed.tabs.length - 1);
+          // ロックだけ戻したときは添字がずれるので URL で貼り直す。前回のアクティブが
+          // 残っていなければ先頭を選ぶ。
+          const mapped = restoredTabs.findIndex((t) => t.threadUrl === savedTabs[idx]?.threadUrl);
+          const safeIdx = mapped >= 0 ? mapped : Math.min(Math.max(idx, 0), restoredTabs.length - 1);
           setActiveTabIndex(safeIdx);
-          const activeTab = parsed.tabs[safeIdx];
+          const activeTab = restoredTabs[safeIdx];
           if (activeTab) {
             setThreadUrl(activeTab.threadUrl);
             setLocationInput(activeTab.threadUrl);
@@ -12593,7 +12622,7 @@ export default function App() {
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  const p = clampMenuPosition(e.clientX, e.clientY, 160, 288);
+                  const p = clampMenuPosition(e.clientX, e.clientY, 160, 316);
                   setTabMenu({ x: p.x, y: p.y, tabIndex: i });
                 }}
                 onPointerDown={(e) => {
@@ -12662,12 +12691,22 @@ export default function App() {
                 {tabCacheRef.current.has(tab.threadUrl) && (
                   <span className="tab-res-count">({tabCacheRef.current.get(tab.threadUrl)!.responses.length})</span>
                 )}
-                <button
-                  className="thread-tab-close"
-                  onClick={(e) => { e.stopPropagation(); closeTab(i); }}
-                >
-                  ×
-                </button>
+                {tab.locked ? (
+                  <button
+                    className="thread-tab-lock"
+                    title="ロック中 (クリックで解除)"
+                    onClick={(e) => { e.stopPropagation(); toggleTabLock(i); }}
+                  >
+                    <Lock size={11} />
+                  </button>
+                ) : (
+                  <button
+                    className="thread-tab-close"
+                    onClick={(e) => { e.stopPropagation(); closeTab(i); }}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -14825,6 +14864,7 @@ export default function App() {
                 }, 60);
               }}
             >
+              {tab.locked && <Lock className="tab-list-item-lock" size={10} />}
               <span className="tab-list-item-title">{tab.title || tab.threadUrl}</span>
               {tabCacheRef.current.has(tab.threadUrl) && (
                 <span className="tab-list-item-count">({tabCacheRef.current.get(tab.threadUrl)!.responses.length})</span>
@@ -14835,17 +14875,23 @@ export default function App() {
       )}
       {tabMenu && (
         <div ref={tabMenuRef} className="thread-menu tab-menu" style={{ left: tabMenu.x, top: tabMenu.y }} onClick={(e) => e.stopPropagation()}>
-          <button onClick={() => { closeTab(tabMenu.tabIndex); setTabMenu(null); }}>タブを閉じる</button>
-          <button onClick={() => { closeOtherTabs(tabMenu.tabIndex); setTabMenu(null); }} disabled={threadTabs.length <= 1}>
+          <button onClick={() => { toggleTabLock(tabMenu.tabIndex); setTabMenu(null); }}>
+            {threadTabs[tabMenu.tabIndex]?.locked ? "タブのロックを解除" : "タブをロック"}
+          </button>
+          {/* 閉じる対象が全部ロック中なら押しても何も起きないので、先に落としておく */}
+          <button onClick={() => { closeTab(tabMenu.tabIndex); setTabMenu(null); }} disabled={threadTabs[tabMenu.tabIndex]?.locked === true}>
+            タブを閉じる
+          </button>
+          <button onClick={() => { closeOtherTabs(tabMenu.tabIndex); setTabMenu(null); }} disabled={!threadTabs.some((t, i) => i !== tabMenu.tabIndex && !t.locked)}>
             他のタブを閉じる
           </button>
-          <button onClick={() => { closeTabsRight(tabMenu.tabIndex); setTabMenu(null); }} disabled={tabMenu.tabIndex >= threadTabs.length - 1}>
+          <button onClick={() => { closeTabsRight(tabMenu.tabIndex); setTabMenu(null); }} disabled={!threadTabs.some((t, i) => i > tabMenu.tabIndex && !t.locked)}>
             右側のタブを閉じる
           </button>
-          <button onClick={() => { closeTabsLeft(tabMenu.tabIndex); setTabMenu(null); }} disabled={tabMenu.tabIndex <= 0}>
+          <button onClick={() => { closeTabsLeft(tabMenu.tabIndex); setTabMenu(null); }} disabled={!threadTabs.some((t, i) => i < tabMenu.tabIndex && !t.locked)}>
             左側のタブを閉じる
           </button>
-          <button onClick={() => { closeAllTabs(); setTabMenu(null); }}>すべてのタブを閉じる</button>
+          <button onClick={() => { closeAllTabs(); setTabMenu(null); }} disabled={!threadTabs.some((t) => !t.locked)}>すべてのタブを閉じる</button>
           <button onClick={() => {
             const tab = threadTabs[tabMenu.tabIndex];
             if (tab) { void navigator.clipboard.writeText(tab.title); setStatus("スレタイをコピーしました"); }
