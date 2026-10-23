@@ -4442,6 +4442,20 @@ try {
     !(await densityPage.$(".response-nav-bar")),
     "Escape should fold the temporary nav bar back, leaving the setting untouched",
   );
+
+  // スレタブバーは Ctrl+4 でまとめて畳める。タブだけでなく左右スクロールと
+  // タブ一覧の ▼ も一緒に消え、読んでいるスレの出どころ (スレタイトルバー) は
+  // 残ること。もう一度押すと戻る。
+  assert(await densityPage.$(".thread-tab-bar-wrap"), "the tab bar should start visible");
+  await densityPage.keyboard.press("Control+4");
+  await new Promise((r) => setTimeout(r, 250));
+  assert(!(await densityPage.$(".thread-tab-bar-wrap")), "Ctrl+4 should hide the whole tab bar");
+  assert(!(await densityPage.$(".tab-list-btn")), "hiding the tab bar should take the tab list button with it");
+  assert(await densityPage.$(".thread-title-bar"), "the thread title bar should stay while the tab bar is hidden");
+  await densityPage.keyboard.press("Control+4");
+  await densityPage.waitForSelector(".thread-tab-bar-wrap");
+  console.log("smoke-ui: tab bar toggle ok");
+
   await densityPage.close();
   console.log("smoke-ui: tab density and nav bar reveal ok");
 
