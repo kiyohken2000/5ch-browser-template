@@ -3610,6 +3610,9 @@ export default function App() {
   const [boardsFontSize, setBoardsFontSize] = useState(12);
   const [threadsFontSize, setThreadsFontSize] = useState(12);
   const [responsesFontSize, setResponsesFontSize] = useState(12);
+  // スレタブの文字サイズ。板 / スレ / レスの文字サイズはタブに効かないので別に持つ。
+  // あちらは 12px 起点だがタブの CSS は 11px 起点なので、既定も 11 = 従来どおりの見た目。
+  const [tabFontSize, setTabFontSize] = useState(11);
   type PaneName = "boards" | "threads" | "responses";
   const [focusedPane, setFocusedPane] = useState<PaneName>("responses");
   const [fontFamily, setFontFamily] = useState("");
@@ -8673,9 +8676,14 @@ export default function App() {
   const beginTabRowsResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
-    // 段の高さの実体は CSS の --tab-row-h。タブ幅「狭い」で変わるので毎回読む。
+    // 段の高さの実体は CSS の --tab-row-h。タブ幅「狭い」とタブの文字サイズで変わるので
+    // 毎回読む。ただし --tab-row-h は calc() 入りのカスタムプロパティで、
+    // getComputedStyle では px に解決されず calc(22px + 0px) のまま返ってくるため、
+    // 実際に並んでいるタブの高さを測る。つまみは多段表示のときしか出さず、
+    // 多段のタブは height: var(--tab-row-h) かつ border-box なので段の高さそのもの。
     const wrap = event.currentTarget.previousElementSibling as HTMLElement | null;
-    const rowH = wrap ? parseFloat(getComputedStyle(wrap).getPropertyValue("--tab-row-h")) : NaN;
+    const tabEl = wrap?.querySelector(".thread-tab") as HTMLElement | null;
+    const rowH = tabEl ? tabEl.getBoundingClientRect().height : NaN;
     resizeDragRef.current = {
       mode: "tab-rows",
       startY: event.clientY,
@@ -8951,6 +8959,7 @@ export default function App() {
           boardsFontSize?: number;
           threadsFontSize?: number;
           responsesFontSize?: number;
+          tabFontSize?: number;
           darkMode?: boolean;
           glassMode?: boolean;
           glassLite?: boolean;
@@ -9036,6 +9045,7 @@ export default function App() {
         setBoardsFontSize(typeof parsed.boardsFontSize === "number" ? parsed.boardsFontSize : fallbackFs);
         setThreadsFontSize(typeof parsed.threadsFontSize === "number" ? parsed.threadsFontSize : fallbackFs);
         setResponsesFontSize(typeof parsed.responsesFontSize === "number" ? parsed.responsesFontSize : fallbackFs);
+        if (typeof parsed.tabFontSize === "number") setTabFontSize(clamp(Math.round(parsed.tabFontSize), 8, 20));
         if (typeof parsed.darkMode === "boolean") setDarkMode(parsed.darkMode);
         if (typeof parsed.glassMode === "boolean") setGlassMode(parsed.glassMode);
         if (typeof parsed.glassLite === "boolean") setGlassLite(parsed.glassLite);
@@ -10025,6 +10035,7 @@ export default function App() {
       boardsFontSize,
       threadsFontSize,
       responsesFontSize,
+      tabFontSize,
       darkMode,
       glassMode,
       glassLite,
@@ -10089,7 +10100,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled && !typingComboEnabled) return;
@@ -12612,7 +12623,7 @@ export default function App() {
           {tabBarVisible && (
           <div
             className={`thread-tab-bar-wrap${tabWidth === "narrow" ? " tabs-narrow" : ""}${tabMultiRow ? " tabs-multi-row" : ""}`}
-            style={{ "--tab-rows": tabRows } as React.CSSProperties}
+            style={{ "--tab-rows": tabRows, "--tab-fs-delta": `${tabFontSize - 11}px` } as React.CSSProperties}
           >
           <div className="thread-tab-bar" ref={tabBarRef}>
             {threadTabs.length === 0 && (
@@ -12717,7 +12728,7 @@ export default function App() {
                     title="ロック中 (クリックで解除)"
                     onClick={(e) => { e.stopPropagation(); toggleTabLock(i); }}
                   >
-                    <Lock size={11} />
+                    <Lock size={tabFontSize} />
                   </button>
                 ) : (
                   <button
@@ -15542,6 +15553,11 @@ export default function App() {
                 <label className="settings-row">
                   <span>文字サイズ (レス)</span>
                   <input type="number" value={responsesFontSize} min={8} max={20} onChange={(e) => setResponsesFontSize(Number(e.target.value))} />
+                </label>
+                <label className="settings-row">
+                  <span>文字サイズ (タブ)</span>
+                  <input type="number" className="tab-font-size-input" value={tabFontSize} min={8} max={20} onChange={(e) => setTabFontSize(clamp(Math.round(Number(e.target.value) || 11), 8, 20))} />
+                  <span className="settings-hint">スレタブだけの文字サイズ。タブの高さと多段の段の高さも一緒に伸びます</span>
                 </label>
                 <label className="settings-row">
                   <span>自動更新間隔 (秒)</span>

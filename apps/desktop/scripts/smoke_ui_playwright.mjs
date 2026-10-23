@@ -1548,6 +1548,34 @@ try {
   );
   console.log("smoke-ui: tab width setting ok");
 
+  // タブの文字サイズ。既定は従来と同じ 11px で、上げるとタブの枠 (バーの最低高さ)
+  // と見せられるタイトルの幅も一緒に伸びること — 文字だけ大きくすると枠に収まらず、
+  // 最大幅が固定のままだと見えるタイトルが逆に短くなる。
+  const tabFontInput = await page.$(".settings-body input.tab-font-size-input");
+  assert(tabFontInput, "settings should have a tab font size input");
+  assert((await tabFontInput.inputValue()) === "11", `tab font size should default to 11, got ${await tabFontInput.inputValue()}`);
+  const tabMetrics = () => page.$eval(".thread-tab", (el) => {
+    const s = getComputedStyle(el);
+    const wrap = el.closest(".thread-tab-bar-wrap");
+    return { fontSize: s.fontSize, maxWidth: s.maxWidth, minHeight: getComputedStyle(wrap).minHeight };
+  });
+  const tabBefore = await tabMetrics();
+  assert(tabBefore.fontSize === "11px", `tabs should start at 11px, got ${tabBefore.fontSize}`);
+  assert(tabBefore.minHeight === "26px", `the tab bar should start at 26px, got ${tabBefore.minHeight}`);
+  await tabFontInput.fill("16");
+  await new Promise((r) => setTimeout(r, 200));
+  const tabAfter = await tabMetrics();
+  assert(tabAfter.fontSize === "16px", `raising the setting should enlarge the tab font, got ${tabAfter.fontSize}`);
+  assert(tabAfter.minHeight === "31px", `the tab bar should grow with the font, got ${tabAfter.minHeight}`);
+  assert(
+    parseFloat(tabAfter.maxWidth) > parseFloat(tabBefore.maxWidth),
+    `a bigger font should widen the tab cap, got ${tabBefore.maxWidth} -> ${tabAfter.maxWidth}`,
+  );
+  await tabFontInput.fill("11");
+  await new Promise((r) => setTimeout(r, 200));
+  assert((await tabMetrics()).fontSize === "11px", "putting the setting back should restore 11px");
+  console.log("smoke-ui: tab font size setting ok");
+
   // UI サイズを上げても縦積みに切り替わらないこと。
   // 縦積みの判定は CSS ピクセル上の幅ではなく、倍率を掛け戻した物理的な幅で行う。
   // これが無いと、画面が狭くなくても倍率を上げただけで 3 ペインが縦に積まれる。
@@ -2040,7 +2068,10 @@ try {
   const readTabRows = () => page.evaluate(() => {
     const wrap = document.querySelector(".thread-tab-bar-wrap");
     const bar = document.querySelector(".thread-tab-bar");
-    const rowH = parseFloat(getComputedStyle(wrap).getPropertyValue("--tab-row-h"));
+    // --tab-row-h は文字サイズ設定を足し込む calc() になったので、
+    // getComputedStyle では px に解決されない。段の高さは多段タブの実寸と
+    // 同じ (height: var(--tab-row-h) / border-box) なのでタブから測る。
+    const rowH = document.querySelector(".thread-tab").getBoundingClientRect().height;
     return {
       rows: Number(wrap.style.getPropertyValue("--tab-rows")),
       maxRows: Math.round(parseFloat(getComputedStyle(bar).maxHeight) / rowH),
@@ -2075,7 +2106,7 @@ try {
   };
 
   const rowHeight = await page.evaluate(() =>
-    parseFloat(getComputedStyle(document.querySelector(".thread-tab-bar-wrap")).getPropertyValue("--tab-row-h")));
+    document.querySelector(".thread-tab").getBoundingClientRect().height);
   await dragRowsBy(rowHeight * 2);
   const rowsGrown = await readTabRows();
   assert(rowsGrown.rows === 5, `dragging down two rows should give 5 rows, got ${rowsGrown.rows}`);

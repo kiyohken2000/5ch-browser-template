@@ -3207,12 +3207,16 @@ button.search-history-btn:hover {
   background: linear-gradient(180deg, #e8e8e8 0%, #d0d0d0 100%);
 }
 
+/* --tab-fs-delta は設定「文字サイズ (タブ)」の 11px からのずれ。タブバーに
+   インラインで載るので、タブの文字・枠・段の高さをここから一括で動かす。
+   文字だけ大きくすると枠に収まらず、最大幅が固定のままだと見えるタイトルが
+   逆に短くなるので、高さと最大幅も同じ delta から計算する。 */
 .thread-tab-bar-wrap {
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid var(--line);
   background: #e8e8e8;
-  min-height: 26px;
+  min-height: calc(26px + var(--tab-fs-delta, 0px));
 }
 .tab-scroll-btn {
   border: none;
@@ -3247,12 +3251,12 @@ button.search-history-btn:hover {
   align-items: center;
   gap: 4px;
   padding: 3px 6px;
-  font-size: 11px;
+  font-size: calc(11px + var(--tab-fs-delta, 0px));
   border: 1px solid var(--line);
   border-bottom: none;
   background: #e0e0e0;
   cursor: pointer;
-  max-width: 200px;
+  max-width: calc(200px + var(--tab-fs-delta, 0px) * 8);
   min-width: 60px;
   flex-shrink: 0;
 }
@@ -3282,7 +3286,7 @@ button.search-history-btn:hover {
 
 .thread-tab-close {
   padding: 0 2px;
-  font-size: 12px;
+  font-size: calc(12px + var(--tab-fs-delta, 0px));
   line-height: 1;
   border: none;
   background: transparent;
@@ -3314,21 +3318,21 @@ button.search-history-btn:hover {
    文字サイズ・左右の余白・最大幅をまとめて詰める。要望は「フォントを小さく」
    「枠を狭く」の両方だったので、片方だけ効かせずにここで一括で効かせる。 */
 .thread-tab-bar-wrap.tabs-narrow {
-  min-height: 20px;
+  min-height: calc(20px + var(--tab-fs-delta, 0px));
 }
 .thread-tab-bar-wrap.tabs-narrow .thread-tab {
   padding: 1px 4px;
-  font-size: 10px;
-  max-width: 130px;
+  font-size: calc(10px + var(--tab-fs-delta, 0px));
+  max-width: calc(130px + var(--tab-fs-delta, 0px) * 8);
   min-width: 48px;
   gap: 2px;
 }
 .thread-tab-bar-wrap.tabs-narrow .tab-res-count {
-  font-size: 8px;
+  font-size: calc(8px + var(--tab-fs-delta, 0px));
   margin-left: 0;
 }
 .thread-tab-bar-wrap.tabs-narrow .thread-tab-close {
-  font-size: 10px;
+  font-size: calc(10px + var(--tab-fs-delta, 0px));
   padding: 0 1px;
 }
 
@@ -3343,10 +3347,10 @@ button.search-history-btn:hover {
    ドラッグして変えられる。タブに固定の高さを与えているのは、段の高さと
    max-height を同じ値から計算して「次の段が半分だけ覗く」状態を作らないため。 */
 .thread-tab-bar-wrap {
-  --tab-row-h: 22px;
+  --tab-row-h: calc(22px + var(--tab-fs-delta, 0px));
 }
 .thread-tab-bar-wrap.tabs-narrow {
-  --tab-row-h: 18px;
+  --tab-row-h: calc(18px + var(--tab-fs-delta, 0px));
 }
 .thread-tab-bar-wrap.tabs-multi-row {
   align-items: flex-start;
@@ -3434,7 +3438,7 @@ button.search-history-btn:hover {
 }
 
 .tab-res-count {
-  font-size: 9px;
+  font-size: calc(9px + var(--tab-fs-delta, 0px));
   color: var(--sub);
   margin-left: 2px;
 }
