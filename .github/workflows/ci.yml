@@ -132,7 +132,9 @@ jobs:
         working-directory: apps/desktop
 
   rust-check-linux:
-    runs-on: ubuntu-latest
+    # ubuntu-latest が Ubuntu 26.04 に切り替わり、Playwright 1.58.2 の
+    # install --with-deps が ubuntu26.04-x64 用の依存パッケージを持たず落ちるため 24.04 に固定。
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
