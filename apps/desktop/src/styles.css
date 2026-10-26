@@ -4117,8 +4117,13 @@ a.body-link-image:hover::after {
 }
 
 .shortcut-row.shortcut-disabled kbd,
-.shortcut-row.shortcut-disabled span {
+.shortcut-row.shortcut-disabled span,
+.shortcut-row.shortcut-disabled .shortcut-action-select {
   opacity: 0.5;
+}
+
+.shortcut-action-select {
+  font-size: 11px;
 }
 
 .shortcut-row kbd {

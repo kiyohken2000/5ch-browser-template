@@ -644,6 +644,9 @@ const DEFAULT_GESTURE_BINDINGS: Record<string, GestureActionId> = {
 // と衝突しうるものだけを対象にする。Ctrl 系は誤爆しにくいので固定。
 type ToggleableShortcutId = "dblclick-quote" | "key-r-quote" | "key-a-autoscroll";
 const TOGGLEABLE_SHORTCUT_IDS: ToggleableShortcutId[] = ["dblclick-quote", "key-r-quote", "key-a-autoscroll"];
+// レス行のダブルクリックに割り当てる動作。既定は従来どおり引用して書き込み。
+type DblClickAction = "quote" | "read-marker";
+const DBL_CLICK_ACTIONS: DblClickAction[] = ["quote", "read-marker"];
 const COMPOSE_PREFS_KEY = "desktop.composePrefs.v1";
 const NAME_HISTORY_KEY = "desktop.nameHistory.v1";
 const BOARD_NAMES_KEY = "desktop.boardNames.v1";
@@ -3378,6 +3381,7 @@ export default function App() {
   const disabledShortcutsRef = useRef<ToggleableShortcutId[]>([]);
   disabledShortcutsRef.current = disabledShortcuts;
   const isShortcutDisabled = (id: ToggleableShortcutId) => disabledShortcutsRef.current.includes(id);
+  const [dblClickAction, setDblClickAction] = useState<DblClickAction>("quote");
   const [imageGalleryOpen, setImageGalleryOpen] = useState(false);
   const gestureRef = useRef<{
     active: boolean;
@@ -7721,6 +7725,24 @@ export default function App() {
   const currentReadMarker: number | null =
     readMarker[getBoardUrlFromThreadUrl(threadUrl)]?.[getThreadKeyFromThreadUrl(threadUrl)] ?? null;
   const selectedResponseLabel = activeResponse ? `#${activeResponse.id}` : "-";
+  // レス行のダブルクリック。設定で「引用して書き込み」と「ここまで読んだに設定」を切り替える。
+  // マーカー側は右クリックメニューと同じトグルなので、誤爆しても同じ操作で取り消せる。
+  const onResponseDoubleClick = (no: number) => {
+    if (isShortcutDisabled("dblclick-quote")) return;
+    if (dblClickAction === "read-marker") {
+      const boardUrl = getBoardUrlFromThreadUrl(threadUrl);
+      const threadKey = getThreadKeyFromThreadUrl(threadUrl);
+      if (currentReadMarker === no) {
+        setReadMarkerForThread(boardUrl, threadKey, null);
+        setStatus(`「ここまで読んだ」を解除: #${no}`);
+      } else {
+        setReadMarkerForThread(boardUrl, threadKey, no);
+        setStatus(`「ここまで読んだ」を設定: #${no}`);
+      }
+      return;
+    }
+    appendComposeQuote(`>>${no}`);
+  };
 
   // Collect images with their response numbers for the image gallery pane
   const galleryImages = useMemo(() => {
@@ -8999,6 +9021,7 @@ export default function App() {
           gestureBindings?: Record<string, GestureActionId>;
           threadAgeColorEnabled?: boolean;
           disabledShortcuts?: string[];
+          dblClickAction?: string;
           composeSize?: { w: number; h: number };
           composePos?: { x: number; y: number };
           composeDocked?: boolean;
@@ -9092,6 +9115,9 @@ export default function App() {
         if (typeof parsed.mouseGestureEnabled === "boolean") setMouseGestureEnabled(parsed.mouseGestureEnabled);
         if (Array.isArray(parsed.disabledShortcuts)) {
           setDisabledShortcuts(TOGGLEABLE_SHORTCUT_IDS.filter((id) => parsed.disabledShortcuts?.includes(id)));
+        }
+        if (DBL_CLICK_ACTIONS.includes(parsed.dblClickAction as DblClickAction)) {
+          setDblClickAction(parsed.dblClickAction as DblClickAction);
         }
         if (parsed.gestureBindings && typeof parsed.gestureBindings === "object") {
           const valid = new Set(GESTURE_ACTIONS.map((a) => a.id));
@@ -10075,6 +10101,7 @@ export default function App() {
       gestureBindings,
       threadAgeColorEnabled,
       disabledShortcuts,
+      dblClickAction,
       composeSize: composeSize ?? undefined,
       composePos: composePos ?? undefined,
       composeDocked,
@@ -10100,7 +10127,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled && !typingComboEnabled) return;
@@ -13097,7 +13124,7 @@ export default function App() {
                     data-response-no={r.id}
                     className={`response-block ${selectedResponse === r.id ? "selected" : ""}${myPostNos.has(r.id) ? " my-post" : ""}${replyToMeNos.has(r.id) ? " reply-to-me" : ""}`}
                     onClick={() => setSelectedResponse(r.id)}
-                    onDoubleClick={() => { if (!isShortcutDisabled("dblclick-quote")) appendComposeQuote(`>>${r.id}`); }}
+                    onDoubleClick={() => onResponseDoubleClick(r.id)}
                   >
                     <div className="response-header">
                       <span className="response-no" onClick={(e) => onResponseNoClick(e, r.id)}>
@@ -15341,7 +15368,7 @@ export default function App() {
               <button onClick={() => setShortcutsOpen(false)}>閉じる</button>
             </header>
             <div className="shortcuts-body">
-              <p className="shortcuts-note">チェックを外すとそのショートカットを無効にできます (誤爆しやすいものだけ切替可)。</p>
+              <p className="shortcuts-note">チェックを外すとそのショートカットを無効にできます (誤爆しやすいものだけ切替可)。ダブルクリックは動作も選べます。</p>
               {([
                 ["Ctrl+W", "選択スレを閉じる"],
                 ["Ctrl+Shift+T", "閉じたタブを再度開く"],
@@ -15382,7 +15409,20 @@ export default function App() {
                     <span className="shortcut-toggle-spacer" />
                   )}
                   <kbd>{key}</kbd>
-                  <span>{desc}</span>
+                  {toggleId === "dblclick-quote" ? (
+                    <select
+                      className="shortcut-action-select"
+                      title="ダブルクリックしたときの動作"
+                      value={dblClickAction}
+                      disabled={disabledShortcuts.includes("dblclick-quote")}
+                      onChange={(e) => setDblClickAction(e.target.value as DblClickAction)}
+                    >
+                      <option value="quote">引用して書き込み</option>
+                      <option value="read-marker">ここまで読んだに設定</option>
+                    </select>
+                  ) : (
+                    <span>{desc}</span>
+                  )}
                 </div>
               ))}
             </div>

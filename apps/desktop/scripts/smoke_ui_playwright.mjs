@@ -1100,9 +1100,23 @@ try {
   const dblToggle = await dblRow.$(".shortcut-toggle");
   assert(dblToggle, "double-click row should have a toggle");
   assert(await dblToggle.isChecked(), "double-click toggle should be on by default");
+  // ダブルクリックの動作 (引用 / ここまで読んだ) はセレクトで選べる
+  const dblActionSelect = await dblRow.$(".shortcut-action-select");
+  assert(dblActionSelect, "double-click row should have an action select");
+  assert(
+    (await dblActionSelect.inputValue()) === "quote",
+    "double-click action should default to quote"
+  );
+  await dblActionSelect.selectOption("read-marker");
+  assert(
+    (await dblActionSelect.inputValue()) === "read-marker",
+    "double-click action should switch to read-marker"
+  );
+  await dblActionSelect.selectOption("quote");
   await dblToggle.click();
   assert(!(await dblToggle.isChecked()), "double-click toggle should turn off");
   assert(await dblRow.evaluate((el) => el.classList.contains("shortcut-disabled")), "disabled row should be dimmed");
+  assert(await dblActionSelect.isDisabled(), "action select should be disabled while the shortcut is off");
   await dblToggle.click();
   assert(await dblToggle.isChecked(), "double-click toggle should turn back on");
   // close
