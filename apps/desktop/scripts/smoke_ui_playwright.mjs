@@ -1124,6 +1124,37 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: shortcuts dialog ok");
 
+  // --- ダブルクリックで「ここまで読んだ」を設定したとき、選択状態を残さない ---
+  const openShortcutsPanel = async () => {
+    await (await page.$('.menu-item:has-text("ヘルプ")')).click();
+    await new Promise((r) => setTimeout(r, 100));
+    await page.click('.menu-dropdown button:has-text("ショートカット一覧")');
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  const setDblClickAction = async (value) => {
+    const row = await page.$('.shortcut-row:has(kbd:has-text("ダブルクリック"))');
+    await (await row.$(".shortcut-action-select")).selectOption(value);
+    await page.click(".shortcuts-header button:has-text('閉じる')");
+    await new Promise((r) => setTimeout(r, 100));
+  };
+  await openShortcutsPanel();
+  await setDblClickAction("read-marker");
+  const markerTarget = await page.$('.response-scroll .response-block[data-response-no="2"] .response-body');
+  assert(markerTarget, "response 2 should be rendered for the double-click marker test");
+  await markerTarget.dblclick();
+  await new Promise((r) => setTimeout(r, 150));
+  assert(await page.$(".read-marker-separator"), "double-click should set the read marker");
+  // ダブルクリックの既定動作 (単語選択) が残ると行末が帯状に反転したまま見える
+  const leftoverSelection = await page.evaluate(() => window.getSelection()?.toString() ?? "");
+  assert(leftoverSelection === "", `double-click marker should not leave a selection, got "${leftoverSelection}"`);
+  await markerTarget.dblclick();
+  await new Promise((r) => setTimeout(r, 150));
+  assert(!(await page.$(".read-marker-separator")), "double-click again should clear the read marker");
+  // 既定 (引用して書き込み) に戻す
+  await openShortcutsPanel();
+  await setDblClickAction("quote");
+  console.log("smoke-ui: double-click read marker leaves no selection ok");
+
   // --- font size setting ---
   const viewMenuItem = await page.$('.menu-item:has-text("表示")');
   await viewMenuItem.click();

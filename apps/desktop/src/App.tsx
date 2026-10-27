@@ -3269,6 +3269,9 @@ export default function App() {
   const [nextThreadCandidates, setNextThreadCandidates] = useState<{ threadUrl: string; title: string; responseCount: number; threadKey: string; score: number }[]>([]);
   const [nextThreadSearching, setNextThreadSearching] = useState(false);
   const [nextThreadSearched, setNextThreadSearched] = useState(false);
+  // 検索を実行したときだけ結果バナーまでスクロールするために、対象スレの URL を控える。
+  // 950 超えでバナーが自動表示されただけでは動かさない。
+  const nextThreadScrollPendingRef = useRef<string | null>(null);
   const [restoreSession, setRestoreSession] = useState(false);
   const restoreSessionRef = useRef(false);
   const hoverPreviewEnabledRef = useRef(hoverPreviewEnabled);
@@ -5346,6 +5349,7 @@ export default function App() {
     const normalized = normalizeThreadTitleForSearch(currentTitle);
     setNextThreadSearching(true);
     setNextThreadSearched(false);
+    nextThreadScrollPendingRef.current = currentUrl;
     try {
       const rows = await invoke<ThreadListItem[]>("fetch_thread_list", {
         threadUrl: boardUrl,
@@ -7730,6 +7734,10 @@ export default function App() {
   const onResponseDoubleClick = (no: number) => {
     if (isShortcutDisabled("dblclick-quote")) return;
     if (dblClickAction === "read-marker") {
+      // ダブルクリックはブラウザ既定で単語を選択する (本文の右の余白を叩くと行末の
+      // 改行部分が帯状に反転して残る)。引用側は書き込み窓が前に出るので目立たないが、
+      // マーカー側はその場に居続けるため、選択を消してから設定する。
+      window.getSelection()?.removeAllRanges();
       const boardUrl = getBoardUrlFromThreadUrl(threadUrl);
       const threadKey = getThreadKeyFromThreadUrl(threadUrl);
       if (currentReadMarker === no) {
@@ -10335,6 +10343,21 @@ export default function App() {
     const tab = tabBarRef.current.children[activeTabIndex] as HTMLElement | undefined;
     tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeTabIndex]);
+
+  // 次スレ検索の結果 (候補一覧 / 見つからなかった表示) はレス本文の末尾のバナーに出る。
+  // スレ途中を見たまま更新メニューから検索すると、押しても何も起きないように見えるので
+  // 結果が描画されてから末尾へ寄せる。バナーは .response-scroll の最後の要素なので
+  // 末尾 = バナーの位置。画像・OGP カードの遅延ロードで末尾は後から伸びるため、
+  // 一度の scrollIntoView ではなく再アンカーし続ける scrollResponsesToBottom を使う。
+  useEffect(() => {
+    const target = nextThreadScrollPendingRef.current;
+    if (!target) return;
+    if (nextThreadSearching || !nextThreadSearched) return;
+    nextThreadScrollPendingRef.current = null;
+    // 検索中にタブを切り替えていたら、関係ないスレを末尾へ飛ばさない
+    if (target !== activeThreadUrl) return;
+    scrollResponsesToBottom();
+  }, [nextThreadSearching, nextThreadSearched, nextThreadCandidates, activeThreadUrl]);
 
   useEffect(() => {
     if (!autoRefreshEnabled || !isTauriRuntime()) return;
