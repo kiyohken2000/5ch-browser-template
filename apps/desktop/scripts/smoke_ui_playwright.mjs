@@ -4026,6 +4026,225 @@ try {
   );
   console.log("smoke-ui: thread tab restore ok");
 
+  // 再起動後にタブを切り替えると、スモークテスト用のプレースホルダ (>>1〜>>5) が本物のスレの
+  // 中身として出てしまうという報告の回帰用。
+  //  - 起動時の復元はアクティブタブ 1 枚しか SQLite から読まないので、他のタブへ切り替えると
+  //    メモリ上のタブキャッシュが無い。以前はそこでレスを空にしてネットワーク取得を待って
+  //    いたため、待っている間だけプレースホルダへフォールバックしていた。
+  //  - アクティブタブのキャッシュが空のときは起動時の取得も走らず、プレースホルダが
+  //    出たまま止まっていた。
+  // 取得 (fetch_thread_responses_command) は返さないので、中身が出るなら SQLite 由来。
+  {
+    const TAB_THREAD_A = "https://mao.5ch.io/test/read.cgi/ngt/1111111111/";
+    const TAB_THREAD_B = "https://mao.5ch.io/test/read.cgi/ngt/2222222222/";
+    const PLACEHOLDER_BODY = "スレ一覧とレス表示の疎通まで確認完了";
+    const openCachedTabsPage = async (withCache) => {
+      const p = await context.newPage();
+      await p.addInitScript((arg) => {
+        localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+        localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+        localStorage.setItem("desktop.threadTabs.v1", arg.tabs);
+        const mkRows = (label, n) => {
+          const out = [];
+          for (let i = 1; i <= n; i++) {
+            out.push({
+              responseNo: i,
+              name: "名無し",
+              mail: "",
+              dateAndId: "2026/10/28(水) 00:00:00.00 ID:abcdefgh",
+              body: label + "のレス " + i,
+            });
+          }
+          return out;
+        };
+        const stored = arg.withCache
+          ? { [arg.threadA]: mkRows("スレA", 12), [arg.threadB]: mkRows("スレB", 18) }
+          : {};
+        window.__TAURI_INTERNALS__ = {
+          transformCallback: (cb) => cb,
+          invoke: (cmd, args) => {
+            if (cmd === "load_layout_prefs") return Promise.resolve("");
+            if (cmd === "save_layout_prefs") return Promise.resolve(null);
+            if (cmd === "save_thread_cache") return Promise.resolve(null);
+            if (cmd === "load_read_status") return Promise.resolve({});
+            if (cmd === "load_thread_cache") {
+              const rows = stored[args.threadUrl];
+              return Promise.resolve(rows ? JSON.stringify(rows) : null);
+            }
+            if (cmd === "fetch_thread_responses_command") return new Promise(() => {});
+            return Promise.reject(new Error("smoke stub: " + cmd));
+          },
+        };
+      }, {
+        prefs: JSON.stringify({ restoreSession: true }),
+        tabs: JSON.stringify({
+          tabs: [{ threadUrl: TAB_THREAD_A, title: "スレA" }, { threadUrl: TAB_THREAD_B, title: "スレB" }],
+          activeIndex: 0,
+        }),
+        threadA: TAB_THREAD_A,
+        threadB: TAB_THREAD_B,
+        withCache,
+      });
+      await p.goto(targetUrl, { waitUntil: "load" });
+      await p.waitForSelector(".row-splitter");
+      await new Promise((r) => setTimeout(r, 900));
+      return p;
+    };
+    const responsePaneText = (p) => p.$eval(".response-scroll", (el) => el.textContent || "");
+    const responseRowCount = (p) => p.$$eval(".response-scroll [data-response-no]", (els) => els.length);
+
+    const cachedTabs = await openCachedTabsPage(true);
+    const restoredText = await responsePaneText(cachedTabs);
+    assert(
+      !restoredText.includes(PLACEHOLDER_BODY),
+      `the smoke placeholder responses must never render in the app, got ${restoredText.slice(0, 120)}`,
+    );
+    assert(
+      restoredText.includes("スレAのレス 1"),
+      `the restored active tab should render its stored responses, got ${restoredText.slice(0, 120)}`,
+    );
+    await cachedTabs.$$eval(".thread-tab:not(.placeholder)", (els) => els[1].click());
+    await new Promise((r) => setTimeout(r, 700));
+    const switchedText = await responsePaneText(cachedTabs);
+    assert(
+      !switchedText.includes(PLACEHOLDER_BODY),
+      `switching to a restored tab must not show the placeholder, got ${switchedText.slice(0, 120)}`,
+    );
+    assert(
+      switchedText.includes("スレBのレス 1"),
+      `switching to a restored tab should render its stored responses, got ${switchedText.slice(0, 120)}`,
+    );
+    await cachedTabs.close();
+
+    const emptyTabs = await openCachedTabsPage(false);
+    const emptyText = await responsePaneText(emptyTabs);
+    assert(
+      !emptyText.includes(PLACEHOLDER_BODY),
+      `a thread with no stored responses must stay empty, got ${emptyText.slice(0, 120)}`,
+    );
+    assert(
+      (await responseRowCount(emptyTabs)) === 0,
+      `a thread with no stored responses must not render rows, got ${await responseRowCount(emptyTabs)}`,
+    );
+    await emptyTabs.close();
+    console.log("smoke-ui: restored tabs render from the thread cache, never the placeholder ok");
+  }
+
+  // 設定「スレを開いたとき『ここまで読んだ』の位置から表示」。
+  //  - ON  : マーカーの次のレス (「続き」ボタンと同じ着地点) から開く
+  //  - OFF : 従来どおり保存済みのスクロール位置から開く
+  //  - ON でもマーカーの無いスレは保存済みのスクロール位置
+  // マーカーの読み込みは別の IPC なので、起動時の復元はそれを待たないと効かない。
+  // 起動直後のアクティブタブと、切り替えた 2 枚目のタブの両方を見る。
+  {
+    const MK_THREAD_A = "https://mao.5ch.io/test/read.cgi/ngt/4444444444/";
+    const MK_THREAD_B = "https://mao.5ch.io/test/read.cgi/ngt/5555555555/";
+    const openMarkerPage = async (openAtReadMarker, markers) => {
+      const p = await context.newPage();
+      await p.addInitScript((arg) => {
+        localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+        localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+        localStorage.setItem("desktop.threadTabs.v1", arg.tabs);
+        localStorage.setItem("desktop.scrollPositions.v1", arg.scrollPos);
+        const mkRows = (label, n) => {
+          const out = [];
+          for (let i = 1; i <= n; i++) {
+            out.push({
+              responseNo: i,
+              name: "名無し",
+              mail: "",
+              dateAndId: "2026/10/28(水) 00:00:00.00 ID:abcdefgh",
+              body: label + "のレス " + i,
+            });
+          }
+          return out;
+        };
+        const stored = { [arg.threadA]: mkRows("スレA", 60), [arg.threadB]: mkRows("スレB", 60) };
+        window.__TAURI_INTERNALS__ = {
+          transformCallback: (cb) => cb,
+          invoke: (cmd, args) => {
+            if (cmd === "load_layout_prefs") return Promise.resolve("");
+            if (cmd === "save_layout_prefs") return Promise.resolve(null);
+            if (cmd === "save_thread_cache") return Promise.resolve(null);
+            if (cmd === "load_read_status") return Promise.resolve({});
+            if (cmd === "save_read_status") return Promise.resolve(null);
+            if (cmd === "load_read_marker") return Promise.resolve(arg.markers);
+            if (cmd === "load_thread_cache") {
+              const rows = stored[args.threadUrl];
+              return Promise.resolve(rows ? JSON.stringify(rows) : null);
+            }
+            // 新着を出さない (同じ件数) ので、新着へのジャンプは起きない
+            if (cmd === "fetch_thread_responses_command") {
+              return Promise.resolve({ responses: stored[args.threadUrl] ?? [], title: null });
+            }
+            return Promise.reject(new Error("smoke stub: " + cmd));
+          },
+        };
+      }, {
+        prefs: JSON.stringify({ restoreSession: true, openAtReadMarker }),
+        tabs: JSON.stringify({
+          tabs: [{ threadUrl: MK_THREAD_A, title: "スレA" }, { threadUrl: MK_THREAD_B, title: "スレB" }],
+          activeIndex: 0,
+        }),
+        scrollPos: JSON.stringify({ [MK_THREAD_A]: 40, [MK_THREAD_B]: 45 }),
+        threadA: MK_THREAD_A,
+        threadB: MK_THREAD_B,
+        markers,
+      });
+      await p.goto(targetUrl, { waitUntil: "load" });
+      await p.waitForSelector(".response-scroll [data-response-no]");
+      return p;
+    };
+    // 復元は 50〜2000ms かけて再アンカーし続けるので、止まるまで待ってから位置を読む
+    const settleAndTop = async (p) => {
+      await p.evaluate(() => new Promise((resolve) => {
+        const c = document.querySelector(".response-scroll");
+        if (!c) { resolve(0); return; }
+        const deadline = Date.now() + 5000;
+        let last = -1;
+        let stable = 0;
+        const tick = () => {
+          if (c.scrollTop === last) stable += 1;
+          else { stable = 0; last = c.scrollTop; }
+          if (stable >= 8 || Date.now() > deadline) { resolve(c.scrollTop); return; }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }));
+      return p.evaluate(() => {
+        const c = document.querySelector(".response-scroll");
+        const top = c.getBoundingClientRect().top;
+        for (const el of c.querySelectorAll("[data-response-no]")) {
+          if (el.getBoundingClientRect().bottom > top) return Number(el.dataset.responseNo);
+        }
+        return 0;
+      });
+    };
+    const MARKERS = { "https://mao.5ch.io/ngt/": { "4444444444": 20, "5555555555": 30 } };
+
+    const onPage = await openMarkerPage(true, MARKERS);
+    const onTop = await settleAndTop(onPage);
+    assert(onTop === 21, `with the setting on, a restored tab should open after its read marker (>>21), got >>${onTop}`);
+    await onPage.$$eval(".thread-tab:not(.placeholder)", (els) => els[1].click());
+    const onSwitched = await settleAndTop(onPage);
+    assert(onSwitched === 31, `switching tabs should also land after the read marker (>>31), got >>${onSwitched}`);
+    await onPage.close();
+
+    const offPage = await openMarkerPage(false, MARKERS);
+    const offTop = await settleAndTop(offPage);
+    assert(offTop === 40, `with the setting off, the saved scroll position (>>40) must still win, got >>${offTop}`);
+    await offPage.close();
+
+    const noMarkerPage = await openMarkerPage(true, {});
+    const noMarkerTop = await settleAndTop(noMarkerPage);
+    assert(
+      noMarkerTop === 40,
+      `a thread without a read marker should keep opening at the saved position (>>40), got >>${noMarkerTop}`,
+    );
+    await noMarkerPage.close();
+    console.log("smoke-ui: open at the read marker ok");
+  }
+
   // 「スレ一覧を自動で開閉する」と「起動時に前回のタブ・板・スレ一覧フィルタを復元」を
   // 両方オンにすると、復元した板・フィルタのスレ一覧が最初から見えないという報告の回帰用。
   // 自動開閉の「隠れている」はスレを開いた結果の一時状態なので起動時には戻さない。

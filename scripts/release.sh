@@ -16,6 +16,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DESKTOP_DIR="$ROOT_DIR/apps/desktop"
 TAURI_DIR="$DESKTOP_DIR/src-tauri"
+UPDATER_DIR="$ROOT_DIR/crates/updater"
 OUT_DIR="$ROOT_DIR/out"
 # Honor CARGO_TARGET_DIR so the post-build zip step finds the binary cargo
 # actually wrote. Without this we'd zip a stale ember.exe under
@@ -91,7 +92,7 @@ echo "$RELEASE_NOTES"
 echo ""
 
 # --------------------------------------------------
-# 1. Version bump (3 files)
+# 1. Version bump (4 files)
 # --------------------------------------------------
 echo "[1/5] Version bump -> ${VERSION}"
 
@@ -110,9 +111,14 @@ sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"${VERSION}\"/" "$TAURI_DIR/taur
 # Cargo.toml (only the first version line in [package])
 sed -i "0,/^version = \"[^\"]*\"/s//version = \"${VERSION}\"/" "$TAURI_DIR/Cargo.toml"
 
+# updater の Cargo.toml。updater.exe は同梱された Ember のバージョンを
+# env!("CARGO_PKG_VERSION") で持ち、それを latest.json と比べるので本体と揃える。
+sed -i "0,/^version = \"[^\"]*\"/s//version = \"${VERSION}\"/" "$UPDATER_DIR/Cargo.toml"
+
 echo "  package.json:    $(grep '"version"' "$DESKTOP_DIR/package.json" | head -1 | xargs)"
 echo "  tauri.conf.json: $(grep '"version"' "$TAURI_DIR/tauri.conf.json" | head -1 | xargs)"
 echo "  Cargo.toml:      $(grep '^version' "$TAURI_DIR/Cargo.toml" | head -1 | xargs)"
+echo "  updater:         $(grep '^version' "$UPDATER_DIR/Cargo.toml" | head -1 | xargs)"
 
 # --------------------------------------------------
 # 2. Validate (cargo check + frontend build + smoke test)
@@ -161,7 +167,9 @@ git add \
   "$DESKTOP_DIR/public/pip.html" \
   "$DESKTOP_DIR/scripts/smoke_ui_playwright.mjs" \
   "$TAURI_DIR/icons" \
-  "$ROOT_DIR/scripts/release.sh"
+  "$ROOT_DIR/scripts/release.sh" \
+  "$ROOT_DIR/scripts/check_version_leaks.sh" \
+  "$ROOT_DIR/Cargo.toml"
 
 # Only add files that have changes staged
 git diff --cached --quiet && { echo "No changes to commit"; exit 1; }
@@ -181,6 +189,15 @@ echo ""
 echo "[4/5] Windows build (npx tauri build, jobs=${BUILD_JOBS})"
 
 (cd "$DESKTOP_DIR" && CARGO_BUILD_JOBS="$BUILD_JOBS" npx tauri build 2>&1 | tail -3)
+
+# 半自動アップデータ。Tauri を通さない素の bin なので cargo で直接ビルドする
+# (フロントエンドを埋め込む必要がないため、ember 本体と違ってこれで良い)。
+echo "  updater.exe..."
+(cd "$ROOT_DIR" && cargo build --release -p ember-updater 2>&1 | tail -2)
+if [[ ! -f "$TARGET_DIR/release/updater.exe" ]]; then
+  echo "  ERROR: updater.exe がビルドされていません ($TARGET_DIR/release/updater.exe)"
+  exit 1
+fi
 
 # --------------------------------------------------
 # 5. Create Windows ZIP & copy to out/
@@ -271,7 +288,7 @@ if [[ ! -f "$MSVC_LICENSE_DIR/ATTRIBUTION.txt" ]]; then
 fi
 cp "$MSVC_LICENSE_DIR/ATTRIBUTION.txt" "$TARGET_DIR/release/MSVC-RUNTIME-ATTRIBUTION.txt"
 
-(cd "$TARGET_DIR/release" && powershell -Command "Compress-Archive -Path ember.exe,vulkan-1.dll,msvcp140.dll,vcruntime140.dll,vcruntime140_1.dll,vcomp140.dll,VULKAN-LOADER-LICENSE.txt,VULKAN-LOADER-ATTRIBUTION.txt,MSVC-RUNTIME-ATTRIBUTION.txt -DestinationPath ember-win-x64.zip -Force")
+(cd "$TARGET_DIR/release" && powershell -Command "Compress-Archive -Path ember.exe,updater.exe,vulkan-1.dll,msvcp140.dll,vcruntime140.dll,vcruntime140_1.dll,vcomp140.dll,VULKAN-LOADER-LICENSE.txt,VULKAN-LOADER-ATTRIBUTION.txt,MSVC-RUNTIME-ATTRIBUTION.txt -DestinationPath ember-win-x64.zip -Force")
 cp "$TARGET_DIR/release/ember-win-x64.zip" "$OUT_DIR/ember-win-x64.zip"
 
 WIN_SHA256=$(sha256sum "$OUT_DIR/ember-win-x64.zip" | awk '{print $1}')

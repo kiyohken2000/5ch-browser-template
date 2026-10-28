@@ -108,11 +108,14 @@ AppImage / .deb / .rpm を生成し、`out/ember-linux-x64.zip` を作成。
 
 ### 1. バージョン更新
 
-以下の3ファイルのバージョンを更新する:
+以下の4ファイルのバージョンを更新する:
 
 - `apps/desktop/package.json` → `"version": "X.Y.Z"`
 - `apps/desktop/src-tauri/tauri.conf.json` → `"version": "X.Y.Z"`
 - `apps/desktop/src-tauri/Cargo.toml` → `version = "X.Y.Z"`
+- `crates/updater/Cargo.toml` → `version = "X.Y.Z"` （updater.exe は自分の
+  `CARGO_PKG_VERSION` を `latest.json` と比べるので、本体と揃っていないと
+  「最新です」と言い続ける / すでに入っている版を落としに行く）
 
 ### 2. 検証 & コミット & プッシュ
 
@@ -126,6 +129,9 @@ git add -A && git commit -m "vX.Y.Z: <変更概要>" && git push
 
 ```bash
 cd apps/desktop && npx tauri build
+# 半自動アップデータ (同梱する updater.exe)。Tauri を通さない素の bin なので
+# cargo で直接ビルドする。ember 本体はフロントエンドが埋め込まれず白画面になるため不可。
+cd ../.. && cargo build --release -p ember-updater
 cd ../../target/release
 
 # v0.0.161+ : vulkan-1.dll を ember.exe の隣に配置 (Vulkan Runtime 未導入環境対策)
@@ -197,11 +203,34 @@ npx wrangler pages deploy dist --project-name ember-5ch --branch main --commit-d
 - 新バージョンのアプリで更新チェック → `hasUpdate=false`（最新版です）
 - ダウンロードページリンクが正しいこと
 
+## 半自動アップデータ (updater.exe)
+
+Windows ZIP に同梱している `updater.exe` の仕様。実装は `crates/updater/`。
+
+- 使い方: **Ember を終了してから** `updater.exe` を実行する。新しい版があれば ZIP を
+  取得・検証して同じフォルダのファイルを置き換え、Enter で Ember を起動し直す。
+  Ember 本体には何も手が入っていない（ボタンも設定も無い）。
+- バージョン判定は `env!("CARGO_PKG_VERSION")` と `latest.json` の `version` の数値比較。
+- **取得元 URL は updater に焼き込んである**
+  (`https://github.com/.../releases/download/v{ver}/ember-win-x64.zip`)。
+  `latest.json` から読むのはバージョンだけ。URL をメタデータ側に持たせると、Pages に
+  書ける立場の人が任意の配布物を掴ませられるため。`sha256` はメタデータと一緒に流れて
+  くるので改ざん検知にはならず、破損検知として使っている。
+- **置き換えるのは ZIP に入っているファイルだけ**。Windows 版は持ち運び配置で、設定・
+  既読・NG・スレキャッシュ・ログが exe の隣の `data` に入る (core-store の
+  `resolve_default_data_dir`)。フォルダごと入れ替えるとユーザーのデータが消える。
+- 旧ファイルは `update-backup-<旧バージョン>/` へ退避する。途中で失敗したら全部戻す。
+- Ember 実行中・書き込み不可のときは何もせず終了する（昇格は試さない）。
+- `updater.exe` 自身も置き換える（実行中の exe でも rename は通る）。それだけ失敗した
+  場合は更新を巻き戻さず、警告を出して続ける。
+- Mac は対象外。macOS 版は DMG のドラッグ&ドロップのままで、ZIP にも同梱しない。
+
 ## 運用ルール
 
 - ZIP ファイルは GitHub Releases でホスティング（Pages には置かない）
 - ファイル名は固定: `ember-win-x64.zip`, `ember-mac-arm64.zip`
 - `latest.json` にシークレット情報を含めない
+- **Windows ZIP には必ず `updater.exe` を同梱**（半自動アップデータ。欠けると、入れた人が次回から手動更新に戻る）
 - **Windows ZIP には必ず `vulkan-1.dll` を同梱**（`scripts/release.sh` は自動同梱、手動ビルド時は忘れがち）
 - **Windows ZIP には必ず `VULKAN-LOADER-LICENSE.txt` と `VULKAN-LOADER-ATTRIBUTION.txt` を同梱** (Apache 2.0 セクション 4 の再配布要件。欠けるとライセンス違反)
 - **Windows ZIP には必ず MSVC ランタイム 4 ファイル (`msvcp140.dll` / `vcruntime140.dll` / `vcruntime140_1.dll` / `vcomp140.dll`) と `MSVC-RUNTIME-ATTRIBUTION.txt` を同梱**（欠けると VC++ 再頒布可能パッケージ未導入環境で起動不能。コピー元は VS の `VC\Redist\` 配下のみ、System32 と `debug_nonredist\` は不可）

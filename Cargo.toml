@@ -5,6 +5,7 @@ members = [
   "crates/core-fetch",
   "crates/core-parse",
   "crates/core-store",
+  "crates/updater",
   "apps/desktop/src-tauri"
 ]
 resolver = "2"

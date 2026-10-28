@@ -3274,6 +3274,10 @@ export default function App() {
   const nextThreadScrollPendingRef = useRef<string | null>(null);
   const [restoreSession, setRestoreSession] = useState(false);
   const restoreSessionRef = useRef(false);
+  // スレを開いたとき「ここまで読んだ」の次のレスから表示する。起動時の復元は state が
+  // 入る前に走るので ref も持つ (restoreSession と同じ)。
+  const [openAtReadMarker, setOpenAtReadMarker] = useState(false);
+  const openAtReadMarkerRef = useRef(false);
   const hoverPreviewEnabledRef = useRef(hoverPreviewEnabled);
   hoverPreviewEnabledRef.current = hoverPreviewEnabled;
   const [boardPaneTab, setBoardPaneTab] = useState<"boards" | "fav-threads">(() => {
@@ -4085,13 +4089,17 @@ export default function App() {
     return next;
   };
 
-  const loadReadMarkers = async () => {
-    if (!isTauriRuntime()) return;
+  // 起動時のタブ復元は「ここまで読んだ」の位置を知る必要があるが、マーカーの読み込みは
+  // 別の IPC なので state を待てない。読み込んだ中身をそのまま返して呼び出し側で使う。
+  const loadReadMarkers = async (): Promise<Record<string, Record<string, number>>> => {
+    if (!isTauriRuntime()) return {};
     try {
       const data = await invoke<Record<string, Record<string, number>>>("load_read_marker");
       setReadMarker(data);
+      return data;
     } catch {
       // no saved markers yet
+      return {};
     }
   };
 
@@ -4637,6 +4645,10 @@ export default function App() {
     } catch { return null; }
   };
 
+  // レスが空の間に読書位置を保存してしまわないための現在値参照 (state のクロージャは
+  // タイマー・イベントリスナ側で古い値を掴むため ref で読む)
+  const fetchedResponsesRef = useRef(fetchedResponses);
+  fetchedResponsesRef.current = fetchedResponses;
   const getVisibleResponseNo = (): number => {
     const container = responseScrollRef.current;
     if (!container) return 0;
@@ -4704,7 +4716,7 @@ export default function App() {
     saveBookmark(url, no);
   };
   const scrollAnchorSeqRef = useRef(0);
-  const scrollToResponseNo = (no: number) => {
+  const scrollToResponseNo = (no: number, opts?: { fallbackForward?: boolean }) => {
     if (no <= 1) return;
     const container = responseScrollRef.current;
     if (!container) return;
@@ -4735,7 +4747,14 @@ export default function App() {
       setTimeout(() => {
         // 手動スクロール、または別スレッドへの切替 (seq 更新) で以後の補正を止める
         if (cancelled || scrollAnchorSeqRef.current !== seq) { cleanup(); return; }
-        const el = container.querySelector<HTMLElement>(`[data-response-no="${no}"]`);
+        let el = container.querySelector<HTMLElement>(`[data-response-no="${no}"]`);
+        // 「ここまで読んだ」の次のレスが NG・あぼーんで描画されていないと、対象が
+        // 見つからないまま復元が不発になる。その場合はさらに後ろの最初のレスへ寄せる。
+        if (!el && opts?.fallbackForward) {
+          for (const cand of container.querySelectorAll<HTMLElement>("[data-response-no]")) {
+            if ((Number(cand.dataset.responseNo) || 0) >= no) { el = cand; break; }
+          }
+        }
         if (el) {
           const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
           if (Math.abs(delta) > 1) container.scrollTop += delta;
@@ -4864,6 +4883,69 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [responseSearchQuery, responseLinkFilter]);
 
+  // 設定「『ここまで読んだ』の位置から開く」が ON のときの復元先。着地点は「続き」
+  // ボタンと同じ「マーカーの次のレス」に揃える。null = 設定 OFF かマーカー無しなので
+  // 従来どおり保存済みのスクロール位置を使う。
+  const readMarkerResumeNo = (
+    url: string,
+    rows: ThreadResponseItem[],
+    markers: Record<string, Record<string, number>>,
+  ): number | null => {
+    if (!openAtReadMarkerRef.current) return null;
+    const marker = markers[getBoardUrlFromThreadUrl(url)]?.[getThreadKeyFromThreadUrl(url)];
+    if (marker == null) return null;
+    // マーカーが末尾なら動かす先が無いので、そのスレは読み終わっている
+    const next = rows.find((r) => r.responseNo > marker);
+    return next ? next.responseNo : marker;
+  };
+
+  // メモリ上のタブキャッシュが無いタブへ切り替える経路。WebView の再読み込み
+  // (右クリック→「最新の情報に更新」) 直後や、起動時のタブ復元後はアクティブタブ以外の
+  // キャッシュが空なのでここを通る。SQLite のスレキャッシュを先に描いて栞と読書位置を
+  // 戻してから更新をかけ、ネットワーク取得を待つ空白期間を作らない。
+  const activateTabFromStore = (url: string) => {
+    const bm = loadBookmark(url);
+    const savedNo = loadScrollPos(url);
+    // 選択の更新はレス差し替えと同じバッチで行う。先に選択だけ変えると前のタブのレス一覧に
+    // 対して自動スクロールが走ってしまう。
+    setFetchedResponses([]);
+    setSelectedResponse(bm ?? 1);
+    if (!isTauriRuntime()) {
+      void fetchResponsesFromCurrent(url);
+      return;
+    }
+    invoke<string | null>("load_thread_cache", { threadUrl: url }).then((json) => {
+      let restored = false;
+      let markerNo: number | null = null;
+      if (json) {
+        try {
+          const rows = JSON.parse(json) as ThreadResponseItem[];
+          if (rows.length > 0) {
+            markerNo = readMarkerResumeNo(url, rows, readMarker);
+            setFetchedResponses(rows);
+            setSelectedResponse(markerNo ?? bm ?? 1);
+            tabCacheRef.current.set(url, {
+              responses: rows,
+              selectedResponse: markerNo ?? bm ?? 1,
+              scrollResponseNo: markerNo ?? (savedNo > 1 ? savedNo : undefined),
+            });
+            if (markerNo != null) scrollToResponseNo(markerNo, { fallbackForward: true });
+            else if (savedNo > 1) scrollToResponseNo(savedNo);
+            restored = true;
+          }
+        } catch (e) { console.warn("load_thread_cache parse failed", e); }
+      }
+      // この経路は以前からネットワーク取得していたので、キャッシュから描けた場合も取得は残す
+      // (タブを切り替えたら新着が付く挙動を維持する)。keepSelection で復元した読書位置を
+      // 保ったまま、新着があればその先頭へ寄る。マーカーから開いたときだけは、新着へ
+      // 飛ばすとマーカーの手前の未読を飛ばしてしまうので寄せない (New ボタンは出る)。
+      void fetchResponsesFromCurrent(url, restored ? { keepSelection: true, skipNewJump: markerNo != null } : undefined);
+    }).catch((e) => {
+      console.warn("load_thread_cache failed", e);
+      void fetchResponsesFromCurrent(url);
+    });
+  };
+
   const openThreadInTab = (url: string, title: string) => {
     setResponseSearchQuery("");
     if (threadPaneAutoToggle) {
@@ -4899,39 +4981,8 @@ export default function App() {
         setSelectedResponse(bm ?? cached.selectedResponse);
         setNewResponseStart(cached.newResponseStart ?? null);
         scrollToResponseNo(cached.scrollResponseNo ?? loadScrollPos(url));
-      } else if (isTauriRuntime()) {
-        // メモリ上のタブキャッシュが無い状態で既存タブを開き直す経路。
-        // WebView の再読み込み (右クリック→「最新の情報に更新」) 直後や、起動時のタブ復元後は
-        // アクティブタブ以外のキャッシュが空なのでここに来る。SQLite から読み直すだけで
-        // 栞も読書位置も復元していなかったため、必ず先頭に戻っていた。
-        const bm = loadBookmark(url);
-        const savedNo = loadScrollPos(url);
-        invoke<string | null>("load_thread_cache", { threadUrl: url }).then((json) => {
-          let restored = false;
-          if (json) {
-            try {
-              const rows = JSON.parse(json) as ThreadResponseItem[];
-              if (rows.length > 0) {
-                // 選択の更新はレス差し替えと同じバッチで行う。先に選択だけ変えると
-                // 前のタブのレス一覧に対して自動スクロールが走ってしまう。
-                setFetchedResponses(rows);
-                setSelectedResponse(bm ?? 1);
-                tabCacheRef.current.set(url, {
-                  responses: rows,
-                  selectedResponse: bm ?? 1,
-                  scrollResponseNo: savedNo > 1 ? savedNo : undefined,
-                });
-                if (savedNo > 1) scrollToResponseNo(savedNo);
-                restored = true;
-              }
-            } catch (e) { console.warn("load_thread_cache parse failed", e); }
-          }
-          // ローカルキャッシュが無いときは前のタブのレスが残ったままになるので取得し直す
-          if (!restored) void fetchResponsesFromCurrent(url);
-        }).catch((e) => {
-          console.warn("load_thread_cache failed", e);
-          void fetchResponsesFromCurrent(url);
-        });
+      } else {
+        activateTabFromStore(url);
       }
       setThreadUrl(url);
       setLocationInput(url);
@@ -5022,10 +5073,8 @@ export default function App() {
       // メモリ上に位置が無ければ永続化した読書位置へ戻す (?? 0 だと先頭のままだった)
       scrollToResponseNo(cached.scrollResponseNo ?? loadScrollPos(tab.threadUrl));
     } else {
-      // タブ復元直後などキャッシュが無い場合。取得側で読書位置まで復元される
-      setFetchedResponses([]);
-      setSelectedResponse(loadBookmark(tab.threadUrl) ?? 1);
-      void fetchResponsesFromCurrent(tab.threadUrl);
+      // タブ復元直後などキャッシュが無い場合。SQLite から描き直して読書位置も戻す
+      activateTabFromStore(tab.threadUrl);
     }
     setThreadUrl(tab.threadUrl);
     setLocationInput(tab.threadUrl);
@@ -5045,9 +5094,7 @@ export default function App() {
       // メモリ上に位置が無ければ永続化した読書位置へ戻す (?? 0 だと先頭のままだった)
       scrollToResponseNo(cached.scrollResponseNo ?? loadScrollPos(tab.threadUrl));
     } else {
-      setFetchedResponses([]);
-      setSelectedResponse(loadBookmark(tab.threadUrl) ?? 1);
-      void fetchResponsesFromCurrent(tab.threadUrl);
+      activateTabFromStore(tab.threadUrl);
     }
     setThreadUrl(tab.threadUrl);
     setLocationInput(tab.threadUrl);
@@ -5088,9 +5135,7 @@ export default function App() {
         scrollToResponseNo(cached.scrollResponseNo ?? loadScrollPos(kept.threadUrl));
       }
     } else if (kept.threadUrl !== wasActiveUrl) {
-      setFetchedResponses([]);
-      setSelectedResponse(loadBookmark(kept.threadUrl) ?? 1);
-      void fetchResponsesFromCurrent(kept.threadUrl);
+      activateTabFromStore(kept.threadUrl);
     }
     setThreadUrl(kept.threadUrl);
     setLocationInput(kept.threadUrl);
@@ -5655,7 +5700,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startupBoardFetchDone, favorites.threads, recentOpenedThreads, recentPostedThreads]);
 
-  const fetchResponsesFromCurrent = async (targetThreadUrl?: string, opts?: { keepSelection?: boolean; resetScroll?: boolean; isRefresh?: boolean }) => {
+  const fetchResponsesFromCurrent = async (targetThreadUrl?: string, opts?: { keepSelection?: boolean; resetScroll?: boolean; isRefresh?: boolean; skipNewJump?: boolean }) => {
     const url = (targetThreadUrl ?? threadUrl).trim();
     if (!url) return;
     if (!/\/test\/read\.cgi\/[^/]+\/[^/]+/.test(new URL(url, "https://dummy").pathname)) {
@@ -5692,7 +5737,7 @@ export default function App() {
       if (opts?.keepSelection) {
         // auto-refresh: keep current selection, don't reset
         // scroll to first new response if there are new ones
-        if (prevCount > 0 && rows.length > prevCount) {
+        if (prevCount > 0 && rows.length > prevCount && !opts.skipNewJump) {
           // scrollIntoView を一度呼ぶだけだと、読書位置の復元 (scrollToResponseNo) が
           // 最大 2 秒かけて再アンカーし続けるため新着位置から引き戻されていた。
           // スレ一覧から開いているスレへ戻ると、復元と新着ジャンプが必ずこの順で重なる。
@@ -6647,6 +6692,12 @@ export default function App() {
             watchoi,
           };
         })
+      // 実アプリではレスが空の間も空のままにする。以前はここでプレースホルダへ落ちていた
+      // ため、起動直後やタブ切替でレスが一瞬 (取得待ちの間) 空になると、スモークテスト用の
+      // ダミー 5 レスが本物のスレの中身として表示されていた。ダミーは >>1〜>>5 の
+      // data-response-no を持つ本物の DOM なので、読書位置の保存側にも拾われうる。
+      : isTauriRuntime()
+      ? []
       : [
           // >>2 / >>4 / >>5 は同じ ID。スモークテストで NG ワードの ID 連鎖と、
           // 連投 ID の自動 NG (3 レス以上) を確認するため 3 件に揃えてある。
@@ -8642,6 +8693,9 @@ export default function App() {
   const onResponseScroll: UIEventHandler<HTMLDivElement> = () => {
     if (scrollSaveTimerRef.current) clearTimeout(scrollSaveTimerRef.current);
     scrollSaveTimerRef.current = setTimeout(() => {
+      // 取得待ちでレスが空の間に走るスクロール (高さが縮んだときの clamp など) で
+      // 読書位置と栞を上書きしない
+      if (fetchedResponsesRef.current.length === 0) return;
       const url = threadUrl.trim();
       if (url) {
         saveScrollPos(url);
@@ -8660,6 +8714,7 @@ export default function App() {
         clearTimeout(scrollSaveTimerRef.current);
         scrollSaveTimerRef.current = null;
       }
+      if (fetchedResponsesRef.current.length === 0) return;
       const url = threadUrl.trim();
       if (!url) return;
       const no = getVisibleResponseNo();
@@ -9023,6 +9078,7 @@ export default function App() {
           ogpCardsEnabled?: boolean;
           tweetCardsEnabled?: boolean;
           restoreSession?: boolean;
+          openAtReadMarker?: boolean;
           autoRefreshInterval?: number;
           alwaysOnTop?: boolean;
           mouseGestureEnabled?: boolean;
@@ -9118,6 +9174,7 @@ export default function App() {
         if (typeof parsed.ogpCardsEnabled === "boolean") setOgpCardsEnabled(parsed.ogpCardsEnabled);
         if (typeof parsed.tweetCardsEnabled === "boolean") setTweetCardsEnabled(parsed.tweetCardsEnabled);
         if (typeof parsed.restoreSession === "boolean") { setRestoreSession(parsed.restoreSession); restoreSessionRef.current = parsed.restoreSession; }
+        if (typeof parsed.openAtReadMarker === "boolean") { setOpenAtReadMarker(parsed.openAtReadMarker); openAtReadMarkerRef.current = parsed.openAtReadMarker; }
         if (typeof parsed.autoRefreshInterval === "number") setAutoRefreshInterval(parsed.autoRefreshInterval);
         if (typeof parsed.alwaysOnTop === "boolean") setAlwaysOnTop(parsed.alwaysOnTop);
         if (typeof parsed.mouseGestureEnabled === "boolean") setMouseGestureEnabled(parsed.mouseGestureEnabled);
@@ -9293,6 +9350,9 @@ export default function App() {
       const ftRaw = localStorage.getItem(THREAD_FETCH_TIMES_KEY);
       if (ftRaw) threadFetchTimesRef.current = JSON.parse(ftRaw);
     } catch { /* ignore */ }
+    // 「ここまで読んだ」の位置から開く設定のために、タブ復元より先に読み込みを始める
+    // (state への反映はこの中で行うので、下の一括ロードからは外してある)
+    const readMarkersPromise = loadReadMarkers();
     // Restore last selected board
     if (restoreSessionRef.current && pendingLastBoardRef.current) {
       const lb = pendingLastBoardRef.current;
@@ -9333,29 +9393,44 @@ export default function App() {
             setThreadUrl(activeTab.threadUrl);
             setLocationInput(activeTab.threadUrl);
             if (isTauriRuntime()) {
-              invoke<string | null>("load_thread_cache", { threadUrl: activeTab.threadUrl })
-                .then((json) => {
+              Promise.all([
+                invoke<string | null>("load_thread_cache", { threadUrl: activeTab.threadUrl }),
+                readMarkersPromise,
+              ])
+                .then(([json, markers]) => {
+                  let restored = false;
                   if (json) {
                     const responses = JSON.parse(json) as ThreadResponseItem[];
                     const bm = loadBookmark(activeTab.threadUrl);
                     const savedNo = loadScrollPos(activeTab.threadUrl);
+                    const markerNo = readMarkerResumeNo(activeTab.threadUrl, responses, markers);
                     tabCacheRef.current.set(activeTab.threadUrl, {
                       responses,
-                      selectedResponse: bm ?? 1,
-                      scrollResponseNo: savedNo > 1 ? savedNo : undefined,
+                      selectedResponse: markerNo ?? bm ?? 1,
+                      scrollResponseNo: markerNo ?? (savedNo > 1 ? savedNo : undefined),
                     });
                     setFetchedResponses(responses);
                     // 画像・OGP は遅延ロードで位置がずれるため、復元は再アンカー付きの
                     // scrollToResponseNo を優先する (栞しか無いときだけ選択スクロール)
-                    if (savedNo > 1) {
+                    if (markerNo != null) {
+                      setSelectedResponse(markerNo);
+                      scrollToResponseNo(markerNo, { fallbackForward: true });
+                    } else if (savedNo > 1) {
                       setSelectedResponse(bm ?? savedNo);
                       scrollToResponseNo(savedNo);
                     } else if (bm) {
                       selectResponseAndScroll(bm);
                     }
+                    restored = responses.length > 0;
                   }
+                  // 起動時はレス取得を走らせていないので、キャッシュが無いとレス欄が空のまま
+                  // 止まる (以前はそこでプレースホルダのダミー 5 レスが出たままになっていた)。
+                  if (!restored) void fetchResponsesFromCurrent(activeTab.threadUrl);
                 })
-                .catch((e) => console.warn("load_thread_cache failed", e));
+                .catch((e) => {
+                  console.warn("load_thread_cache failed", e);
+                  void fetchResponsesFromCurrent(activeTab.threadUrl);
+                });
             }
           }
         }
@@ -9367,7 +9442,6 @@ export default function App() {
     void loadFavorites();
     void loadNgFilters();
     void loadNgImageFilter();
-    void loadReadMarkers();
     void loadHighlightFilters();
     void loadOgpDomainFilters();
     // Load auth config and auto-login
@@ -10103,6 +10177,7 @@ export default function App() {
       ogpCardsEnabled,
       tweetCardsEnabled,
       restoreSession,
+      openAtReadMarker,
       autoRefreshInterval,
       alwaysOnTop,
       mouseGestureEnabled,
@@ -10135,7 +10210,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled && !typingComboEnabled) return;
@@ -15750,6 +15825,11 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={restoreSession} onChange={(e) => setRestoreSession(e.target.checked)} />
                   <span title="スレ一覧フィルタ (お気に入り / 最近開いた / 最近書き込んだ) の選択状態も復元します">起動時に前回のタブ・板・スレ一覧フィルタを復元</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={openAtReadMarker} onChange={(e) => { setOpenAtReadMarker(e.target.checked); openAtReadMarkerRef.current = e.target.checked; }} />
+                  <span title="右クリックメニューの「ここまで読んだに設定」で付けた位置の次のレスから表示します。マーカーが無いスレは前回見ていた位置から開きます">スレを開いたとき「ここまで読んだ」の位置から表示</span>
+                  <span className="settings-hint">同じタブに戻るときは直前の位置</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={thumbAutoLoadEnabled} onChange={(e) => setThumbAutoLoadEnabled(e.target.checked)} />

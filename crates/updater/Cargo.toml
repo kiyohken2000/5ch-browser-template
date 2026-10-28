@@ -1,0 +1,22 @@
+[package]
+name = "ember-updater"
+version = "0.0.300"
+edition = "2021"
+
+# ロジック側 (lib) とコンソール入出力 (bin) を分ける。ファイル差し替えとロールバックは
+# 一時ディレクトリに対するユニットテストで検証したいので、bin には標準入出力だけを置く。
+[lib]
+name = "ember_updater"
+path = "src/lib.rs"
+
+[[bin]]
+name = "updater"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# core-ai と同じバージョン・同じ feature 構成。Cargo.lock に新しいエントリを増やさない。
+sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }

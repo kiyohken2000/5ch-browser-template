@@ -978,7 +978,7 @@ checksum = "4ef6b89e5b37196644d8796de5268852ff179b44e96276cf4290264843743bb7"
 
 [[package]]
 name = "ember"
-version = "0.0.299"
+version = "0.0.300"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -995,6 +995,17 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-single-instance",
+]
+
+[[package]]
+name = "ember-updater"
+version = "0.0.300"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

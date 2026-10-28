@@ -73,6 +73,9 @@ check_contains() {
 check_contains "apps/desktop/package.json"           "\"version\": \"${NEW_VERSION}\""  "package.json"
 check_contains "apps/desktop/src-tauri/tauri.conf.json" "\"version\": \"${NEW_VERSION}\"" "tauri.conf.json"
 check_contains "apps/desktop/src-tauri/Cargo.toml"   "^version = \"${NEW_VERSION}\""    "Cargo.toml"
+# updater.exe は自分の CARGO_PKG_VERSION を latest.json と比べるので、本体と揃っていないと
+# 「最新です」と言い続ける / 既に入っている版を落としに行く
+check_contains "crates/updater/Cargo.toml"           "^version = \"${NEW_VERSION}\""    "updater Cargo.toml"
 
 # package-lock.json はルートパッケージの version (先頭数行) を検査
 if ! head -5 "apps/desktop/package-lock.json" | grep -q "\"version\": \"${NEW_VERSION}\""; then
@@ -84,6 +87,12 @@ fi
 # Cargo.lock の ember パッケージ (cargo check 後に更新される)
 if ! grep -A1 '^name = "ember"$' Cargo.lock | grep -q "version = \"${NEW_VERSION}\""; then
   echo "  ERROR: Cargo.lock の ember が ${NEW_VERSION} に更新されていません (cargo check 未実行?)"
+  FAILED=1
+fi
+
+# Cargo.lock の ember-updater パッケージ
+if ! grep -A1 '^name = "ember-updater"$' Cargo.lock | grep -q "version = \"${NEW_VERSION}\""; then
+  echo "  ERROR: Cargo.lock の ember-updater が ${NEW_VERSION} に更新されていません (cargo check 未実行?)"
   FAILED=1
 fi
 
