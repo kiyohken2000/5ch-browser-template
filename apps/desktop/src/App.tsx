@@ -4963,10 +4963,12 @@ export default function App() {
 
   const openThreadInTab = (url: string, title: string) => {
     setResponseSearchQuery("");
-    // スレを開く操作は「スレッド窓を見たい」操作なので、畳んでいたら必ず出す
-    // (隠したままだと開いたスレもタブバーも見えない)。
-    setResponsePaneHidden(false);
+    // 自動開閉中はここでスレ一覧を畳むので、スレッド窓を出しておかないと両方消えて
+    // 空のウィンドウになる。自動開閉を切っているときは畳んだままにして、
+    // 「スレッド窓を隠す」を押しっぱなしにできるようにする
+    // (「スレ一覧ペインを隠す」と同じ扱い)。
     if (threadPaneAutoToggle) {
+      setResponsePaneHidden(false);
       setThreadPaneHidden(true);
       if (focusedPane === "threads") setFocusedPane("responses");
     }
@@ -8703,6 +8705,8 @@ export default function App() {
     setPaneLayoutMode("classic");
     setBoardPaneHidden(false);
     setThreadPaneHidden(false);
+    // スレを開いても戻らなくなったので、ここで出し直さないと畳んだままになる。
+    setResponsePaneHidden(false);
     setThreadColWidths({ ...DEFAULT_COL_WIDTHS });
     setThreadColVisible({ ...DEFAULT_COL_VISIBLE });
     setThreadColOrder([...DEFAULT_THREAD_COL_ORDER]);

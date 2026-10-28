@@ -290,6 +290,20 @@ try {
   });
   assert(!bothHidden, "threads and responses panes must never be hidden at the same time");
   await threadToggleBtn.click(); // restore
+  // 「スレッド窓を隠す」は押しっぱなしにできる (スレ一覧の自動開閉が OFF のとき)。
+  // スレを開いても畳んだままで、戻すのはもう一度ボタンを押したときだけ。
+  const stickyRow = await page.$(".threads tbody tr:first-child");
+  if (stickyRow) {
+    await responseToggleBtn.click();
+    await stickyRow.click();
+    await new Promise((r) => setTimeout(r, 200));
+    const stillHidden = await page.evaluate(() => {
+      const el = document.querySelector(".pane.responses");
+      return !el || window.getComputedStyle(el).display === "none";
+    });
+    assert(stillHidden, "opening a thread must not re-show the hidden responses pane");
+    await responseToggleBtn.click(); // restore
+  }
   console.log("smoke-ui: pane visibility toggles ok");
 
   // clicking a thread marks it as read (removes unread-row class)
