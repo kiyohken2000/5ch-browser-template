@@ -271,21 +271,31 @@ pub fn download(url: &str, dest: &Path, progress: &dyn Fn(u64, Option<u64>)) -> 
     Ok(())
 }
 
-/// ZIP の展開。Windows 10 1803 以降に同梱されている tar.exe を使い、
-/// 無い環境では PowerShell の Expand-Archive に落とす (zip クレートは入れない)。
-pub fn extract_zip(zip: &Path, dest: &Path) -> Result<(), UpdateError> {
-    fs::create_dir_all(dest).map_err(|e| io_err("展開先の作成", e))?;
-    let tar = Command::new("tar")
-        .arg("-xf")
-        .arg(zip)
-        .arg("-C")
-        .arg(dest)
-        .status();
-    if let Ok(status) = tar {
-        if status.success() {
-            return Ok(());
+/// ZIP の展開。使った方法の名前を返す (どれで展開できたかを画面に出すため)。
+///
+/// Windows 10 1803 以降に同梱されている bsdtar (System32 の tar.exe) は ZIP を読めるが、
+/// PATH 上に GNU tar (Git for Windows / MSYS など) があるとそちらが先に当たり、ZIP を
+/// 読めずに失敗する。まず System32 を絶対パスで試し、次に PATH 上の tar、最後に
+/// PowerShell の Expand-Archive に落とす (zip クレートは入れない)。
+///
+/// 成否は終了コードではなく「ember.exe が出てきたか」で判定する。失敗した試行が中途半端な
+/// ファイルを残していることがあるので、試行ごとに展開先を作り直す。
+pub fn extract_zip(zip: &Path, dest: &Path) -> Result<&'static str, UpdateError> {
+    let system_tar = std::env::var("SystemRoot")
+        .map(|root| PathBuf::from(root).join("System32").join("tar.exe"))
+        .unwrap_or_else(|_| PathBuf::from(r"C:\Windows\System32\tar.exe"));
+
+    if system_tar.is_file() {
+        reset_dir(dest)?;
+        if run_tar(&system_tar, zip, dest) && dest.join(EMBER_EXE).is_file() {
+            return Ok(r"System32\tar.exe");
         }
     }
+    reset_dir(dest)?;
+    if run_tar(Path::new("tar"), zip, dest) && dest.join(EMBER_EXE).is_file() {
+        return Ok("tar (PATH)");
+    }
+    reset_dir(dest)?;
     let ps = Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", "Expand-Archive"])
         .arg("-Path")
@@ -295,13 +305,30 @@ pub fn extract_zip(zip: &Path, dest: &Path) -> Result<(), UpdateError> {
         .arg("-Force")
         .status()
         .map_err(|e| UpdateError::Extract(e.to_string()))?;
-    if !ps.success() {
-        return Err(UpdateError::Extract(format!(
-            "tar と Expand-Archive の両方が失敗しました (exit {:?})",
-            ps.code()
-        )));
+    if ps.success() && dest.join(EMBER_EXE).is_file() {
+        return Ok("Expand-Archive");
     }
-    Ok(())
+    Err(UpdateError::Extract(format!(
+        "tar と Expand-Archive のどちらでも {EMBER_EXE} を取り出せませんでした (Expand-Archive exit {:?})",
+        ps.code()
+    )))
+}
+
+/// 展開先を空の状態にする。前の試行が残したファイルを持ち越さないため。
+fn reset_dir(dir: &Path) -> Result<(), UpdateError> {
+    let _ = fs::remove_dir_all(dir);
+    fs::create_dir_all(dir).map_err(|e| io_err("展開先の作成", e))
+}
+
+fn run_tar(tar: &Path, zip: &Path, dest: &Path) -> bool {
+    Command::new(tar)
+        .arg("-xf")
+        .arg(zip)
+        .arg("-C")
+        .arg(dest)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// 展開したフォルダ直下のファイル名一覧。サブディレクトリは対象にしない
@@ -576,7 +603,8 @@ mod tests {
         assert!(status.success(), "failed to build the test archive");
 
         let dest = root.join("extracted");
-        extract_zip(&zip, &dest).expect("extract");
+        let method = extract_zip(&zip, &dest).expect("extract");
+        println!("extracted with {method}");
         let files = staged_files(&dest).expect("list");
         assert_eq!(files, vec!["ember.exe".to_string(), "vulkan-1.dll".to_string()]);
         assert_eq!(fs::read_to_string(dest.join(EMBER_EXE)).expect("exe"), "exe-body");

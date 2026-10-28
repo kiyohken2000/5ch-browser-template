@@ -135,7 +135,8 @@ fn run(install_dir: &Path) -> Result<Outcome, UpdateError> {
 
     println!("展開しています...");
     let staged = work.join("extracted");
-    extract_zip(&zip, &staged)?;
+    let method = extract_zip(&zip, &staged)?;
+    println!("  展開方法: {method}");
     let files = staged_files(&staged)?;
 
     println!("ファイルを置き換えています...");
