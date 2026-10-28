@@ -808,7 +808,12 @@ export default function App() {
                 <code>C:\Program Files</code> など書き込み権限のない場所に置いた場合はユーザーフォルダへ自動的に退避しますが、
                 最初から書き込みできる場所へ展開するのが確実です（管理者として実行する必要はありません）。
               </p>
-              <p className="note">更新時はアプリ終了後、<code>ember.exe</code> を新しいものに上書きしてください。</p>
+              <p className="note">
+                更新時はアプリを終了してから、同じフォルダの <code>updater.exe</code> を実行してください（v0.0.300 以降に同梱）。
+                最新版の確認からダウンロード・入れ替えまで行い、旧バージョンは <code>update-backup-</code> で始まるフォルダに残します。
+                手動で更新する場合は、アプリ終了後に ZIP の中身を元のフォルダへ上書きしてください。
+                設定や既読の入った <code>data</code> フォルダは、どちらの方法でもそのまま残ります。
+              </p>
               <details className="install-warning">
                 <summary>
                   Defenderに削除された場合の復元手順
