@@ -248,7 +248,6 @@ import {
   Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser, Flame, LayersPlus, Lock,
 } from "lucide-react";
 
-type MenuInfo = { topLevelKeys: number; normalizedSample: string };
 type AuthEnvStatus = {
   beEmailSet: boolean;
   bePasswordSet: boolean;
@@ -3745,10 +3744,19 @@ export default function App() {
   const [paneLayoutMode, setPaneLayoutMode] = useState<PaneLayoutMode>("classic");
   const [boardPaneHidden, setBoardPaneHidden] = useState(false);
   const [threadPaneHidden, setThreadPaneHidden] = useState(false);
+  // レス表示ペイン (スレッド窓) を畳む。スレ一覧を全面で眺めたいとき用。
+  // スレタイトルバーとスレタブバーもこのペインの中なので一緒に消える。
+  // スレを開く / ドッキングした書き込み欄を開くと自動で戻す。
+  const [responsePaneHidden, setResponsePaneHidden] = useState(false);
   // 板を選んだらスレ一覧を出し、スレを開いたら畳む自動開閉。既定オフ。
   const [threadPaneAutoToggle, setThreadPaneAutoToggle] = useState(false);
   // 自動開閉で畳んだスレ一覧を、マウスの「戻る」ボタンで出し直す。既定オフ。
   const [threadPaneBackRestore, setThreadPaneBackRestore] = useState(false);
+  // スレ一覧とレス表示を並べるグリッド (通常は行、川型は列)。どちらかを隠している
+  // ときは残ったペインに全部渡す。両方が隠れることはボタン側で防いでいる。
+  const rightPaneTracks = threadPaneHidden || responsePaneHidden
+    ? "1fr"
+    : `${threadPaneShownPx}px ${SPLITTER_PX}px 1fr`;
   const resizeDragRef = useRef<ResizeDragState | null>(null);
   const [threadColWidths, setThreadColWidths] = useState<Record<string, number>>({ ...DEFAULT_COL_WIDTHS });
   const [threadColVisible, setThreadColVisible] = useState<Record<ToggleableThreadColKey, boolean>>({ ...DEFAULT_COL_VISIBLE });
@@ -4013,16 +4021,6 @@ export default function App() {
     const raf = requestAnimationFrame(scan);
     return () => cancelAnimationFrame(raf);
   });
-
-  const fetchMenu = async () => {
-    setStatus("loading...");
-    try {
-      const info = await invoke<MenuInfo>("fetch_bbsmenu_summary");
-      setStatus(`ok keys=${info.topLevelKeys} sample=${info.normalizedSample}`);
-    } catch (error) {
-      setStatus(`error: ${String(error)}`);
-    }
-  };
 
   const fetchBoardCategories = async (overrideEx0chEnabled?: boolean) => {
     if (!isTauriRuntime()) {
@@ -4950,6 +4948,9 @@ export default function App() {
 
   const openThreadInTab = (url: string, title: string) => {
     setResponseSearchQuery("");
+    // スレを開く操作は「スレッド窓を見たい」操作なので、畳んでいたら必ず出す
+    // (隠したままだと開いたスレもタブバーも見えない)。
+    setResponsePaneHidden(false);
     if (threadPaneAutoToggle) {
       setThreadPaneHidden(true);
       if (focusedPane === "threads") setFocusedPane("responses");
@@ -8452,6 +8453,9 @@ export default function App() {
       setComposeSage(composeSageDefault);
     }
     setComposeOpen(true);
+    // ドッキングした書き込み欄はレス表示ペインの中にあるので、畳んだままだと
+    // 開いても出てこない。
+    if (composeDocked) setResponsePaneHidden(false);
     if (!opts?.keepBody) {
       // 位置 (composePos) はここでリセットしない — 前回動かした位置を保持する。
       // 既定位置に戻すのはヘッダーの「サイズと位置をリセット」ボタン。
@@ -9045,6 +9049,7 @@ export default function App() {
           paneLayoutMode?: PaneLayoutMode;
           boardPaneHidden?: boolean;
           threadPaneHidden?: boolean;
+          responsePaneHidden?: boolean;
           threadPaneAutoToggle?: boolean;
           threadPaneBackRestore?: boolean;
           fontSize?: number;
@@ -9132,6 +9137,11 @@ export default function App() {
         // 復元自体は成功しているのに既読が消えたように見える)。
         if (typeof parsed.threadPaneHidden === "boolean" && parsed.threadPaneAutoToggle !== true) {
           setThreadPaneHidden(parsed.threadPaneHidden);
+        }
+        // スレ一覧を隠したまま保存されている場合は、レスペインの非表示は捨てる
+        // (両方隠れた空のウィンドウで起動させない)。
+        if (typeof parsed.responsePaneHidden === "boolean" && parsed.threadPaneHidden !== true) {
+          setResponsePaneHidden(parsed.responsePaneHidden);
         }
         if (typeof parsed.threadPaneAutoToggle === "boolean") setThreadPaneAutoToggle(parsed.threadPaneAutoToggle);
         if (typeof parsed.threadPaneBackRestore === "boolean") setThreadPaneBackRestore(parsed.threadPaneBackRestore);
@@ -10150,6 +10160,7 @@ export default function App() {
       // 自動開閉中は畳んだ状態を持ち越さない。true のまま保存すると、あとで
       // 自動開閉を切ったときに、覚えのない「隠れたまま起動」が一度だけ起きる。
       threadPaneHidden: threadPaneAutoToggle ? false : threadPaneHidden,
+      responsePaneHidden,
       threadPaneAutoToggle,
       threadPaneBackRestore,
       boardsFontSize,
@@ -10222,7 +10233,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, responsePaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled && !typingComboEnabled) return;
@@ -11495,7 +11506,7 @@ export default function App() {
         className={`compose-header-icon${composeDocked ? " active-toggle" : ""}`}
         aria-pressed={composeDocked}
         title={composeDocked ? "固定を解除して浮かせる" : "レス本文の下に固定する"}
-        onClick={() => setComposeDocked((v) => !v)}
+        onClick={() => { if (!composeDocked) setResponsePaneHidden(false); setComposeDocked((v) => !v); }}
       ><PanelBottom size={14} /></button>
       {composeDocked ? (
         <button className="compose-header-icon" title="高さをリセット" onClick={() => setComposeDockPx(DEFAULT_COMPOSE_DOCK_PX)}><RotateCcw size={14} /></button>
@@ -11920,8 +11931,6 @@ export default function App() {
       </header>
       {toolBarVisible && (
       <div className="tool-bar">
-        <button onClick={() => { void fetchMenu(); void fetchBoardCategories(); }} title="板更新"><ClipboardList size={14} /></button>
-        <span className="tool-sep" />
         <button
           className={`title-action-btn ${paneLayoutMode === "river" ? "active-toggle" : ""}`}
           onClick={() => {
@@ -11957,6 +11966,8 @@ export default function App() {
             setThreadPaneHidden((prev) => {
               const next = !prev;
               if (next && focusedPane === "threads") setFocusedPane("responses");
+              // 両方隠すとウィンドウが空になるので、片方を隠したらもう片方は出す。
+              if (next) setResponsePaneHidden(false);
               setStatus(next ? "スレ一覧ペイン: 非表示" : "スレ一覧ペイン: 表示");
               return next;
             });
@@ -11965,6 +11976,24 @@ export default function App() {
           aria-label="スレ一覧ペイン表示切替"
         >
           <PanelTop size={14} />
+        </button>
+        <button
+          className={`title-action-btn ${responsePaneHidden ? "active-toggle" : ""}`}
+          onClick={() => {
+            setResponsePaneHidden((prev) => {
+              const next = !prev;
+              if (next) {
+                if (focusedPane === "responses") setFocusedPane("threads");
+                setThreadPaneHidden(false);
+              }
+              setStatus(next ? "スレッド窓: 非表示" : "スレッド窓: 表示");
+              return next;
+            });
+          }}
+          title={responsePaneHidden ? "スレッド窓を表示" : "スレッド窓を隠す"}
+          aria-label="スレッド窓表示切替"
+        >
+          <PanelBottom size={14} />
         </button>
         <button
           className={`title-action-btn ${darkMode ? "active-toggle" : ""}`}
@@ -12537,8 +12566,8 @@ export default function App() {
           ref={responseLayoutRef}
           className={`right-pane ${paneLayoutMode === "river" ? "right-pane-river" : ""}`}
           style={paneLayoutMode === "river"
-            ? { gridTemplateColumns: threadPaneHidden ? "1fr" : `${threadPaneShownPx}px ${SPLITTER_PX}px 1fr` }
-            : { gridTemplateRows: threadPaneHidden ? "1fr" : `${threadPaneShownPx}px ${SPLITTER_PX}px 1fr` }}
+            ? { gridTemplateColumns: rightPaneTracks }
+            : { gridTemplateRows: rightPaneTracks }}
         >
         <section className="pane threads" onMouseDown={() => setFocusedPane("threads")} style={{ '--fs-delta': `${threadsFontSize - 12}px`, display: threadPaneHidden ? "none" : undefined } as React.CSSProperties}>
           {showThreadSearchOnly && threadSearchResult && (
@@ -12628,7 +12657,7 @@ export default function App() {
           </table>
           </div>
         </section>
-        {!threadPaneHidden && (
+        {!threadPaneHidden && !responsePaneHidden && (
         <div
           className={`row-splitter ${paneLayoutMode === "river" ? "row-splitter-river" : ""}`}
           role="separator"
@@ -12643,7 +12672,7 @@ export default function App() {
           // 畳むのは左クリックのときだけ。右クリック (ジェスチャの開始) や
           // 戻るボタンまで拾うと、スレ一覧を出し直した直後にまた畳んでしまう。
           if (e.button === 0 && threadPaneAutoToggle) setThreadPaneHidden(true);
-        }} style={{ '--fs-delta': `${responsesFontSize - 12}px` } as React.CSSProperties}>
+        }} style={{ '--fs-delta': `${responsesFontSize - 12}px`, display: responsePaneHidden ? "none" : undefined } as React.CSSProperties}>
           {activeTabIndex >= 0 && activeTabIndex < threadTabs.length && (
             <div className="thread-title-bar">
               <span className="thread-title-text" title={threadTabs[activeTabIndex].title}>
@@ -15759,7 +15788,7 @@ export default function App() {
                   <span className="settings-hint">Ctrl+4 で切替。隠している間はタブのロックを掛け外しできません</span>
                 </label>
                 <label className="settings-row">
-                  <input type="checkbox" checked={composeDocked} onChange={(e) => setComposeDocked(e.target.checked)} />
+                  <input type="checkbox" checked={composeDocked} onChange={(e) => { setComposeDocked(e.target.checked); if (e.target.checked) setResponsePaneHidden(false); }} />
                   <span title="オフのときは書き込み欄を独立した窓として浮かせます">書き込み欄をレス本文の下に固定</span>
                 </label>
                 <label className="settings-row">

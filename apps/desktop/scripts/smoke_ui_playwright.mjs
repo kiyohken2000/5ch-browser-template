@@ -266,6 +266,30 @@ try {
   });
   assert(boardsHidden, "clicking board toggle should hide the boards pane");
   await boardToggleBtn.click(); // restore
+  const responseToggleBtn = await page.$('.tool-bar button[aria-label="スレッド窓表示切替"]');
+  assert(responseToggleBtn, "toolbar should have response pane visibility toggle button");
+  await responseToggleBtn.click();
+  const responsesHidden = await page.evaluate(() => {
+    const el = document.querySelector(".pane.responses");
+    return !el || window.getComputedStyle(el).display === "none";
+  });
+  assert(responsesHidden, "clicking response toggle should hide the responses pane");
+  // 残ったスレ一覧が幅を全部受け取る (スプリッタも消える)
+  const tracksHidden = await page.$eval(".right-pane", (el) => window.getComputedStyle(el).gridTemplateRows);
+  assert(!tracksHidden.includes(" "), `right-pane should have a single row track while hidden, got ${tracksHidden}`);
+  const rowSplitters = await page.$$(".row-splitter:not(.compose-dock-splitter)");
+  assert(rowSplitters.length === 0, `row splitter should be gone while the responses pane is hidden, got ${rowSplitters.length}`);
+  // スレ一覧とレスペインは同時に隠せない (空のウィンドウ防止)
+  await threadToggleBtn.click();
+  const bothHidden = await page.evaluate(() => {
+    const vis = (sel) => {
+      const el = document.querySelector(sel);
+      return !!el && window.getComputedStyle(el).display !== "none";
+    };
+    return !vis(".pane.threads") && !vis(".pane.responses");
+  });
+  assert(!bothHidden, "threads and responses panes must never be hidden at the same time");
+  await threadToggleBtn.click(); // restore
   console.log("smoke-ui: pane visibility toggles ok");
 
   // clicking a thread marks it as read (removes unread-row class)
