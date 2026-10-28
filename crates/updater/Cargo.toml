@@ -1,6 +1,6 @@
 [package]
 name = "ember-updater"
-version = "0.0.305"
+version = "0.0.306"
 edition = "2021"
 
 # ロジック側 (lib) とコンソール入出力 (bin) を分ける。ファイル差し替えとロールバックは

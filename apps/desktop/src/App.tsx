@@ -10151,6 +10151,10 @@ export default function App() {
       // WebView 側の実装に任せない。
       e.preventDefault();
       setThreadPaneHidden(false);
+      // スレを開く操作の裏返しなので、スレッド窓も畳む。出したままだと板一覧と
+      // 合わせて3ペインになり、スレ一覧もスレッド窓も狭くて読めない。
+      // スレを開き直せば (openThreadInTab で) スレッド窓は戻る。
+      setResponsePaneHidden(true);
       setFocusedPane("threads");
       threadListScrollRef.current?.focus({ preventScroll: true });
     };
@@ -15957,7 +15961,7 @@ export default function App() {
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={threadPaneBackRestore} disabled={!threadPaneAutoToggle} onChange={(e) => setThreadPaneBackRestore(e.target.checked)} />
-                  <span title="自動開閉で隠れたスレ一覧を、マウスの戻るボタンで出し直します">マウスの戻るボタンでスレ一覧に戻る</span>
+                  <span title="自動開閉で隠れたスレ一覧を、マウスの戻るボタンで出し直します。スレッド窓は畳みます">マウスの戻るボタンでスレ一覧に戻る</span>
                   <span className="settings-hint">自動開閉が有効なときだけ</span>
                 </label>
                 <label className="settings-row">

@@ -3882,6 +3882,8 @@ try {
 
   const threadPaneDisplay = () =>
     boardPage.$eval(".pane.threads", (el) => getComputedStyle(el).display);
+  const responsePaneDisplay = () =>
+    boardPage.$eval(".pane.responses", (el) => getComputedStyle(el).display);
   await boardPage.click('button[aria-label="スレ一覧ペイン表示切替"]');
   await new Promise((r) => setTimeout(r, 150));
   assert((await threadPaneDisplay()) === "none", "thread pane should be hidden after toggling it off");
@@ -3916,6 +3918,14 @@ try {
   await pressBackButton();
   await new Promise((r) => setTimeout(r, 150));
   assert((await threadPaneDisplay()) !== "none", "the back button should bring the thread pane back");
+  // 戻るはスレを開く操作の裏返しなので、スレッド窓は畳む。出したままだと板一覧と
+  // 合わせて3ペインになり、スレ一覧もスレッド窓も狭くて読めない。
+  assert((await responsePaneDisplay()) === "none", "the back button should hide the responses pane");
+  // この先はレスペインを触るテストなので出し直しておく。
+  await boardPage.click('button[aria-label="スレッド窓表示切替"]');
+  await new Promise((r) => setTimeout(r, 150));
+  assert((await responsePaneDisplay()) !== "none", "the toolbar toggle should show the responses pane again");
+  assert((await threadPaneDisplay()) !== "none", "showing the responses pane should keep the thread pane visible");
 
   // 右クリック (ジェスチャの開始) でレスペインを触っても畳まない。畳んでしまうと、
   // 戻るで出した直後にまた隠れる。
