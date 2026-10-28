@@ -4856,6 +4856,91 @@ try {
   }
   console.log("smoke-ui: tab list stays above the thread body ok");
 
+  // 「最近読んだスレ」「最近書き込んだスレ」は見出しのゴミ箱から一括で消せる。
+  // 1 回押しただけでは消えず、確認行を出してからもう一度押す。お気に入り検索で
+  // 絞り込んでいるときは、表示されている行だけが対象になること。
+  {
+    const RECENT_OPENED = [
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/4100000001/", title: "一括削除A", boardUrl: "https://mao.5ch.io/ngt/", updatedAt: 3 },
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/4100000002/", title: "一括削除B", boardUrl: "https://mao.5ch.io/ngt/", updatedAt: 2 },
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/4100000003/", title: "絞り込み対象C", boardUrl: "https://mao.5ch.io/ngt/", updatedAt: 1 },
+    ];
+    const RECENT_POSTED = [
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/4200000001/", title: "書き込みA", boardUrl: "https://mao.5ch.io/ngt/", updatedAt: 2 },
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/4200000002/", title: "書き込みB", boardUrl: "https://mao.5ch.io/ngt/", updatedAt: 1 },
+    ];
+    const clearPage = await context.newPage();
+    await clearPage.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.boardPaneTab.v1", "fav-threads");
+      localStorage.setItem("desktop.favRecentExpanded.v1", "1");
+      localStorage.setItem("desktop.favRecentPostedExpanded.v1", "1");
+      localStorage.setItem("desktop.recentOpenedThreads.v1", arg.opened);
+      localStorage.setItem("desktop.recentPostedThreads.v1", arg.posted);
+    }, { opened: JSON.stringify(RECENT_OPENED), posted: JSON.stringify(RECENT_POSTED) });
+    await clearPage.goto(targetUrl, { waitUntil: "load" });
+    await clearPage.waitForSelector(".fav-threads-list");
+    await new Promise((r) => setTimeout(r, 600));
+
+    const cats = await clearPage.$$(".board-category");
+    assert(cats.length === 2, `the fav tab should show the two recent categories, got ${cats.length}`);
+    const [openedCat, postedCat] = cats;
+    const rows = async (cat) => (await cat.$$(".recent-thread-item")).length;
+    const stored = async (key) => clearPage.evaluate((k) => localStorage.getItem(k), key);
+    // ゴミ箱はホバーで出るので、見出しに触ってから押す。
+    const armClear = async (cat) => {
+      await cat.$eval(".recent-category-head", (el) => el.scrollIntoView({ block: "center" }));
+      await (await cat.$(".recent-category-head")).hover();
+      const btn = await cat.$(".recent-category-clear");
+      assert(btn, "the category head should expose a bulk clear button on hover");
+      await btn.click();
+      const confirm = await cat.$(".recent-category-confirm");
+      assert(confirm, "clicking the bulk clear button should ask for confirmation first");
+      return confirm;
+    };
+
+    assert((await rows(openedCat)) === 3, "the recently read list should start with 3 rows");
+
+    // 絞り込み中は表示中の 1 件だけ消える。
+    await clearPage.fill(".fav-search", "絞り込み対象");
+    await new Promise((r) => setTimeout(r, 150));
+    assert((await rows(openedCat)) === 1, "the search box should narrow the recently read list to 1 row");
+    const narrowed = await armClear(openedCat);
+    const narrowedText = await narrowed.evaluate((el) => el.textContent || "");
+    assert(narrowedText.includes("1件"), `the confirmation should name the visible row count, got ${narrowedText}`);
+    await (await narrowed.$(".my-post-clear-confirm")).click();
+    await new Promise((r) => setTimeout(r, 150));
+    await clearPage.fill(".fav-search", "");
+    await new Promise((r) => setTimeout(r, 150));
+    assert((await rows(openedCat)) === 2, "clearing the filtered rows should leave the rest of the history");
+
+    // キャンセルでは消えない。
+    const armed = await armClear(openedCat);
+    await (await armed.$$("button"))[1].click();
+    await new Promise((r) => setTimeout(r, 150));
+    assert(!(await openedCat.$(".recent-category-confirm")), "cancelling should close the confirmation row");
+    assert((await rows(openedCat)) === 2, "cancelling the bulk clear must keep every row");
+
+    // 絞り込みなしなら全件。保存先の localStorage も空になること。
+    const confirmAll = await armClear(openedCat);
+    await (await confirmAll.$(".my-post-clear-confirm")).click();
+    await new Promise((r) => setTimeout(r, 200));
+    assert((await rows(openedCat)) === 0, "the bulk clear should empty the recently read list");
+    assert((await stored("desktop.recentOpenedThreads.v1")) === "[]", "the bulk clear should persist an empty recently read list");
+    assert(!(await openedCat.$(".recent-category-clear")), "an empty category should not offer a bulk clear button");
+
+    // 「最近書き込んだスレ」も同じ。片方を消しても他方は残る。
+    assert((await rows(postedCat)) === 2, "the recently posted list should still have its rows");
+    const confirmPosted = await armClear(postedCat);
+    await (await confirmPosted.$(".my-post-clear-confirm")).click();
+    await new Promise((r) => setTimeout(r, 200));
+    assert((await rows(postedCat)) === 0, "the bulk clear should empty the recently posted list");
+    assert((await stored("desktop.recentPostedThreads.v1")) === "[]", "the bulk clear should persist an empty recently posted list");
+
+    await clearPage.close();
+    console.log("smoke-ui: recent thread histories clear in bulk ok");
+  }
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

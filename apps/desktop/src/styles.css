@@ -2629,6 +2629,52 @@ button.search-history-btn:hover {
   background: rgba(192, 57, 43, 0.12);
 }
 
+/* 「最近読んだスレ」「最近書き込んだスレ」の見出し。一括削除はホバーで出す
+   (行ごとの削除と同じ扱い)。確認行は見出しの下に 1 行で置く。 */
+.recent-category-head {
+  position: relative;
+}
+
+.recent-category-clear {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: #888;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.recent-category-head:hover .recent-category-clear {
+  display: inline-flex;
+}
+
+.recent-category-clear:hover {
+  color: #c0392b;
+  background: rgba(192, 57, 43, 0.12);
+}
+
+.recent-category-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 4px;
+  color: var(--sub);
+  font-size: calc(10px + var(--fs-delta, 0px));
+}
+
+.recent-category-confirm button {
+  padding: 0 4px;
+  font-size: calc(10px + var(--fs-delta, 0px));
+  cursor: pointer;
+}
+
 .fav-category {
   background: linear-gradient(180deg, #fff8e0 0%, #f0e8c0 100%);
 }
@@ -5021,6 +5067,13 @@ a.body-link-image:hover::after {
   color: #aaa;
 }
 .dark .recent-thread-remove:hover {
+  color: #ff7a6c;
+  background: rgba(255, 122, 108, 0.14);
+}
+.dark .recent-category-clear {
+  color: #aaa;
+}
+.dark .recent-category-clear:hover {
   color: #ff7a6c;
   background: rgba(255, 122, 108, 0.14);
 }

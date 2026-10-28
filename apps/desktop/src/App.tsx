@@ -3313,6 +3313,21 @@ export default function App() {
   const [patrolFetched, setPatrolFetched] = useState(false);
   const [patrolLoading, setPatrolLoading] = useState(false);
   const [favSearchQuery, setFavSearchQuery] = useState("");
+  // 「最近読んだスレ」「最近書き込んだスレ」の一括削除。押しただけでは消さず、
+  // 見出しの下に確認行を出してからもう一度押させる (記憶した名前の削除と同じ流儀)。
+  const [recentOpenedClearArmed, setRecentOpenedClearArmed] = useState(false);
+  const [recentPostedClearArmed, setRecentPostedClearArmed] = useState(false);
+  // お気に入り検索で絞り込んだあとの行。一覧と一括削除が同じ配列を見るようにして、
+  // 「表示されている分だけ消える」を保証する。
+  const favSearchNeedle = favSearchQuery.trim().toLowerCase();
+  const visibleRecentOpened = useMemo(
+    () => (favSearchNeedle ? recentOpenedThreads.filter((rt) => rt.title.toLowerCase().includes(favSearchNeedle)) : recentOpenedThreads),
+    [recentOpenedThreads, favSearchNeedle],
+  );
+  const visibleRecentPosted = useMemo(
+    () => (favSearchNeedle ? recentPostedThreads.filter((rt) => rt.title.toLowerCase().includes(favSearchNeedle)) : recentPostedThreads),
+    [recentPostedThreads, favSearchNeedle],
+  );
   const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string; resCount: number }[]>([]);
   // 保存ログ一覧 (全板) を表示中かどうか。false のときは従来どおり現在の板の dat落ちのみ。
   // showCachedOnly が false の間は参照しないので、解除時にリセットしなくてよい。
@@ -6237,6 +6252,25 @@ export default function App() {
     const target = normalizeThreadUrl(url);
     const prev = recentPostedThreads;
     const next = prev.filter((t) => t.threadUrl !== target);
+    setRecentPostedThreads(next);
+    saveUiJson(RECENT_POSTED_THREADS_KEY, JSON.stringify(next));
+    if (showRecentPostedOnly) remapSavedThreadCounts(prev, next);
+  };
+  // 見出しからの一括削除。渡した行だけ落とすので、全件でも絞り込み結果でも同じ。
+  const removeRecentOpenedThreads = (targets: RecentThread[]) => {
+    if (targets.length === 0) return;
+    const drop = new Set(targets.map((t) => t.threadUrl));
+    const prev = recentOpenedThreads;
+    const next = prev.filter((t) => !drop.has(t.threadUrl));
+    setRecentOpenedThreads(next);
+    saveUiJson(RECENT_OPENED_THREADS_KEY, JSON.stringify(next));
+    if (showRecentOpenedOnly) remapSavedThreadCounts(prev, next);
+  };
+  const removeRecentPostedThreads = (targets: RecentThread[]) => {
+    if (targets.length === 0) return;
+    const drop = new Set(targets.map((t) => t.threadUrl));
+    const prev = recentPostedThreads;
+    const next = prev.filter((t) => !drop.has(t.threadUrl));
     setRecentPostedThreads(next);
     saveUiJson(RECENT_POSTED_THREADS_KEY, JSON.stringify(next));
     if (showRecentPostedOnly) remapSavedThreadCounts(prev, next);
@@ -12411,7 +12445,12 @@ export default function App() {
               <input
                 className="fav-search"
                 value={favSearchQuery}
-                onChange={(e) => setFavSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setFavSearchQuery(e.target.value);
+                  // 絞り込みを変えると削除対象の件数も変わるので、確認待ちは解除する。
+                  setRecentOpenedClearArmed(false);
+                  setRecentPostedClearArmed(false);
+                }}
                 placeholder="お気に入り検索"
               />
               {favorites.threads.length === 0 ? (
@@ -12438,19 +12477,48 @@ export default function App() {
                 </ul>
               )}
               <div className="board-category">
-                <button
-                  className="category-toggle"
-                  onClick={() => setFavRecentExpanded((v) => !v)}
-                >
-                  <span className="category-arrow">{favRecentExpanded ? "\u25BC" : "\u25B6"}</span>
-                  最近読んだスレ ({recentOpenedThreads.length})
-                </button>
+                <div className="recent-category-head">
+                  <button
+                    className="category-toggle"
+                    onClick={() => { setFavRecentExpanded((v) => !v); setRecentOpenedClearArmed(false); }}
+                  >
+                    <span className="category-arrow">{favRecentExpanded ? "\u25BC" : "\u25B6"}</span>
+                    最近読んだスレ ({recentOpenedThreads.length})
+                  </button>
+                  {favRecentExpanded && visibleRecentOpened.length > 0 && !recentOpenedClearArmed && (
+                    <span
+                      className="recent-category-clear"
+                      role="button"
+                      aria-label="最近読んだスレを一括削除"
+                      title={favSearchNeedle ? `表示中の${visibleRecentOpened.length}件を履歴から削除` : `${visibleRecentOpened.length}件すべて履歴から削除`}
+                      onClick={() => setRecentOpenedClearArmed(true)}
+                    >
+                      <Trash2 size={11} />
+                    </span>
+                  )}
+                </div>
+                {favRecentExpanded && recentOpenedClearArmed && visibleRecentOpened.length > 0 && (
+                  <div className="recent-category-confirm">
+                    <span>{favSearchNeedle ? `表示中の${visibleRecentOpened.length}件を削除？` : `${visibleRecentOpened.length}件すべて削除？`}</span>
+                    <button
+                      type="button"
+                      className="my-post-clear-confirm"
+                      onClick={() => {
+                        const n = visibleRecentOpened.length;
+                        removeRecentOpenedThreads(visibleRecentOpened);
+                        setRecentOpenedClearArmed(false);
+                        setStatus(`最近読んだスレを${n}件削除しました`);
+                      }}
+                    >削除する</button>
+                    <button type="button" onClick={() => setRecentOpenedClearArmed(false)}>キャンセル</button>
+                  </div>
+                )}
                 {favRecentExpanded && (
                   recentOpenedThreads.length === 0 ? (
                     <span className="ng-empty">(なし)</span>
                   ) : (
                     <ul className="category-boards">
-                      {recentOpenedThreads.filter((rt) => !favSearchQuery.trim() || rt.title.toLowerCase().includes(favSearchQuery.trim().toLowerCase())).map((rt) => {
+                      {visibleRecentOpened.map((rt) => {
                         const isFav = favorites.threads.some((t) => t.threadUrl === rt.threadUrl);
                         return (
                           <li key={rt.threadUrl} className="recent-thread-item">
@@ -12494,19 +12562,48 @@ export default function App() {
                 )}
               </div>
               <div className="board-category">
-                <button
-                  className="category-toggle"
-                  onClick={() => setFavRecentPostedExpanded((v) => !v)}
-                >
-                  <span className="category-arrow">{favRecentPostedExpanded ? "\u25BC" : "\u25B6"}</span>
-                  最近書き込んだスレ ({recentPostedThreads.length})
-                </button>
+                <div className="recent-category-head">
+                  <button
+                    className="category-toggle"
+                    onClick={() => { setFavRecentPostedExpanded((v) => !v); setRecentPostedClearArmed(false); }}
+                  >
+                    <span className="category-arrow">{favRecentPostedExpanded ? "\u25BC" : "\u25B6"}</span>
+                    最近書き込んだスレ ({recentPostedThreads.length})
+                  </button>
+                  {favRecentPostedExpanded && visibleRecentPosted.length > 0 && !recentPostedClearArmed && (
+                    <span
+                      className="recent-category-clear"
+                      role="button"
+                      aria-label="最近書き込んだスレを一括削除"
+                      title={favSearchNeedle ? `表示中の${visibleRecentPosted.length}件を履歴から削除` : `${visibleRecentPosted.length}件すべて履歴から削除`}
+                      onClick={() => setRecentPostedClearArmed(true)}
+                    >
+                      <Trash2 size={11} />
+                    </span>
+                  )}
+                </div>
+                {favRecentPostedExpanded && recentPostedClearArmed && visibleRecentPosted.length > 0 && (
+                  <div className="recent-category-confirm">
+                    <span>{favSearchNeedle ? `表示中の${visibleRecentPosted.length}件を削除？` : `${visibleRecentPosted.length}件すべて削除？`}</span>
+                    <button
+                      type="button"
+                      className="my-post-clear-confirm"
+                      onClick={() => {
+                        const n = visibleRecentPosted.length;
+                        removeRecentPostedThreads(visibleRecentPosted);
+                        setRecentPostedClearArmed(false);
+                        setStatus(`最近書き込んだスレを${n}件削除しました`);
+                      }}
+                    >削除する</button>
+                    <button type="button" onClick={() => setRecentPostedClearArmed(false)}>キャンセル</button>
+                  </div>
+                )}
                 {favRecentPostedExpanded && (
                   recentPostedThreads.length === 0 ? (
                     <span className="ng-empty">(なし)</span>
                   ) : (
                     <ul className="category-boards">
-                      {recentPostedThreads.filter((rt) => !favSearchQuery.trim() || rt.title.toLowerCase().includes(favSearchQuery.trim().toLowerCase())).map((rt) => {
+                      {visibleRecentPosted.map((rt) => {
                         const isFav = favorites.threads.some((t) => t.threadUrl === rt.threadUrl);
                         return (
                           <li key={rt.threadUrl} className="recent-thread-item">
