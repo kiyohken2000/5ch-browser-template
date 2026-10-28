@@ -6412,7 +6412,8 @@ export default function App() {
     // Tauri ランタイム外 (web プレビュー / スモークテスト) のプレースホルダ。
     // スレキーは実際の 5ch と同じく作成時刻の UNIX 秒にしてあり、dat番号 / 作成日時
     // カラムが実データと同じ見え方になる。
-    { id: 1, title: "プローブスレッド", res: 999, got: 24, speed: 2.5, lastLoad: "14:42", lastPost: "14:44", threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1754870400/", createdAt: 1754870400000 },
+    // 1件目はタイトル列に収まらない長さにしてある (省略表示とホバーポップアップの見本)。
+    { id: 1, title: "プローブスレッド 一覧のタイトル列に収まらない長さの見本 — マウスオーバーすると全文がポップアップで出る", res: 999, got: 24, speed: 2.5, lastLoad: "14:42", lastPost: "14:44", threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1754870400/", createdAt: 1754870400000 },
     { id: 2, title: "認証テスト", res: 120, got: 8, speed: 0.8, lastLoad: "13:08", lastPost: "13:09", threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1755043200/", createdAt: 1755043200000 },
   ];
   const favThreadUrls = useMemo(() => new Set(favorites.threads.map((t) => t.threadUrl)), [favorites.threads]);
@@ -8175,9 +8176,12 @@ export default function App() {
   };
   const onThreadTitleMouseEnter = (event: ReactMouseEvent<HTMLTableCellElement>, title: string) => {
     if (isTouchMode()) return;
-    if (paneLayoutMode !== "river") return;
+    const cell = event.currentTarget;
+    // 「…」で切れている行だけ出す。全部見えているスレでポップアップが出ると邪魔なだけなので。
+    // (.thread-title-cell は max-width:0 + ellipsis なので、溢れていれば scrollWidth が勝つ)
+    if (cell.scrollWidth <= cell.clientWidth) return;
     hideThreadTitlePopup();
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = cell.getBoundingClientRect();
     const popupWidth = Math.min(720, Math.max(320, Math.floor(window.innerWidth * 0.6)));
     const p = clampMenuPosition(rect.left, rect.bottom + 2, popupWidth, 100);
     threadTitleHoverTimerRef.current = setTimeout(() => {
@@ -9015,7 +9019,8 @@ export default function App() {
   }, [selectedThread, selectedResponse, visibleThreadItems, responseItems, activeTabIndex, threadTabs, responseReloadMenuOpen, threadFilterMenuOpen, focusedPane, tabList, responseNavBarForced]);
 
   useEffect(() => {
-    if (paneLayoutMode !== "river") setThreadTitlePopup(null);
+    // レイアウトを切り替えると行の位置も列幅も変わるので、出しっぱなしのポップアップは畳む
+    setThreadTitlePopup(null);
   }, [paneLayoutMode]);
 
   useEffect(() => {
@@ -14801,7 +14806,7 @@ export default function App() {
           </div>
         </section>
       )}
-      {paneLayoutMode === "river" && threadTitlePopup && (
+      {threadTitlePopup && (
         <div className="thread-title-hover-popup" style={{ left: threadTitlePopup.x, top: threadTitlePopup.y }}>
           {threadTitlePopup.title}
         </div>

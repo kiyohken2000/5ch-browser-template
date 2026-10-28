@@ -215,6 +215,28 @@ try {
   }
   console.log("smoke-ui: thread title ellipsis ok");
 
+  // 省略されたスレタイはマウスオーバーで全文がポップアップする (通常レイアウトでも出る)。
+  // 収まっている行では出さない (全部見えているのにポップアップが出ると邪魔なだけ)。
+  const titleCells = await page.$$(".thread-title-cell");
+  const titleFits = await page.$$eval(".thread-title-cell", (els) =>
+    els.map((el) => ({ truncated: el.scrollWidth > el.clientWidth, text: el.textContent })));
+  const longIdx = titleFits.findIndex((t) => t.truncated);
+  const shortIdx = titleFits.findIndex((t) => !t.truncated);
+  assert(longIdx >= 0, `one placeholder thread title should overflow its column, got ${JSON.stringify(titleFits)}`);
+  assert(shortIdx >= 0, `one placeholder thread title should fit in its column, got ${JSON.stringify(titleFits)}`);
+  await titleCells[longIdx].hover();
+  await new Promise((r) => setTimeout(r, 400));
+  const titlePopup = await page.$(".thread-title-hover-popup");
+  assert(titlePopup, "hovering a truncated thread title should show the full-title popup");
+  const titlePopupText = (await titlePopup.textContent()).trim();
+  assert(titlePopupText === titleFits[longIdx].text.trim(),
+    `title popup should show the whole title, got ${titlePopupText}`);
+  await titleCells[shortIdx].hover();
+  await new Promise((r) => setTimeout(r, 400));
+  assert(!(await page.$(".thread-title-hover-popup")),
+    "a thread title that fits its column must not show the popup");
+  console.log("smoke-ui: thread title hover popup ok");
+
   // response scroll shows response blocks with response-no
   const responseNoEl = await page.$(".response-block .response-no");
   assert(responseNoEl, "response scroll should show response number span");
