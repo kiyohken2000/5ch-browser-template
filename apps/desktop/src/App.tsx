@@ -591,6 +591,7 @@ type GestureActionId =
   | "closeTab"
   | "reloadThread"
   | "reloadThreadList"
+  | "purgeCache"
   | "scrollTop"
   | "scrollBottom"
   | "toggleDark"
@@ -611,6 +612,7 @@ const GESTURE_ACTIONS: { id: GestureActionId; label: string }[] = [
   { id: "closeAllTabs", label: "すべてのタブを閉じる" },
   { id: "reloadThread", label: "スレッド更新" },
   { id: "reloadThreadList", label: "スレッド一覧を更新" },
+  { id: "purgeCache", label: "キャッシュから削除" },
   { id: "scrollTop", label: "先頭へスクロール" },
   { id: "scrollBottom", label: "末尾へスクロール" },
   { id: "toggleDark", label: "ダークモード切替" },
@@ -10002,6 +10004,11 @@ export default function App() {
           break;
         case "reloadThreadList":
           void fetchThreadListFromCurrent();
+          break;
+        case "purgeCache":
+          // キャッシュを消すとタブの中身が無くなるので purgeThreadCache 側でタブも閉じる。
+          // 確認は出さない (タブ右クリックの「キャッシュから削除」と挙動を揃える)。
+          runOnActiveThread(purgeThreadCache);
           break;
         case "toggleDark":
           setDarkMode((v) => !v);

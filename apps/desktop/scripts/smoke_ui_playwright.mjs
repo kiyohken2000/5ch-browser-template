@@ -2271,9 +2271,15 @@ try {
   const gestureSelects = await page.$$eval(".gesture-config-row select", (els) => els.length);
   assert(gestureSelects === 12, `gesture config should list 12 assignable patterns, got ${gestureSelects}`);
   const gestureOptionLabels = await page.$$eval(".gesture-config-row select", (els) => Array.from(els[0].options).map((o) => o.textContent));
-  for (const label of ["他のタブを閉じる", "右側のタブを閉じる", "左側のタブを閉じる", "すべてのタブを閉じる"]) {
+  for (const label of ["他のタブを閉じる", "右側のタブを閉じる", "左側のタブを閉じる", "すべてのタブを閉じる", "キャッシュから削除"]) {
     assert(gestureOptionLabels.includes(label), `gesture actions should include ${label}`);
   }
+  // 誤爆するとログも既読位置も消えるので、「キャッシュから削除」は既定でどのジェスチャにも割り当てない
+  const gestureBound = await page.$$eval(".gesture-config-row select", (els) => els.map((e) => e.value));
+  assert(
+    !gestureBound.includes("purgeCache"),
+    `キャッシュから削除 must be unassigned by default, got ${JSON.stringify(gestureBound)}`,
+  );
   await page.click('.gesture-config-panel .shortcuts-header button:has-text("閉じる")');
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: mouse gesture customization ok");
