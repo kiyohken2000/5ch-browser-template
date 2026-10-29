@@ -1681,6 +1681,46 @@ try {
   assert((await tabMetrics()).fontSize === "11px", "putting the setting back should restore 11px");
   console.log("smoke-ui: tab font size setting ok");
 
+  // 文字を太くする設定。MacType のような常駐ソフトは WebView2 に効かないので、
+  // 輪郭に細い線を足して太らせる。シェルに掛けた値が中の文字まで継承されること。
+  const thickenSelect = await page.$(".settings-body select.text-thicken-select");
+  assert(thickenSelect, "settings should have a text thickness select");
+  assert((await thickenSelect.inputValue()) === "0", "text thickness should default to off");
+  const strokeWidth = (sel) =>
+    page.$eval(sel, (el) => getComputedStyle(el).webkitTextStrokeWidth);
+  assert(parseFloat(await strokeWidth(".shell")) === 0, "text should not be stroked by default");
+  await thickenSelect.selectOption("0.3");
+  await new Promise((r) => setTimeout(r, 200));
+  assert(
+    Math.abs(parseFloat(await strokeWidth(".shell")) - 0.3) < 0.01,
+    `picking しっかり太く should stroke the text, got ${await strokeWidth(".shell")}`,
+  );
+  assert(
+    Math.abs(parseFloat(await strokeWidth(".response-body")) - 0.3) < 0.01,
+    "the stroke should be inherited by the response body",
+  );
+  await thickenSelect.selectOption("0");
+  await new Promise((r) => setTimeout(r, 200));
+  assert(parseFloat(await strokeWidth(".shell")) === 0, "turning it off should drop the stroke");
+  console.log("smoke-ui: text thickness setting ok");
+
+  // フォント候補は OS ごとに入れ替える。選んでも効かない項目 (Windows でヒラギノ等) を
+  // 並べないため。スモークは Windows / Chromium なので Windows の一覧が出ること。
+  const fontSelect = await page.$(".settings-body select.font-family-select");
+  assert(fontSelect, "settings should have a font family select");
+  const fontLabels = await fontSelect.$$eval("option", (els) => els.map((el) => el.textContent));
+  assert(
+    fontLabels.join(",") === "デフォルト,MS ゴシック,MS Pゴシック,メイリオ,Yu Gothic UI,BIZ UDゴシック,Noto Sans JP,等幅",
+    `the font list should be the Windows one, got ${fontLabels}`,
+  );
+  await fontSelect.selectOption("'Meiryo', sans-serif");
+  await new Promise((r) => setTimeout(r, 200));
+  const shellFont = await page.$eval(".shell", (el) => getComputedStyle(el).fontFamily);
+  assert(shellFont.includes("Meiryo"), `picking a font should apply it to the shell, got ${shellFont}`);
+  await fontSelect.selectOption("");
+  await new Promise((r) => setTimeout(r, 200));
+  console.log("smoke-ui: font list follows the platform ok");
+
   // UI サイズを上げても縦積みに切り替わらないこと。
   // 縦積みの判定は CSS ピクセル上の幅ではなく、倍率を掛け戻した物理的な幅で行う。
   // これが無いと、画面が狭くなくても倍率を上げただけで 3 ペインが縦に積まれる。

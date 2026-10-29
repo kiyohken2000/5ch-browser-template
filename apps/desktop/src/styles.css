@@ -35,6 +35,10 @@ body {
   display: grid;
   grid-template-rows: 26px 32px 1fr 22px;
   font-size: 12px;
+  /* 文字を太くする設定。輪郭に細い線を足すだけなので字形も行送りも変わらない。
+     線の色は -webkit-text-stroke-color の初期値 currentColor なので、
+     ダークモードでも ID 色やリンク色でも文字色に追従する。 */
+  -webkit-text-stroke-width: var(--text-thicken, 0);
 }
 
 .menu-bar {

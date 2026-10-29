@@ -2278,6 +2278,42 @@ const extractTweetId = (url: string): string | null => {
 };
 const isMacPlatform =
   typeof navigator !== "undefined" && /Macintosh|Mac OS X/.test(navigator.userAgent);
+const isLinuxPlatform =
+  typeof navigator !== "undefined" &&
+  /Linux|X11/.test(navigator.userAgent) &&
+  !/Android/.test(navigator.userAgent);
+
+// 設定のフォント候補。OS によって入っているフォントが違うので、選んでも効かない項目を
+// 並べないよう標準搭載のものだけを出す。Noto Sans JP はどの OS でも標準ではないが、
+// どこでも自由に導入でき :root のフォールバックにも入れてあるので全 OS で残す。
+const FONT_OPTIONS: { value: string; label: string }[] = isMacPlatform
+  ? [
+      { value: "'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif", label: "ヒラギノ角ゴ" },
+      { value: "'Hiragino Maru Gothic ProN', sans-serif", label: "ヒラギノ丸ゴ" },
+      { value: "'YuGothic', sans-serif", label: "游ゴシック体" },
+      { value: "'Osaka', sans-serif", label: "Osaka" },
+      { value: "'Osaka-Mono', monospace", label: "Osaka−等幅" },
+      { value: "'Noto Sans JP', sans-serif", label: "Noto Sans JP" },
+      { value: "monospace", label: "等幅" },
+    ]
+  : isLinuxPlatform
+    ? [
+        { value: "'Noto Sans CJK JP', sans-serif", label: "Noto Sans CJK JP" },
+        { value: "'IPAGothic', sans-serif", label: "IPAゴシック" },
+        { value: "'IPAPGothic', sans-serif", label: "IPA Pゴシック" },
+        { value: "'VL Gothic', sans-serif", label: "VL ゴシック" },
+        { value: "'Noto Sans JP', sans-serif", label: "Noto Sans JP" },
+        { value: "monospace", label: "等幅" },
+      ]
+    : [
+        { value: "'MS Gothic', monospace", label: "MS ゴシック" },
+        { value: "'MS PGothic', sans-serif", label: "MS Pゴシック" },
+        { value: "'Meiryo', sans-serif", label: "メイリオ" },
+        { value: "'Yu Gothic UI', sans-serif", label: "Yu Gothic UI" },
+        { value: "'BIZ UDGothic', sans-serif", label: "BIZ UDゴシック" },
+        { value: "'Noto Sans JP', sans-serif", label: "Noto Sans JP" },
+        { value: "monospace", label: "等幅" },
+      ];
 const launchYoutubePip = (videoId: string, fallbackUrl: string): void => {
   if (isMacPlatform) {
     // Mac (WKWebView) では YouTube embed が動かないため標準ブラウザで開く
@@ -3643,6 +3679,9 @@ export default function App() {
   type PaneName = "boards" | "threads" | "responses";
   const [focusedPane, setFocusedPane] = useState<PaneName>("responses");
   const [fontFamily, setFontFamily] = useState("");
+  // 文字の太さ (輪郭に足す線の幅、px)。MacType のような GDI 向けの描画改善ソフトは
+  // WebView2 (DirectWrite) に効かないので、代わりに線幅だけを稼ぐ。0 = 従来どおり。
+  const [textThicken, setTextThicken] = useState(0);
   const [darkMode, setDarkMode] = useState(false);
   const [glassMode, setGlassMode] = useState(false);
   const [glassLite, setGlassLite] = useState(false);
@@ -9100,6 +9139,7 @@ export default function App() {
           glassLite?: boolean;
           glassUltraLite?: boolean;
           fontFamily?: string;
+          textThicken?: number;
           threadColWidths?: Record<string, number>;
           showBoardButtons?: boolean;
           favBoardButtonEnabled?: boolean;
@@ -9193,6 +9233,7 @@ export default function App() {
         if (typeof parsed.glassLite === "boolean") setGlassLite(parsed.glassLite);
         if (typeof parsed.glassUltraLite === "boolean") setGlassUltraLite(parsed.glassUltraLite);
         if (typeof parsed.fontFamily === "string") setFontFamily(parsed.fontFamily);
+        if (typeof parsed.textThicken === "number") setTextThicken(clamp(parsed.textThicken, 0, 0.3));
         if (parsed.threadColWidths && typeof parsed.threadColWidths === "object") {
           setThreadColWidths((prev) => ({ ...prev, ...parsed.threadColWidths }));
         }
@@ -10214,6 +10255,7 @@ export default function App() {
       glassLite,
       glassUltraLite,
       fontFamily,
+      textThicken,
       threadColWidths,
       showBoardButtons,
       favBoardButtonEnabled,
@@ -10275,7 +10317,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, responsePaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, responsePaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, textThicken, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled && !typingComboEnabled) return;
@@ -11820,7 +11862,7 @@ export default function App() {
         (showBoardButtons && (favorites.boards.length > 0 || favBoardButtonEnabled)) ? "auto" : null,
         "1fr",
         statusBarVisible ? "22px" : null,
-      ].filter(Boolean).join(" "), "--thumb-size": `${thumbSize}px`, "--thumb-mask-blur": `${(thumbMaskStrength / 100) * 20}px`, "--thumb-mask-brightness": `${1 - (thumbMaskStrength / 100) * 0.25}` } as React.CSSProperties}
+      ].filter(Boolean).join(" "), "--text-thicken": `${textThicken}px`, "--thumb-size": `${thumbSize}px`, "--thumb-mask-blur": `${(thumbMaskStrength / 100) * 20}px`, "--thumb-mask-brightness": `${1 - (thumbMaskStrength / 100) * 0.25}` } as React.CSSProperties}
       onClick={() => {
         setThreadMenu(null);
         setResponseMenu(null);
@@ -15815,15 +15857,24 @@ export default function App() {
                 </label>
                 <label className="settings-row">
                   <span>フォント</span>
-                  <select value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
+                  <select className="font-family-select" value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
                     <option value="">デフォルト</option>
-                    <option value="'MS Gothic', monospace">MS ゴシック</option>
-                    <option value="'MS PGothic', sans-serif">MS Pゴシック</option>
-                    <option value="'Meiryo', sans-serif">メイリオ</option>
-                    <option value="'Yu Gothic UI', sans-serif">Yu Gothic UI</option>
-                    <option value="'BIZ UDGothic', sans-serif">BIZ UDゴシック</option>
-                    <option value="'Noto Sans JP', sans-serif">Noto Sans JP</option>
-                    <option value="monospace">等幅</option>
+                    {FONT_OPTIONS.map((f) => (
+                      <option key={f.value} value={f.value}>{f.label}</option>
+                    ))}
+                    {/* 別の OS で保存した設定も選択肢として残す。消すと select が空欄になり、
+                        次に何か触った拍子に設定が黙って別の値へ書き換わる。 */}
+                    {fontFamily && !FONT_OPTIONS.some((f) => f.value === fontFamily) ? (
+                      <option value={fontFamily}>{`その他 (${fontFamily})`}</option>
+                    ) : null}
+                  </select>
+                </label>
+                <label className="settings-row">
+                  <span title="MacType のような常駐ソフトは WebView2 に効かないので、文字の輪郭を少しだけ太らせます">文字を太くする</span>
+                  <select className="text-thicken-select" value={String(textThicken)} onChange={(e) => setTextThicken(Number(e.target.value))}>
+                    <option value="0">オフ</option>
+                    <option value="0.15">少し太く</option>
+                    <option value="0.3">しっかり太く</option>
                   </select>
                 </label>
                 <label className="settings-row">
