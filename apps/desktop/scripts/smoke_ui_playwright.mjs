@@ -440,6 +440,56 @@ try {
   assert(!(await page.$(".anchor-popup")), "leaving all popups should close everything");
   console.log("smoke-ui: popup chain trim ok");
 
+  // --- ←/→ で選択レスの参照関係をポップアップし、Escape で畳む ---
+  // ホバーと違って起点が画面に出ないので、起点は必ず選択中のレスであること。
+  {
+    const selectRes = async (no) => {
+      await page.evaluate((n) => {
+        document.activeElement?.blur?.();
+        document.querySelector(`.response-scroll .response-block[data-response-no="${n}"]`)
+          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      }, no);
+      await new Promise((r) => setTimeout(r, 100));
+      const sel = await page.$eval(".response-scroll .response-block.selected", (el) => el.getAttribute("data-response-no"));
+      assert(sel === String(no), `selecting res ${no} should mark it selected, got ${sel}`);
+    };
+    const popupNos = async (sel) =>
+      page.$$eval(`${sel} .anchor-popup-header .response-viewer-no`, (els) => els.map((el) => el.textContent.trim()));
+
+    // ← : レス4 は >>3 を含むのでレス3 が出る
+    await selectRes(4);
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForSelector(".anchor-popup:not(.nested-popup)", { timeout: 2000 });
+    const fwd = await popupNos(".anchor-popup:not(.nested-popup)");
+    assert(fwd.length === 1 && fwd[0] === "3", `← should popup what res4 points at (>>3), got ${JSON.stringify(fwd)}`);
+    // マウスを動かさずに閉じられることが要望の肝
+    await page.keyboard.press("Escape");
+    await new Promise((r) => setTimeout(r, 120));
+    assert(!(await page.$(".anchor-popup")), "Escape should close a keyboard-opened popup");
+
+    // → : レス1 はレス3 の >>1 から参照されている
+    await selectRes(1);
+    await page.keyboard.press("ArrowRight");
+    await page.waitForSelector(".back-ref-popup", { timeout: 2000 });
+    const back = await popupNos(".back-ref-popup");
+    assert(back.includes("3"), `→ should popup what points at res1, got ${JSON.stringify(back)}`);
+    await page.keyboard.press("Escape");
+    await new Promise((r) => setTimeout(r, 120));
+    assert(!(await page.$(".back-ref-popup")), "Escape should close the back-ref popup too");
+
+    // 参照が無い向きでは何も出さない (レス1 は本文に >> を持たない)
+    await page.keyboard.press("ArrowLeft");
+    await new Promise((r) => setTimeout(r, 200));
+    assert(!(await page.$(".anchor-popup")), "← on a response without anchors should open nothing");
+
+    // 修飾キー付きの ←/→ は従来どおりタブ切替なので、ポップアップは出ない
+    await selectRes(4);
+    await page.keyboard.press("Control+ArrowLeft");
+    await new Promise((r) => setTimeout(r, 200));
+    assert(!(await page.$(".anchor-popup")), "Ctrl+← should stay tab switching, not open a popup");
+    console.log("smoke-ui: arrow key reference popups ok");
+  }
+
   // --- ポップアップのレス番号クリックでレスメニューを出し「ここにレス」できる ---
   {
     const openedCompose = await page.$(".compose-window");
@@ -1152,9 +1202,13 @@ try {
   assert(shortcutsPanel, "shortcuts panel should be visible");
   const kbds = await page.$$eval(".shortcut-row kbd", (els) => els.length);
   assert(kbds >= 10, `shortcuts should list at least 10 keys, got ${kbds}`);
-  // 誤爆しやすいショートカット (ダブルクリック引用 / R / A) だけチェックボックスで ON/OFF できる
+  // 誤爆しやすいショートカット (ダブルクリック引用 / R / A / ←→) だけチェックボックスで ON/OFF できる
   const toggles = await page.$$eval(".shortcut-row .shortcut-toggle", (els) => els.length);
-  assert(toggles === 3, `shortcuts panel should have 3 toggles, got ${toggles}`);
+  assert(toggles === 4, `shortcuts panel should have 4 toggles, got ${toggles}`);
+  // Ctrl+←/→ の行も "←/→" を含むので、kbd が丸ごと一致する行だけを見る
+  const arrowRow = await page.$('.shortcut-row:has(kbd:text-is("←/→"))');
+  assert(arrowRow, "the arrow-key reference popup shortcut should be listed");
+  assert(await arrowRow.$(".shortcut-toggle"), "the arrow-key shortcut row should carry a toggle");
   const dblRow = await page.$('.shortcut-row:has(kbd:has-text("ダブルクリック"))');
   assert(dblRow, "double-click shortcut row should exist");
   const dblToggle = await dblRow.$(".shortcut-toggle");

@@ -643,8 +643,8 @@ const DEFAULT_GESTURE_BINDINGS: Record<string, GestureActionId> = {
 };
 // ON/OFF を切り替えられるショートカット。修飾キー無しで発火して通常操作 (単語選択のダブルクリックなど)
 // と衝突しうるものだけを対象にする。Ctrl 系は誤爆しにくいので固定。
-type ToggleableShortcutId = "dblclick-quote" | "key-r-quote" | "key-a-autoscroll";
-const TOGGLEABLE_SHORTCUT_IDS: ToggleableShortcutId[] = ["dblclick-quote", "key-r-quote", "key-a-autoscroll"];
+type ToggleableShortcutId = "dblclick-quote" | "key-r-quote" | "key-a-autoscroll" | "key-arrow-refs";
+const TOGGLEABLE_SHORTCUT_IDS: ToggleableShortcutId[] = ["dblclick-quote", "key-r-quote", "key-a-autoscroll", "key-arrow-refs"];
 // レス行のダブルクリックに割り当てる動作。既定は従来どおり引用して書き込み。
 type DblClickAction = "quote" | "read-marker";
 const DBL_CLICK_ACTIONS: DblClickAction[] = ["quote", "read-marker"];
@@ -3689,6 +3689,9 @@ export default function App() {
   const [composeFontSize, setComposeFontSize] = useState(13);
   const [idPopup, setIdPopup] = useState<{ right: number; y: number; anchorTop: number; id: string; z?: number } | null>(null);
   const popupTopZRef = useRef<number>(610);
+  // Escape でポップアップを畳むための開閉フラグ。キーハンドラから state を直接見ると
+  // ポップアップが開閉するたびに window の keydown を張り替えることになるので ref に写す。
+  const popupsOpenRef = useRef(false);
   const allocatePopupZ = (): number => {
     popupTopZRef.current += 5;
     return popupTopZRef.current;
@@ -7217,7 +7220,8 @@ export default function App() {
     return rows;
   }, [ngAiCandidates, ngAiRules, responseItems]);
   useEffect(() => {
-    if (!idPopup && !anchorPopup && !backRefPopup && nestedPopups.length === 0) {
+    popupsOpenRef.current = !!idPopup || !!anchorPopup || !!backRefPopup || nestedPopups.length > 0;
+    if (!popupsOpenRef.current) {
       popupTopZRef.current = 610;
     }
   }, [idPopup, anchorPopup, backRefPopup, nestedPopups]);
@@ -8099,6 +8103,44 @@ export default function App() {
     }
   };
 
+  // キーボード (←/→) からレスの参照関係をポップアップする。
+  // マウスのホバーと違って「どのレスを起点にしたか」が画面に出ないので、起点は選択中の
+  // レスに固定し、ポップアップもその行に合わせて出す。行が表示範囲の外にあると rect が
+  // ペインの外を指して変な位置に出るため、先に行を上端へ寄せてから位置を取り直す。
+  const popupRefsOfSelected = (dir: "incoming" | "outgoing") => {
+    const container = responseScrollRef.current;
+    if (!container) return;
+    const row = container.querySelector<HTMLElement>(`[data-response-no="${selectedResponse}"]`);
+    if (!row) return;
+    const cRect = container.getBoundingClientRect();
+    let rect = row.getBoundingClientRect();
+    if (rect.bottom <= cRect.top || rect.top >= cRect.bottom) {
+      container.scrollTop += rect.top - cRect.top;
+      rect = row.getBoundingClientRect();
+    }
+    // 出しっぱなしのポップアップ (ホバーで開いた分も含む) を畳んでから開き直す。
+    // 同じ tick なので、この後の set がそのまま新しいポップアップになる。
+    closeAllPopups();
+    if (dir === "incoming") {
+      const refs = backRefMap.get(selectedResponse);
+      if (!refs || refs.length === 0) return;
+      setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, anchorBottom: rect.bottom, responseIds: refs, z: allocatePopupZ() });
+      return;
+    }
+    // 順参照は backRefMap の逆引きが無いので、行の中の .anchor-ref をそのまま拾う。
+    // 範囲 (>>1-5) や連番 (>>1,2) も getAnchorIds が展開してくれる。
+    const ids: number[] = [];
+    for (const a of row.querySelectorAll<HTMLElement>(".anchor-ref")) {
+      for (const id of getAnchorIds(a)) {
+        if (!ids.includes(id) && responseItems.some((r) => r.id === id)) ids.push(id);
+      }
+    }
+    if (ids.length === 0) return;
+    const popupWidth = Math.min(620, window.innerWidth - 24);
+    const x = Math.max(8, Math.min(rect.left, window.innerWidth - popupWidth - 8));
+    setAnchorPopup({ x, y: rect.bottom + 1, anchorTop: rect.top, responseIds: ids, z: allocatePopupZ() });
+  };
+
   const renderPopupHeader = (resp: typeof responseItems[number]) => {
     // あぼーん指定のレスは、ポップアップでも本文欄と同じく中身を伏せる
     const abone = ngResultMap.get(resp.id) === "abone";
@@ -8942,6 +8984,10 @@ export default function App() {
           hideHoverPreview();
           return;
         }
+        // アンカー / 逆参照 / ID のポップアップはマウスを離せば閉じるが、入れ子に
+        // たどった後や ←/→ で開いた後は離すきっかけが無いまま残ることがある。
+        // タッチ操作には閉じるボタンがあるので、マウス・キーボードの逃げ道をここに作る。
+        if (popupsOpenRef.current) { closeAllPopups(); return; }
         if (lightboxUrl) { setLightboxUrl(null); return; }
         if (aboutOpen) { closeAboutDialog(); return; }
         if (shortcutsOpen) { setShortcutsOpen(false); return; }
@@ -9021,6 +9067,15 @@ export default function App() {
           onTabClick(next);
           return;
         }
+      }
+      // 素の ←/→ で選択レスの参照関係をポップアップする。レスペインもスレ一覧も
+      // overflow-x: hidden なので、素の ←/→ は元から何もしておらず奪っても困らない。
+      if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (isShortcutDisabled("key-arrow-refs")) return;
+        if (activeTabIndex < 0 || threadTabs.length === 0) return;
+        e.preventDefault();
+        popupRefsOfSelected(e.key === "ArrowRight" ? "incoming" : "outgoing");
+        return;
       }
       if ((e.ctrlKey || e.metaKey) && e.altKey && !e.shiftKey && e.key === "ArrowUp") {
         e.preventDefault();
@@ -15675,7 +15730,8 @@ export default function App() {
                 ["Ctrl+4", "スレタブバーの表示/非表示"],
                 ["R", "選択レスを引用して書き込み", "key-r-quote"],
                 ["A", "オートスクロールのオン/オフ", "key-a-autoscroll"],
-                ["Escape", "ライトボックス/ダイアログを閉じる"],
+                ["←/→", "← 選択レスが参照しているレス / → 選択レスを参照しているレス をポップアップ", "key-arrow-refs"],
+                ["Escape", "ポップアップ/ライトボックス/ダイアログを閉じる"],
                 ["ダブルクリック (レス行)", "引用して書き込み", "dblclick-quote"],
               ] as [string, string, ToggleableShortcutId?][]).map(([key, desc, toggleId]) => (
                 <div key={key} className={`shortcut-row${toggleId && disabledShortcuts.includes(toggleId) ? " shortcut-disabled" : ""}`}>
