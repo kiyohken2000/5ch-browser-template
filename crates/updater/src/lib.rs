@@ -1,7 +1,14 @@
-//! Ember の半自動アップデータ (Windows 専用)。
+//! Ember の半自動アップデータ (Windows / macOS)。
 //!
-//! Ember を終了した状態で updater.exe を実行すると、latest.json のバージョンを見て
-//! 新しければ ZIP を取得し、検証してから同じフォルダのファイルを置き換える。
+//! latest.json のバージョンを見て、新しければ配布物を取得し、検証してから中身を
+//! 置き換える。置き換える対象は OS で違う:
+//!
+//! - Windows: Ember を終了した状態で updater.exe を実行すると、同じフォルダのファイルを
+//!   1 つずつ置き換える。
+//! - macOS: `Ember.app/Contents/MacOS/updater` として同梱してあり、Ember の
+//!   「バージョン情報」から Terminal 経由で起動される。ZIP の中の DMG をマウントして
+//!   `.app` を取り出し、バンドルごと差し替える (バンドルの横にファイルを置けないため、
+//!   Windows のように「隣に置いてダブルクリック」という形にはできない)。
 //!
 //! 設計上の約束 (崩すと危険なので変更時は理由を残すこと):
 //!
@@ -36,12 +43,22 @@ pub const METADATA_URL: &str = "https://ember-5ch.pages.dev/latest.json";
 /// 配布物の取得元 (焼き込み。モジュールドキュメントの 1. を参照)
 const RELEASE_BASE: &str = "https://github.com/kiyohken2000/5ch-browser-template/releases/download";
 /// 取得するファイル名。latest.json の filename は見るだけで、これ以外は受け付けない。
+#[cfg(target_os = "macos")]
+pub const ASSET_NAME: &str = "ember-mac-arm64.zip";
+#[cfg(not(target_os = "macos"))]
 pub const ASSET_NAME: &str = "ember-win-x64.zip";
 /// latest.json の platforms のキー
+#[cfg(target_os = "macos")]
+pub const PLATFORM_KEY: &str = "macos-arm64";
+#[cfg(not(target_os = "macos"))]
 pub const PLATFORM_KEY: &str = "windows-x64";
 pub const EMBER_EXE: &str = "ember.exe";
 /// 自分自身。実行中はコピーで上書きできないので、失敗しても更新全体は止めない。
 pub const UPDATER_EXE: &str = "updater.exe";
+/// Mac 版の実行ファイル名 (tauri.conf.json の mainBinaryName)
+pub const MAIN_BINARY: &str = "ember";
+/// Mac 版のバンドル識別子 (tauri.conf.json の identifier)。終了要求に使う。
+pub const BUNDLE_ID: &str = "io.ember.browser";
 const USER_AGENT: &str = "Monazilla/1.00 Ember-Updater";
 
 #[derive(Debug, Error)]
@@ -84,8 +101,8 @@ pub struct LatestMetadata {
 }
 
 impl LatestMetadata {
-    /// Windows 版の配布物。無ければ更新情報の形が変わったということなので止める。
-    pub fn windows_asset(&self) -> Result<&PlatformAsset, UpdateError> {
+    /// 自分が走っている OS 向けの配布物。無ければ更新情報の形が変わったということなので止める。
+    pub fn platform_asset(&self) -> Result<&PlatformAsset, UpdateError> {
         let asset = self
             .platforms
             .get(PLATFORM_KEY)
@@ -422,6 +439,295 @@ pub fn apply_update(
     Ok(warnings)
 }
 
+// ---------------------------------------------------------------------------
+// macOS 版の差し替え
+//
+// Windows 版との違いは配布物の形。Mac 版の ZIP には DMG が 1 個入っていて、その中に
+// `.app` が 1 個ある。だから「展開してファイルを置き換える」ではなく
+// 「ZIP を展開 → DMG をマウント → .app を取り出す → バンドルごと差し替える」になる。
+//
+// ユーザーのデータを消さないという約束 (モジュールドキュメントの 3.) は Mac でも同じだが、
+// Mac の設定・既読は `~/Library/Application Support` 側にあってバンドルの外なので、
+// バンドルを丸ごと入れ替えても消えない。
+//
+// 実機のコマンドを呼ぶ部分 (unzip / hdiutil / ditto / pgrep / osascript / open) と、
+// 「どこを対象にするか」「退避と巻き戻しをどの順でやるか」は分けてある。後者はどの OS
+// でもユニットテストで検証できるようにしておきたいため。
+// ---------------------------------------------------------------------------
+
+/// `Ember.app/Contents/MacOS/updater` から `Ember.app` を割り出す。
+///
+/// updater はバンドルに同梱して配るので、置き場所を聞かずに対象を特定できる
+/// (`/Applications` 以外に置いている人でも正しく当たる)。バンドルの外に置かれた
+/// updater は対象を決められないので断る。
+pub fn locate_bundle(updater_exe: &Path) -> Result<PathBuf, UpdateError> {
+    let bundle = updater_exe
+        .parent() // Contents/MacOS
+        .and_then(Path::parent) // Contents
+        .and_then(Path::parent) // Ember.app
+        .ok_or_else(|| UpdateError::Blocked("アプリの場所を特定できません".to_string()))?;
+    if bundle.extension().and_then(|s| s.to_str()) != Some("app") {
+        return Err(UpdateError::Blocked(format!(
+            "{} はアプリケーションバンドルの中にありません。Ember.app に同梱された updater を実行してください",
+            updater_exe.display()
+        )));
+    }
+    Ok(bundle.to_path_buf())
+}
+
+/// 差し替えられる状態かを先に確かめる。
+///
+/// 見るのはバンドル自体ではなく**その親**に書けるかどうか。差し替えは親ディレクトリの中での
+/// rename + コピーなので、必要な権限は親のものになる (`/Applications` は管理者ユーザーなら
+/// 書けるが、標準ユーザーでは書けない)。昇格は試さない。
+pub fn ensure_bundle_replaceable(bundle: &Path) -> Result<(), UpdateError> {
+    if !bundle
+        .join("Contents")
+        .join("MacOS")
+        .join(MAIN_BINARY)
+        .is_file()
+    {
+        return Err(UpdateError::Blocked(format!(
+            "{} が Ember のアプリに見えません",
+            bundle.display()
+        )));
+    }
+    let parent = bundle
+        .parent()
+        .ok_or_else(|| UpdateError::Blocked("アプリの置き場所を特定できません".to_string()))?;
+    let probe = parent.join(".ember-update-probe");
+    match fs::File::create(&probe) {
+        Ok(f) => {
+            drop(f);
+            let _ = fs::remove_file(&probe);
+            Ok(())
+        }
+        Err(e) => Err(UpdateError::Blocked(format!(
+            "{} に書き込めません。管理者のユーザーで実行するか、手動で入れ替えてください ({e})",
+            parent.display()
+        ))),
+    }
+}
+
+/// ZIP の中の DMG をマウントして `.app` を取り出す。返すのは取り出した `.app` の場所。
+///
+/// マウントは読み取り専用かつ `-nobrowse` (Finder に出さない)。取り出しは `ditto` を使う。
+/// バンドルには symlink や拡張属性が入っていて、普通の再帰コピーだと署名が壊れて
+/// macOS が起動を拒むため。マウントはどの経路を通っても外す。
+pub fn extract_app(zip: &Path, work: &Path) -> Result<PathBuf, UpdateError> {
+    let unpacked = work.join("unpacked");
+    reset_dir(&unpacked)?;
+    let status = Command::new("/usr/bin/unzip")
+        .arg("-q")
+        .arg("-o")
+        .arg(zip)
+        .arg("-d")
+        .arg(&unpacked)
+        .status()
+        .map_err(|e| UpdateError::Extract(format!("unzip を実行できません: {e}")))?;
+    if !status.success() {
+        return Err(UpdateError::Extract(format!(
+            "ZIP を展開できませんでした (unzip exit {:?})",
+            status.code()
+        )));
+    }
+    let dmg = single_entry(&unpacked, "dmg")?;
+
+    let mount = work.join("mnt");
+    let _ = fs::remove_dir_all(&mount);
+    fs::create_dir_all(&mount).map_err(|e| io_err("マウント先の作成", e))?;
+    let status = Command::new("/usr/bin/hdiutil")
+        .args(["attach", "-nobrowse", "-readonly", "-mountpoint"])
+        .arg(&mount)
+        .arg(&dmg)
+        .status()
+        .map_err(|e| UpdateError::Extract(format!("hdiutil を実行できません: {e}")))?;
+    if !status.success() {
+        return Err(UpdateError::Extract(format!(
+            "DMG をマウントできませんでした (hdiutil exit {:?})",
+            status.code()
+        )));
+    }
+
+    let staged = work.join("staged");
+    let picked = (|| -> Result<PathBuf, UpdateError> {
+        let app = single_entry(&mount, "app")?;
+        let name = app
+            .file_name()
+            .ok_or_else(|| UpdateError::Extract("DMG の中のアプリ名を読めません".to_string()))?;
+        reset_dir(&staged)?;
+        let dest = staged.join(name);
+        ditto_dir(&app, &dest)?;
+        Ok(dest)
+    })();
+    let _ = Command::new("/usr/bin/hdiutil")
+        .arg("detach")
+        .arg(&mount)
+        .status();
+
+    let dest = picked?;
+    if !dest
+        .join("Contents")
+        .join("MacOS")
+        .join(MAIN_BINARY)
+        .is_file()
+    {
+        return Err(UpdateError::Extract(format!(
+            "取り出したアプリに {MAIN_BINARY} が含まれていません"
+        )));
+    }
+    Ok(dest)
+}
+
+/// dir の直下から拡張子 ext のものを 1 つだけ拾う。0 個でも 2 個以上でもエラーにする
+/// (配布物の形が変わったときに、黙って別のものを掴まないようにするため)。
+fn single_entry(dir: &Path, ext: &str) -> Result<PathBuf, UpdateError> {
+    let mut found = Vec::new();
+    for entry in fs::read_dir(dir).map_err(|e| io_err("展開結果の確認", e))? {
+        let entry = entry.map_err(|e| io_err("展開結果の確認", e))?;
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some(ext) {
+            found.push(path);
+        }
+    }
+    if found.len() == 1 {
+        return Ok(found.remove(0));
+    }
+    Err(UpdateError::Extract(format!(
+        "{} の中に .{ext} が {} 個あります (1 個であるはずです)",
+        dir.display(),
+        found.len()
+    )))
+}
+
+/// バンドルのコピー。`ditto` は symlink・拡張属性・リソースフォークを保つので、
+/// 署名済みのバンドルを壊さずに複製できる (`cp -R` や自前の再帰コピーでは壊れる)。
+pub fn ditto_dir(src: &Path, dest: &Path) -> Result<(), UpdateError> {
+    let status = Command::new("/usr/bin/ditto")
+        .arg(src)
+        .arg(dest)
+        .status()
+        .map_err(|e| UpdateError::Io(format!("ditto を実行できません: {e}")))?;
+    if !status.success() {
+        return Err(UpdateError::Io(format!(
+            "{} のコピーに失敗しました (ditto exit {:?})",
+            src.display(),
+            status.code()
+        )));
+    }
+    Ok(())
+}
+
+/// Ember が動いているか。バンドル内の実行ファイルのパスで見る
+/// (updater 自身は `MacOS/updater` なので自分には当たらない)。
+pub fn ember_is_running() -> bool {
+    Command::new("/usr/bin/pgrep")
+        .arg("-f")
+        .arg(format!("/Contents/MacOS/{MAIN_BINARY}"))
+        .output()
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false)
+}
+
+/// Ember に終了を頼む。待たないし、失敗しても何も言わない。
+///
+/// 強制終了 (SIGTERM) は使わない。書き込み途中のお気に入り・既読を壊さないため、
+/// AppleScript で正規の終了要求を出す。
+///
+/// ただしこれは別アプリへの Apple イベントなので、macOS が「Terminal が Ember を
+/// 制御しようとしています」の許可を求める。断られると終了要求は届かない。そのため
+/// 成否は見ず、落ちたかどうかは [`wait_for_ember_exit`] で別に確かめる
+/// (呼び出し側は、届かなかったときに手で終了してもらう道を用意すること)。
+pub fn request_ember_quit() {
+    let _ = Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(format!("tell application id \"{BUNDLE_ID}\" to quit"))
+        .status();
+}
+
+/// Ember が落ちるまで待つ。落ちたら true、待ち時間を使い切ったら false。
+pub fn wait_for_ember_exit(max_wait: Duration) -> bool {
+    let step = Duration::from_millis(500);
+    let mut waited = Duration::ZERO;
+    loop {
+        if !ember_is_running() {
+            return true;
+        }
+        if waited >= max_wait {
+            return false;
+        }
+        std::thread::sleep(step);
+        waited += step;
+    }
+}
+
+/// `bundle` を `staged` のバンドルで差し替える。警告があれば返す。
+///
+/// 退避 (rename) してからコピーする。rename は同じ親ディレクトリの中での付け替えなので
+/// 外付けディスクに置かれていても成立し、失敗したら退避したものを戻せる。中身を 1 つずつ
+/// 上書きすると、失敗時に起動しない中途半端なバンドルが残るので、絶対にそうしないこと。
+///
+/// 退避は巻き戻しのためだけに作るので、**差し替えが終わったら消す**。`/Applications` に
+/// 使われないバンドルを置いていくと、どちらが本体か分からなくなるため。消せなかった場合は
+/// 更新自体は済んでいるので、警告として返して続ける。
+///
+/// コピーの実体は呼び出し側から渡す。実機では [`ditto_dir`] を使うが、ここで検証したいのは
+/// 「退避と巻き戻しの順番」なので、テストでは普通の再帰コピーを渡す。
+pub fn replace_bundle(
+    bundle: &Path,
+    staged: &Path,
+    backup: &Path,
+    copy: &dyn Fn(&Path, &Path) -> Result<(), UpdateError>,
+) -> Result<Vec<String>, UpdateError> {
+    if !staged
+        .join("Contents")
+        .join("MacOS")
+        .join(MAIN_BINARY)
+        .is_file()
+    {
+        return Err(UpdateError::Extract(format!(
+            "差し替えようとしたアプリに {MAIN_BINARY} が含まれていません"
+        )));
+    }
+    let _ = fs::remove_dir_all(backup);
+    let had_old = bundle.exists();
+    if had_old {
+        fs::rename(bundle, backup).map_err(|e| io_err("旧バージョンの退避", e))?;
+    }
+    if let Err(e) = copy(staged, bundle) {
+        let _ = fs::remove_dir_all(bundle);
+        if had_old {
+            let _ = fs::rename(backup, bundle);
+        }
+        return Err(e);
+    }
+    let mut warnings = Vec::new();
+    if had_old {
+        if let Err(e) = fs::remove_dir_all(backup) {
+            warnings.push(format!(
+                "旧バージョン ({}) を削除できませんでした ({e})。手動で削除してください",
+                backup.display()
+            ));
+        }
+    }
+    Ok(warnings)
+}
+
+/// 差し替えたバンドルを起動する。
+pub fn launch_app(bundle: &Path) -> Result<(), UpdateError> {
+    let status = Command::new("/usr/bin/open")
+        .arg(bundle)
+        .status()
+        .map_err(|e| UpdateError::Io(format!("open を実行できません: {e}")))?;
+    if !status.success() {
+        return Err(UpdateError::Io(format!(
+            "Ember を起動できませんでした (open exit {:?})",
+            status.code()
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,12 +759,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_metadata_reads_the_windows_asset() {
+    fn parse_metadata_reads_the_asset_for_this_platform() {
         let meta = parse_metadata(SAMPLE).expect("parse");
         assert_eq!(meta.version, "9.9.10");
-        let asset = meta.windows_asset().expect("asset");
+        let asset = meta.platform_asset().expect("asset");
         assert_eq!(asset.filename, ASSET_NAME);
-        assert_eq!(asset.size, 123);
+        // 見るキーは OS で変わる。Mac 版の updater が Windows 版の ZIP を掴まないこと
+        let expected_size = if PLATFORM_KEY == "macos-arm64" { 456 } else { 123 };
+        assert_eq!(asset.size, expected_size);
     }
 
     #[test]
@@ -469,10 +777,10 @@ mod tests {
     }
 
     #[test]
-    fn windows_asset_rejects_an_unexpected_filename() {
-        let json = SAMPLE.replace("ember-win-x64.zip", "evil.zip");
+    fn platform_asset_rejects_an_unexpected_filename() {
+        let json = SAMPLE.replace(ASSET_NAME, "evil.zip");
         let meta = parse_metadata(&json).expect("parse");
-        assert!(matches!(meta.windows_asset(), Err(UpdateError::Metadata(_))));
+        assert!(matches!(meta.platform_asset(), Err(UpdateError::Metadata(_))));
     }
 
     #[test]
@@ -491,7 +799,7 @@ mod tests {
     fn asset_url_is_pinned_to_github_releases() {
         assert_eq!(
             asset_url("9.9.10").expect("url"),
-            "https://github.com/kiyohken2000/5ch-browser-template/releases/download/v9.9.10/ember-win-x64.zip"
+            format!("https://github.com/kiyohken2000/5ch-browser-template/releases/download/v9.9.10/{ASSET_NAME}")
         );
         assert!(asset_url("9.9.10/../evil").is_err());
     }
@@ -626,5 +934,113 @@ mod tests {
         // プローブ用のファイルを残さない
         assert!(!dir.join(".ember-update-probe").exists());
         let _ = fs::remove_dir_all(&dir);
+    }
+    // --- macOS 版 ---------------------------------------------------------
+    // 実機のコマンド任せの部分 (unzip / hdiutil / ditto / pgrep) は外に出してあるので、
+    // 「どこを対象にするか」と「退避と巻き戻しの順番」はどの OS でも検証できる。
+
+    /// `.app` の最低限の形 (Contents/MacOS/ember があること) を作る
+    fn fake_bundle(bundle: &Path, body: &str) {
+        write(&bundle.join("Contents").join("MacOS").join(MAIN_BINARY), body);
+        write(&bundle.join("Contents").join("Info.plist"), "<plist/>");
+    }
+
+    fn read_main(bundle: &Path) -> String {
+        fs::read_to_string(bundle.join("Contents").join("MacOS").join(MAIN_BINARY))
+            .expect("main binary")
+    }
+
+    /// テスト用の素朴な再帰コピー。実機で ditto を使うのは symlink と拡張属性のため
+    fn copy_tree(src: &Path, dest: &Path) -> Result<(), UpdateError> {
+        fs::create_dir_all(dest).map_err(|e| io_err("テストのコピー", e))?;
+        for entry in fs::read_dir(src).map_err(|e| io_err("テストのコピー", e))? {
+            let entry = entry.map_err(|e| io_err("テストのコピー", e))?;
+            let to = dest.join(entry.file_name());
+            if entry.path().is_dir() {
+                copy_tree(&entry.path(), &to)?;
+            } else {
+                fs::copy(entry.path(), &to).map_err(|e| io_err("テストのコピー", e))?;
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn locate_bundle_walks_up_from_the_sidecar() {
+        let bundle = locate_bundle(Path::new("/Applications/Ember.app/Contents/MacOS/updater"))
+            .expect("bundle");
+        assert_eq!(bundle, Path::new("/Applications/Ember.app"));
+        // バンドルの外に置かれた updater は対象を決められないので断る
+        assert!(matches!(
+            locate_bundle(Path::new("/Users/me/Downloads/updater")),
+            Err(UpdateError::Blocked(_))
+        ));
+    }
+
+    #[test]
+    fn ensure_bundle_replaceable_rejects_something_that_is_not_ember() {
+        let root = temp_dir("bundle");
+        let bundle = root.join("Ember.app");
+        fs::create_dir_all(&bundle).expect("dir");
+        let err = ensure_bundle_replaceable(&bundle).expect_err("fail");
+        assert!(matches!(err, UpdateError::Blocked(_)), "got {err:?}");
+
+        fake_bundle(&bundle, "old");
+        assert!(ensure_bundle_replaceable(&bundle).is_ok());
+        // プローブ用のファイルを残さない
+        assert!(!root.join(".ember-update-probe").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn replace_bundle_swaps_the_app_and_leaves_no_backup() {
+        let root = temp_dir("replace");
+        let bundle = root.join("Ember.app");
+        let staged = root.join("staged").join("Ember.app");
+        let backup = root.join("Ember.app.update-backup-9.9.9");
+        fake_bundle(&bundle, "old");
+        fake_bundle(&staged, "new");
+
+        let warnings = replace_bundle(&bundle, &staged, &backup, &copy_tree).expect("replace");
+        assert!(warnings.is_empty(), "no warnings expected, got {warnings:?}");
+        assert_eq!(read_main(&bundle), "new");
+        // 退避は巻き戻し用なので、差し替えが終わったら残さない
+        assert!(!backup.exists(), "the backup should be removed");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn replace_bundle_rolls_back_when_the_copy_fails() {
+        let root = temp_dir("replace-rollback");
+        let bundle = root.join("Ember.app");
+        let staged = root.join("staged").join("Ember.app");
+        let backup = root.join("Ember.app.update-backup-9.9.9");
+        fake_bundle(&bundle, "old");
+        fake_bundle(&staged, "new");
+
+        let fail: fn(&Path, &Path) -> Result<(), UpdateError> =
+            |_, _| Err(UpdateError::Io("コピー失敗".to_string()));
+        let err = replace_bundle(&bundle, &staged, &backup, &fail).expect_err("should fail");
+        assert!(matches!(err, UpdateError::Io(_)), "got {err:?}");
+
+        // 元のまま。中途半端なバンドルも退避も残らない
+        assert_eq!(read_main(&bundle), "old");
+        assert!(!backup.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn replace_bundle_refuses_an_app_without_the_binary() {
+        let root = temp_dir("replace-nobin");
+        let bundle = root.join("Ember.app");
+        let staged = root.join("staged").join("Ember.app");
+        fake_bundle(&bundle, "old");
+        write(&staged.join("Contents").join("Info.plist"), "<plist/>");
+
+        let err = replace_bundle(&bundle, &staged, &root.join("backup"), &copy_tree)
+            .expect_err("should fail");
+        assert!(matches!(err, UpdateError::Extract(_)), "got {err:?}");
+        assert_eq!(read_main(&bundle), "old");
+        let _ = fs::remove_dir_all(&root);
     }
 }

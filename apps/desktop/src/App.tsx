@@ -6456,6 +6456,22 @@ export default function App() {
     await invoke("open_external_url", { url: updateResult.downloadPageUrl });
   };
 
+  // Mac だけに出すアップデータの起動。Mac は .app がバンドル 1 個で、Windows のように
+  // exe の隣に updater.exe を置いてダブルクリックという形が取れないので、バンドルに
+  // 同梱したアップデータをここから Terminal 越しに開く。確認・取得・差し替え・再起動は
+  // すべてアップデータ側が行うので、こちらは起動して投げるだけ。
+  const launchBundledUpdater = async () => {
+    if (!isTauriRuntime()) return;
+    try {
+      await invoke<string>("launch_bundled_updater");
+      setStatus("アップデータを起動しました。Terminal の表示に従ってください");
+      setAboutOpen(false);
+    } catch (error) {
+      console.warn("launch_bundled_updater failed", error);
+      setStatus(`アップデータを起動できませんでした: ${String(error)}`);
+    }
+  };
+
   const closeAboutDialog = () => {
     if (updateResult?.hasUpdate && updateResult.latestVersion) {
       try {
@@ -15666,6 +15682,16 @@ export default function App() {
               <div style={{ fontSize: "0.85em", color: updateResult?.hasUpdate ? "#cc3300" : "var(--sub)", marginTop: 4 }}>
                 {updateProbe === "running..." ? "更新確認中..." : updateResult ? (updateResult.hasUpdate ? `新しいバージョンがあります: v${updateResult.latestVersion}` : `最新版です (v${currentVersion})`) : ""}
               </div>
+              {isMacPlatform && isTauriRuntime() && (
+                <button
+                  className="about-updater-button"
+                  onClick={() => void launchBundledUpdater()}
+                  title="同梱のアップデータを開きます。最新版があれば確認のうえ入れ替えます"
+                  style={{ marginTop: 4 }}
+                >
+                  アップデートを確認
+                </button>
+              )}
               {updateResult?.hasUpdate && (
                 <button onClick={openDownloadPage} style={{ marginTop: 4 }}>
                   ダウンロードページを開く

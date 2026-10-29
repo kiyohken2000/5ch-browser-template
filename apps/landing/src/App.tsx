@@ -880,6 +880,14 @@ export default function App() {
                   Copy
                 </button>
               </div>
+              <p className="note">
+                更新時はアプリの「ヘルプ」→「バージョン情報」→<strong>アップデートを確認</strong>から行えます
+                （同梱されていない古いバージョンからは手動更新になります）。
+                最新版の確認からダウンロード・入れ替えまで行い、Ember を一度終了してから更新後に起動し直します。
+                この方法ではブラウザを経由しないため、上の <code>xattr</code> のコマンドは不要です。
+                手動で更新する場合は、アプリ終了後に新しい <code>.dmg</code> の中身を Applications へ上書きしてください。
+                設定や既読は <code>~/Library/Application Support/Ember</code> に保存されるので、どちらの方法でもそのまま残ります。
+              </p>
             </article>
 
             <article className="card install-card reveal" data-delay="3">

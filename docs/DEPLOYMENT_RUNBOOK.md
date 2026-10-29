@@ -163,6 +163,10 @@ sha256sum ember-win-x64.zip && wc -c < ember-win-x64.zip
 
 Mac環境で `bash scripts/build_mac_release.sh`
 
+スクリプトは最初に `git pull --ff-only` するので、**Mac で回す前にコード変更を main へ
+push しておくこと**。同梱する updater (`binaries/updater-<triple>`) もこのスクリプトが
+ビルドして `.app` に入れ、最後に `Contents/MacOS/updater` の有無を確認する。
+
 ### 5. latest.json 更新
 
 ```bash
@@ -203,13 +207,19 @@ npx wrangler pages deploy dist --project-name ember-5ch --branch main --commit-d
 - 新バージョンのアプリで更新チェック → `hasUpdate=false`（最新版です）
 - ダウンロードページリンクが正しいこと
 
-## 半自動アップデータ (updater.exe)
+## 半自動アップデータ (updater)
 
-Windows ZIP に同梱している `updater.exe` の仕様。実装は `crates/updater/`。
+Windows ZIP と macOS の `.app` に同梱しているアップデータの仕様。実装は `crates/updater/`。
+バージョン判定・取得・検証は共通で、置き換える対象だけが OS で違う。
 
-- 使い方: **Ember を終了してから** `updater.exe` を実行する。新しい版があれば ZIP を
-  取得・検証して同じフォルダのファイルを置き換え、Enter で Ember を起動し直す。
-  Ember 本体には何も手が入っていない（ボタンも設定も無い）。
+- **Windows の使い方**: **Ember を終了してから** `updater.exe` を実行する。新しい版があれば
+  ZIP を取得・検証して同じフォルダのファイルを置き換え、Enter で Ember を起動し直す。
+  Ember 本体に入口は無い（ボタンも設定も無い）。
+- **macOS の使い方**: アプリの「ヘルプ」→「バージョン情報」→「アップデートを確認」。
+  `Ember.app/Contents/MacOS/updater` として sidecar (`externalBin`) で同梱してあり、
+  `launch_bundled_updater` コマンドが `open -a Terminal` でそれを開く。.app はバンドル
+  1 個なので Windows のように「隣に置いてダブルクリック」が成立せず、入口が本体側に
+  必要になる。ボタンは `isMacPlatform` のときだけ出す。
 - バージョン判定は `env!("CARGO_PKG_VERSION")` と `latest.json` の `version` の数値比較。
 - **取得元 URL は updater に焼き込んである**
   (`https://github.com/.../releases/download/v{ver}/ember-win-x64.zip`)。
@@ -223,7 +233,30 @@ Windows ZIP に同梱している `updater.exe` の仕様。実装は `crates/up
 - Ember 実行中・書き込み不可のときは何もせず終了する（昇格は試さない）。
 - `updater.exe` 自身も置き換える（実行中の exe でも rename は通る）。それだけ失敗した
   場合は更新を巻き戻さず、警告を出して続ける。
-- Mac は対象外。macOS 版は DMG のドラッグ&ドロップのままで、ZIP にも同梱しない。
+
+### macOS 固有の注意
+
+- 配布物の形が違う。Mac の ZIP には DMG が 1 個入っていて、その中に `.app` が 1 個。
+  「ZIP を展開 → `hdiutil attach` → `.app` を `ditto` で取り出す → バンドルごと差し替え」
+  という流れになる。取り出しとコピーは必ず `ditto`（symlink と拡張属性を保たないと
+  署名が壊れて macOS が起動を拒む）。
+- 差し替えは `Ember.app` を `Ember.app.update-backup-<旧バージョン>` へ rename してから
+  コピー。失敗したら rename を戻す。中身を 1 つずつ上書きすると、失敗時に起動しない
+  中途半端なバンドルが残る。
+- **退避は巻き戻し用なので、差し替えが終わったら消す**（Windows は `update-backup-` を
+  残すが、Mac は `/Applications` に使われないバンドルを置いていくと、どちらが本体か
+  分からなくなるため）。消せなかった場合は更新自体は済んでいるので、警告だけ出して続ける。
+- 権限はバンドルの**親**（通常 `/Applications`）に対して見る。管理者ユーザーなら書けるが
+  標準ユーザーでは書けないので、その場合は何もせず終了する。
+- 設定・既読は `~/Library/Application Support/Ember` にあってバンドルの外なので、
+  バンドルを丸ごと入れ替えても消えない（Windows の `data/` と違う）。
+- Ember の終了は AppleScript の quit で頼む（SIGTERM は使わない）。これは別アプリへの
+  Apple イベントなので macOS が許可を求め、断られると届かない。そのときは Terminal 上で
+  手動終了を促して続行する（取得と検証は済んでいるので諦めない）。
+- 終了させるのは取得・検証・展開が終わったあと。「最新版です」で終わるときや取得に
+  失敗したときに Ember を落とさないため。
+- 自前のプロセスで取得したファイルには `com.apple.quarantine` が付かないので、この経路で
+  更新した場合は `xattr -dr com.apple.quarantine` が不要になる。
 
 ## 運用ルール
 
@@ -231,6 +264,7 @@ Windows ZIP に同梱している `updater.exe` の仕様。実装は `crates/up
 - ファイル名は固定: `ember-win-x64.zip`, `ember-mac-arm64.zip`
 - `latest.json` にシークレット情報を含めない
 - **Windows ZIP には必ず `updater.exe` を同梱**（半自動アップデータ。欠けると、入れた人が次回から手動更新に戻る）
+- **macOS の `.app` には必ず `Contents/MacOS/updater` を同梱**（`scripts/build_mac_release.sh` が sidecar としてビルド・同梱し、最後に有無を確認する。欠けるとアプリ内の「アップデートを確認」が動かないまま配布される）
 - **Windows ZIP には必ず `vulkan-1.dll` を同梱**（`scripts/release.sh` は自動同梱、手動ビルド時は忘れがち）
 - **Windows ZIP には必ず `VULKAN-LOADER-LICENSE.txt` と `VULKAN-LOADER-ATTRIBUTION.txt` を同梱** (Apache 2.0 セクション 4 の再配布要件。欠けるとライセンス違反)
 - **Windows ZIP には必ず MSVC ランタイム 4 ファイル (`msvcp140.dll` / `vcruntime140.dll` / `vcruntime140_1.dll` / `vcomp140.dll`) と `MSVC-RUNTIME-ATTRIBUTION.txt` を同梱**（欠けると VC++ 再頒布可能パッケージ未導入環境で起動不能。コピー元は VS の `VC\Redist\` 配下のみ、System32 と `debug_nonredist\` は不可）

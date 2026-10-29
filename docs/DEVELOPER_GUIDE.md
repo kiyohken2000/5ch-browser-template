@@ -52,7 +52,7 @@ Ember の技術仕様・アーキテクチャ・開発手順をまとめたド�
 │   ├── core-fetch/           # HTTP取得・投稿フロー
 │   ├── core-parse/           # dat / subject.txt / bbsmenu パーサ
 │   ├── core-store/           # JSON永続化
-│   └── updater/              # 半自動アップデータ (updater.exe / Windows 専用)
+│   └── updater/              # 半自動アップデータ (Windows: updater.exe / macOS: .app 同梱)
 ├── scripts/                  # ユーティリティスクリプト
 ├── data/                     # ポータブルランタイムデータ
 ├── docs/                     # ドキュメント
@@ -295,21 +295,30 @@ npm run dev
 
 ---
 
-## 半自動アップデータ (updater.exe)
+## 半自動アップデータ (updater)
 
-Windows ZIP に同梱する更新用の小さなコンソールアプリ (`crates/updater/`)。**Ember 本体には
-手が入っていない** — ボタンも設定もコマンドも無く、ユーザーが Ember を終了してから
-`updater.exe` を実行する運用。
+更新用の小さなコンソールアプリ (`crates/updater/`)。バージョン判定・取得・検証は共通で、
+置き換える対象だけが OS で違う。
+
+- **Windows**: ZIP に `updater.exe` を同梱。Ember 本体に入口は無く、ユーザーが Ember を
+  終了してから `updater.exe` を実行する運用。
+- **macOS**: `Ember.app/Contents/MacOS/updater` として sidecar (`externalBin`) で同梱。
+  .app はバンドル 1 個で隣にファイルを置けないので、「バージョン情報」→「アップデートを
+  確認」から `launch_bundled_updater` コマンドが `open -a Terminal` で開く。
 
 ```bash
-cargo build --release -p ember-updater   # updater.exe
+cargo build --release -p ember-updater   # updater.exe / updater
 cargo test -p ember-updater              # 判定・検証・差し替え・ロールバックの単体テスト
 ```
 
 - `src/lib.rs` に判定とファイル操作、`src/main.rs` に標準入出力だけを置く（差し替えと
   ロールバックを一時ディレクトリ相手にテストするため）
+- OS 依存は `ASSET_NAME` / `PLATFORM_KEY` の 2 定数と `main.rs` の `platform` モジュール
+  だけ。それ以外は全 OS でコンパイル・テストされる（Mac 用の差し替えロジックも Linux の
+  CI でテストが回る。コピーの実体だけ `ditto` を差し替え可能にしてある）
 - 取得元 URL は lib に焼き込み。`latest.json` からはバージョンだけを読む
-- 置き換えるのは ZIP に入っているファイルのみ（exe の隣の `data/` を消さないため）
+- 置き換えるのは配布物に入っているものだけ（Windows は exe の隣の `data/` を消さないため。
+  Mac の設定は `~/Library/Application Support/Ember` にあってバンドルの外）
 - 詳細な仕様と運用上の注意は [`DEPLOYMENT_RUNBOOK.md`](DEPLOYMENT_RUNBOOK.md) を参照
 
 ---

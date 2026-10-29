@@ -27,6 +27,8 @@ target/
 out/
 apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/data/
+# Mac ビルドが .app へ同梱する updater (build_mac_release.sh が毎回ビルドして置く)
+apps/desktop/src-tauri/binaries/
 
 zzz_memo.txt
 _temp

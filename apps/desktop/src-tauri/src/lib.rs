@@ -1023,6 +1023,46 @@ fn open_external_url(url: String) -> Result<(), String> {
     Err("unsupported platform".to_string())
 }
 
+/// 同梱したアップデータ (`Ember.app/Contents/MacOS/updater`) を Terminal で開く。
+///
+/// Mac は .app がバンドル 1 個なので、Windows のように「exe の隣に updater.exe を置いて
+/// ダブルクリック」という形が取れない。そこでバンドルに同梱して、ここから起動する。
+/// Terminal 越しに開くのは、取得と差し替えの進捗を読めるようにするため (updater は
+/// コンソールに出力して Enter を待つ作りになっている)。
+///
+/// Ember の終了・差し替え・再起動は updater 側が行う。こちらは起動して投げるだけで、
+/// 完了を待たない。
+#[tauri::command]
+fn launch_bundled_updater() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let exe = std::env::current_exe().map_err(|e| format!("自身の場所を特定できません: {e}"))?;
+        let updater = exe.with_file_name("updater");
+        if !updater.is_file() {
+            return Err(format!(
+                "アップデータが同梱されていません ({})。お手数ですが手動で更新してください",
+                updater.display()
+            ));
+        }
+        let status = Command::new("/usr/bin/open")
+            .arg("-a")
+            .arg("Terminal")
+            .arg(&updater)
+            .status()
+            .map_err(|e| format!("アップデータを起動できません: {e}"))?;
+        if !status.success() {
+            return Err(format!(
+                "アップデータを起動できません (open exit {:?})",
+                status.code()
+            ));
+        }
+        return Ok(updater.display().to_string());
+    }
+
+    #[allow(unreachable_code)]
+    Err("この環境では使用できません".to_string())
+}
+
 fn collect_categories_from_menu(
     menu: &serde_json::Value,
     out: &mut Vec<BoardCategory>,
@@ -3667,6 +3707,7 @@ pub fn run() {
             probe_post_finalize_submit_from_input,
             probe_post_flow_trace,
             check_for_updates,
+            launch_bundled_updater,
             open_external_url,
             load_favorites,
             save_favorites,

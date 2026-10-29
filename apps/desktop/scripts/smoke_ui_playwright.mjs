@@ -1269,6 +1269,28 @@ try {
   await setDblClickAction("quote");
   console.log("smoke-ui: double-click read marker leaves no selection ok");
 
+  // --- about dialog ---
+  // 「アップデートを確認」は Mac のバンドルに同梱した updater を開くボタン。Mac 以外では
+  // 出してはいけない (Windows は exe の隣の updater.exe を直接実行してもらう形なので、
+  // アプリ内から起動する入口は無い)。スモークは Windows と Linux の両方で回るので、
+  // 期待する側は App.tsx と同じ userAgent 判定で選ぶ
+  await (await page.$('.menu-item:has-text("ヘルプ")')).click();
+  await new Promise((r) => setTimeout(r, 100));
+  await page.click('.menu-dropdown button:has-text("バージョン情報")');
+  await page.waitForSelector(".lightbox-overlay .settings-panel", { timeout: 3000 });
+  const aboutTitle = await page.$eval(".lightbox-overlay .settings-header strong", (el) => el.textContent);
+  assert(aboutTitle === "バージョン情報", `the about dialog should be open, got ${aboutTitle}`);
+  const isMacUa = await page.evaluate(() => /Macintosh|Mac OS X/.test(navigator.userAgent));
+  const updaterBtn = await page.$(".lightbox-overlay .about-updater-button");
+  assert(
+    isMacUa ? !!updaterBtn : !updaterBtn,
+    `the bundled updater button should ${isMacUa ? "" : "not "}be shown on this platform`,
+  );
+  await page.click(".lightbox-overlay .settings-header button");
+  await new Promise((r) => setTimeout(r, 100));
+  assert(!(await page.$(".lightbox-overlay .settings-panel")), "the about dialog should close");
+  console.log("smoke-ui: the bundled updater button is mac-only ok");
+
   // --- font size setting ---
   const viewMenuItem = await page.$('.menu-item:has-text("表示")');
   await viewMenuItem.click();
