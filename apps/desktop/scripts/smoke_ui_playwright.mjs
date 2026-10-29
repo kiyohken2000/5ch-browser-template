@@ -1759,18 +1759,36 @@ try {
   console.log("smoke-ui: text thickness setting ok");
 
   // フォント候補は OS ごとに入れ替える。選んでも効かない項目 (Windows でヒラギノ等) を
-  // 並べないため。スモークは Windows / Chromium なので Windows の一覧が出ること。
+  // 並べないため。スモークは Windows と Linux の両方で回るので、期待する一覧は
+  // App.tsx と同じ userAgent 判定で選ぶ (直書きすると Linux の CI で必ず落ちる)。
   const fontSelect = await page.$(".settings-body select.font-family-select");
   assert(fontSelect, "settings should have a font family select");
+  const fontPlatform = await page.evaluate(() => {
+    const ua = navigator.userAgent;
+    if (/Macintosh|Mac OS X/.test(ua)) return "mac";
+    if (/Linux|X11/.test(ua) && !/Android/.test(ua)) return "linux";
+    return "windows";
+  });
+  const EXPECTED_FONT_LABELS = {
+    windows: "デフォルト,MS ゴシック,MS Pゴシック,メイリオ,Yu Gothic UI,BIZ UDゴシック,Noto Sans JP,等幅",
+    mac: "デフォルト,ヒラギノ角ゴ,ヒラギノ丸ゴ,游ゴシック体,Osaka,Osaka−等幅,Noto Sans JP,等幅",
+    linux: "デフォルト,Noto Sans CJK JP,IPAゴシック,IPA Pゴシック,VL ゴシック,Noto Sans JP,等幅",
+  };
   const fontLabels = await fontSelect.$$eval("option", (els) => els.map((el) => el.textContent));
   assert(
-    fontLabels.join(",") === "デフォルト,MS ゴシック,MS Pゴシック,メイリオ,Yu Gothic UI,BIZ UDゴシック,Noto Sans JP,等幅",
-    `the font list should be the Windows one, got ${fontLabels}`,
+    fontLabels.join(",") === EXPECTED_FONT_LABELS[fontPlatform],
+    `the font list should be the ${fontPlatform} one, got ${fontLabels}`,
   );
-  await fontSelect.selectOption("'Meiryo', sans-serif");
+  // 選べる値も OS で変わるので、一覧の 2 番目 (デフォルトの次) をそのまま選ぶ
+  const pickedFontValue = await fontSelect.$$eval("option", (els) => els[1].value);
+  await fontSelect.selectOption(pickedFontValue);
   await new Promise((r) => setTimeout(r, 200));
   const shellFont = await page.$eval(".shell", (el) => getComputedStyle(el).fontFamily);
-  assert(shellFont.includes("Meiryo"), `picking a font should apply it to the shell, got ${shellFont}`);
+  const pickedFontFamily = pickedFontValue.split(",")[0].replace(/'/g, "");
+  assert(
+    shellFont.includes(pickedFontFamily),
+    `picking ${pickedFontFamily} should apply it to the shell, got ${shellFont}`,
+  );
   await fontSelect.selectOption("");
   await new Promise((r) => setTimeout(r, 200));
   console.log("smoke-ui: font list follows the platform ok");
@@ -2941,6 +2959,16 @@ try {
   // 差し替える。演出中の要素は次々消えるため、MutationObserver で出た順に記録する。
   const runSlotBonusCase = async (seq) => {
     await page.fill(".compose-window textarea.compose-body", "");
+    // 観測は document 全体を走査するので、前のケースのバナーやコインが残っている
+    // うちに始めると遅れて出た演出が次のケースのログに混ざる。尽きるまで待つ
+    await page.waitForFunction(
+      () =>
+        !document.querySelector(
+          ".typing-slot, .typing-combo-banner, .typing-slot-coin, .typing-slot-flash",
+        ),
+      null,
+      { timeout: 15000 },
+    );
     await page.waitForFunction(() => !document.querySelector(".typing-combo-badge"), null, { timeout: 3000 });
     const outcome = await page.evaluate(async (values) => {
       window.__slotObs?.disconnect();
@@ -3128,10 +3156,12 @@ try {
   await page.type(".compose-window textarea.compose-body", "x", { delay: 50 });
   const heatAfter = await page.getAttribute(".compose-window textarea.compose-body", "data-combo-heat");
   assert(heatAfter === null, `heat should clear once the combo breaks, got ${JSON.stringify(heatAfter)}`);
-  // 「ｗ」の連打で草が生える
+  // 「ｗ」の連打で草が生える。入力ハンドラには 50ms のスロットルがあって打鍵が
+  // 間引かれることがあるので、間隔を広げて多めに打ち、生えるまで待つ。
+  // 草が出るのは 3 連打目以降なので、1 打鍵落ちても 6 打てば必ず成立する
   await page.fill(".compose-window textarea.compose-body", "");
-  await page.type(".compose-window textarea.compose-body", "ｗｗｗ", { delay: 60 });
-  assert(await page.$(".typing-grass"), "typing ｗｗｗ should grow grass");
+  await page.type(".compose-window textarea.compose-body", "ｗ".repeat(6), { delay: 90 });
+  await page.waitForSelector(".typing-grass", { state: "attached", timeout: 3000 });
   // 100 コンボを越えてからも 50 ごとに節目のバナーが出続ける
   await page.fill(".compose-window textarea.compose-body", "");
   await page.waitForFunction(() => !document.querySelector(".typing-combo-badge"), null, { timeout: 3000 });
