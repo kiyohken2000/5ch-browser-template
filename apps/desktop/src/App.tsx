@@ -4786,17 +4786,26 @@ export default function App() {
     const seq = ++scrollAnchorSeqRef.current;
     let cancelled = false;
     let cleaned = false;
+    // キーからの移動 (ジャンプ入力の Enter、Ctrl+Shift+↑↓) では、この見張りを付けた直後に
+    // 移動を起こしたキー自身の keydown が window まで上がってくる。実スクロールは下の
+    // setTimeout まで一度も走らないので、それで中断すると一歩も動かずに終わる。
+    // キーの見張りは現在のイベントを処理し終えてから始める (wheel/touchmove は自分で
+    // 発火しないので即時でよい)。
+    let keyArmed = false;
     const onUserInput = () => { cancelled = true; };
+    const onUserKey = () => { if (keyArmed) cancelled = true; };
+    const armTimer = window.setTimeout(() => { keyArmed = true; }, 0);
     // スクロールイベントはレイアウト変化でも発火するため、実入力イベントのみで中断判定する
     container.addEventListener("wheel", onUserInput, { passive: true });
     container.addEventListener("touchmove", onUserInput, { passive: true });
-    window.addEventListener("keydown", onUserInput);
+    window.addEventListener("keydown", onUserKey);
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
+      window.clearTimeout(armTimer);
       container.removeEventListener("wheel", onUserInput);
       container.removeEventListener("touchmove", onUserInput);
-      window.removeEventListener("keydown", onUserInput);
+      window.removeEventListener("keydown", onUserKey);
     };
     const delays = [50, 200, 450, 800, 1300, 2000];
     delays.forEach((d, i) => {

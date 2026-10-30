@@ -4875,6 +4875,148 @@ try {
     console.log("smoke-ui: the new-response marker lands, repeats and clears on an empty refresh ok");
   }
 
+  // レスナビバー右端の「>>」(レス番号を入れて Enter) の回帰用。たびたび壊れる経路なので
+  // 「選択が変わった」ではなく「対象レスが実際に画面の先頭へ来た」ところまで毎回見る。
+  //  - scrollToResponseNo は 50ms〜2 秒かけて再アンカーし続け、実入力 (wheel / touchmove /
+  //    keydown) で中断する。見張りを張った直後にジャンプを起こした Enter 自身が window へ
+  //    上がってくるため、一度も再アンカーできずまったく動かなくなっていた (v0.0.285 〜)。
+  //    そのため dispatchEvent ではなく本物のキー入力で確かめる。
+  //  - Ctrl+Shift+↑↓ (選択レスの前後移動) も同じ経路なのでついでに見る。
+  {
+    const BOARD = "https://mao.5ch.io/ngt/";
+    const THREAD = "https://mao.5ch.io/test/read.cgi/ngt/3333333333/";
+    const p = await context.newPage();
+    await p.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+      localStorage.setItem("desktop.boardCategories.v1", arg.boards);
+      localStorage.setItem("desktop.expandedCategories.v1", JSON.stringify(["テスト"]));
+      const rows = [];
+      for (let i = 1; i <= 60; i++) {
+        rows.push({
+          responseNo: i,
+          name: "名無し",
+          mail: "",
+          dateAndId: "2026/10/30(金) 00:00:00.00 ID:abcdefgh",
+          body: "ジャンプ検査用のレス " + i + " 行目のダミーです。",
+        });
+      }
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve("");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "load_thread_cache") return Promise.resolve(null);
+          if (cmd === "save_thread_cache") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({});
+          if (cmd === "save_read_status") return Promise.resolve(null);
+          if (cmd === "load_ui_json") return Promise.resolve("");
+          if (cmd === "save_ui_json") return Promise.resolve(null);
+          if (cmd === "fetch_thread_list") {
+            return Promise.resolve([
+              { threadKey: "3333333333", title: "ジャンプ検査スレ", responseCount: 60, threadUrl: arg.thread },
+            ]);
+          }
+          if (cmd === "fetch_thread_responses_command") return Promise.resolve({ responses: rows, title: null });
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, {
+      prefs: JSON.stringify({ restoreSession: true, lastBoard: { boardName: "ngt", url: BOARD } }),
+      boards: JSON.stringify([{ categoryName: "テスト", boards: [{ boardName: "ngt", url: BOARD }] }]),
+      thread: THREAD,
+    });
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector(".pane.threads tbody tr");
+    await (await p.$$(".pane.threads tbody tr"))[0].click();
+    await p.waitForSelector('.response-scroll .response-block[data-response-no="60"]');
+    await new Promise((r) => setTimeout(r, 900));
+
+    // レスペインの一番上に見えているレス番 (= 実際に移動できたか)
+    const topVisibleNo = () => p.evaluate(() => {
+      const c = document.querySelector(".response-scroll");
+      if (!c) return "no-container";
+      const top = c.getBoundingClientRect().top;
+      for (const el of c.querySelectorAll("[data-response-no]")) {
+        if (el.getBoundingClientRect().bottom > top + 1) return Number(el.dataset.responseNo);
+      }
+      return 0;
+    });
+    const settleScroll = (timeoutMs = 4000) => p.evaluate((limit) => new Promise((resolve) => {
+      const c = document.querySelector(".response-scroll");
+      if (!c) {
+        resolve("no-container");
+        return;
+      }
+      const deadline = Date.now() + limit;
+      let last = c.scrollTop;
+      let stable = 0;
+      const tick = () => {
+        if (c.scrollTop === last) stable += 1;
+        else { stable = 0; last = c.scrollTop; }
+        if (stable >= 6 || Date.now() > deadline) { resolve(c.scrollTop); return; }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }), timeoutMs);
+    const selectedNo = () => p.$eval(".response-scroll .response-block.selected", (el) => Number(el.dataset.responseNo));
+
+    // 60 レス分の高さが無いとスクロール自体が起きず、検査が素通りしてしまう
+    const overflow = await p.evaluate(() => {
+      const c = document.querySelector(".response-scroll");
+      return c.scrollHeight - c.clientHeight;
+    });
+    assert(overflow > 200, `the response pane must be scrollable for this check, got ${overflow}px of overflow`);
+
+    const jumpInput = await p.$(".nav-jump-input");
+    assert(jumpInput, "the nav bar should have the response-number jump input");
+
+    // 番号だけ / >>付き / 2 回目以降 / 先頭へ戻る、をひと通り。
+    // 入力は本物のキー入力で行う (Enter が window へ上がる経路まで含めて再現するため)
+    for (const [typed, want] of [["40", 40], [">>7", 7], ["55", 55], ["1", 1]]) {
+      await jumpInput.click();
+      await jumpInput.fill("");
+      await p.keyboard.type(typed);
+      await p.keyboard.press("Enter");
+      await new Promise((r) => setTimeout(r, 300));
+      await settleScroll();
+      const landed = await topVisibleNo();
+      assert(landed === want, `typing ${typed} into the jump input must land on >>${want}, got >>${landed}`);
+      assert((await selectedNo()) === want, `typing ${typed} must select >>${want}, got >>${await selectedNo()}`);
+      assert(
+        (await p.$eval(".nav-jump-input", (el) => el.value)) === "",
+        "the jump input should clear itself after a successful jump",
+      );
+    }
+
+    // 存在しない番号は何もしない (>>1 に居たまま、入力も残る)
+    await jumpInput.click();
+    await jumpInput.fill("");
+    await p.keyboard.type("999");
+    await p.keyboard.press("Enter");
+    await new Promise((r) => setTimeout(r, 300));
+    assert((await topVisibleNo()) === 1, `an out-of-range number must not move the pane, got >>${await topVisibleNo()}`);
+    assert((await p.$eval(".nav-jump-input", (el) => el.value)) === "999", "an out-of-range number should stay in the input");
+    await jumpInput.fill("");
+
+    // Ctrl+Shift+↑↓ も同じ再アンカー経路を通る。キー入力自身で中断していないこと。
+    await p.evaluate(() => document.activeElement?.blur());
+    await jumpInput.click();
+    await jumpInput.fill("30");
+    await p.keyboard.press("Enter");
+    await new Promise((r) => setTimeout(r, 300));
+    await settleScroll();
+    await p.evaluate(() => document.activeElement?.blur());
+    await p.keyboard.press("Control+Shift+ArrowDown");
+    await new Promise((r) => setTimeout(r, 300));
+    await settleScroll();
+    assert((await selectedNo()) === 31, `Ctrl+Shift+ArrowDown should select >>31, got >>${await selectedNo()}`);
+    assert((await topVisibleNo()) === 31, `Ctrl+Shift+ArrowDown must scroll to >>31, got >>${await topVisibleNo()}`);
+
+    await p.close();
+    console.log("smoke-ui: the response-number jump input moves the pane ok");
+  }
+
   // layout_prefs は専用コマンドで保存しているので UI_JSON_FILES に入っていない。
   // localStorage だけ失われた環境でも、描画前にファイルから流し込むことで
   // restoreSession が既定値に戻らないこと (タブが消えないこと)。
