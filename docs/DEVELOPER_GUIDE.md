@@ -563,7 +563,7 @@ React の描画前に呼ぶ）がファイルの内容を流し込む。
 
 | フィールド | localStorage キー | 内容 |
 |-----------|------------------|------|
-| `threadSortPersistEnabled` | `desktop.threadSortPersistEnabled.v1` | ソート状態を記憶するか |
+| `threadSortPersistEnabled` | `desktop.threadSortPersistEnabled.v1` | スレ一覧のソートを板ごとに記憶するか |
 | `autoRefreshPersistEnabled` | `desktop.autoRefreshPersistEnabled.v1` | 自動更新の状態を記憶するか |
 | `postLogPrefs` | `desktop.postLogPrefs.v1` | 書き込みログを保存するか |
 | `ngIdExpireDays` | `desktop.ngIdExpireDays.v1` | NG ID の自動削除日数（0 = 無効） |
