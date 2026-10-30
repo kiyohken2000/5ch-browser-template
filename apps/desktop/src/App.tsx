@@ -681,6 +681,70 @@ const RECENT_OPENED_THREADS_KEY = "desktop.recentOpenedThreads.v1";
 const RECENT_POSTED_THREADS_KEY = "desktop.recentPostedThreads.v1";
 const THREAD_SORT_PERSIST_KEY = "desktop.threadSortPersistEnabled.v1";
 const THREAD_SORT_PREFS_KEY = "desktop.threadSortPrefs.v1";
+// スレ一覧のソートは「今どの一覧を見ているか」(scope) ごとに覚える。板は同名・別URLが
+// あるので板名ではなく URL、お気に入りなどのフィルタは "@" 始まりの固定名を鍵にする。
+// fallback は板ごとに覚えるようになる前の、全体で 1 つだったソート。まだ記憶のない
+// 一覧の初期値としてそのまま引き継ぐ。
+type ThreadSortKey = "fetched" | "id" | "datNumber" | "title" | "res" | "got" | "new" | "lastFetch" | "speed" | "since";
+type ThreadSortPref = { key: ThreadSortKey; asc: boolean };
+type ThreadSortStore = { fallback: ThreadSortPref | null; scopes: Record<string, ThreadSortPref & { at: number }> };
+const THREAD_SORT_KEYS: readonly ThreadSortKey[] = ["fetched", "id", "datNumber", "title", "res", "got", "new", "lastFetch", "speed", "since"];
+const DEFAULT_THREAD_SORT: ThreadSortPref = { key: "id", asc: true };
+// 板を開くたびに 1 件増えるので上限を決めておく。超えたら使っていない順に捨てる。
+const THREAD_SORT_SCOPE_LIMIT = 50;
+
+const isThreadSortKey = (v: unknown): v is ThreadSortKey =>
+  typeof v === "string" && (THREAD_SORT_KEYS as readonly string[]).includes(v);
+
+const readThreadSortStore = (): ThreadSortStore => {
+  const empty: ThreadSortStore = { fallback: null, scopes: {} };
+  try {
+    const raw = localStorage.getItem(THREAD_SORT_PREFS_KEY);
+    if (!raw) return empty;
+    const parsed = JSON.parse(raw) as {
+      key?: unknown;
+      asc?: unknown;
+      fallback?: { key?: unknown; asc?: unknown } | null;
+      scopes?: Record<string, { key?: unknown; asc?: unknown; at?: unknown } | null>;
+    };
+    // 旧形式 (全体で 1 つ) は fallback として読む
+    if (!parsed.scopes && isThreadSortKey(parsed.key)) {
+      return { fallback: { key: parsed.key, asc: parsed.asc !== false }, scopes: {} };
+    }
+    const store: ThreadSortStore = {
+      fallback:
+        parsed.fallback && isThreadSortKey(parsed.fallback.key)
+          ? { key: parsed.fallback.key, asc: parsed.fallback.asc !== false }
+          : null,
+      scopes: {},
+    };
+    for (const [scope, pref] of Object.entries(parsed.scopes ?? {})) {
+      if (!scope || !pref || !isThreadSortKey(pref.key)) continue;
+      store.scopes[scope] = { key: pref.key, asc: pref.asc !== false, at: typeof pref.at === "number" ? pref.at : 0 };
+    }
+    return store;
+  } catch (e) {
+    console.warn("desktop.threadSortPrefs.v1 read failed", e);
+    return empty;
+  }
+};
+
+const saveThreadSortPref = (scope: string, pref: ThreadSortPref) => {
+  if (!scope) return;
+  try {
+    const store = readThreadSortStore();
+    store.scopes[scope] = { ...pref, at: Date.now() };
+    const kept = Object.entries(store.scopes)
+      .sort((a, b) => b[1].at - a[1].at)
+      .slice(0, THREAD_SORT_SCOPE_LIMIT);
+    localStorage.setItem(
+      THREAD_SORT_PREFS_KEY,
+      JSON.stringify({ fallback: store.fallback, scopes: Object.fromEntries(kept) }),
+    );
+  } catch (e) {
+    console.warn("desktop.threadSortPrefs.v1 save failed", e);
+  }
+};
 const AUTO_REFRESH_PERSIST_KEY = "desktop.autoRefreshPersistEnabled.v1";
 const AUTO_REFRESH_ENABLED_KEY = "desktop.autoRefreshEnabled.v1";
 const POST_LOG_PREFS_KEY = "desktop.postLogPrefs.v1";
@@ -3464,34 +3528,26 @@ export default function App() {
   });
   const threadSortPersistEnabledRef = useRef(threadSortPersistEnabled);
   threadSortPersistEnabledRef.current = threadSortPersistEnabled;
-  const [threadSortKey, setThreadSortKey] = useState<"fetched" | "id" | "datNumber" | "title" | "res" | "got" | "new" | "lastFetch" | "speed" | "since">(() => {
+  // 起動直後はまだどの一覧を開くか決まっていないので、全体の既定だけを見る。
+  // 一覧が決まった時点で下の effect がその一覧のソートを呼び戻す。
+  const [threadSortKey, setThreadSortKey] = useState<ThreadSortKey>(() => {
     try {
-      const persistEnabled = localStorage.getItem(THREAD_SORT_PERSIST_KEY) === "true";
-      if (!persistEnabled) return "id";
-      const raw = localStorage.getItem(THREAD_SORT_PREFS_KEY);
-      if (!raw) return "id";
-      const parsed = JSON.parse(raw) as { key?: string; asc?: boolean };
-      const valid = ["fetched", "id", "datNumber", "title", "res", "got", "new", "lastFetch", "speed", "since"] as const;
-      if (parsed.key && (valid as readonly string[]).includes(parsed.key)) {
-        return parsed.key as typeof valid[number];
-      }
-      return "id";
+      if (localStorage.getItem(THREAD_SORT_PERSIST_KEY) !== "true") return DEFAULT_THREAD_SORT.key;
+      return readThreadSortStore().fallback?.key ?? DEFAULT_THREAD_SORT.key;
     } catch {
-      return "id";
+      return DEFAULT_THREAD_SORT.key;
     }
   });
   const [threadSortAsc, setThreadSortAsc] = useState<boolean>(() => {
     try {
-      const persistEnabled = localStorage.getItem(THREAD_SORT_PERSIST_KEY) === "true";
-      if (!persistEnabled) return true;
-      const raw = localStorage.getItem(THREAD_SORT_PREFS_KEY);
-      if (!raw) return true;
-      const parsed = JSON.parse(raw) as { key?: string; asc?: boolean };
-      return typeof parsed.asc === "boolean" ? parsed.asc : true;
+      if (localStorage.getItem(THREAD_SORT_PERSIST_KEY) !== "true") return DEFAULT_THREAD_SORT.asc;
+      return readThreadSortStore().fallback?.asc ?? DEFAULT_THREAD_SORT.asc;
     } catch {
-      return true;
+      return DEFAULT_THREAD_SORT.asc;
     }
   });
+  const threadSortRef = useRef<ThreadSortPref>({ key: threadSortKey, asc: threadSortAsc });
+  threadSortRef.current = { key: threadSortKey, asc: threadSortAsc };
   const autoUpdateCheckedRef = useRef(false);
   const cachedSortOrderRef = useRef<string[]>([]);
   const prevSortSnapshotRef = useRef({ key: "", asc: true, urls: "", favFetched: false, newUrls: 0 });
@@ -3613,14 +3669,40 @@ export default function App() {
   useEffect(() => {
     saveUiSetting(THREAD_SORT_PERSIST_KEY, String(threadSortPersistEnabled));
   }, [threadSortPersistEnabled]);
+  // 今スレ一覧に何を出しているか。板は URL、フィルタは "@" 始まりの固定名。
+  // 優先順はスレ一覧ヘッダのフィルタ表示と同じ順にそろえる。
+  const threadSortScope = useMemo(() => {
+    if (showThreadSearchOnly) return "@search";
+    if (showCachedOnly) return cacheListAllBoards ? "@cached-all" : "@cached";
+    if (showFavoritesOnly) return "@favorites";
+    if (showRecentOpenedOnly) return "@recent-opened";
+    if (showRecentPostedOnly) return "@recent-posted";
+    return selectedBoardUrl;
+  }, [showThreadSearchOnly, showCachedOnly, cacheListAllBoards, showFavoritesOnly, showRecentOpenedOnly, showRecentPostedOnly, selectedBoardUrl]);
+  const threadSortScopeRef = useRef<string | null>(null);
+  // 見ている一覧が変わったら、その一覧で最後に使っていたソートを呼び戻す。
+  // 板選択・フィルタ切替の入口は多いので、各ボタン側ではなくここ一箇所で面倒を見る
+  // (入口が増えたときに取りこぼさないため)。保存は toggleThreadSort が行う。
   useEffect(() => {
-    if (!threadSortPersistEnabled) return;
-    try {
-      localStorage.setItem(THREAD_SORT_PREFS_KEY, JSON.stringify({ key: threadSortKey, asc: threadSortAsc }));
-    } catch (e) {
-      console.warn("desktop.threadSortPrefs.v1 save failed", e);
+    if (!threadSortPersistEnabled) {
+      threadSortScopeRef.current = null;
+      return;
     }
-  }, [threadSortPersistEnabled, threadSortKey, threadSortAsc]);
+    if (!threadSortScope || threadSortScopeRef.current === threadSortScope) return;
+    const firstScope = threadSortScopeRef.current === null;
+    threadSortScopeRef.current = threadSortScope;
+    const store = readThreadSortStore();
+    const stored = store.scopes[threadSortScope];
+    if (!stored && firstScope) {
+      // 設定を今オンにした直後、または起動後はじめての一覧。
+      // 今の並びをこの一覧のものとして覚える (勝手に並びが変わらないように)。
+      saveThreadSortPref(threadSortScope, threadSortRef.current);
+      return;
+    }
+    const pref = stored ?? store.fallback ?? DEFAULT_THREAD_SORT;
+    setThreadSortKey(pref.key);
+    setThreadSortAsc(pref.asc);
+  }, [threadSortPersistEnabled, threadSortScope]);
   // スレ一覧フィルタの選択状態は常に保存しておく。復元するかどうかは
   // 「起動時に前回のタブと板を復元」で決まるので、設定を後から有効にしたときにも
   // 直前の状態から復元できる。
@@ -5235,13 +5317,14 @@ export default function App() {
     setStatus(tab.locked ? "タブのロックを解除しました" : "タブをロックしました");
   };
 
-  const toggleThreadSort = (key: "fetched" | "id" | "datNumber" | "title" | "res" | "got" | "new" | "lastFetch" | "speed" | "since") => {
-    if (threadSortKey === key) {
-      setThreadSortAsc((prev) => !prev);
-    } else {
-      setThreadSortKey(key);
-      setThreadSortAsc(key === "id" || key === "datNumber" || key === "title" || key === "fetched");
-    }
+  const toggleThreadSort = (key: ThreadSortKey) => {
+    const nextAsc = threadSortKey === key
+      ? !threadSortAsc
+      : key === "id" || key === "datNumber" || key === "title" || key === "fetched";
+    setThreadSortKey(key);
+    setThreadSortAsc(nextAsc);
+    // 「板ごとに記憶」が有効なときは、押したその場で今見ている一覧のものとして覚える。
+    if (threadSortPersistEnabled) saveThreadSortPref(threadSortScope, { key, asc: nextAsc });
   };
 
   const moveThreadColumnDraft = (index: number, direction: -1 | 1) => {
@@ -16048,7 +16131,7 @@ export default function App() {
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={threadSortPersistEnabled} onChange={(e) => setThreadSortPersistEnabled(e.target.checked)} />
-                  <span>スレ一覧のソート状態を再起動後も保持</span>
+                  <span>スレ一覧のソートを板ごとに記憶</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={autoRefreshPersistEnabled} onChange={(e) => setAutoRefreshPersistEnabled(e.target.checked)} />

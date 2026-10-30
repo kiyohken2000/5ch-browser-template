@@ -5017,6 +5017,192 @@ try {
     console.log("smoke-ui: the response-number jump input moves the pane ok");
   }
 
+  // 「スレ一覧のソートを板ごとに記憶」の回帰用。板やフィルタを切り替えたときに、
+  // その一覧で最後に使っていたソートが戻ってくること。復元は「今どの一覧を見ているか」
+  // が変わったときの effect 一本だけで面倒を見ているので、板の切替とフィルタの切替の
+  // 両方を通して、片方だけ効いている状態にならないことを見る。
+  {
+    const BOARD_A = "https://mao.5ch.io/ngt/";
+    const BOARD_B = "https://mao.5ch.io/other/";
+    // 再起動の検査でも同じ種を使うので、仕込みを関数にしておく
+    const seedSortPage = (page) => page.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+      localStorage.setItem("desktop.boardCategories.v1", arg.boards);
+      localStorage.setItem("desktop.expandedCategories.v1", JSON.stringify(["テスト"]));
+      localStorage.setItem("desktop.threadSortPersistEnabled.v1", "true");
+      localStorage.setItem("desktop.recentOpenedThreads.v1", arg.recent);
+      // 取得順 (= 番号順) とタイトル順がずれるように並べておく。これで「どちらの
+      // ソートで並んでいるか」が先頭の 1 行を見るだけで分かる。
+      const listFor = (prefix) => ["B", "A", "C"].map((s, i) => ({
+        threadKey: "300000000" + (i + 1),
+        title: prefix + "-" + s,
+        responseCount: (i + 1) * 10,
+        threadUrl: "https://mao.5ch.io/test/read.cgi/x/300000000" + (i + 1) + "/",
+      }));
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "fetch_thread_list") {
+            return Promise.resolve(listFor((args && args.threadUrl) === arg.boardB ? "B" : "A"));
+          }
+          if (cmd === "load_layout_prefs") return Promise.resolve("");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "load_ui_json") {
+            // settings.json 側にも入れておく。移行済みフラグが立っている状態で
+            // ファイルにフィールドが無いと、アプリは「ユーザーが消した」とみなして
+            // localStorage の副本まで落とす (bootstrapUiSettings)。
+            if (args && args.name === "settings") return Promise.resolve(JSON.stringify({ threadSortPersistEnabled: true }));
+            if (args && args.name === "recent_opened_threads") return Promise.resolve(arg.recent);
+            return Promise.resolve("");
+          }
+          if (cmd === "save_ui_json") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({});
+          if (cmd === "save_read_status") return Promise.resolve(null);
+          if (cmd === "load_thread_cache") return Promise.resolve(null);
+          if (cmd === "save_thread_cache") return Promise.resolve(null);
+          // 未知のコマンドは空応答で埋めずに失敗させる。形のある応答を待っている
+          // 画面が null で壊れるのを避けるため (アプリ側は失敗なら既定値で進む)。
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, {
+      prefs: JSON.stringify({ restoreSession: true, lastBoard: { boardName: "ngt", url: BOARD_A } }),
+      boards: JSON.stringify([{
+        categoryName: "テスト",
+        boards: [{ boardName: "ngt", url: BOARD_A }, { boardName: "別の板", url: BOARD_B }],
+      }]),
+      recent: JSON.stringify([
+        { threadUrl: "https://mao.5ch.io/test/read.cgi/x/3100000001/", title: "R-B", boardUrl: BOARD_A, updatedAt: 3 },
+        { threadUrl: "https://mao.5ch.io/test/read.cgi/x/3100000002/", title: "R-A", boardUrl: BOARD_A, updatedAt: 2 },
+        { threadUrl: "https://mao.5ch.io/test/read.cgi/x/3100000003/", title: "R-C", boardUrl: BOARD_A, updatedAt: 1 },
+      ]),
+      boardB: BOARD_B,
+    });
+    const p = await context.newPage();
+    await seedSortPage(p);
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector(".pane.threads tbody .thread-title-cell");
+    await new Promise((r) => setTimeout(r, 700));
+
+    // 「タイトル」列のヘッダ。並びが変わっても拾えるように文字で探す
+    const titleHeader = async () => {
+      for (const th of await p.$$(".pane.threads thead th.sortable-th")) {
+        const text = (await th.innerText()).replace(/[\s▲▼]/g, "");
+        if (text === "タイトル") return th;
+      }
+      return null;
+    };
+    const titleMark = async () => {
+      const th = await titleHeader();
+      if (!th) return "no-header";
+      const text = await th.innerText();
+      return text.includes("▲") ? "asc" : text.includes("▼") ? "desc" : "none";
+    };
+    const firstTitle = () => p.$$eval(".pane.threads tbody .thread-title-cell", (els) => (els[0] ? els[0].innerText.trim() : "(no rows)"));
+    const clickTitleHeader = async () => {
+      const th = await titleHeader();
+      assert(th, "the thread list should have a sortable タイトル header");
+      await th.click();
+      await new Promise((r) => setTimeout(r, 250));
+    };
+    const waitTitleMark = async (want) => {
+      for (let i = 0; i < 40; i++) {
+        if ((await titleMark()) === want) return;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      assert(false, `the タイトル column should end up sorted ${want}, got ${await titleMark()}`);
+    };
+    const waitFirstTitle = async (want) => {
+      for (let i = 0; i < 40; i++) {
+        if ((await firstTitle()) === want) return;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      assert(false, `the thread list should settle on ${want}, got ${await firstTitle()} (sorted by ${await titleMark()})`);
+    };
+
+    // 板A: 既定は番号順なので取得順のまま。タイトル順に変える
+    await waitTitleMark("none");
+    await waitFirstTitle("A-B");
+    await clickTitleHeader();
+    await waitTitleMark("asc");
+    await waitFirstTitle("A-A");
+
+    // 板B: まだ記憶がないので既定 (番号順) で開くこと。板Aの並びが漏れてはいけない
+    const boards = await p.$$(".board-tree .board-item");
+    assert(boards.length === 2, `the board tree should show the two seeded boards, got ${boards.length}`);
+    await boards[1].click();
+    await waitTitleMark("none");
+    await waitFirstTitle("B-B");
+
+    // 板B はタイトルの降順にしておく
+    await clickTitleHeader();
+    await clickTitleHeader();
+    await waitTitleMark("desc");
+    await waitFirstTitle("B-C");
+
+    // 板Aへ戻ると板Aの昇順、板Bへ行くと板Bの降順。取り違えないこと
+    await boards[0].click();
+    await waitTitleMark("asc");
+    await waitFirstTitle("A-A");
+    await boards[1].click();
+    await waitTitleMark("desc");
+    await waitFirstTitle("B-C");
+
+    // 「最近開いたスレ」は板をまたぐ別の一覧なので、板Bの並びを引き継がないこと
+    await p.click(".title-split-toggle");
+    await p.waitForSelector(".title-split-menu");
+    let recentItem = null;
+    for (const b of await p.$$(".title-split-menu button")) {
+      if ((await b.innerText()).includes("最近開いたスレ")) { recentItem = b; break; }
+    }
+    assert(recentItem, "the thread filter menu should offer 最近開いたスレ");
+    await recentItem.click();
+    await waitTitleMark("none");
+    await waitFirstTitle("R-B");
+    await clickTitleHeader();
+    await waitTitleMark("asc");
+    await waitFirstTitle("R-A");
+
+    // フィルタを解除すると板Bの一覧に戻る。板Bの降順が戻ること
+    await p.click(".title-split-main");
+    await waitTitleMark("desc");
+    await waitFirstTitle("B-C");
+
+    // 保存先。板ごと・フィルタごとに 1 件ずつ入っていること
+    const saved = await p.evaluate(() => JSON.parse(localStorage.getItem("desktop.threadSortPrefs.v1") || "null"));
+    assert(saved && saved.scopes, "the per-scope sort should be persisted under desktop.threadSortPrefs.v1");
+    const scopes = Object.keys(saved.scopes).sort();
+    assert(
+      scopes.length === 3 && scopes.includes("@recent-opened"),
+      `the store should hold one entry per list, got ${JSON.stringify(scopes)}`,
+    );
+
+    // 再起動後も板ごとに戻ること (同じ localStorage のまま開き直す)
+    const reopened = await context.newPage();
+    await seedSortPage(reopened);
+    await reopened.goto(targetUrl, { waitUntil: "load" });
+    await reopened.waitForSelector(".pane.threads tbody .thread-title-cell");
+    const reopenedMark = async () => reopened.$$eval(".pane.threads thead th.sortable-th", (els) => {
+      for (const el of els) {
+        if (el.innerText.replace(/[\s\u25b2\u25bc]/g, "") !== "\u30bf\u30a4\u30c8\u30eb") continue;
+        return el.innerText.includes("\u25b2") ? "asc" : el.innerText.includes("\u25bc") ? "desc" : "none";
+      }
+      return "no-header";
+    });
+    let restored = "none";
+    for (let i = 0; i < 40; i++) {
+      restored = await reopenedMark();
+      if (restored === "asc") break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert(restored === "asc", `restarting on board A must restore its sort, got ${restored}`);
+    await reopened.close();
+
+    await p.close();
+    console.log("smoke-ui: the thread list sort is remembered per board and per filter ok");
+  }
+
   // layout_prefs は専用コマンドで保存しているので UI_JSON_FILES に入っていない。
   // localStorage だけ失われた環境でも、描画前にファイルから流し込むことで
   // restoreSession が既定値に戻らないこと (タブが消えないこと)。
