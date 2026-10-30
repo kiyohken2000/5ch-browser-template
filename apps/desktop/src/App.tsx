@@ -3628,6 +3628,8 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [threadColumnsOpen, setThreadColumnsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // 設定の項目が 90 を超えて 1 枚では長すぎるので、面ごとに分けて出す。
+  const [settingsTab, setSettingsTab] = useState<"appearance" | "layout" | "lists" | "media" | "post" | "account">("appearance");
   // 通知は「Webhook を作る → URL を貼る → テスト送信」という一度きりのセットアップで、
   // 日常的に触る他の設定とは使い方が違う。AI 設定と同じく独立したパネルに分ける。
   const [notifySettingsOpen, setNotifySettingsOpen] = useState(false);
@@ -15359,26 +15361,28 @@ export default function App() {
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.preventDefault()}
         >
-          {threadTabs.map((tab, i) => (
-            <div
-              key={tab.threadUrl}
-              className={`tab-list-item${i === activeTabIndex ? " active" : ""}`}
-              title={tab.title || tab.threadUrl}
-              onClick={() => {
-                setTabList(null);
-                onTabClick(i);
-                setTimeout(() => {
-                  responseScrollRef.current?.focus({ preventScroll: true });
-                }, 60);
-              }}
-            >
-              {tab.locked && <Lock className="tab-list-item-lock" size={10} />}
-              <span className="tab-list-item-title">{tab.title || tab.threadUrl}</span>
-              {tabCacheRef.current.has(tab.threadUrl) && (
-                <span className="tab-list-item-count">({tabCacheRef.current.get(tab.threadUrl)!.responses.length})</span>
-              )}
-            </div>
-          ))}
+          <div className="tab-list-scroll">
+            {threadTabs.map((tab, i) => (
+              <div
+                key={tab.threadUrl}
+                className={`tab-list-item${i === activeTabIndex ? " active" : ""}`}
+                title={tab.title || tab.threadUrl}
+                onClick={() => {
+                  setTabList(null);
+                  onTabClick(i);
+                  setTimeout(() => {
+                    responseScrollRef.current?.focus({ preventScroll: true });
+                  }, 60);
+                }}
+              >
+                {tab.locked && <Lock className="tab-list-item-lock" size={10} />}
+                <span className="tab-list-item-title">{tab.title || tab.threadUrl}</span>
+                {tabCacheRef.current.has(tab.threadUrl) && (
+                  <span className="tab-list-item-count">({tabCacheRef.current.get(tab.threadUrl)!.responses.length})</span>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
       {tabMenu && (
@@ -15549,13 +15553,15 @@ export default function App() {
             onClick={(ev) => handlePopupChainClick(ev)}
             onMouseMove={handlePopupImageHover}
           >
-            {touchMode && renderPopupTouchBar()}
-            {popupResps.map((popupResp) => (
-              <div key={popupResp.id}>
-                {renderPopupHeader(popupResp)}
-                {renderPopupBody(popupResp)}
-              </div>
-            ))}
+            <div className="anchor-popup-scroll">
+              {touchMode && renderPopupTouchBar()}
+              {popupResps.map((popupResp) => (
+                <div key={popupResp.id}>
+                  {renderPopupHeader(popupResp)}
+                  {renderPopupBody(popupResp)}
+                </div>
+              ))}
+            </div>
           </div>
         );
       })()}
@@ -15592,17 +15598,19 @@ export default function App() {
             onClick={(ev) => handlePopupChainClick(ev)}
             onMouseMove={handlePopupImageHover}
           >
-            {touchMode && renderPopupTouchBar()}
-            {refs.map((refNo) => {
-              const refResp = responseItems.find((r) => r.id === refNo);
-              if (!refResp) return null;
-              return (
-                <div key={refNo} className="back-ref-popup-item">
-                  {renderPopupHeader(refResp)}
-                  {renderPopupBody(refResp)}
-                </div>
-              );
-            })}
+            <div className="anchor-popup-scroll">
+              {touchMode && renderPopupTouchBar()}
+              {refs.map((refNo) => {
+                const refResp = responseItems.find((r) => r.id === refNo);
+                if (!refResp) return null;
+                return (
+                  <div key={refNo} className="back-ref-popup-item">
+                    {renderPopupHeader(refResp)}
+                    {renderPopupBody(refResp)}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       })()}
@@ -15645,13 +15653,15 @@ export default function App() {
             onClick={(ev) => handlePopupChainClick(ev, i)}
             onMouseMove={handlePopupImageHover}
           >
-            {touchMode && renderPopupTouchBar()}
-            {nestedResps.map((nestedResp) => (
-              <div key={nestedResp.id}>
-                {renderPopupHeader(nestedResp)}
-                {renderPopupBody(nestedResp)}
-              </div>
-            ))}
+            <div className="anchor-popup-scroll">
+              {touchMode && renderPopupTouchBar()}
+              {nestedResps.map((nestedResp) => (
+                <div key={nestedResp.id}>
+                  {renderPopupHeader(nestedResp)}
+                  {renderPopupBody(nestedResp)}
+                </div>
+              ))}
+            </div>
           </div>
         );
       })}
@@ -15959,14 +15969,23 @@ export default function App() {
       )}
       {settingsOpen && (
         <div className="lightbox-overlay" onClick={() => setSettingsOpen(false)}>
-          <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="settings-panel settings-panel-tabbed" onClick={(e) => e.stopPropagation()}>
             <header className="settings-header">
               <strong>設定</strong>
               <button onClick={() => setSettingsOpen(false)}>閉じる</button>
             </header>
+            <div className="settings-tabs">
+              <button className={settingsTab === "appearance" ? "active-toggle" : ""} onClick={() => setSettingsTab("appearance")}>外観</button>
+              <button className={settingsTab === "layout" ? "active-toggle" : ""} onClick={() => setSettingsTab("layout")}>画面・操作</button>
+              <button className={settingsTab === "lists" ? "active-toggle" : ""} onClick={() => setSettingsTab("lists")}>スレ一覧・レス</button>
+              <button className={settingsTab === "media" ? "active-toggle" : ""} onClick={() => setSettingsTab("media")}>画像・リンク</button>
+              <button className={settingsTab === "post" ? "active-toggle" : ""} onClick={() => setSettingsTab("post")}>書き込み</button>
+              <button className={settingsTab === "account" ? "active-toggle" : ""} onClick={() => setSettingsTab("account")}>アカウント・データ</button>
+            </div>
             <div className="settings-body">
+              {settingsTab === "appearance" && (<>
               <fieldset>
-                <legend>表示</legend>
+                <legend>テーマ</legend>
                 <label className="settings-row">
                   <span>テーマ</span>
                   <select value={darkMode ? "dark" : "light"} onChange={(e) => setDarkMode(e.target.value === "dark")}>
@@ -15979,36 +15998,6 @@ export default function App() {
                   <select className="ui-zoom-select" value={String(uiZoom)} onChange={(e) => setUiZoom(Number(e.target.value))}>
                     {UI_ZOOM_OPTIONS.map((o) => (
                       <option key={o.value} value={String(o.value)}>{o.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="settings-row">
-                  <span>タブ幅</span>
-                  <select
-                    className="tab-width-select"
-                    value={tabWidth}
-                    onChange={(e) => setTabWidth(e.target.value as TabWidthPref)}
-                  >
-                    {TAB_WIDTH_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </select>
-                  <span className="settings-hint">「狭い」はタブの文字と枠を詰めて、一度に見えるタブを増やします</span>
-                </label>
-                <label className="settings-row">
-                  <input type="checkbox" checked={tabMultiRow} onChange={(e) => setTabMultiRow(e.target.checked)} />
-                  <span title={`オンにするとタブバーを折り返して複数段に並べます。段数はタブバーの下端のドラッグで ${MIN_TAB_ROWS}〜${MAX_TAB_ROWS} 段に変えられます`}>タブを多段で表示する</span>
-                  <span className="settings-hint">横スクロールせずに開いているタブを見渡せます。段数は下端のドラッグで変更</span>
-                </label>
-                <label className="settings-row">
-                  <span>タッチ操作</span>
-                  <select
-                    className="touch-mode-select"
-                    value={touchModePref}
-                    onChange={(e) => setTouchModePref(e.target.value as TouchModePref)}
-                  >
-                    {TOUCH_MODE_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
                 </label>
@@ -16029,6 +16018,27 @@ export default function App() {
                     <option value="full">フル</option>
                   </select>
                 </label>
+                <label className="settings-row">
+                  <span>タブ幅</span>
+                  <select
+                    className="tab-width-select"
+                    value={tabWidth}
+                    onChange={(e) => setTabWidth(e.target.value as TabWidthPref)}
+                  >
+                    {TAB_WIDTH_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <span className="settings-hint">「狭い」はタブの文字と枠を詰めて、一度に見えるタブを増やします</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={tabMultiRow} onChange={(e) => setTabMultiRow(e.target.checked)} />
+                  <span title={`オンにするとタブバーを折り返して複数段に並べます。段数はタブバーの下端のドラッグで ${MIN_TAB_ROWS}〜${MAX_TAB_ROWS} 段に変えられます`}>タブを多段で表示する</span>
+                  <span className="settings-hint">横スクロールせずに開いているタブを見渡せます。段数は下端のドラッグで変更</span>
+                </label>
+              </fieldset>
+              <fieldset>
+                <legend>文字</legend>
                 <label className="settings-row">
                   <span>フォント</span>
                   <select className="font-family-select" value={fontFamily} onChange={(e) => setFontFamily(e.target.value)}>
@@ -16068,42 +16078,11 @@ export default function App() {
                   <input type="number" className="tab-font-size-input" value={tabFontSize} min={8} max={20} onChange={(e) => setTabFontSize(clamp(Math.round(Number(e.target.value) || 11), 8, 20))} />
                   <span className="settings-hint">スレタブだけの文字サイズ。タブの高さと多段の段の高さも一緒に伸びます</span>
                 </label>
-                <label className="settings-row">
-                  <span>自動更新間隔 (秒)</span>
-                  <input type="number" value={autoRefreshInterval} min={10} max={600} onChange={(e) => setAutoRefreshInterval(Number(e.target.value))} />
-                </label>
-                <label className="settings-row">
-                  <span>オートスクロール速度 (px/秒)</span>
-                  <input type="number" value={autoScrollSpeed} min={5} max={500} onChange={(e) => setAutoScrollSpeed(Math.max(5, Math.min(500, Number(e.target.value) || 40)))} />
-                </label>
-                <label className="settings-row">
-                  <input type="checkbox" checked={wheelRowScrollEnabled} onChange={(e) => setWheelRowScrollEnabled(e.target.checked)} />
-                  <span title="OFF のときは OS 既定のスクロール量。ON にするとホイール1段で指定行数だけ動き、スレ一覧を狭くしても表示行数を超えて飛びません">スレ一覧のホイールスクロールを行単位にする</span>
-                </label>
-                {wheelRowScrollEnabled && (
-                  <label className="settings-row">
-                    <span>ホイール1段あたりの行数 (スレ一覧)</span>
-                    <input type="number" value={wheelScrollRows} min={1} max={20} onChange={(e) => setWheelScrollRows(Math.max(1, Math.min(20, Math.round(Number(e.target.value) || 3))))} />
-                  </label>
-                )}
-                <label className="settings-row">
-                  <input type="checkbox" checked={alwaysOnTop} onChange={(e) => setAlwaysOnTop(e.target.checked)} />
-                  <span>ウィンドウを最前面に固定</span>
-                </label>
-                <label className="settings-row">
-                  <input type="checkbox" checked={mouseGestureEnabled} onChange={(e) => setMouseGestureEnabled(e.target.checked)} />
-                  <span>マウスジェスチャ</span>
-                  <button type="button" className="gesture-config-open-btn" onClick={() => setGestureListOpen(true)}>ジェスチャ割り当て…</button>
-                </label>
-                <label className="settings-row">
-                  <input type="checkbox" checked={showBoardButtons} onChange={(e) => setShowBoardButtons(e.target.checked)} />
-                  <span>板ボタンバー</span>
-                </label>
-                <label className="settings-row">
-                  <input type="checkbox" checked={favBoardButtonEnabled} onChange={(e) => setFavBoardButtonEnabled(e.target.checked)} />
-                  <span>板ボタンバーに「お気に入り」を表示</span>
-                  <span className="settings-hint">お気に入りスレ一覧を板のように開くボタン</span>
-                </label>
+              </fieldset>
+              </>)}
+              {settingsTab === "layout" && (<>
+              <fieldset>
+                <legend>バーの表示</legend>
                 <label className="settings-row">
                   <input type="checkbox" checked={toolBarVisible} onChange={(e) => setToolBarVisible(e.target.checked)} />
                   <span>ツールバー</span>
@@ -16118,12 +16097,71 @@ export default function App() {
                   <span className="settings-hint">Ctrl+4 で切替。隠している間はタブのロックを掛け外しできません</span>
                 </label>
                 <label className="settings-row">
+                  <input type="checkbox" checked={statusBarVisible} onChange={(e) => setStatusBarVisible(e.target.checked)} />
+                  <span>ステータスバー</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={showBoardButtons} onChange={(e) => setShowBoardButtons(e.target.checked)} />
+                  <span>板ボタンバー</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={favBoardButtonEnabled} onChange={(e) => setFavBoardButtonEnabled(e.target.checked)} />
+                  <span>板ボタンバーに「お気に入り」を表示</span>
+                  <span className="settings-hint">お気に入りスレ一覧を板のように開くボタン</span>
+                </label>
+                <label className="settings-row">
                   <input type="checkbox" checked={composeDocked} onChange={(e) => { setComposeDocked(e.target.checked); if (e.target.checked) setResponsePaneHidden(false); }} />
                   <span title="オフのときは書き込み欄を独立した窓として浮かせます">書き込み欄をレス本文の下に固定</span>
                 </label>
+              </fieldset>
+              <fieldset>
+                <legend>ウィンドウ・操作</legend>
                 <label className="settings-row">
-                  <input type="checkbox" checked={statusBarVisible} onChange={(e) => setStatusBarVisible(e.target.checked)} />
-                  <span>ステータスバー</span>
+                  <input type="checkbox" checked={alwaysOnTop} onChange={(e) => setAlwaysOnTop(e.target.checked)} />
+                  <span>ウィンドウを最前面に固定</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={threadPaneAutoToggle} onChange={(e) => setThreadPaneAutoToggle(e.target.checked)} />
+                  <span title="板を選ぶとスレ一覧が出て、スレを開くかレスペインを触ると隠れます">スレ一覧を自動で開閉する</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={threadPaneBackRestore} disabled={!threadPaneAutoToggle} onChange={(e) => setThreadPaneBackRestore(e.target.checked)} />
+                  <span title="自動開閉で隠れたスレ一覧を、マウスの戻るボタンで出し直します。スレッド窓は畳みます">マウスの戻るボタンでスレ一覧に戻る</span>
+                  <span className="settings-hint">自動開閉が有効なときだけ</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={restoreSession} onChange={(e) => setRestoreSession(e.target.checked)} />
+                  <span title="スレ一覧フィルタ (お気に入り / 最近開いた / 最近書き込んだ) の選択状態も復元します">起動時に前回のタブ・板・スレ一覧フィルタを復元</span>
+                </label>
+                <label className="settings-row">
+                  <span>タッチ操作</span>
+                  <select
+                    className="touch-mode-select"
+                    value={touchModePref}
+                    onChange={(e) => setTouchModePref(e.target.value as TouchModePref)}
+                  >
+                    {TOUCH_MODE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={mouseGestureEnabled} onChange={(e) => setMouseGestureEnabled(e.target.checked)} />
+                  <span>マウスジェスチャ</span>
+                  <button type="button" className="gesture-config-open-btn" onClick={() => setGestureListOpen(true)}>ジェスチャ割り当て…</button>
+                </label>
+              </fieldset>
+              </>)}
+              {settingsTab === "lists" && (<>
+              <fieldset>
+                <legend>スレ一覧</legend>
+                <label className="settings-row">
+                  <span>自動更新間隔 (秒)</span>
+                  <input type="number" value={autoRefreshInterval} min={10} max={600} onChange={(e) => setAutoRefreshInterval(Number(e.target.value))} />
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={autoRefreshPersistEnabled} onChange={(e) => setAutoRefreshPersistEnabled(e.target.checked)} />
+                  <span>「自動更新」のオン/オフを再起動後も保持</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={keepSortOnRefresh} onChange={(e) => setKeepSortOnRefresh(e.target.checked)} />
@@ -16134,12 +16172,33 @@ export default function App() {
                   <span>スレ一覧のソートを板ごとに記憶</span>
                 </label>
                 <label className="settings-row">
-                  <input type="checkbox" checked={autoRefreshPersistEnabled} onChange={(e) => setAutoRefreshPersistEnabled(e.target.checked)} />
-                  <span>「自動更新」のオン/オフを再起動後も保持</span>
-                </label>
-                <label className="settings-row">
                   <input type="checkbox" checked={threadAgeColorEnabled} onChange={(e) => setThreadAgeColorEnabled(e.target.checked)} />
                   <span>スレ一覧を経過時間で色分け</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={titleClickRefresh} onChange={(e) => setTitleClickRefresh(e.target.checked)} />
+                  <span>スレタイクリックでスレ一覧を更新</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={wheelRowScrollEnabled} onChange={(e) => setWheelRowScrollEnabled(e.target.checked)} />
+                  <span title="OFF のときは OS 既定のスクロール量。ON にするとホイール1段で指定行数だけ動き、スレ一覧を狭くしても表示行数を超えて飛びません">スレ一覧のホイールスクロールを行単位にする</span>
+                </label>
+                {wheelRowScrollEnabled && (
+                  <label className="settings-row">
+                    <span>ホイール1段あたりの行数 (スレ一覧)</span>
+                    <input type="number" value={wheelScrollRows} min={1} max={20} onChange={(e) => setWheelScrollRows(Math.max(1, Math.min(20, Math.round(Number(e.target.value) || 3))))} />
+                  </label>
+                )}
+              </fieldset>
+              <fieldset>
+                <legend>レスの表示</legend>
+                <label className="settings-row">
+                  <input type="checkbox" checked={responseMetaInline} onChange={(e) => setResponseMetaInline(e.target.checked)} />
+                  <span title="オフのときはレスペインの右端に寄せます">日付・IDを名前の隣に表示</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={showResponseMail} onChange={(e) => setShowResponseMail(e.target.checked)} />
+                  <span title="過去ログ表示ではメール欄を取得できないため出ません">メール欄 (sage など) を名前の隣に表示</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={responseBodyBottomPad} onChange={(e) => setResponseBodyBottomPad(e.target.checked)} />
@@ -16169,39 +16228,32 @@ export default function App() {
                   </>
                 )}
                 <label className="settings-row">
-                  <input type="checkbox" checked={responseMetaInline} onChange={(e) => setResponseMetaInline(e.target.checked)} />
-                  <span title="オフのときはレスペインの右端に寄せます">日付・IDを名前の隣に表示</span>
+                  <span>人気レスの被参照数しきい値</span>
+                  <input type="number" value={hotResponseThreshold} min={1} max={999} onChange={(e) => setHotResponseThreshold(Math.max(1, Math.min(999, Number(e.target.value) || 1)))} />
+                  <span className="settings-hint">レス欄の炎ボタンで、この数以上の &gt;&gt;N を受けたレスだけ表示</span>
                 </label>
                 <label className="settings-row">
-                  <input type="checkbox" checked={showResponseMail} onChange={(e) => setShowResponseMail(e.target.checked)} />
-                  <span title="過去ログ表示ではメール欄を取得できないため出ません">メール欄 (sage など) を名前の隣に表示</span>
-                </label>
-                <label className="settings-row">
-                  <input type="checkbox" checked={titleClickRefresh} onChange={(e) => setTitleClickRefresh(e.target.checked)} />
-                  <span>スレタイクリックでスレ一覧を更新</span>
-                </label>
-                <label className="settings-row">
-                  <input type="checkbox" checked={threadPaneAutoToggle} onChange={(e) => setThreadPaneAutoToggle(e.target.checked)} />
-                  <span title="板を選ぶとスレ一覧が出て、スレを開くかレスペインを触ると隠れます">スレ一覧を自動で開閉する</span>
-                </label>
-                <label className="settings-row">
-                  <input type="checkbox" checked={threadPaneBackRestore} disabled={!threadPaneAutoToggle} onChange={(e) => setThreadPaneBackRestore(e.target.checked)} />
-                  <span title="自動開閉で隠れたスレ一覧を、マウスの戻るボタンで出し直します。スレッド窓は畳みます">マウスの戻るボタンでスレ一覧に戻る</span>
-                  <span className="settings-hint">自動開閉が有効なときだけ</span>
+                  <input type="checkbox" checked={hotResponseRedEnabled} onChange={(e) => setHotResponseRedEnabled(e.target.checked)} />
+                  <span>しきい値以上の ▼N を赤く表示</span>
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={autoScrollToSelected} onChange={(e) => setAutoScrollToSelected(e.target.checked)} />
                   <span>レス選択時に自動スクロールして表示</span>
                 </label>
                 <label className="settings-row">
-                  <input type="checkbox" checked={restoreSession} onChange={(e) => setRestoreSession(e.target.checked)} />
-                  <span title="スレ一覧フィルタ (お気に入り / 最近開いた / 最近書き込んだ) の選択状態も復元します">起動時に前回のタブ・板・スレ一覧フィルタを復元</span>
+                  <span>オートスクロール速度 (px/秒)</span>
+                  <input type="number" value={autoScrollSpeed} min={5} max={500} onChange={(e) => setAutoScrollSpeed(Math.max(5, Math.min(500, Number(e.target.value) || 40)))} />
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={openAtReadMarker} onChange={(e) => { setOpenAtReadMarker(e.target.checked); openAtReadMarkerRef.current = e.target.checked; }} />
                   <span title="右クリックメニューの「ここまで読んだに設定」で付けた位置の次のレスから表示します。マーカーが無いスレは前回見ていた位置から開きます">スレを開いたとき「ここまで読んだ」の位置から表示</span>
                   <span className="settings-hint">同じタブに戻るときは直前の位置</span>
                 </label>
+              </fieldset>
+              </>)}
+              {settingsTab === "media" && (<>
+              <fieldset>
+                <legend>画像・リンク</legend>
                 <label className="settings-row">
                   <input type="checkbox" checked={thumbAutoLoadEnabled} onChange={(e) => setThumbAutoLoadEnabled(e.target.checked)} />
                   <span title="オフにすると本文と画像一覧のサムネイルを自動で取得しません。プレースホルダをクリックしたときだけ読み込みます">サムネイルを自動で読み込む</span>
@@ -16268,16 +16320,9 @@ export default function App() {
                   <span>プレビュー画像をウィンドウ内に収める</span>
                   <span className="settings-hint">オフ = 原寸 (縦長はスクロール、Ctrl+ホイールで拡縮)</span>
                 </label>
-                <label className="settings-row">
-                  <span>人気レスの被参照数しきい値</span>
-                  <input type="number" value={hotResponseThreshold} min={1} max={999} onChange={(e) => setHotResponseThreshold(Math.max(1, Math.min(999, Number(e.target.value) || 1)))} />
-                  <span className="settings-hint">レス欄の炎ボタンで、この数以上の &gt;&gt;N を受けたレスだけ表示</span>
-                </label>
-                <label className="settings-row">
-                  <input type="checkbox" checked={hotResponseRedEnabled} onChange={(e) => setHotResponseRedEnabled(e.target.checked)} />
-                  <span>しきい値以上の ▼N を赤く表示</span>
-                </label>
               </fieldset>
+              </>)}
+              {settingsTab === "post" && (<>
               <fieldset>
                 <legend>書き込み</legend>
                 <label className="settings-row">
@@ -16361,6 +16406,8 @@ export default function App() {
                   <span className="settings-hint">新しい書き込みに [自分] マーカーが付かなくなります</span>
                 </label>
               </fieldset>
+              </>)}
+              {settingsTab === "account" && (<>
               <fieldset>
                 <legend>5chプレミアム Ronin/BE</legend>
                 <div className="settings-row"><span>Ronin ユーザーID</span></div>
@@ -16532,8 +16579,9 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>67項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>179項目</span></div>
               </fieldset>
+              </>)}
             </div>
           </div>
         </div>

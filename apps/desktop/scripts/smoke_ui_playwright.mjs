@@ -3,10 +3,27 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 function assert(cond, message) {
   if (!cond) throw new Error(message);
+}
+
+// 設定は面ごとのタブに分かれていて、開いていないタブの行は DOM に無い。
+// 目的の行が出てくるまでタブを順に押してから触る。
+async function showSetting(pg, selector) {
+  if (await pg.$(selector)) return;
+  const tabs = await pg.$$(".settings-tabs button");
+  // 設定が開いていないときは何もしない。開かない経路を許す検査もあるので、
+  // ここで落とすと元より厳しくなってしまう。判定は呼び出し側に任せる。
+  if (tabs.length === 0) return;
+  for (const tab of tabs) {
+    await tab.click();
+    await new Promise((r) => setTimeout(r, 60));
+    if (await pg.$(selector)) return;
+  }
+  assert(false, `the settings panel should hold ${selector} in one of its tabs`);
 }
 
 const MIME_TYPES = {
@@ -1674,13 +1691,38 @@ try {
   await new Promise((r) => setTimeout(r, 200));
   const settingsPanel = await page.$(".settings-panel");
   assert(settingsPanel, "settings panel should open");
-  // verify fieldsets exist
-  const legends = await page.$$eval(".settings-body legend", (els) => els.map((e) => e.textContent?.trim()));
-  assert(legends.includes("表示"), `settings should have 表示 section, got ${legends}`);
+  // 項目が 90 を超えて 1 枚では長すぎるので、面ごとのタブに分けてある。
+  // どのタブがあるか、どの節がどこかの見取り図をここで固定しておく。
+  const settingsTabLabels = await page.$$eval(".settings-tabs button", (els) => els.map((e) => e.textContent?.trim()));
+  assert(
+    settingsTabLabels.join(",") === "外観,画面・操作,スレ一覧・レス,画像・リンク,書き込み,アカウント・データ",
+    `settings should offer the six tabs, got ${settingsTabLabels}`,
+  );
+  const legends = [];
+  for (const label of settingsTabLabels) {
+    await page.click(`.settings-tabs button:text-is("${label}")`);
+    await new Promise((r) => setTimeout(r, 80));
+    legends.push(...(await page.$$eval(".settings-body legend", (els) => els.map((e) => e.textContent?.trim()))));
+  }
   assert(legends.includes("書き込み"), `settings should have 書き込み section, got ${legends}`);
   assert(legends.some((l) => l.includes("Ronin")), `settings should have Ronin/BE section, got ${legends}`);
   assert(legends.includes("データフォルダ"), `settings should have データフォルダ section, got ${legends}`);
   assert(legends.includes("情報"), `settings should have 情報 section, got ${legends}`);
+  // 「情報」に出しているスモークの件数。手で書いた数字なので実物とずれても
+  // 誰も気づけない。検査の数をここで数えて突き合わせる (増やしたら表示も直す)。
+  const smokeSource = await readFile(fileURLToPath(import.meta.url), "utf8");
+  const smokeCaseCount = (smokeSource.match(/console\.log\("smoke-ui: /g) || []).length - 1;
+  await showSetting(page, '.settings-body .settings-row:has-text("スモークテスト")');
+  const smokeCountShown = await page.$eval(
+    '.settings-body .settings-row:has-text("スモークテスト") span:last-child',
+    (el) => el.textContent?.trim(),
+  );
+  assert(
+    smokeCountShown === `${smokeCaseCount}項目`,
+    `the 情報 section should show the real number of smoke cases (${smokeCaseCount}), got ${smokeCountShown}`,
+  );
+  await page.click('.settings-tabs button:text-is("外観")');
+  await new Promise((r) => setTimeout(r, 80));
 
   // 通知は独立パネルへ移した。セットアップ手順ものを常用トグルの列に戻さないための歯止め。
   assert(
@@ -1836,6 +1878,7 @@ try {
 
   // タッチ操作モード。ホバー抑止の判定自体はポインタイベント依存でここでは再現できないので、
   // 設定が root の touch-mode クラス (CSS のタップ領域拡大の印) に反映されることを見る。
+  await showSetting(page, ".settings-body select.touch-mode-select");
   const touchModeSelect = await page.$(".settings-body select.touch-mode-select");
   assert(touchModeSelect, "settings should have a touch mode select");
   assert((await touchModeSelect.inputValue()) === "auto", "touch mode should default to auto");
@@ -1906,6 +1949,7 @@ try {
     (await thumbHint()) === "none",
     "touch mode should not show the Ctrl+hover hint (it sticks after a tap and cannot be used)",
   );
+  await showSetting(page, '.settings-body label.settings-row:has-text("画像ホバープレビュー")');
   const hoverPreviewToggle = page
     .locator(".settings-body label.settings-row", { hasText: "画像ホバープレビュー" })
     .locator("input[type=checkbox]");
@@ -1952,12 +1996,16 @@ try {
   );
   if (!hoverPreviewWasOn) await hoverPreviewToggle.uncheck();
   await page.evaluate(() => document.querySelector("#smoke-thumb-row")?.remove());
-  await touchModeSelect.selectOption("auto");
+  // ここまでで画像の検査のために別のタブへ移っているので、
+  // 掴んでいた要素は外れている。タブを戻してから選び直す。
+  await showSetting(page, ".settings-body select.touch-mode-select");
+  await page.selectOption(".settings-body select.touch-mode-select", "auto");
   await new Promise((r) => setTimeout(r, 250));
   console.log("smoke-ui: tap to open image preview ok");
 
   // 設定「プレビュー画像をウィンドウ内に収める」はオーバーレイのクラスで CSS に効かせる。既定はオフ (原寸)
   {
+    await showSetting(page, '.settings-body label.settings-row:has-text("プレビュー画像をウィンドウ内に収める")');
     const fitToggle = page
       .locator(".settings-body label.settings-row", { hasText: "プレビュー画像をウィンドウ内に収める" })
       .locator("input[type=checkbox]");
@@ -1975,6 +2023,7 @@ try {
 
   // 人気レス (赤レス) 抽出: しきい値以上の >>N を受けたレスだけを炎ボタンで絞り込む。赤表示は既定オフ
   {
+    await showSetting(page, '.settings-body label.settings-row:has-text("人気レスの被参照数しきい値")');
     const thresholdInput = page
       .locator(".settings-body label.settings-row", { hasText: "人気レスの被参照数しきい値" })
       .locator("input[type=number]");
@@ -2056,6 +2105,7 @@ try {
   console.log("smoke-ui: touch mode does not flap ok");
 
   // ホイールスクロール行数の設定 (既定 OFF、ON のときだけ行数入力が出る)
+  await showSetting(page, '.settings-body label:has-text("スレ一覧のホイールスクロールを行単位にする")');
   const wheelRowToggle = await page.$('.settings-body label:has-text("スレ一覧のホイールスクロールを行単位にする") input[type="checkbox"]');
   assert(wheelRowToggle, "settings should have wheel row scroll toggle");
   assert(!(await wheelRowToggle.isChecked()), "wheel row scroll should default to off");
@@ -2074,6 +2124,7 @@ try {
 
   // 長文レスの折りたたみ (既定 OFF、ON のときだけ行数・文字数のしきい値が出る)。
   // 未取得時のサンプルレスはどれも短いので、しきい値を下げて畳ませて確認する。
+  await showSetting(page, '.settings-body label:has-text("長いレスを折りたたむ")');
   const collapseToggle = await page.$('.settings-body label:has-text("長いレスを折りたたむ") input[type="checkbox"]');
   assert(collapseToggle, "settings should have a long-response collapse toggle");
   assert(!(await collapseToggle.isChecked()), "long-response collapse should default to off");
@@ -2135,6 +2186,7 @@ try {
   );
   // 折りたたみ後の表示文字数 (既定 0 = 文字数では切らない)。0 のままなら本文は丸ごと
   // DOM に残り、値を入れるとその文字数 + 「…」だけになる。
+  await showSetting(page, '.settings-body label:has-text("折りたたみ後の表示文字数")');
   const previewCharsInput = await page.$('.settings-body label:has-text("折りたたみ後の表示文字数") input[type="number"]');
   assert(previewCharsInput, "collapse preview char input should appear when the toggle is on");
   assert((await previewCharsInput.inputValue()) === "0", "collapse preview chars should default to 0");
@@ -2189,6 +2241,7 @@ try {
   console.log("smoke-ui: long response collapse ok");
 
   // IDホバーポップアップの設定 (既定 ON、切り替えは layoutPrefs に永続化される)
+  await showSetting(page, '.settings-body label:has-text("IDのマウスオーバーで同一IDのレスをポップアップ")');
   const idPopupToggle = await page.$('.settings-body label:has-text("IDのマウスオーバーで同一IDのレスをポップアップ") input[type="checkbox"]');
   assert(idPopupToggle, "settings should have ID hover popup toggle");
   assert(await idPopupToggle.isChecked(), "ID hover popup should default to on");
@@ -2216,6 +2269,7 @@ try {
 
   // サムネイルの自動読み込み設定 (既定 ON = 従来どおり)。OFF にすると本文も画像一覧も
   // <img> を作らず、プレースホルダをクリックしたときだけ画像ホストへ通信する。
+  await showSetting(page, '.settings-body label:has-text("サムネイルを自動で読み込む")');
   const thumbAutoLoadToggle = await page.$('.settings-body label:has-text("サムネイルを自動で読み込む") input[type="checkbox"]');
   assert(thumbAutoLoadToggle, "settings should have the thumbnail auto-load toggle");
   assert(await thumbAutoLoadToggle.isChecked(), "thumbnail auto-load should default to on");
@@ -2276,6 +2330,7 @@ try {
 
   // 多段タブ (既定 OFF = 従来どおりの 1 段横スクロール)。ON にするとタブバーに
   // tabs-multi-row が付いて折り返しになり、意味がなくなる左右スクロールボタンが消える。
+  await showSetting(page, '.settings-body label:has-text("タブを多段で表示する")');
   const multiRowToggle = await page.$('.settings-body label:has-text("タブを多段で表示する") input[type="checkbox"]');
   assert(multiRowToggle, "settings should have the multi-row tab toggle");
   assert(!(await multiRowToggle.isChecked()), "multi-row tabs should default to off");
@@ -2386,6 +2441,7 @@ try {
 
   // メール欄表示の設定 (既定 ON)。dat の mail は取得できていても表示先が無かったので、
   // 「名前の右に出ること」と「設定で消せること」の両方を見る。
+  await showSetting(page, '.settings-body label:has-text("メール欄")');
   const mailToggle = await page.$('.settings-body label:has-text("メール欄") input[type="checkbox"]');
   assert(mailToggle, "settings should have a mail field display toggle");
   assert(await mailToggle.isChecked(), "mail field display should default to on");
@@ -2408,6 +2464,7 @@ try {
   console.log("smoke-ui: response mail display setting ok");
 
   // OGP link card toggle exists in settings
+  await showSetting(page, '.settings-body label:has-text("OGPカード")');
   const ogpToggleLabel = await page.$('.settings-body label:has-text("OGPカード")');
   assert(ogpToggleLabel, "settings should have OGP card display toggle");
   const ogpCardCss = await page.evaluate(() => {
@@ -2434,6 +2491,7 @@ try {
   assert(ogpDomainCss, "ogp domain settings button CSS should exist in stylesheet");
   console.log("smoke-ui: ogp card toggle ok");
   // mouse gesture customization: settings has an "assign" button that opens the gesture config panel
+  await showSetting(page, ".gesture-config-open-btn");
   const gestureOpenBtn = await page.$(".gesture-config-open-btn");
   assert(gestureOpenBtn, "settings should have a mouse gesture assignment button");
   await gestureOpenBtn.click();
@@ -2458,6 +2516,7 @@ try {
 
   // 板ボタンバーの「お気に入り」ボタン: 板ボタンバーを出すと先頭に出て、クリックでお気に入りスレ一覧になる
   {
+    await showSetting(page, '.settings-body label.settings-row:has-text("板ボタンバー")');
     const boardBarToggle = page.locator('.settings-body label.settings-row', { hasText: "板ボタンバー" }).first().locator("input[type=checkbox]");
     const favBtnToggle = page.locator('.settings-body label.settings-row', { hasText: "板ボタンバーに「お気に入り」を表示" }).locator("input[type=checkbox]");
     assert(await favBtnToggle.isChecked(), "favorite board button should be on by default");
@@ -2489,6 +2548,7 @@ try {
   // データフォルダ: 保存先に書き込めないときの警告表示。
   // 実際の判定は Tauri 側 (get_data_dir_info) なので、静的 dist では
   // dataDirInfo が null のまま = 警告を出さないことだけ確認する。
+  await showSetting(page, '.settings-body fieldset:has(legend:text-is("データフォルダ"))');
   const dataDirWarning = await page.$(".settings-body .data-dir-warning");
   assert(!dataDirWarning, "data dir warning should stay hidden without tauri runtime");
   const dataDirPath = await page.$eval(
@@ -2522,6 +2582,7 @@ try {
   console.log("smoke-ui: webview data dir row ok");
 
   // 書き込み欄をレス本文の下に固定する設定 (既定 OFF、layoutPrefs に永続化される)
+  await showSetting(page, '.settings-body label:has-text("書き込み欄をレス本文の下に固定")');
   const composeDockToggle = await page.$('.settings-body label:has-text("書き込み欄をレス本文の下に固定") input[type="checkbox"]');
   assert(composeDockToggle, "settings should have a docked compose toggle");
   assert(!(await composeDockToggle.isChecked()), "compose docking should default to off");
@@ -2538,6 +2599,7 @@ try {
   console.log("smoke-ui: compose dock setting ok");
 
   // マウスの戻るボタンでスレ一覧に戻る設定 (既定 OFF、自動開閉が ON のときだけ触れる)
+  await showSetting(page, '.settings-body label.settings-row:has-text("スレ一覧を自動で開閉する")');
   const autoToggleBox = page
     .locator(".settings-body label.settings-row", { hasText: "スレ一覧を自動で開閉する" })
     .locator('input[type="checkbox"]');
@@ -2566,6 +2628,7 @@ try {
   console.log("smoke-ui: thread pane back-button restore setting ok");
 
   // 投稿後も書き込み欄を閉じない設定 (既定 OFF、composePrefs へ永続化される)
+  await showSetting(page, '.settings-body label.settings-row:has-text("書き込み後も閉じない")');
   const keepOpenBox = page
     .locator(".settings-body label.settings-row", { hasText: "書き込み後も閉じない" })
     .locator('input[type="checkbox"]');
@@ -2586,6 +2649,7 @@ try {
   console.log("smoke-ui: keep compose open after post setting ok");
 
   // 書き込み履歴を残さない設定 (既定 OFF、settings.json 側へ永続化される)
+  await showSetting(page, '.settings-body label.settings-row:has-text("書き込み履歴を残さない")');
   const noHistoryBox = page
     .locator(".settings-body label.settings-row", { hasText: "書き込み履歴を残さない" })
     .locator('input[type="checkbox"]');
@@ -2666,6 +2730,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.menu-dropdown button:has-text("設定")');
   await page.waitForSelector(".settings-panel");
+  await showSetting(page, '.settings-body label:has-text("書き込み欄をレス本文の下に固定")');
   await page.uncheck('.settings-body label:has-text("書き込み欄をレス本文の下に固定") input[type="checkbox"]');
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.settings-header button:has-text("閉じる")');
@@ -2825,6 +2890,7 @@ try {
   const settingsBtnCompose = await page.$('.menu-dropdown button:has-text("設定")');
   if (settingsBtnCompose) await settingsBtnCompose.click();
   await new Promise((r) => setTimeout(r, 200));
+  await showSetting(page, '.settings-body input[type="number"][min="10"][max="24"]');
   const composeFontInput = await page.$('.settings-body input[type="number"][min="10"][max="24"]');
   assert(!settingsBtnCompose || composeFontInput, "settings should have compose font size input");
   if (settingsBtnCompose) await page.click('.settings-header button:has-text("閉じる")');
@@ -2850,6 +2916,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.menu-dropdown button:has-text("設定")');
   await page.waitForSelector(".settings-panel");
+  await showSetting(page, '.settings-body label:has-text("閉じても本文を残す")');
   const keepDraftToggle = await page.$('.settings-body label:has-text("閉じても本文を残す") input[type="checkbox"]');
   assert(keepDraftToggle, "settings should have a keep-draft toggle");
   assert(!(await keepDraftToggle.isChecked()), "keep-draft should default to off");
@@ -2873,6 +2940,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.menu-dropdown button:has-text("設定")');
   await page.waitForSelector(".settings-panel");
+  await showSetting(page, '.settings-body label:has-text("閉じても本文を残す")');
   await page.check('.settings-body label:has-text("閉じても本文を残す") input[type="checkbox"]');
   await new Promise((r) => setTimeout(r, 150));
   const keepDraftPref = await page.evaluate(() => {
@@ -2906,6 +2974,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.menu-dropdown button:has-text("設定")');
   await page.waitForSelector(".settings-panel");
+  await showSetting(page, '.settings-body label:has-text("閉じても本文を残す")');
   await page.uncheck('.settings-body label:has-text("閉じても本文を残す") input[type="checkbox"]');
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.settings-header button:has-text("閉じる")');
@@ -2917,6 +2986,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.menu-dropdown button:has-text("設定")');
   await page.waitForSelector(".settings-panel");
+  await showSetting(page, ".settings-body input.typing-combo-toggle");
   const comboToggle = await page.$(".settings-body input.typing-combo-toggle");
   assert(comboToggle, "settings should have a typing combo toggle");
   assert(!(await comboToggle.isChecked()), "typing combo should default to off");
@@ -2935,6 +3005,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.menu-dropdown button:has-text("設定")');
   await page.waitForSelector(".settings-panel");
+  await showSetting(page, ".settings-body input.typing-combo-toggle");
   await page.check(".settings-body input.typing-combo-toggle");
   await new Promise((r) => setTimeout(r, 150));
   const comboPref = await page.evaluate(() => {
@@ -3225,6 +3296,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.menu-dropdown button:has-text("設定")');
   await page.waitForSelector(".settings-panel");
+  await showSetting(page, ".settings-body input.typing-combo-toggle");
   await page.uncheck(".settings-body input.typing-combo-toggle");
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.settings-header button:has-text("閉じる")');
@@ -3770,6 +3842,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.menu-dropdown button:has-text("設定")');
   await page.waitForSelector(".settings-panel");
+  await showSetting(page, '.settings-body label:has-text("名前を記憶しない")');
   const forgetNameToggle = await page.$('.settings-body label:has-text("名前を記憶しない") input[type="checkbox"]');
   assert(forgetNameToggle, "settings should have the forget-name toggle");
   assert(!(await forgetNameToggle.isChecked()), "forget-name should default to off");
@@ -3807,6 +3880,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.menu-dropdown button:has-text("設定")');
   await page.waitForSelector(".settings-panel");
+  await showSetting(page, '.settings-body button:has-text("記憶した名前を削除")');
   const clearNameBtn = await page.$('.settings-body button:has-text("記憶した名前を削除")');
   assert(clearNameBtn, "settings should have the clear-remembered-names button");
   // 1回目のクリックでは消さず、確認待ちになる
@@ -3871,6 +3945,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.menu-dropdown button:has-text("設定")');
   await page.waitForSelector(".settings-panel");
+  await showSetting(page, '.settings-row:has-text("画像サイズ制限")');
   const imageLimitInput = await page.$('.settings-row:has-text("画像サイズ制限") input[type="number"]');
   assert(imageLimitInput, "settings should have the image size limit input");
   await imageLimitInput.fill("200");
@@ -3899,6 +3974,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await page.click('.menu-dropdown button:has-text("設定")');
   await page.waitForSelector(".settings-panel");
+  await showSetting(page, '.settings-row:has-text("日付・IDを名前の隣に表示")');
   const metaInlineRow = await page.$('.settings-row:has-text("日付・IDを名前の隣に表示") input[type="checkbox"]');
   assert(metaInlineRow, "settings should have the inline date/ID checkbox");
   assert(!(await metaInlineRow.isChecked()), "inline date/ID should default to off");
@@ -4019,6 +4095,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await boardPage.click('.menu-dropdown button:has-text("設定")');
   await new Promise((r) => setTimeout(r, 200));
+  await showSetting(boardPage, '.settings-body label:has-text("スレ一覧を自動で開閉する")');
   const autoToggle = await boardPage.$('.settings-body label:has-text("スレ一覧を自動で開閉する") input[type="checkbox"]');
   assert(autoToggle, "settings should have a thread pane auto toggle");
   assert(!(await autoToggle.isChecked()), "thread pane auto toggle should default to off");
@@ -4055,6 +4132,7 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await boardPage.click('.menu-dropdown button:has-text("設定")');
   await new Promise((r) => setTimeout(r, 200));
+  await showSetting(boardPage, '.settings-body label:has-text("マウスの戻るボタンでスレ一覧に戻る")');
   const backRestore = await boardPage.$('.settings-body label:has-text("マウスの戻るボタンでスレ一覧に戻る") input[type="checkbox"]');
   assert(backRestore, "settings should have a back-button restore toggle");
   await backRestore.check();
@@ -5201,6 +5279,62 @@ try {
 
     await p.close();
     console.log("smoke-ui: the thread list sort is remembered per board and per filter ok");
+  }
+
+  // 浮いている面 (メニュー・ポップアップ・各種ウィンドウ) の影は、面そのものではなく
+  // 背面の疑似要素が描く決まりになっている。面に box-shadow を直接書くと Chromium が
+  // その面を透明な層として描き、中の文字が ClearType を失って滲む (Windows で顕著)。
+  // 滲みそのものはヘッドレスでは測れない (ClearType が無い) ので、代わりに決まりが
+  // 守られているかを計算値で見る。誰かが box-shadow を書き戻したらここで落ちる。
+  {
+    const PANELS = [
+      "menu-dropdown", "menu-submenu", "title-split-menu", "anchor-popup", "id-popup",
+      "thread-title-hover-popup", "compose-window", "emoji-picker-window", "ng-panel",
+      "tab-list-dropdown", "settings-panel", "shortcuts-panel",
+    ];
+    const p = await context.newPage();
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector(".shell");
+    const report = await p.evaluate((panels) => {
+      const shell = document.querySelector(".shell");
+      const probes = panels.map((cls) => {
+        const el = document.createElement("div");
+        el.className = cls;
+        shell.appendChild(el);
+        return [cls, el];
+      });
+      const out = [];
+      // ガラス効果の面は元から半透明で ClearType が使えないので、そちらは従来どおり
+      // box-shadow のままでよい。通常時とダークだけを見る。
+      for (const mode of ["", "dark"]) {
+        shell.className = "shell" + (mode ? " " + mode : "");
+        for (const [cls, el] of probes) {
+          const own = getComputedStyle(el).boxShadow;
+          const before = getComputedStyle(el, "::before");
+          out.push({
+            cls,
+            mode: mode || "light",
+            own,
+            hasBefore: before.content !== "none",
+            beforeShadow: before.boxShadow,
+          });
+        }
+      }
+      for (const [, el] of probes) el.remove();
+      return out;
+    }, PANELS);
+    for (const r of report) {
+      assert(
+        r.own === "none",
+        `${r.cls} (${r.mode}) must not carry box-shadow itself; put it in --panel-shadow instead, got ${r.own}`,
+      );
+      assert(
+        r.hasBefore && r.beforeShadow !== "none",
+        `${r.cls} (${r.mode}) should draw its shadow from the ::before layer, got ${r.beforeShadow}`,
+      );
+    }
+    await p.close();
+    console.log("smoke-ui: the floating panels keep their shadow off the panel itself ok");
   }
 
   // layout_prefs は専用コマンドで保存しているので UI_JSON_FILES に入っていない。

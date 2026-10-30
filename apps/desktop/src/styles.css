@@ -41,6 +41,45 @@ body {
   -webkit-text-stroke-width: var(--text-thicken, 0);
 }
 
+/* 浮いている面 (メニュー・ポップアップ・各種ウィンドウ) の影。
+   Chromium は半透明の box-shadow が付いた要素を一度透明な層に描くので、その中の
+   文字は ClearType (サブピクセル描画) を失ってグレースケールになり、Windows では
+   はっきり滲んで見える。面の中の文字が全部対象で、書き込み窓の本文が一番目立つ。
+   影だけを背面の疑似要素へ逃がすと、面そのものは不透明な箱のままになって文字が戻る。
+   影の値は各面が --panel-shadow に入れる (box-shadow を直接書かない)。
+   ガラス効果の面は元から半透明で ClearType が使えないので、そちらは従来どおり
+   box-shadow のまま扱う (ここの疑似要素は作らない)。
+   疑似要素は面の overflow に切り取られて影ごと消えるため、自分でスクロールしていた
+   面はスクロールを内側の要素へ移し、切り抜くだけで足りる面は overflow-clip-margin で
+   影のぶんだけ外側を残してある。 */
+.shell:not(.glass) .menu-dropdown::before,
+.shell:not(.glass) .menu-submenu::before,
+.shell:not(.glass) .title-split-menu::before,
+.shell:not(.glass) .anchor-popup::before,
+.shell:not(.glass) .id-popup::before,
+.shell:not(.glass) .thread-title-hover-popup::before,
+.shell:not(.glass) .compose-window::before,
+.shell:not(.glass) .emoji-picker-window::before,
+.shell:not(.glass) .ng-panel::before,
+.shell:not(.glass) .tab-list-dropdown::before,
+.shell:not(.glass) .shortcuts-panel::before,
+.shell:not(.glass) .settings-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  box-shadow: var(--panel-shadow, none);
+}
+
+/* ガラス効果のときは面そのものが半透明で ClearType が使えないため、影は従来どおり
+   box-shadow で描く。ほとんどの面にはガラス専用の影指定があるが、この 2 つには
+   無いので、通常時と同じ値をそのまま box-shadow として渡しておく。 */
+.shell.glass .thread-title-hover-popup,
+.shell.glass .emoji-picker-window {
+  box-shadow: var(--panel-shadow, none);
+}
+
 .menu-bar {
   border-bottom: 1px solid var(--line);
   background: #e8e8e8;
@@ -74,7 +113,7 @@ body {
   min-width: 180px;
   border: 1px solid #a0a0a0;
   background: #ffffff;
-  box-shadow: 0 4px 12px rgba(20, 20, 20, 0.2);
+  --panel-shadow: 0 4px 12px rgba(20, 20, 20, 0.2);
   display: grid;
   gap: 1px;
   padding: 3px;
@@ -114,7 +153,7 @@ body {
   min-width: 140px;
   border: 1px solid #a0a0a0;
   background: #ffffff;
-  box-shadow: 0 4px 12px rgba(20,20,20,0.2);
+  --panel-shadow: 0 4px 12px rgba(20,20,20,0.2);
   padding: 3px;
   z-index: 81;
 }
@@ -1075,7 +1114,7 @@ li.fav-drag-over {
   min-width: 230px;
   background: #f6f6f6;
   border: 1px solid #a5a5a5;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  --panel-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
   z-index: 30;
   display: flex;
   flex-direction: column;
@@ -1296,12 +1335,21 @@ li.fav-drag-over {
   min-width: 320px;
   max-width: min(820px, calc(100vw - 24px));
   max-height: 300px;
-  overflow-y: auto;
+  /* 影を疑似要素へ逃がしてあるので、この面自身は切り抜かない。
+     高さの頭打ちはここで、スクロールは中の .anchor-popup-scroll が受け持つ。 */
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
   border: 1px solid #a0a0a0;
   background: #ffffff;
-  box-shadow: 0 4px 12px rgba(20, 20, 20, 0.22);
-  padding: 6px 8px;
+  --panel-shadow: 0 4px 12px rgba(20, 20, 20, 0.22);
   pointer-events: auto;
+}
+
+.anchor-popup-scroll {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 6px 8px;
 }
 .back-ref-popup {
   pointer-events: auto;
@@ -1387,10 +1435,12 @@ li.fav-drag-over {
   width: min(520px, calc(100vw - 16px));
   max-width: 520px;
   max-height: 360px;
-  overflow-y: auto;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
   background: #ffffff;
   border: 1px solid #a0a0a0;
-  box-shadow: 2px 2px 6px rgba(0,0,0,0.15);
+  --panel-shadow: 2px 2px 6px rgba(0,0,0,0.15);
   box-sizing: border-box;
   padding: 6px;
   font-size: calc(12px + var(--fs-delta, 0px));
@@ -1444,6 +1494,8 @@ li.fav-drag-over {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  overflow-y: auto;
+  min-height: 0;
 }
 .id-popup-item {
   display: flex;
@@ -1495,19 +1547,43 @@ li.fav-drag-over {
 .highlight-word.hl-c-pink   { background: #f7b8d2; color: #5c1238; }
 .highlight-word.hl-c-purple { background: #d4b8f0; color: #3a1260; }
 
-/* NGパネルのタブバー */
-.ng-panel-tabs {
+/* NGパネルと設定パネルのタブバー */
+.ng-panel-tabs,
+.settings-tabs {
   display: flex;
   /* 文字サイズを上げた時はラベルを割るのではなく、タブごと次の行に落とす */
   flex-wrap: wrap;
   gap: 6px;
   padding: 6px 8px 0;
 }
-.ng-panel-tabs button {
+.ng-panel-tabs button,
+.settings-tabs button {
   flex: 1 1 auto;
   padding: 5px 8px;
   font-size: calc(12px + var(--fs-delta, 0px));
   white-space: nowrap;
+}
+/* タブを切り替えるたびに窓の高さが変わると、重ね幕が中央揃えなので
+   上下にも動いてしまう。面ごとの量に関わらず高さを固定し、
+   収まらない面だけ中身をスクロールさせる。 */
+.settings-panel-tabbed {
+  height: min(720px, 80vh);
+}
+
+/* 設定パネルは縦並びの flex。本文が伸びてもタブ列は縮ませない。
+   タブは 6 つあり 1 行には入らないので、流し込まず 3 列 x 2 段で固める
+   (流し込むと 5 + 1 に割れて最後の 1 つだけ横長になる)。 */
+.settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  background: #e8e8e8;
+  flex-shrink: 0;
+}
+/* 文字を大きくしたときは列幅に収まらないので折り返す。 */
+.settings-tabs button {
+  white-space: normal;
 }
 
 /* ハイライト色セレクト — 選択中の色で背景を着色して一目で分かるように */
@@ -1603,7 +1679,7 @@ li.fav-drag-over {
   max-width: min(720px, calc(100vw - 16px));
   background: #ffffff;
   border: 1px solid #a0a0a0;
-  box-shadow: 0 4px 12px rgba(20, 20, 20, 0.22);
+  --panel-shadow: 0 4px 12px rgba(20, 20, 20, 0.22);
   padding: 6px 8px;
   font-size: 12px;
   line-height: 1.45;
@@ -1767,7 +1843,7 @@ pre {
   flex-direction: column;
   border: 1px solid var(--line);
   background: #f5f5f5;
-  box-shadow: 0 12px 24px rgba(20, 20, 20, 0.28);
+  --panel-shadow: 0 12px 24px rgba(20, 20, 20, 0.28);
   z-index: 30;
 }
 
@@ -1957,7 +2033,7 @@ pre {
   flex-direction: column;
   border: 1px solid var(--line);
   background: #f5f5f5;
-  box-shadow: 0 12px 24px rgba(20, 20, 20, 0.28);
+  --panel-shadow: 0 12px 24px rgba(20, 20, 20, 0.28);
   z-index: 40;
 }
 
@@ -2694,11 +2770,13 @@ button.search-history-btn:hover {
   max-height: 400px;
   border: 1px solid var(--line);
   background: #f5f5f5;
-  box-shadow: 0 12px 24px rgba(20, 20, 20, 0.28);
+  --panel-shadow: 0 12px 24px rgba(20, 20, 20, 0.28);
   z-index: 30;
   display: grid;
   grid-template-rows: auto auto 1fr;
-  overflow: hidden;
+  /* 中身ははみ出させないが、影の疑似要素は外に出す必要があるので clip + 余白。 */
+  overflow: clip;
+  overflow-clip-margin: 36px;
 }
 
 .ng-panel-header {
@@ -3444,10 +3522,17 @@ button.search-history-btn:hover {
   z-index: 310;
   width: 280px;
   max-height: 320px;
-  overflow-y: auto;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
   border: 1px solid #a0a0a0;
   background: #ffffff;
-  box-shadow: 0 6px 16px rgba(20, 20, 20, 0.2);
+  --panel-shadow: 0 6px 16px rgba(20, 20, 20, 0.2);
+}
+
+.tab-list-scroll {
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .tab-list-item {
@@ -4119,12 +4204,20 @@ a.body-link-image:hover::after {
 }
 
 .shortcuts-panel {
+  /* 影の疑似要素を z-index: -1 で後ろに置くので、この面自身を
+     重なりの基準 (stacking context) にしておく。 */
+  position: relative;
+  z-index: 0;
   background: #f5f5f5;
   border: 1px solid var(--line);
-  box-shadow: 0 12px 24px rgba(20, 20, 20, 0.3);
+  --panel-shadow: 0 12px 24px rgba(20, 20, 20, 0.3);
   width: min(420px, 90vw);
   max-height: 80vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  /* 中身ははみ出させないが、影の疑似要素は外に出す必要があるので clip + 余白。 */
+  overflow: clip;
+  overflow-clip-margin: 36px;
 }
 
 .shortcuts-header {
@@ -4142,6 +4235,8 @@ a.body-link-image:hover::after {
 
 .shortcuts-body {
   padding: 8px 12px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .shortcut-row {
@@ -4228,14 +4323,18 @@ a.body-link-image:hover::after {
 }
 
 .settings-panel {
+  position: relative;
+  z-index: 0;
   background: #f5f5f5;
   border: 1px solid var(--line);
-  box-shadow: 0 12px 24px rgba(20, 20, 20, 0.3);
+  --panel-shadow: 0 12px 24px rgba(20, 20, 20, 0.3);
   width: min(480px, 90vw);
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* 中身ははみ出させないが、影の疑似要素は外に出す必要があるので clip + 余白。 */
+  overflow: clip;
+  overflow-clip-margin: 36px;
 }
 .settings-header {
   display: flex;
@@ -4569,7 +4668,7 @@ a.body-link-image:hover::after {
 .dark .menu-dropdown {
   background: #2d2d30;
   border-color: #555;
-  box-shadow: 2px 2px 6px rgba(0,0,0,0.4);
+  --panel-shadow: 2px 2px 6px rgba(0,0,0,0.4);
 }
 .dark .menu-dropdown button:hover {
   background: #3c3c3c;
@@ -4577,7 +4676,7 @@ a.body-link-image:hover::after {
 .dark .menu-submenu {
   background: #2d2d30;
   border-color: #555;
-  box-shadow: 2px 2px 6px rgba(0,0,0,0.4);
+  --panel-shadow: 2px 2px 6px rgba(0,0,0,0.4);
 }
 .dark .search-history-dropdown {
   background: #2d2d30;
@@ -4589,7 +4688,7 @@ a.body-link-image:hover::after {
 .dark .tab-list-dropdown {
   background: #2d2d30;
   border-color: #555;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+  --panel-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
 }
 .dark .tab-list-item:hover {
   background: #3c3c3c;
@@ -4621,7 +4720,7 @@ a.body-link-image:hover::after {
   background: #2d2d30;
   border-color: #555;
   color: var(--ink);
-  box-shadow: 2px 2px 6px rgba(0,0,0,0.4);
+  --panel-shadow: 2px 2px 6px rgba(0,0,0,0.4);
 }
 .thread-columns-panel {
   width: 420px;
@@ -4853,7 +4952,7 @@ a.body-link-image:hover::after {
   background: #2d2d30;
   border-color: #555;
   color: var(--ink);
-  box-shadow: 2px 2px 12px rgba(0,0,0,0.5);
+  --panel-shadow: 2px 2px 12px rgba(0,0,0,0.5);
 }
 .dark .compose-header {
   background: #333;
@@ -4918,17 +5017,24 @@ a.body-link-image:hover::after {
 /* タブ (NG / ハイライト, 許可 / ブロック): 既定の button は明るい背景のままなので
    ダーク (グラス無し) では文字色 (--ink) と被って読めない。他のボタン群と同じ配色にする。
    .active-toggle は詳細度で負けるので選択中の色を塗り直す。 */
-.dark .ng-panel-tabs button {
+.dark .ng-panel-tabs button,
+.dark .settings-tabs button {
   background: #3a3a3a;
   color: var(--ink);
   border-color: #555;
 }
-.dark .ng-panel-tabs button:hover {
+.dark .ng-panel-tabs button:hover,
+.dark .settings-tabs button:hover {
   background: #4a4a4a;
 }
-.dark .ng-panel-tabs button.active-toggle {
+.dark .ng-panel-tabs button.active-toggle,
+.dark .settings-tabs button.active-toggle {
   background: #3a5a8a;
   color: #8abfff;
+}
+.dark .settings-tabs {
+  background: #333;
+  border-bottom-color: #3c3c3c;
 }
 .dark .ng-panel-add select,
 .dark .ng-mode-select {
@@ -5095,7 +5201,7 @@ a.body-link-image:hover::after {
 .dark .id-popup {
   background: #2d2d30;
   border-color: #555;
-  box-shadow: 2px 2px 6px rgba(0,0,0,0.4);
+  --panel-shadow: 2px 2px 6px rgba(0,0,0,0.4);
   color: var(--ink);
 }
 .dark .id-popup-item:hover {
@@ -6715,12 +6821,22 @@ a.body-link-image:hover::after {
   border-bottom-color: rgba(255, 255, 255, 0.5);
 }
 
+.shell.glass .settings-tabs {
+  background: rgba(255, 255, 255, 0.35);
+  border-bottom-color: rgba(255, 255, 255, 0.5);
+}
+
 .shell.glass .settings-body fieldset {
   border-color: rgba(255, 255, 255, 0.5);
   background: rgba(255, 255, 255, 0.18);
 }
 
 .shell.glass.dark .settings-header {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.shell.glass.dark .settings-tabs {
   background: rgba(255, 255, 255, 0.04);
   border-bottom-color: rgba(255, 255, 255, 0.08);
 }
@@ -6748,6 +6864,19 @@ a.body-link-image:hover::after {
 .shell.glass .ng-panel button:hover,
 .shell.glass .ng-image-panel button:hover {
   background: rgba(255, 255, 255, 0.75);
+}
+
+/* ガラス: 上の .settings-panel button が後勝ちして .active-toggle の色を消すので、
+   選んでいるタブがどれか分かるようにここで塗り直す。 */
+.shell.glass .settings-tabs button.active-toggle {
+  background: rgba(120, 180, 255, 0.55);
+  border-color: rgba(255, 255, 255, 0.75);
+  color: #11386e;
+}
+.shell.glass.dark .settings-tabs button.active-toggle {
+  background: rgba(90, 150, 255, 0.4);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #cfe4ff;
 }
 
 /* ガラス: NG リストの ON/OFF トグルは緑/灰の識別色を維持 */
@@ -8046,7 +8175,7 @@ a.body-link-image:hover::after {
   flex: 0 0 auto;
   border: 0;
   border-top: 1px solid var(--line);
-  box-shadow: none;
+  --panel-shadow: none;
   z-index: auto;
 }
 
