@@ -1018,6 +1018,68 @@ try {
     }
   }
 
+  // --- URL 欄に貼ったスレ URL を「移動」で開ける ---
+  // bbspink.com 系と bbspink.org/ex0ch/ はホストもマウントパスも 5ch.io と違うので、
+  // ホスト固定の判定だとスレ URL が板 URL 扱いになり、スレが開かず板のスレ一覧が
+  // 読み込まれてしまっていた (v0.0.312 まで)。ここでは実際に入力してボタンを押し、
+  // タブが <board>/<key> で開くことを検査する。
+  const goButton = await page.$('button:has-text("移動")');
+  const addressInput = await page.$(".address-input");
+  if (goButton && addressInput) {
+    const tabTitles = () => page.$$eval(".thread-tab-title", (els) => els.map((el) => el.textContent?.trim() ?? ""));
+    const tabCount = () => page.$$eval(".thread-tab:not(.placeholder)", (els) => els.length);
+    const gotoUrl = async (url) => {
+      await addressInput.fill(url);
+      await goButton.click();
+      await new Promise((r) => setTimeout(r, 200));
+    };
+
+    const beforeCount = await tabCount();
+    await gotoUrl("https://phoebe.bbspink.com/test/read.cgi/hgame/1792908668/");
+    let titles = await tabTitles();
+    assert(
+      titles.includes("hgame/1792908668"),
+      `pasting a bbspink thread url should open a tab, got ${JSON.stringify(titles)}`,
+    );
+    const afterPink = await tabCount();
+    assert(afterPink === beforeCount + 1, `bbspink url should add exactly one tab, got ${beforeCount} -> ${afterPink}`);
+
+    // 同じスレの l50 付き URL は正規化されて同じタブになる (別タブになってはいけない)
+    await gotoUrl("https://phoebe.bbspink.com/test/read.cgi/hgame/1792908668/l50");
+    const afterL50 = await tabCount();
+    assert(afterL50 === afterPink, `an l50 url should reuse the same tab, got ${afterPink} -> ${afterL50}`);
+
+    // ex0ch は test/read.cgi が /ex0ch/ 配下にあるので、マウントパスを跨いでも板名とキーが取れる
+    await gotoUrl("https://bbspink.org/ex0ch/test/read.cgi/operate/1775635309/");
+    titles = await tabTitles();
+    assert(
+      titles.includes("operate/1775635309"),
+      `pasting an ex0ch thread url should open a tab, got ${JSON.stringify(titles)}`,
+    );
+
+    // 板 URL はタブを作らずスレ一覧側へ流す (スレ URL と混ぜない)
+    const beforeBoard = await tabCount();
+    await gotoUrl("https://phoebe.bbspink.com/hgame/");
+    const afterBoard = await tabCount();
+    assert(afterBoard === beforeBoard, `a board url should not open a thread tab, got ${beforeBoard} -> ${afterBoard}`);
+
+    // 後続の検査に影響を残さないようここで開いたタブを閉じる
+    for (const name of ["hgame/1792908668", "operate/1775635309"]) {
+      const handles = await page.$$(".thread-tab:not(.placeholder)");
+      for (const handle of handles) {
+        const title = await handle.$eval(".thread-tab-title", (el) => el.textContent?.trim() ?? "").catch(() => "");
+        if (title !== name) continue;
+        const close = await handle.$(".thread-tab-close");
+        if (close) {
+          await close.click();
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        break;
+      }
+    }
+    console.log("smoke-ui: pasting a bbspink / ex0ch thread url opens it in a tab ok");
+  }
+
   // --- image thumbnail rendering ---
   // Verify renderResponseBody converts image URLs to thumbnails
   const thumbCheck = await page.evaluate(() => {

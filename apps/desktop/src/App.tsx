@@ -8307,13 +8307,15 @@ export default function App() {
     const next = rewrite5chNet(locationInput.trim());
     if (!next) return;
     if (next !== locationInput.trim()) setLocationInput(next);
-    // Detect 5ch thread URL and open in tab
-    if (/^https?:\/\/[^/]*\.5ch\.(net|io)\/test\/read\.cgi\//.test(next)) {
-      const parts = next.replace(/\/+$/, "").split("/");
-      const board = parts[parts.length - 2] || "";
-      const key = parts[parts.length - 1] || "";
-      const title = board && key ? `${board}/${key}` : next;
-      openThreadInTab(next, title);
+    // スレ URL ならスレ一覧ではなくタブで開く。bbspink.com 系や bbspink.org/ex0ch/ は
+    // ホストが 5ch.io でなく、ex0ch は test/read.cgi がパス途中に出るので、ホストと
+    // パス先頭を固定した判定では外れてスレ URL が板 URL として扱われてしまう
+    // (board だけ取れて板のスレ一覧が読み込まれ、スレが開かない)。マウントパス対応の
+    // parseThreadPath で判定し、URL も正規化して一覧から開いたタブと同一視させる
+    // (末尾の l50 や 1-100 付きの URL で別タブになるのも防げる)。
+    const parsedThreadPath = parseThreadPath(next);
+    if (parsedThreadPath) {
+      openThreadInTab(normalizeThreadUrl(next), `${parsedThreadPath.board}/${parsedThreadPath.key}`);
       return;
     }
     applyLocationToThread();
@@ -8475,10 +8477,14 @@ export default function App() {
   const openCacheList = (allBoards: boolean) => {
     if (!isTauriRuntime()) return;
     const extractBoardName = (url: string): string => {
+      // ex0ch (bbspink.org/ex0ch/) はマウントパス配下に test/read.cgi があるので、
+      // パス先頭を仮定すると板名が "ex0ch" になり「この板の保存ログ」が絞り込めない。
+      const parsed = parseThreadPath(url);
+      if (parsed) return parsed.board;
       try {
+        // 板 URL (末尾が板名) の形。ex0ch も最後の segment が板名になる。
         const parts = new URL(url).pathname.split("/").filter(Boolean);
-        if (parts.length >= 3 && parts[0] === "test" && parts[1] === "read.cgi") return parts[2];
-        return parts[0] || "";
+        return parts[parts.length - 1] || "";
       } catch { return ""; }
     };
     invoke<[string, string, number][]>("load_all_cached_threads").then((list) => {
@@ -16579,7 +16585,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>179項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>180項目</span></div>
               </fieldset>
               </>)}
             </div>
