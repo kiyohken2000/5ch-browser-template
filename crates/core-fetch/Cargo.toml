@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 core-parse = { path = "../core-parse" }
-reqwest = { version = "0.12", default-features = false, features = ["cookies", "json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["cookies", "gzip", "json", "rustls-tls"] }
 encoding_rs = "0.8"
 scraper = { workspace = true }
 serde = { workspace = true }

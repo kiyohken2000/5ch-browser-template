@@ -589,6 +589,7 @@ type GestureActionId =
   | "nextTab"
   | "closeTab"
   | "reloadThread"
+  | "reloadAllTabs"
   | "reloadThreadList"
   | "purgeCache"
   | "scrollTop"
@@ -610,6 +611,7 @@ const GESTURE_ACTIONS: { id: GestureActionId; label: string }[] = [
   { id: "closeTabsLeft", label: "左側のタブを閉じる" },
   { id: "closeAllTabs", label: "すべてのタブを閉じる" },
   { id: "reloadThread", label: "スレッド更新" },
+  { id: "reloadAllTabs", label: "全タブ更新" },
   { id: "reloadThreadList", label: "スレッド一覧を更新" },
   { id: "purgeCache", label: "キャッシュから削除" },
   { id: "scrollTop", label: "先頭へスクロール" },
@@ -3554,6 +3556,34 @@ export default function App() {
   const [threadTabs, setThreadTabs] = useState<ThreadTab[]>([]);
   const [activeTabIndex, setActiveTabIndex] = useState(-1);
   const tabCacheRef = useRef<Map<string, { responses: ThreadResponseItem[]; selectedResponse: number; scrollResponseNo?: number; newResponseStart?: number | null }>>(new Map());
+  // 全タブ更新で増えたレス数 (スレURL -> 新着件数)。タブの表示に使うので tabCacheRef
+  // (useRef) ではなく state で持つ — ref を書き換えても再描画が起きない。
+  const [tabNewCounts, setTabNewCounts] = useState<Map<string, number>>(new Map());
+  // 全タブ更新の進行状況。null なら実行していない。
+  const [bulkRefreshProgress, setBulkRefreshProgress] = useState<{ done: number; total: number } | null>(null);
+  const bulkRefreshAbortRef = useRef(false);
+  // 進行中かどうかは ref でも持つ。キーボードやジェスチャの経路は古い state を掴んだ
+  // クロージャから呼ばれることがあり、state だけで見ていると二重に走り出す。
+  const bulkRefreshRunningRef = useRef(false);
+  // スレURL -> 最後に dat を取得したときの Last-Modified。次の取得で If-Modified-Since に
+  // 渡すと、更新が無いスレはサーバーが 304 を返して本文が流れない (転送量 0)。
+  const tabLastModifiedRef = useRef<Map<string, string>>(new Map());
+  // タブを開いたら新着の印 (太赤字と +N) を外す。スレ本文側の「ここから新着」ラインが
+  // 引き継ぐので、印が消えても何件来ていたかは分かる。
+  const clearTabNewCount = (url: string) => {
+    setTabNewCounts((prev) => {
+      if (!prev.has(url)) return prev;
+      const next = new Map(prev);
+      next.delete(url);
+      return next;
+    });
+  };
+  // タブを閉じたときに、そのスレのために持っていたものを全部捨てる
+  const forgetTabState = (url: string) => {
+    tabCacheRef.current.delete(url);
+    tabLastModifiedRef.current.delete(url);
+    clearTabNewCount(url);
+  };
   const closedTabsRef = useRef<{ threadUrl: string; title: string }[]>([]);
   const tabsRestoredRef = useRef(false);
   // このセッションで一度でもタブを持ったか (下の保存エフェクトのコメント参照)。
@@ -5129,6 +5159,7 @@ export default function App() {
         saveBookmark(curUrl, selectedResponse);
       }
       setActiveTabIndex(existingIndex);
+      clearTabNewCount(url);
       const cached = tabCacheRef.current.get(url);
       if (cached && cached.responses.length > 0) {
         setFetchedResponses(cached.responses);
@@ -5202,7 +5233,7 @@ export default function App() {
     // 裏タブ (中クリック / 非アクティブタブの ×) も保存する。以前はアクティブタブしか
     // 保存しておらず、裏タブを閉じると読書位置が失われて次回先頭から表示されていた。
     saveTabReadPosition(closing.threadUrl, index === activeTabIndex);
-    tabCacheRef.current.delete(closing.threadUrl);
+    forgetTabState(closing.threadUrl);
     const nextTabs = threadTabs.filter((_, i) => i !== index);
     setThreadTabs(nextTabs);
     if (nextTabs.length === 0) {
@@ -5221,6 +5252,7 @@ export default function App() {
     }
     setActiveTabIndex(nextIndex);
     const tab = nextTabs[nextIndex];
+    clearTabNewCount(tab.threadUrl);
     const cached = tabCacheRef.current.get(tab.threadUrl);
     if (cached) {
       setFetchedResponses(cached.responses);
@@ -5238,17 +5270,26 @@ export default function App() {
   const onTabClick = (index: number) => {
     if (index === activeTabIndex) return;
     if (activeTabIndex >= 0 && activeTabIndex < threadTabs.length) {
-      saveTabReadPosition(threadTabs[activeTabIndex].threadUrl, true);
+      const curUrl = threadTabs[activeTabIndex].threadUrl;
+      saveTabReadPosition(curUrl, true);
+      // 離れるタブの「ここから新着」を覚えておく (覚えないと戻ったとき消えている)
+      const leaving = tabCacheRef.current.get(curUrl);
+      if (leaving) leaving.newResponseStart = newResponseStart;
     }
     setActiveTabIndex(index);
     const tab = threadTabs[index];
+    // タブを開いた時点でタブ側の新着の印を外す。代わりにスレ本文の「ここから新着」
+    // ラインが出るので、どこから読めばいいかは分かる。
+    clearTabNewCount(tab.threadUrl);
     const cached = tabCacheRef.current.get(tab.threadUrl);
     if (cached) {
       setFetchedResponses(cached.responses);
       setSelectedResponse(cached.selectedResponse);
+      setNewResponseStart(cached.newResponseStart ?? null);
       // メモリ上に位置が無ければ永続化した読書位置へ戻す (?? 0 だと先頭のままだった)
       scrollToResponseNo(cached.scrollResponseNo ?? loadScrollPos(tab.threadUrl));
     } else {
+      setNewResponseStart(null);
       activateTabFromStore(tab.threadUrl);
     }
     setThreadUrl(tab.threadUrl);
@@ -5266,7 +5307,7 @@ export default function App() {
     threadTabs.forEach((tab, i) => {
       if (keepOrLocked(i)) return;
       saveTabReadPosition(tab.threadUrl, i === activeTabIndex);
-      tabCacheRef.current.delete(tab.threadUrl);
+      forgetTabState(tab.threadUrl);
     });
     const wasActiveUrl = activeTabIndex >= 0 && activeTabIndex < threadTabs.length
       ? threadTabs[activeTabIndex].threadUrl
@@ -5306,6 +5347,8 @@ export default function App() {
     // 全タブぶんの読書位置を保存してから捨てる (以前は保存せずに破棄していた)
     threadTabs.forEach((tab, i) => saveTabReadPosition(tab.threadUrl, i === activeTabIndex));
     tabCacheRef.current.clear();
+    tabLastModifiedRef.current.clear();
+    setTabNewCounts(new Map());
     setThreadTabs([]);
     setActiveTabIndex(-1);
     setFetchedResponses([]);
@@ -5856,6 +5899,15 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startupBoardFetchDone, favorites.threads, recentOpenedThreads, recentPostedThreads]);
 
+  // fetch_thread_responses_command の返り値。notModified が true のときは responses が
+  // 空で、サーバーが 304 を返した (= 手元のキャッシュが最新) ことを意味する。
+  type FetchResponsesPayload = {
+    responses: ThreadResponseItem[];
+    title: string | null;
+    lastModified: string | null;
+    notModified: boolean;
+  };
+
   const fetchResponsesFromCurrent = async (targetThreadUrl?: string, opts?: { keepSelection?: boolean; resetScroll?: boolean; isRefresh?: boolean; skipNewJump?: boolean }) => {
     const url = (targetThreadUrl ?? threadUrl).trim();
     if (!url) return;
@@ -5870,10 +5922,26 @@ export default function App() {
     setResponseListProbe("running...");
     setResponsesLoading(true);
     try {
-      const result = await invoke<{ responses: ThreadResponseItem[]; title: string | null }>("fetch_thread_responses_command", {
+      // 手元にキャッシュがあるときだけ差分取得する。キャッシュが空の状態で 304 を貰うと
+      // 表示するものが無くなるので、その場合はフル取得にする。
+      const cachedBefore = tabCacheRef.current.get(url);
+      const since = (cachedBefore?.responses.length ?? 0) > 0
+        ? (tabLastModifiedRef.current.get(url) ?? null)
+        : null;
+      const result = await invoke<FetchResponsesPayload>("fetch_thread_responses_command", {
         threadUrl: url,
         limit: null,
+        ifModifiedSince: since,
       });
+      if (result.lastModified) tabLastModifiedRef.current.set(url, result.lastModified);
+      if (result.notModified) {
+        // 304 (更新なし)。本文は流れていないので、表示は手元のキャッシュのままで正しい。
+        setResponseListProbe("ok (not modified)");
+        setStatus(`新着なし (${cachedBefore?.responses.length ?? 0})`);
+        // 新着取得の操作で 0 件だったときは、残っていたマーカーを畳む (従来と同じ扱い)
+        if (opts?.isRefresh) setNewResponseStart(null);
+        return;
+      }
       const rows = result.responses;
       const fetchedTitle = result.title ? decodeHtmlEntities(result.title) : null;
       // Update tab title if server returned a real title (e.g. from read.cgi HTML)
@@ -5987,6 +6055,138 @@ export default function App() {
       setStatus(isDatOchi ? `dat落ちまたは存在しないスレです` : `response load error: ${msg}`);
     } finally {
       setResponsesLoading(false);
+    }
+  };
+
+  // 開いているタブを 1 本ずつ順番に更新する。並列にすると 5ch 側へ同時接続が集中するので
+  // 直列で回し、間隔も空ける (人が手で順番に更新ボタンを押すのと同じ速さ)。差分取得が
+  // 効くので、更新の無いスレは 304 で本文が流れず転送量は 0 になる。
+  const BULK_REFRESH_INTERVAL_MS = 500;
+  const refreshAllTabs = async () => {
+    // 実行中にもう一度押したら中断する (ボタンがそのまま中断ボタンになる)
+    if (bulkRefreshRunningRef.current) {
+      bulkRefreshAbortRef.current = true;
+      setStatus("全タブ更新を中断します");
+      return;
+    }
+    if (!isTauriRuntime()) {
+      setStatus("全タブ更新はアプリ上でのみ動きます");
+      return;
+    }
+    const targets = threadTabs.map((t) => t.threadUrl);
+    if (targets.length === 0) {
+      setStatus("更新するタブがありません");
+      return;
+    }
+    const activeUrl = activeTabIndex >= 0 && activeTabIndex < threadTabs.length
+      ? threadTabs[activeTabIndex].threadUrl
+      : null;
+    bulkRefreshAbortRef.current = false;
+    bulkRefreshRunningRef.current = true;
+    setBulkRefreshProgress({ done: 0, total: targets.length });
+    let newThreads = 0;
+    let newResponses = 0;
+    let skipped = 0;
+    try {
+      for (let i = 0; i < targets.length; i++) {
+        if (bulkRefreshAbortRef.current) break;
+        if (i > 0) await new Promise((r) => setTimeout(r, BULK_REFRESH_INTERVAL_MS));
+        if (bulkRefreshAbortRef.current) break;
+        const url = targets[i];
+        // アクティブタブは画面に出ているので通常の更新経路に通す。「ここから新着」ラインと
+        // New ボタンがそのまま付くので、タブ側に印は付けない。
+        if (url === activeUrl) {
+          const before = tabCacheRef.current.get(url)?.responses.length ?? 0;
+          await fetchResponsesFromCurrent(url, { keepSelection: true, isRefresh: true });
+          const after = tabCacheRef.current.get(url)?.responses.length ?? 0;
+          if (after > before) {
+            newThreads++;
+            newResponses += after - before;
+          }
+          setBulkRefreshProgress({ done: i + 1, total: targets.length });
+          continue;
+        }
+        let cached = tabCacheRef.current.get(url);
+        if (!cached) {
+          // タブ復元直後は裏タブのメモリキャッシュが空なので、SQLite から前回の内容を
+          // 読んでおく。読まないと取得結果の全部が「新着」に見えてしまう。
+          try {
+            const json = await invoke<string | null>("load_thread_cache", { threadUrl: url });
+            if (json) {
+              const stored = JSON.parse(json) as ThreadResponseItem[];
+              if (stored.length > 0) {
+                cached = { responses: stored, selectedResponse: loadBookmark(url) ?? 1 };
+                tabCacheRef.current.set(url, cached);
+              }
+            }
+          } catch (e) {
+            console.warn("refreshAllTabs: load_thread_cache failed", e);
+          }
+        }
+        const prevCount = cached?.responses.length ?? 0;
+        try {
+          const result = await invoke<FetchResponsesPayload>("fetch_thread_responses_command", {
+            threadUrl: url,
+            limit: null,
+            ifModifiedSince: prevCount > 0 ? (tabLastModifiedRef.current.get(url) ?? null) : null,
+            // 過去ログは dat が 404 になり read.cgi の HTML 取得に落ちる。HTML は dat より
+            // 何倍も重いので、一括更新では取りに行かずスキップ扱いにする。
+            allowHtmlFallback: false,
+          });
+          if (result.lastModified) tabLastModifiedRef.current.set(url, result.lastModified);
+          if (result.notModified) continue;
+          const rows = result.responses;
+          // 空が返ったときは手元のキャッシュを残す (取得失敗と区別できないため)
+          if (rows.length === 0) continue;
+          const fetchedTitle = result.title ? decodeHtmlEntities(result.title) : null;
+          if (fetchedTitle) {
+            setThreadTabs((prev) => prev.map((t) => (t.threadUrl === url ? { ...t, title: fetchedTitle } : t)));
+          }
+          const added = prevCount > 0 ? Math.max(0, rows.length - prevCount) : 0;
+          if (cached) {
+            cached.responses = rows;
+            // すでに未読の起点があるならそれを残す (前回の新着を読む前にまた更新した場合)
+            if (added > 0 && cached.newResponseStart == null) cached.newResponseStart = prevCount + 1;
+          } else {
+            tabCacheRef.current.set(url, {
+              responses: rows,
+              selectedResponse: loadBookmark(url) ?? 1,
+              newResponseStart: added > 0 ? prevCount + 1 : null,
+            });
+          }
+          // タブ復元後に古い内容が出ないよう SQLite 側も更新しておく
+          const tabTitle = fetchedTitle ?? threadTabs.find((t) => t.threadUrl === url)?.title ?? "";
+          invoke("save_thread_cache", { threadUrl: url, title: tabTitle, responsesJson: JSON.stringify(rows) })
+            .catch((e) => console.warn("save_thread_cache failed", e));
+          if (added > 0) {
+            newThreads++;
+            newResponses += added;
+            setTabNewCounts((prev) => {
+              const next = new Map(prev);
+              next.set(url, (next.get(url) ?? 0) + added);
+              return next;
+            });
+          }
+        } catch (e) {
+          // dat 落ち・過去ログ・一時的なエラーはスキップして次のタブへ進む
+          skipped++;
+          console.warn(`refreshAllTabs: skipped ${url}`, e);
+        } finally {
+          // 304 や空応答で continue したときも進行表示は進める
+          setBulkRefreshProgress({ done: i + 1, total: targets.length });
+        }
+      }
+    } finally {
+      const aborted = bulkRefreshAbortRef.current;
+      bulkRefreshAbortRef.current = false;
+      bulkRefreshRunningRef.current = false;
+      setBulkRefreshProgress(null);
+      const skippedText = skipped > 0 ? ` / 取得できず ${skipped}件` : "";
+      setStatus(
+        newThreads > 0
+          ? `${aborted ? "全タブ更新を中断: " : "全タブ更新完了: "}新着 ${newThreads}スレ ${newResponses}レス${skippedText}`
+          : `${aborted ? "全タブ更新を中断: " : "全タブ更新完了: "}新着なし${skippedText}`,
+      );
     }
   };
 
@@ -9147,6 +9347,11 @@ export default function App() {
         void fetchThreadListFromCurrent();
         return;
       }
+      if (e.ctrlKey && e.altKey && !e.shiftKey && e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        void refreshAllTabs();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "w") {
         e.preventDefault();
         if (activeTabIndex >= 0 && threadTabs.length > 0) {
@@ -10240,6 +10445,9 @@ export default function App() {
         }
         case "reloadThread":
           void fetchResponsesFromCurrent();
+          break;
+        case "reloadAllTabs":
+          void refreshAllTabs();
           break;
         case "scrollTop":
           scrollResponsesToTop(null);
@@ -12305,6 +12513,15 @@ export default function App() {
           />
           <span>自動更新</span>
         </label>
+        <button
+          className="bulk-refresh-btn"
+          onClick={() => void refreshAllTabs()}
+          disabled={threadTabs.length === 0 && bulkRefreshProgress === null}
+          title={bulkRefreshProgress ? "クリックで中断" : "開いているタブを1つずつ順番に更新 (Ctrl+Alt+R)"}
+        >
+          <RefreshCw size={12} className={bulkRefreshProgress ? "patrol-spin" : undefined} />
+          {bulkRefreshProgress ? `${bulkRefreshProgress.done}/${bulkRefreshProgress.total}` : "全タブ更新"}
+        </button>
         <span className="tool-sep" />
         <div className="search-with-history" style={{ flex: 1 }}>
           <input
@@ -13202,9 +13419,12 @@ export default function App() {
                 }}
                 title={tab.title || tab.threadUrl}
               >
-                <span className="thread-tab-title">{tab.title}</span>
+                <span className={`thread-tab-title${(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 ? " has-new" : ""}`}>{tab.title}</span>
                 {tabCacheRef.current.has(tab.threadUrl) && (
                   <span className="tab-res-count">({tabCacheRef.current.get(tab.threadUrl)!.responses.length})</span>
+                )}
+                {(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 && (
+                  <span className="tab-new-count">+{tabNewCounts.get(tab.threadUrl)}</span>
                 )}
                 {tab.locked ? (
                   <button
@@ -15382,9 +15602,12 @@ export default function App() {
                 }}
               >
                 {tab.locked && <Lock className="tab-list-item-lock" size={10} />}
-                <span className="tab-list-item-title">{tab.title || tab.threadUrl}</span>
+                <span className={`tab-list-item-title${(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 ? " has-new" : ""}`}>{tab.title || tab.threadUrl}</span>
                 {tabCacheRef.current.has(tab.threadUrl) && (
                   <span className="tab-list-item-count">({tabCacheRef.current.get(tab.threadUrl)!.responses.length})</span>
+                )}
+                {(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 && (
+                  <span className="tab-list-item-new">+{tabNewCounts.get(tab.threadUrl)}</span>
                 )}
               </div>
             ))}
@@ -15848,6 +16071,7 @@ export default function App() {
                 ["Ctrl+W", "選択スレを閉じる"],
                 ["Ctrl+Shift+T", "閉じたタブを再度開く"],
                 ["Ctrl+Shift+R", "スレ一覧を再取得"],
+                ["Ctrl+Alt+R", "開いているタブを1つずつ順番に更新 (全タブ更新)"],
                 ["Ctrl+Alt+/", "次のスレへ切替"],
                 ["Ctrl+Tab", "次のタブ"],
                 ["Ctrl+Shift+Tab", "前のタブ"],
@@ -16585,7 +16809,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>180項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>181項目</span></div>
               </fieldset>
               </>)}
             </div>

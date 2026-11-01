@@ -3578,6 +3578,47 @@ button.search-history-btn:hover {
   margin-left: 2px;
 }
 
+/* === 全タブ更新 ===
+   新着があったタブの見せ方は、スレ一覧の新着 (.has-unread-row) と巡回結果
+   (.fav-thread-title.patrol-new) と同じ「太字 + 赤」に揃える。 */
+.bulk-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.thread-tab-title.has-new,
+.tab-list-item-title.has-new {
+  font-weight: 700;
+  color: #cc3300;
+}
+
+.tab-new-count {
+  flex: 0 0 auto;
+  font-size: calc(9px + var(--tab-fs-delta, 0px));
+  font-weight: 700;
+  color: #cc3300;
+}
+
+.thread-tab-bar-wrap.tabs-narrow .tab-new-count {
+  font-size: calc(8px + var(--tab-fs-delta, 0px));
+}
+
+.tab-list-item-new {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  color: #cc3300;
+}
+
+.dark .thread-tab-title.has-new,
+.dark .tab-list-item-title.has-new,
+.dark .tab-new-count,
+.dark .tab-list-item-new {
+  color: #ff6644;
+}
+
 .nav-new-btn {
   color: #cc3300;
   font-weight: 700;

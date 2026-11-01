@@ -5635,6 +5635,197 @@ try {
     console.log("smoke-ui: recent thread histories clear in bulk ok");
   }
 
+  // --- 全タブ更新 ---
+  // 開いているタブを 1 本ずつ順番に更新する。検査するのは:
+  //  - 直列で回ること (同時接続をしない。並列になると 5ch 側へ負荷が集中する)
+  //  - 裏タブには allowHtmlFallback: false を渡すこと (過去ログの HTML を取りに行かない)
+  //  - 2 回目以降は If-Modified-Since を付けること (差分取得)
+  //  - 新着があったタブだけが太赤字 (.has-new) と +N になること
+  //  - 304 (更新なし) のタブには印が付かないこと
+  //  - そのタブを開くと印が消えること
+  {
+    const T1 = "https://mao.5ch.io/test/read.cgi/ngt/1111111111/";
+    const T2 = "https://mao.5ch.io/test/read.cgi/ngt/2222222222/";
+    const T3 = "https://mao.5ch.io/test/read.cgi/ngt/3333333333/";
+    const bulkPage = await context.newPage();
+    await bulkPage.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+      localStorage.setItem("desktop.threadTabs.v1", arg.tabs);
+      const T1 = arg.t1, T2 = arg.t2, T3 = arg.t3;
+      const makeRows = (n) => {
+        const out = [];
+        for (let i = 1; i <= n; i += 1) {
+          out.push({
+            responseNo: i,
+            name: "\u540d\u7121\u3057\u3055\u3093",
+            mail: "",
+            dateAndId: "2026/11/01(\u571f) 00:00:00.00 ID:abcdefgh",
+            body: "\u672c\u6587 " + i,
+          });
+        }
+        return out;
+      };
+      // SQLite キャッシュの件数 (= 前回見たところまで)
+      const cacheCounts = { [T1]: 10, [T2]: 20, [T3]: 30 };
+      // 取得の応答。起動時の取得が何回走るかに依存しないよう、
+      // Node 側から setPhase() で切り替える (phase 0 = 起動時 / 1 = 全タブ更新後)。
+      const fetchPlan = {
+        [T1]: [10, 12],
+        [T2]: [20, 25],
+        [T3]: ["notModified", "notModified"],
+      };
+      let phase = 0;
+      const calls = [];
+      let inFlight = 0;
+      let maxInFlight = 0;
+      window.__smokeBulk = {
+        calls: () => calls,
+        maxInFlight: () => maxInFlight,
+        setPhase: (p) => { phase = p; },
+      };
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve("");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "save_thread_cache") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({});
+          if (cmd === "load_thread_cache") {
+            const n = cacheCounts[args.threadUrl] ?? 0;
+            return Promise.resolve(n > 0 ? JSON.stringify(makeRows(n)) : null);
+          }
+          if (cmd === "fetch_thread_responses_command") {
+            const url = args.threadUrl;
+            calls.push({ url, ifModifiedSince: args.ifModifiedSince ?? null, allowHtmlFallback: args.allowHtmlFallback ?? null });
+            inFlight += 1;
+            if (inFlight > maxInFlight) maxInFlight = inFlight;
+            const want = (fetchPlan[url] ?? [])[phase];
+            return new Promise((resolve) => {
+              setTimeout(() => {
+                inFlight -= 1;
+                if (want === "notModified") {
+                  resolve({ responses: [], title: null, lastModified: "LM-" + url, notModified: true });
+                } else {
+                  resolve({ responses: makeRows(want), title: null, lastModified: "LM-" + url, notModified: false });
+                }
+              }, 60);
+            });
+          }
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, {
+      prefs: JSON.stringify({ restoreSession: true }),
+      tabs: JSON.stringify({
+        tabs: [
+          { threadUrl: T1, title: "\u30bf\u30d61" },
+          { threadUrl: T2, title: "\u30bf\u30d62" },
+          { threadUrl: T3, title: "\u30bf\u30d63" },
+        ],
+        activeIndex: 0,
+      }),
+      t1: T1, t2: T2, t3: T3,
+    });
+    await bulkPage.goto(targetUrl, { waitUntil: "load" });
+    await bulkPage.waitForSelector(".thread-tab:not(.placeholder)");
+    await new Promise((r) => setTimeout(r, 900));
+
+    const tabState = () => bulkPage.$$eval(".thread-tab:not(.placeholder)", (els) => els.map((el) => ({
+      title: el.querySelector(".thread-tab-title")?.textContent?.trim() ?? "",
+      hasNew: el.querySelector(".thread-tab-title")?.classList.contains("has-new") ?? false,
+      newCount: el.querySelector(".tab-new-count")?.textContent?.trim() ?? "",
+      resCount: el.querySelector(".tab-res-count")?.textContent?.trim() ?? "",
+    })));
+
+    const before = await tabState();
+    assert(before.length === 3, `the bulk refresh case needs 3 restored tabs, got ${JSON.stringify(before)}`);
+    assert(
+      before.every((t) => !t.hasNew && t.newCount === ""),
+      `no tab should be marked new before pressing the button, got ${JSON.stringify(before)}`,
+    );
+
+    const bulkBtn = await bulkPage.$(".bulk-refresh-btn");
+    assert(bulkBtn, "the toolbar should have a 全タブ更新 button");
+    // ここから「留守中に増えた」状態にする (T1: 10->12, T2: 20->25, T3: 304)
+    await bulkPage.evaluate(() => window.__smokeBulk.setPhase(1));
+    await bulkBtn.click();
+    // 3 タブ x 500ms 間隔 + 応答 60ms。余裕を見て待つ。
+    await bulkPage.waitForFunction(
+      () => (document.querySelector(".status-bar")?.textContent ?? "").includes("全タブ更新完了"),
+      null,
+      { timeout: 15000 },
+    );
+
+    const after = await tabState();
+    // T2 は 20 -> 25 で +5。太赤字と +5 が付く。
+    assert(after[1].hasNew, `the tab that grew should be bold-red, got ${JSON.stringify(after)}`);
+    assert(after[1].newCount === "+5", `the tab that grew should show +5, got ${JSON.stringify(after)}`);
+    assert(after[1].resCount === "(25)", `the tab that grew should show its new total, got ${JSON.stringify(after)}`);
+    // T3 は 304 (更新なし) なので印は付かない
+    assert(!after[2].hasNew && after[2].newCount === "", `a 304 tab must not be marked new, got ${JSON.stringify(after)}`);
+    // T1 はアクティブタブ。画面に出ているのでタブ側に印は付けない
+    assert(!after[0].hasNew && after[0].newCount === "", `the active tab must not get a tab mark, got ${JSON.stringify(after)}`);
+
+    // 件数はアクティブタブの増分 (10 -> 12) も数える
+    const status = await bulkPage.$eval(".status-bar", (el) => el.textContent ?? "");
+    assert(
+      status.includes("新着 2スレ 7レス"),
+      `the bulk refresh should report what it found, got ${JSON.stringify(status)}`,
+    );
+
+    // 直列で回していること。並列にすると 5ch 側へ同時接続が集中する。
+    const maxInFlight = await bulkPage.evaluate(() => window.__smokeBulk.maxInFlight());
+    assert(maxInFlight === 1, `the bulk refresh must fetch serially, max in-flight was ${maxInFlight}`);
+
+    // 裏タブは過去ログの HTML を取りに行かない
+    const calls = await bulkPage.evaluate(() => window.__smokeBulk.calls());
+    const t2Calls = calls.filter((c) => c.url === T2);
+    assert(
+      t2Calls.length >= 1 && t2Calls[0].allowHtmlFallback === false,
+      `background tabs must skip the read.cgi html fallback, got ${JSON.stringify(t2Calls)}`,
+    );
+    // 1 回目は Last-Modified を持っていないので付けない
+    assert(t2Calls[0].ifModifiedSince === null, `the first fetch has no Last-Modified yet, got ${JSON.stringify(t2Calls)}`);
+
+    // もう一度押すと差分取得になる (前回の Last-Modified を送る)
+    await (await bulkPage.$(".bulk-refresh-btn")).click();
+    await new Promise((r) => setTimeout(r, 300));
+    await bulkPage.waitForFunction(
+      () => window.__smokeBulk.calls().filter((c) => c.url.endsWith("/2222222222/")).length >= 2,
+      null,
+      { timeout: 15000 },
+    );
+    const t2Again = await bulkPage.evaluate(() => window.__smokeBulk.calls().filter((c) => c.url.endsWith("/2222222222/")));
+    assert(
+      t2Again[1].ifModifiedSince === "LM-" + T2,
+      `the second fetch should send If-Modified-Since, got ${JSON.stringify(t2Again)}`,
+    );
+    // 2 回目は完了ステータスが前回のまま残るので、ボタンが待機表示に戻るのを待つ
+    await bulkPage.waitForFunction(
+      () => ((document.querySelector(".bulk-refresh-btn")?.textContent ?? "").includes("全タブ更新")),
+      null,
+      { timeout: 15000 },
+    );
+
+    // タブを開いたら印が消える (スレ本文の「ここから新着」ラインが引き継ぐ)
+    const handles = await bulkPage.$$(".thread-tab:not(.placeholder)");
+    await handles[1].click();
+    await new Promise((r) => setTimeout(r, 400));
+    const opened = await tabState();
+    assert(
+      !opened[1].hasNew && opened[1].newCount === "",
+      `opening a tab should clear its new mark, got ${JSON.stringify(opened)}`,
+    );
+    assert(
+      await bulkPage.$(".nav-new-btn"),
+      "opening a tab with new responses should leave the in-thread New button behind",
+    );
+
+    await bulkPage.close();
+    console.log("smoke-ui: refreshing every tab marks the ones with new responses ok");
+  }
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

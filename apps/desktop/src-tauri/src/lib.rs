@@ -1,11 +1,11 @@
 ﻿use core_auth::{login_be_front, login_donguri, login_uplift, LoginOutcome};
 use core_fetch::{
     build_cookie_client, create_thread, fetch_bbsmenu_from, fetch_bbsmenu_json,
-    fetch_post_form_tokens, fetch_subject_threads, fetch_thread_responses, is_post_success_page,
+    fetch_post_form_tokens, fetch_subject_threads, fetch_thread_responses_with, is_post_success_page,
     normalize_5ch_url, parse_confirm_submit_form, probe_post_cookie_scope, seed_cookie,
     submit_post_confirm, submit_post_confirm_with_html, submit_post_finalize_from_confirm,
     CreateThreadResult, OgpCard, PostConfirmResult, PostCookieReport, PostFinalizePreview,
-    PostFormTokens, PostSubmitResult, TweetCard, EX0CH_BBSMENU_URL,
+    PostFormTokens, PostSubmitResult, ThreadFetchOptions, TweetCard, EX0CH_BBSMENU_URL,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 /// (cookie_name, cookie_value, provider)
@@ -235,6 +236,26 @@ struct ThreadResponseItem {
 struct FetchResponsesResult {
     responses: Vec<ThreadResponseItem>,
     title: Option<String>,
+    /// 次回この スレ を取得するとき If-Modified-Since に渡す値。
+    last_modified: Option<String>,
+    /// 304 が返った (更新なし)。responses は空なのでフロント側はキャッシュを据え置く。
+    not_modified: bool,
+}
+
+// 全タブ更新は1本ずつ連続で取得するので、毎回 Client を作ると TLS ハンドシェイクが
+// タブの数だけ走る。接続を再利用するために使い回す。
+static THREAD_FETCH_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn thread_fetch_client() -> Result<&'static reqwest::Client, String> {
+    if let Some(client) = THREAD_FETCH_CLIENT.get() {
+        return Ok(client);
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("Monazilla/1.00 Ember/0.1")
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(THREAD_FETCH_CLIENT.get_or_init(|| client))
 }
 
 #[tauri::command]
@@ -490,19 +511,39 @@ async fn fetch_tweet_card(url: String) -> Result<TweetCard, String> {
 async fn fetch_thread_responses_command(
     thread_url: String,
     limit: Option<usize>,
+    if_modified_since: Option<String>,
+    allow_html_fallback: Option<bool>,
 ) -> Result<FetchResponsesResult, String> {
     let _ = core_store::append_log(&format!("fetch_responses: {}", thread_url));
-    let client = reqwest::Client::builder()
-        .user_agent("Monazilla/1.00 Ember/0.1")
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = thread_fetch_client()?;
     let limit = limit.unwrap_or(usize::MAX);
-    let (rows, title) = fetch_thread_responses(&client, &thread_url, limit)
-        .await
-        .map_err(|e| {
-            let _ = core_store::append_log(&format!("fetch_responses error: {}", e));
-            e.to_string()
-        })?;
+    let outcome = fetch_thread_responses_with(
+        client,
+        &thread_url,
+        ThreadFetchOptions {
+            limit,
+            if_modified_since: if_modified_since.as_deref(),
+            // 既定は従来どおり過去ログの HTML まで取りに行く。全タブ更新だけ false を渡す。
+            allow_html_fallback: allow_html_fallback.unwrap_or(true),
+        },
+    )
+    .await
+    .map_err(|e| {
+        let _ = core_store::append_log(&format!("fetch_responses error: {}", e));
+        e.to_string()
+    })?;
+    if outcome.not_modified {
+        let _ = core_store::append_log("fetch_responses: not modified (304)");
+        return Ok(FetchResponsesResult {
+            responses: Vec::new(),
+            title: None,
+            last_modified: outcome.last_modified,
+            not_modified: true,
+        });
+    }
+    let rows = outcome.responses;
+    let title = outcome.title;
+    let last_modified = outcome.last_modified;
     let _ = core_store::append_log(&format!("fetch_responses ok: {} rows", rows.len()));
     Ok(FetchResponsesResult {
         responses: rows
@@ -516,6 +557,8 @@ async fn fetch_thread_responses_command(
             })
             .collect(),
         title,
+        last_modified,
+        not_modified: false,
     })
 }
 

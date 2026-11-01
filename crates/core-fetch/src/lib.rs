@@ -841,17 +841,78 @@ pub fn resolve_dat_url_from_thread_url(thread_url: &str) -> Result<String, Fetch
     Ok(location.dat_url(key))
 }
 
+/// スレ取得の条件。差分取得 (If-Modified-Since) と、過去ログ用の read.cgi フォールバックの
+/// 可否を呼び出し側で決める。
+#[derive(Debug, Clone)]
+pub struct ThreadFetchOptions<'a> {
+    pub limit: usize,
+    /// 前回取得時の Last-Modified。付けると更新が無いときサーバーが 304 を返し、
+    /// 本文が流れないので転送量が 0 になる (5ch.io / bbspink とも対応を実測済み)。
+    pub if_modified_since: Option<&'a str>,
+    /// dat が 404 のとき read.cgi の HTML を取り直すか。過去ログを開くには必要だが、
+    /// HTML は dat より何倍も重いので全タブ更新のような一括処理では切る。
+    pub allow_html_fallback: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ThreadFetchOutcome {
+    pub responses: Vec<ThreadResponse>,
+    pub title: Option<String>,
+    /// 次回の If-Modified-Since に渡す値 (dat が返した Last-Modified)。
+    pub last_modified: Option<String>,
+    /// 304 が返った (= 更新なし)。responses は空なので呼び出し側はキャッシュを据え置く。
+    pub not_modified: bool,
+}
+
 /// Returns (responses, optional_title). Title is only set when fetched from read.cgi HTML fallback.
 pub async fn fetch_thread_responses(
     client: &Client,
     thread_url: &str,
     limit: usize,
 ) -> Result<(Vec<ThreadResponse>, Option<String>), FetchError> {
+    let outcome = fetch_thread_responses_with(
+        client,
+        thread_url,
+        ThreadFetchOptions {
+            limit,
+            if_modified_since: None,
+            allow_html_fallback: true,
+        },
+    )
+    .await?;
+    Ok((outcome.responses, outcome.title))
+}
+
+pub async fn fetch_thread_responses_with(
+    client: &Client,
+    thread_url: &str,
+    opts: ThreadFetchOptions<'_>,
+) -> Result<ThreadFetchOutcome, FetchError> {
+    let limit = opts.limit;
     let dat_url = resolve_dat_url_from_thread_url(thread_url)?;
-    let response = client.get(&dat_url).send().await?;
+    let mut request = client.get(&dat_url);
+    if let Some(since) = opts.if_modified_since {
+        request = request.header(reqwest::header::IF_MODIFIED_SINCE, since);
+    }
+    let response = request.send().await?;
     let status = response.status();
 
+    // 更新が無ければ 304 (本文なし)。手元のキャッシュがそのまま最新なので取り直さない。
+    if status == reqwest::StatusCode::NOT_MODIFIED {
+        return Ok(ThreadFetchOutcome {
+            responses: Vec::new(),
+            title: None,
+            last_modified: opts.if_modified_since.map(|s| s.to_string()),
+            not_modified: true,
+        });
+    }
+
     if status.is_success() {
+        let last_modified = response
+            .headers()
+            .get(reqwest::header::LAST_MODIFIED)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
         let bytes = response.bytes().await?;
         let (decoded, _, _) = SHIFT_JIS.decode(&bytes);
         let body = decoded.into_owned();
@@ -876,8 +937,19 @@ pub async fn fetch_thread_responses(
             }
         }
         if !out.is_empty() {
-            return Ok((out, dat_title));
+            return Ok(ThreadFetchOutcome {
+                responses: out,
+                title: dat_title,
+                last_modified,
+                not_modified: false,
+            });
         }
+    }
+
+    // dat が取れなかった。過去ログは read.cgi の HTML から読めるが dat より重いので、
+    // 一括更新 (全タブ更新) では取りに行かず、呼び出し側でスキップさせる。
+    if !opts.allow_html_fallback {
+        return Err(FetchError::HttpStatus(status));
     }
 
     // Fallback: fetch read.cgi HTML (for archived/過去ログ threads)
@@ -902,13 +974,24 @@ pub async fn fetch_thread_responses(
         (result_utf8.entries, result_utf8.title)
     };
 
-    Ok((entries.into_iter().enumerate().take(limit).map(|(i, e)| ThreadResponse {
-        response_no: (i + 1) as u32,
-        name: e.name,
-        mail: e.mail,
-        date_and_id: e.date_and_id,
-        body: e.body,
-    }).collect(), title))
+    Ok(ThreadFetchOutcome {
+        responses: entries
+            .into_iter()
+            .enumerate()
+            .take(limit)
+            .map(|(i, e)| ThreadResponse {
+                response_no: (i + 1) as u32,
+                name: e.name,
+                mail: e.mail,
+                date_and_id: e.date_and_id,
+                body: e.body,
+            })
+            .collect(),
+        title,
+        // read.cgi の HTML は dat とは別物なので、次回の差分取得には使わない。
+        last_modified: None,
+        not_modified: false,
+    })
 }
 
 pub fn parse_post_form_tokens(thread_url: &str, html: &str) -> Result<PostFormTokens, FetchError> {
