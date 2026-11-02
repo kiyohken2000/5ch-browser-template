@@ -15,6 +15,60 @@ fi
 echo "[1/7] Update main"
 git -C "$ROOT_DIR" pull --ff-only
 
+# Xcode / CLT 27.2 の SDK でリンクすると、dyld が読み込めない Mach-O
+# ("mis-aligned LINKEDIT string pool") が出来ることがある。proc-macro が壊れれば
+# ビルドが止まるが、updater が壊れてもビルドは成功してしまうので、既定の SDK が
+# 該当する場合はインストール済みの別の SDK に切り替える。
+BROKEN_SDK_VERSIONS=("27.2")
+
+sdk_version() {
+  /usr/libexec/PlistBuddy -c "Print :Version" "$1/SDKSettings.plist" 2>/dev/null || true
+}
+
+is_broken_sdk() {
+  local v
+  for v in "${BROKEN_SDK_VERSIONS[@]}"; do
+    [[ "$1" == "$v" ]] && return 0
+  done
+  return 1
+}
+
+if [[ -z "${SDKROOT:-}" ]]; then
+  DEFAULT_SDK_VERSION="$(xcrun --show-sdk-version)"
+  if is_broken_sdk "$DEFAULT_SDK_VERSION"; then
+    FALLBACK_SDK=""
+    FALLBACK_VERSION=""
+    for sdk in /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk \
+               "$(xcode-select -p)"/Platforms/MacOSX.platform/Developer/SDKs/MacOSX*.sdk; do
+      [[ -d "$sdk" && ! -L "$sdk" ]] || continue
+      v="$(sdk_version "$sdk")"
+      [[ -n "$v" ]] || continue
+      is_broken_sdk "$v" && continue
+      if [[ -z "$FALLBACK_VERSION" || "$(printf '%s\n%s\n' "$FALLBACK_VERSION" "$v" | sort -V | tail -n 1)" == "$v" ]]; then
+        FALLBACK_SDK="$sdk"
+        FALLBACK_VERSION="$v"
+      fi
+    done
+    if [[ -z "$FALLBACK_SDK" ]]; then
+      echo "既定の macOS SDK $DEFAULT_SDK_VERSION は壊れたバイナリを生成するため使えず、代わりの SDK も見つかりません" >&2
+      exit 1
+    fi
+    export SDKROOT="$FALLBACK_SDK"
+    echo "  SDK $DEFAULT_SDK_VERSION は使わず $FALLBACK_VERSION を使用: $SDKROOT"
+  fi
+fi
+
+# cargo は SDKROOT の変更で再ビルドしないため、前回と SDK が違えば
+# release の成果物を作り直す (壊れた proc-macro の使い回しを防ぐ)
+SDK_STAMP="$ROOT_DIR/target/release/.ember-sdkroot"
+CURRENT_SDK="${SDKROOT:-$(xcrun --show-sdk-path)}"
+if [[ -d "$ROOT_DIR/target/release" && "$(cat "$SDK_STAMP" 2>/dev/null || true)" != "$CURRENT_SDK" ]]; then
+  echo "  SDK が前回のビルドと異なるため target/release をクリーン"
+  (cd "$ROOT_DIR" && cargo clean --release)
+fi
+mkdir -p "$ROOT_DIR/target/release"
+echo "$CURRENT_SDK" > "$SDK_STAMP"
+
 # Mac は .app がバンドル 1 個なので、Windows のように exe の隣へ updater を置けない。
 # sidecar (externalBin) として Ember.app/Contents/MacOS/updater に同梱し、アプリの
 # 「バージョン情報」→「アップデートを確認」から起動する。
@@ -80,6 +134,15 @@ if [[ -z "$APP_PATH" || ! -x "$APP_PATH/Contents/MacOS/updater" ]]; then
   echo "updater が .app に同梱されていません ($APP_PATH/Contents/MacOS/updater)" >&2
   exit 1
 fi
+
+# 同梱バイナリを dyld が読み込めること。壊れていても tauri build は成功するため
+for bin in "$APP_PATH"/Contents/MacOS/*; do
+  if ! xcrun dyld_info -platform "$bin" > /dev/null 2>&1; then
+    echo "dyld が読み込めないバイナリがあります: $bin" >&2
+    xcrun dyld_info -platform "$bin" >&2 || true
+    exit 1
+  fi
+done
 
 echo "[5/7] Create ZIP"
 mkdir -p "$OUT_DIR"
