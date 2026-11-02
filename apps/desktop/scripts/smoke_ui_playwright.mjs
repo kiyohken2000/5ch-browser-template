@@ -5111,6 +5111,32 @@ try {
     const jumpInput = await p.$(".nav-jump-input");
     assert(jumpInput, "the nav bar should have the response-number jump input");
 
+    // 幅が足りていることを最初に見る。>>1000 まであるから 4 桁が入るのが最低線。
+    const jumpFits = async (where, maxWidth) => {
+      await (await p.$(".nav-jump-input")).fill("1000");
+      const m = await p.$eval(".nav-jump-input", (el) => ({
+        scroll: el.scrollWidth,
+        client: el.clientWidth,
+        width: el.getBoundingClientRect().width,
+        fs: window.getComputedStyle(el).fontSize,
+      }));
+      // 下から: 4 桁 (>>1000 がある) が切れずに入ること
+      assert(
+        m.scroll <= m.client + 1,
+        `a 4-digit number must fit the jump input ${where} (${m.fs}): scrollWidth=${m.scroll} clientWidth=${m.client}`,
+      );
+      // 上から: 幅指定が効いていること。汎用の
+      // input:not([type="checkbox"]):not([type="radio"]) が width:100% を当てており、
+      // 詳細度で負けると入力欄がナビバーの 1 段を丸取りする。
+      // 下限だけだとその状態でも通ってしまうので上からも押さえる。
+      assert(
+        m.width <= maxWidth,
+        `the jump input must not swallow the nav bar ${where} (${m.fs}): width=${m.width} > ${maxWidth}`,
+      );
+      await (await p.$(".nav-jump-input")).fill("");
+    };
+    await jumpFits("at the default font size", 80);
+
     // 番号だけ / >>付き / 2 回目以降 / 先頭へ戻る、をひと通り。
     // 入力は本物のキー入力で行う (Enter が window へ上がる経路まで含めて再現するため)
     for (const [typed, want] of [["40", 40], [">>7", 7], ["55", 55], ["1", 1]]) {
@@ -5153,8 +5179,107 @@ try {
     assert((await selectedNo()) === 31, `Ctrl+Shift+ArrowDown should select >>31, got >>${await selectedNo()}`);
     assert((await topVisibleNo()) === 31, `Ctrl+Shift+ArrowDown must scroll to >>31, got >>${await topVisibleNo()}`);
 
+    // --- 文字サイズを 20 超へ上げても「>>」が使えること ---
+    // 設定「文字サイズ (レス)」は 20 が上限だった。上げたときに壊れるのは
+    // .nav-jump-input だけで、中の文字は --fs-delta で伸びるのに幅が 28px
+    // 固定だったため 4 桁が入ってこない。文字サイズを設定画面から本気で
+    // 32px にして、桁が欠けずに入り、その状態でも実際にジャンプできることを見る。
+    await p.click('.menu-item:has-text("ファイル")');
+    await new Promise((r) => setTimeout(r, 100));
+    await p.click('.menu-dropdown button:has-text("設定")');
+    await p.waitForSelector(".settings-panel");
+    await showSetting(p, ".responses-font-size-input");
+    const resFsInput = await p.$(".responses-font-size-input");
+    assert(resFsInput, "the settings panel should hold the response font size input");
+    const resFsMax = await resFsInput.getAttribute("max");
+    assert(resFsMax === "32", `the response font size spinner should reach 32, got ${resFsMax}`);
+    await resFsInput.fill("32");
+    await new Promise((r) => setTimeout(r, 150));
+    await p.click(".settings-panel .settings-header button");
+    await new Promise((r) => setTimeout(r, 150));
+
+    const bigBodyFs = await p.$eval(".response-body", (el) => window.getComputedStyle(el).fontSize);
+    assert(bigBodyFs === "32px", `the response body should be 32px, got ${bigBodyFs}`);
+
+    // 箱を空にしたときに壊れないこと。Number("") は 0 なので、昔は --fs-delta が
+    // -12px になり、一番小さい calc(8px + var(--fs-delta)) が負の font-size になって
+    // 宣言ごと無効化され、ペインの文字が親から継いだ大きさへ飛んでいた。
+    // 25 と打つには一度消す必要があるので、現実に通る経路。
+    await p.click('.menu-item:has-text("ファイル")');
+    await new Promise((r) => setTimeout(r, 100));
+    await p.click('.menu-dropdown button:has-text("設定")');
+    await p.waitForSelector(".settings-panel");
+    await showSetting(p, ".responses-font-size-input");
+    await (await p.$(".responses-font-size-input")).fill("");
+    await new Promise((r) => setTimeout(r, 150));
+    const emptyBodyFs = await p.$eval(".response-body", (el) => window.getComputedStyle(el).fontSize);
+    assert(emptyBodyFs === "12px", `an empty font size box should fall back to 12px, got ${emptyBodyFs}`);
+    const emptyTinyFs = await p.$eval(".response-date", (el) => parseFloat(window.getComputedStyle(el).fontSize));
+    assert(emptyTinyFs > 0, `the smallest text must stay positive with an empty box, got ${emptyTinyFs}px`);
+    // 打ち込みの上限は従来どおり設けない (逃げ道として残してある)
+    await (await p.$(".responses-font-size-input")).fill("40");
+    await new Promise((r) => setTimeout(r, 150));
+    const over = await p.$eval(".response-body", (el) => window.getComputedStyle(el).fontSize);
+    assert(over === "40px", `typing a value above the spinner max should still apply, got ${over}`);
+    await (await p.$(".responses-font-size-input")).fill("32");
+    await new Promise((r) => setTimeout(r, 150));
+    await p.click(".settings-panel .settings-header button");
+    await new Promise((r) => setTimeout(r, 150));
+
+    // 桁が切れていないことを scrollWidth で見る。幅が px 固定のままだと
+    // 30px の文字が 1 桁半しか入らずここで落ちる。
+    await jumpFits("at a font size above 20", 150);
+
+    // ナビバーを狭めても横にあふれないこと。ジャンプ欄はボタン群の
+    // 右端にあるので、折り返さないとまずこれがペインの外へ押し出される。
+    // ペインの幅は親のレイアウトが決めていて inline の width が入らないので、
+    // 測るときはナビバー自身を狭める (縦 flex の子なので width は通る)。
+    const navOverflow = await p.evaluate(() => {
+      const bar = document.querySelector(".response-nav-bar");
+      if (!bar) return { missing: true };
+      const before = bar.style.width;
+      bar.style.width = "420px";
+      bar.getBoundingClientRect();
+      const m = {
+        scroll: bar.scrollWidth,
+        client: bar.clientWidth,
+        rows: new Set([...bar.querySelectorAll("button, input")]
+          .map((el) => Math.round(el.getBoundingClientRect().top))).size,
+        jumpRight: bar.querySelector(".nav-jump-input").getBoundingClientRect().right,
+        barRight: bar.getBoundingClientRect().right,
+      };
+      bar.style.width = before;
+      return m;
+    });
+    assert(!navOverflow.missing, "the response nav bar should be present");
+    // バー全体が 1 ドットもあふれないことまでは求めない (.nav-info のように
+    // nowrap で長くなる子もある)。守りたいのは「>>」が使えることなので、
+    // 折り返しが効いていることと、ジャンプ欄がバーの中に居ることを見る。
+    assert(
+      navOverflow.rows >= 2,
+      `the nav bar should take more than one row at 32px in a 420px bar, got ${navOverflow.rows}`,
+    );
+    // 折り返しても、ジャンプ欄そのものがバーの右外へ出ていないこと
+    assert(
+      navOverflow.jumpRight <= navOverflow.barRight + 1,
+      `the jump input must stay inside the nav bar: right=${navOverflow.jumpRight} > ${navOverflow.barRight}`,
+    );
+
+
+    // 大きい文字サイズのままで本物のキー入力→移動まで通ること
+    const bigJump = await p.$(".nav-jump-input");
+    await bigJump.click();
+    await bigJump.fill("");
+    await p.keyboard.type("45");
+    await p.keyboard.press("Enter");
+    await new Promise((r) => setTimeout(r, 300));
+    await settleScroll();
+    assert((await selectedNo()) === 45, `the jump must still work at 32px, got >>${await selectedNo()}`);
+    assert((await topVisibleNo()) === 45, `the pane must still scroll at 32px, got >>${await topVisibleNo()}`);
+
     await p.close();
     console.log("smoke-ui: the response-number jump input moves the pane ok");
+    console.log("smoke-ui: the response-number jump input survives a font size above 20 ok");
   }
 
   // 「スレ一覧のソートを板ごとに記憶」の回帰用。板やフィルタを切り替えたときに、

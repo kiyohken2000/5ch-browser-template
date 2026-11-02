@@ -795,6 +795,13 @@ li.fav-drag-over {
 
 .response-nav-bar {
   display: flex;
+  /* 文字サイズ (レス) を上げると中身がバーの幅に入らなくなる。折り返さないと
+     右端のレス番号ジャンプ欄から順にペインの外へ押し出されて見えなくなるので、
+     段を増やして逃がす。内側の .nav-buttons だけでは足りない (このバーには
+     .nav-info や検索欄も横に並んでいる)。既定サイズではあふれないので
+     折り返しは起きず、従来の見え方のまま。 */
+  flex-wrap: wrap;
+  row-gap: 2px;
   align-items: center;
   background: #e0e0e0;
   border-top: 1px solid #a0a0a0;
@@ -843,7 +850,10 @@ li.fav-drag-over {
 }
 
 .nav-jump-input {
-  width: 28px;
+  /* 「>>」のレス番号ジャンプ欄。幅はここでは決められない —
+     下の .response-nav-bar .nav-buttons .nav-jump-input を見ること。
+     縮むのだけはここで止める (隣の .nav-buttons button と同じ扱い)。 */
+  flex: none;
   padding: 1px 3px;
   font-size: calc(10px + var(--fs-delta, 0px));
   border: 1px solid #b0b0b0;
@@ -1722,6 +1732,20 @@ input:not([type="checkbox"]):not([type="radio"]) {
   border: 1px solid #c0c0c0;
   background: #ffffff;
   padding: 6px;
+}
+
+/* 「>>」のレス番号ジャンプ欄の幅。ここに置く理由が 2 つある:
+ * ① 真上の input:not([type="checkbox"]):not([type="radio"]) が width:100% を当てている。
+ *    :not() の中の属性セレクタはクラス相当なのであちらは (0,2,1) で、
+ *    .nav-jump-input の (0,1,0) では勝てない。つまりあの欄の width 指定は
+ *    これまで一度も効いていなかった (flex の縮みで幅が決まっていた)。
+ *    クラス 3 つ (0,3,0) で順序に頼らず上回る。
+ * ② 文字サイズ (レス) を上げると中の文字は --fs-delta で伸びるので、横も
+ *    一緒に伸びないと 4 桁 (>>1000 がある) が入らない。桁幅は文字サイズに
+ *    比例するので delta に 2.9 を掛けて足す。固定分の 44px とこの係数は、
+ *    スモークが 12px と 32px の両方で scrollWidth <= clientWidth を見て決めている。 */
+.response-nav-bar .nav-buttons .nav-jump-input {
+  width: calc(44px + var(--fs-delta, 0px) * 2.9);
 }
 
 input[type="checkbox"],

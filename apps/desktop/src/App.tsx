@@ -978,6 +978,24 @@ type PaneLayoutMode = "classic" | "river";
 type DraggablePanelKey = "ng" | "threadNg" | "ngImage" | "threadCategory" | "ngAi";
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+// 板 / スレ / レスの文字サイズ。既定は 12px で、ペインに乗せた --fs-delta
+// (この値 - 12px) を CSS 側の calc(Npx + var(--fs-delta)) が受ける加算方式。
+// MIN / MAX は「スピナーの ▲▼」と「右クリックの文字サイズ拡大 / 縮小」が
+// 止まる位置。数値入力への打ち込みは昔から上限なしで通っていて、それを使って
+// いる人がいるかもしれないので、打ち込みの上限は設けない (従来どおり)。
+const PANE_FONT_SIZE_MIN = 8;
+const PANE_FONT_SIZE_MAX = 32;
+// 打ち込みで壊れる入力だけ受け止める。箱を空にすると Number("") が 0 になり
+// --fs-delta が -12px、一番小さい calc(8px + var(--fs-delta)) が負の
+// font-size になって宣言ごと無効化され、ペインの文字が親から継いだ大きさへ
+// 飛ぶ。空欄と NaN は既定へ戻し、残りは一番小さい指定が負にならない 5px で
+// 下支えする (タブの文字サイズが `|| 11` で同じことをしている)。
+const sanitizePaneFontSize = (raw: string) => {
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n) || n <= 0) return 12;
+  return Math.max(n, 5);
+};
 const upsertRecentThread = (list: RecentThread[], entry: RecentThread): RecentThread[] =>
   [entry, ...list.filter((item) => item.threadUrl !== entry.threadUrl)].slice(0, MAX_RECENT_THREADS);
 const clampMenuPosition = (x: number, y: number, width: number, height: number) => ({
@@ -12343,8 +12361,8 @@ export default function App() {
           ]},
           { label: "表示", items: [
             { text: `文字サイズ (${paneLabel(focusedPane)}): ${paneFontSize(focusedPane)[0]}px`, action: () => {} },
-            { text: "文字サイズ拡大", action: () => paneFontSize(focusedPane)[1]((v) => Math.min(v + 1, 20)) },
-            { text: "文字サイズ縮小", action: () => paneFontSize(focusedPane)[1]((v) => Math.max(v - 1, 8)) },
+            { text: "文字サイズ拡大", action: () => paneFontSize(focusedPane)[1]((v) => Math.min(v + 1, PANE_FONT_SIZE_MAX)) },
+            { text: "文字サイズ縮小", action: () => paneFontSize(focusedPane)[1]((v) => Math.max(v - 1, PANE_FONT_SIZE_MIN)) },
             { text: "文字サイズリセット", action: () => paneFontSize(focusedPane)[1](12) },
             { text: "全ペインリセット", action: () => { setBoardsFontSize(12); setThreadsFontSize(12); setResponsesFontSize(12); } },
             { text: "sep" },
@@ -16346,15 +16364,15 @@ export default function App() {
                 </label>
                 <label className="settings-row">
                   <span>文字サイズ (板)</span>
-                  <input type="number" value={boardsFontSize} min={8} max={20} onChange={(e) => setBoardsFontSize(Number(e.target.value))} />
+                  <input type="number" className="boards-font-size-input" value={boardsFontSize} min={PANE_FONT_SIZE_MIN} max={PANE_FONT_SIZE_MAX} onChange={(e) => setBoardsFontSize(sanitizePaneFontSize(e.target.value))} />
                 </label>
                 <label className="settings-row">
                   <span>文字サイズ (スレ)</span>
-                  <input type="number" value={threadsFontSize} min={8} max={20} onChange={(e) => setThreadsFontSize(Number(e.target.value))} />
+                  <input type="number" className="threads-font-size-input" value={threadsFontSize} min={PANE_FONT_SIZE_MIN} max={PANE_FONT_SIZE_MAX} onChange={(e) => setThreadsFontSize(sanitizePaneFontSize(e.target.value))} />
                 </label>
                 <label className="settings-row">
                   <span>文字サイズ (レス)</span>
-                  <input type="number" value={responsesFontSize} min={8} max={20} onChange={(e) => setResponsesFontSize(Number(e.target.value))} />
+                  <input type="number" className="responses-font-size-input" value={responsesFontSize} min={PANE_FONT_SIZE_MIN} max={PANE_FONT_SIZE_MAX} onChange={(e) => setResponsesFontSize(sanitizePaneFontSize(e.target.value))} />
                 </label>
                 <label className="settings-row">
                   <span>文字サイズ (タブ)</span>
@@ -16862,7 +16880,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>183項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>184項目</span></div>
               </fieldset>
               </>)}
             </div>
