@@ -2003,6 +2003,61 @@ pre {
   padding-top: 4px;
 }
 
+/* 書き込み認証 (kenmo.org など) のページを開くボタン。
+ *
+ * このボタンは .compose-result の中に置く。この箱はダーク/ガラスのどちらでも
+ * 明色のまま配色が変わらないので、文字色は箱から継ぐのが正しい。
+ *
+ * ところがボタンには他の指定が 3 つ被さってくる:
+ *   - button            background #f0f0f0 固定 + color var(--ink)
+ *   - .shell.glass .compose-window button        ほぼ白の半透明 + var(--ink)
+ *   - .shell.glass.dark .compose-window button   ほぼ透明 + var(--ink) (明るい灰)
+ * どれもボタンが「地の色と対になる面」に乗っている前提なので、明色の箱の上では
+ * 文字が沈む (ダークガラスでコントラスト 1.2 まで落ちる)。
+ *
+ * そのため、あちらの詳細度を順序に頼らず上回る形で書き、ガラスが付ける影と
+ * ブラーも明示的に打ち消す。数えるときは `.shell.glass.dark` が 3 クラスである
+ * ことに注意 (`.shell.glass.dark .compose-window button` でクラス 4 + 要素 1)。 */
+.shell .compose-result.compose-result-ok button.compose-auth-btn,
+.shell .compose-result.compose-result-err button.compose-auth-btn {
+  display: block;
+  margin-top: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid currentColor;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.shell .compose-result.compose-result-ok button.compose-auth-btn:hover:not(:disabled),
+.shell .compose-result.compose-result-err button.compose-auth-btn:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: currentColor;
+}
+
+/* ガラス用。上のまとめ書き (クラス 4 + 要素 1) は
+   `.shell.glass.dark .compose-window button` と同点で、あちらが後に書かれている
+   ため負ける。ガラスのときだけクラスを 1 つ増やして確実に上回る。 */
+.shell.glass .compose-result button.compose-auth-btn,
+.shell.glass.dark .compose-result button.compose-auth-btn {
+  color: inherit;
+  background: rgba(255, 255, 255, 0.7);
+  border-color: currentColor;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.shell.glass .compose-result button.compose-auth-btn:hover:not(:disabled),
+.shell.glass.dark .compose-result button.compose-auth-btn:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: currentColor;
+}
+
 .compose-result {
   margin: 0 8px 8px;
   padding: 6px 8px;

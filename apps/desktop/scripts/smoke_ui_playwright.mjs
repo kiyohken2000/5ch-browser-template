@@ -5826,6 +5826,254 @@ try {
     console.log("smoke-ui: refreshing every tab marks the ones with new responses ok");
   }
 
+  // kenmo.org / 00c.org (5ch 互換の別サイト) の板一覧を EXおろちつねると同じ扱いで
+  // 出せること。既定は非表示なので、起動時の取得で kenmo が要求されないこと、
+  // 板メニューのトグルでカテゴリが出入りすること、設定が残ることを見る。
+  {
+    const kenmoPage = await context.newPage();
+    await kenmoPage.addInitScript(() => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      // 板ペインは共有コンテキストの残りでお気に入りタブになっていることがある。
+      // 板ツリーが出ていないと「kenmo のカテゴリが無い」が素通りしてしまうので、
+      // この検査が前提にしている状態を明示的に置き直す。
+      localStorage.setItem("desktop.boardPaneTab.v1", "boards");
+      localStorage.setItem("desktop.ex0chEnabled.v1", "true");
+      localStorage.removeItem("desktop.kenmoEnabled.v1");
+      localStorage.removeItem("desktop.boardCategories.v1");
+      // 呼び出しごとの enabledSources と、保存された ui json を覚えておく
+      const sourceCalls = [];
+      let savedSettingsJson = null;
+      window.__smokeKenmo = {
+        sourceCalls: () => sourceCalls,
+        savedSettingsJson: () => savedSettingsJson,
+      };
+      const categoriesFor = (sources) => {
+        const cats = [{ categoryName: "テスト", boards: [{ boardName: "ngt", url: "https://mao.5ch.io/ngt/" }] }];
+        if (sources.includes("ex0ch")) {
+          cats.push({
+            categoryName: "EXおろちつねる / BBSPINK",
+            boards: [{ boardName: "運営", url: "https://bbspink.org/ex0ch/operate/" }],
+          });
+        }
+        if (sources.includes("kenmo")) {
+          cats.push({
+            categoryName: "kenmo.org / オルグ",
+            boards: [
+              { boardName: "嫌儲.org", url: "https://kenmo.org/poverty/" },
+              // directory_name が test の実在板。Rust 側で拒否されないことは
+              // core-fetch のユニットテストで見ている
+              { boardName: "テスト", url: "https://kenmo.org/test/" },
+            ],
+          });
+        }
+        return cats;
+      };
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "fetch_board_categories") {
+            const sources = (args && args.enabledSources) || [];
+            sourceCalls.push([...sources]);
+            return Promise.resolve(categoriesFor(sources));
+          }
+          if (cmd === "save_ui_json") {
+            // settings 以外 (レイアウトや各種 UI 状態) も同じコマンドを通るので選り分ける
+            if (args && args.name === "settings") savedSettingsJson = args.json;
+            return Promise.resolve(null);
+          }
+          if (cmd === "load_layout_prefs") return Promise.resolve("");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "load_ui_json") return Promise.resolve("");
+          if (cmd === "load_thread_cache") return Promise.resolve(null);
+          if (cmd === "save_thread_cache") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({});
+          if (cmd === "save_read_status") return Promise.resolve(null);
+          if (cmd === "fetch_thread_list") return Promise.resolve([]);
+          if (cmd === "fetch_thread_responses_command") {
+            return Promise.resolve({ responses: [], title: null, lastModified: null, notModified: false });
+          }
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    });
+    await kenmoPage.goto(targetUrl, { waitUntil: "load" });
+    await kenmoPage.waitForFunction(() => window.__smokeKenmo.sourceCalls().length > 0, null, { timeout: 15000 });
+
+    const categoryNames = () =>
+      kenmoPage.$$eval(".board-tree .category-toggle", (els) => els.map((el) => el.textContent || ""));
+
+    // 既定は非表示。起動時の取得で kenmo を要求していないこと
+    const firstCall = (await kenmoPage.evaluate(() => window.__smokeKenmo.sourceCalls()[0])) || [];
+    assert(
+      !firstCall.includes("kenmo") && firstCall.includes("ex0ch"),
+      `kenmo.org should be off by default while ex0ch stays on, got ${JSON.stringify(firstCall)}`,
+    );
+    // 板ツリーがそもそも描かれていないと「kenmo が無い」は何も意味しない
+    await kenmoPage.waitForSelector(".board-tree .category-toggle", { timeout: 15000 });
+    const defaultNames = await categoryNames();
+    assert(
+      defaultNames.some((n) => n.includes("EXおろちつねる / ")),
+      `the board tree must already show ex0ch for this check to mean anything, got ${JSON.stringify(defaultNames)}`,
+    );
+    assert(
+      !defaultNames.some((n) => n.includes("kenmo.org / ")),
+      `the board tree should have no kenmo.org category by default, got ${JSON.stringify(defaultNames)}`,
+    );
+
+    // 板メニューのトグルで表示に切り替える
+    const openBoardMenu = async () => {
+      await (await kenmoPage.$('.menu-item:has-text("板")')).click();
+      await new Promise((r) => setTimeout(r, 120));
+    };
+    await openBoardMenu();
+    const showBtn = await kenmoPage.$('.menu-dropdown button:has-text("kenmo.org を表示")');
+    assert(showBtn, "the 板 menu should offer kenmo.org while it is hidden");
+    await showBtn.click();
+    await kenmoPage.waitForFunction(
+      () => document.querySelectorAll(".board-tree .category-toggle").length > 0
+        && [...document.querySelectorAll(".board-tree .category-toggle")].some((el) => (el.textContent || "").includes("kenmo.org / ")),
+      null,
+      { timeout: 15000 },
+    );
+    const afterOn = await kenmoPage.evaluate(() => window.__smokeKenmo.sourceCalls().at(-1));
+    assert(
+      afterOn.includes("kenmo") && afterOn.includes("ex0ch"),
+      `turning kenmo.org on must keep ex0ch too, got ${JSON.stringify(afterOn)}`,
+    );
+
+    // カテゴリ名にプレフィックスが付いて出自が分かること (5ch 側と混ざらない)
+    const names = await categoryNames();
+    assert(
+      names.some((n) => n.includes("kenmo.org / オルグ")),
+      `the kenmo.org category should carry its prefix, got ${JSON.stringify(names)}`,
+    );
+
+    // 設定が localStorage と ui json の両方に残ること (ui json のキー表への登録漏れ検出)
+    assert(
+      (await kenmoPage.evaluate(() => localStorage.getItem("desktop.kenmoEnabled.v1"))) === "true",
+      "turning kenmo.org on should persist to localStorage",
+    );
+    // settings.json への書き込みは 300ms デバウンスされる。待っても来なかったときに
+    // ただのタイムアウトで終わらせず、実際に書かれた内容を出して落ちるようにする。
+    await kenmoPage
+      .waitForFunction(
+        () => {
+          const raw = window.__smokeKenmo.savedSettingsJson();
+          if (!raw) return false;
+          try {
+            return Object.prototype.hasOwnProperty.call(JSON.parse(raw), "kenmoEnabled");
+          } catch {
+            return false;
+          }
+        },
+        null,
+        { timeout: 5000 },
+      )
+      .catch(() => {});
+    const settingsJson = await kenmoPage.evaluate(() => window.__smokeKenmo.savedSettingsJson());
+    assert(
+      settingsJson && JSON.parse(settingsJson).kenmoEnabled === true,
+      `the kenmo.org setting should reach settings.json as true, got ${settingsJson}`,
+    );
+
+    // もう一度押すと消え、文言も戻ること
+    await openBoardMenu();
+    const hideBtn = await kenmoPage.$('.menu-dropdown button:has-text("kenmo.org を非表示")');
+    assert(hideBtn, "the 板 menu should offer to hide kenmo.org while it is shown");
+    await hideBtn.click();
+    await kenmoPage.waitForFunction(
+      () => ![...document.querySelectorAll(".board-tree .category-toggle")].some((el) => (el.textContent || "").includes("kenmo.org / ")),
+      null,
+      { timeout: 15000 },
+    );
+    const afterOff = await kenmoPage.evaluate(() => window.__smokeKenmo.sourceCalls().at(-1));
+    assert(
+      !afterOff.includes("kenmo") && afterOff.includes("ex0ch"),
+      `turning kenmo.org off must leave ex0ch alone, got ${JSON.stringify(afterOff)}`,
+    );
+    await kenmoPage.close();
+    console.log("smoke-ui: the kenmo.org board list is off by default and toggles from the 板 menu ok");
+  }
+
+  // 書き込み認証のボタンが 4 つのテーマすべてで読めること。
+  // 置き場所の .compose-result はダークでもガラスでも明色のままなのに、
+  // button / .shell.glass .compose-window button / .shell.glass.dark ... が
+  // 「地と対になる面」前提の色を被せてくるので文字が沈みやすい。
+  // ガラスの指定は .compose-window の中にあるときだけ効くため、実際の入れ子
+  // (.compose-window > .compose-result > button) を再現して測る。
+  {
+    const contrast = await page.evaluate(() => {
+      const shell = document.querySelector(".shell");
+      const win = document.createElement("div");
+      win.className = "compose-window";
+      const box = document.createElement("div");
+      box.className = "compose-result compose-result-err";
+      const btn = document.createElement("button");
+      btn.className = "compose-auth-btn";
+      btn.textContent = "ブラウザで認証を開く";
+      box.appendChild(btn);
+      win.appendChild(box);
+      shell.appendChild(win);
+
+      const parse = (c) => {
+        const m = c.match(/rgba?\(([^)]+)\)/);
+        if (!m) return null;
+        const p = m[1].split(",").map((v) => parseFloat(v));
+        return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+      };
+      // 半透明は親の背景の上に重ねてから測る
+      const over = (fg, bg) => ({
+        r: fg.r * fg.a + bg.r * (1 - fg.a),
+        g: fg.g * fg.a + bg.g * (1 - fg.a),
+        b: fg.b * fg.a + bg.b * (1 - fg.a),
+        a: 1,
+      });
+      const lum = (c) => {
+        const f = (v) => {
+          const s = v / 255;
+          return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b);
+      };
+      const ratio = () => {
+        const bcs = getComputedStyle(btn);
+        const boxBg = parse(getComputedStyle(box).backgroundColor);
+        const bg = over(parse(bcs.backgroundColor), boxBg);
+        const fg = over(parse(bcs.color), bg);
+        const l1 = lum(fg);
+        const l2 = lum(bg);
+        const hi = Math.max(l1, l2);
+        const lo = Math.min(l1, l2);
+        return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
+      };
+
+      const wasDark = shell.classList.contains("dark");
+      const wasGlass = shell.classList.contains("glass");
+      const out = {};
+      for (const [name, dark, glass] of [
+        ["light", false, false],
+        ["dark", true, false],
+        ["glass", false, true],
+        ["glass+dark", true, true],
+      ]) {
+        shell.classList.toggle("dark", dark);
+        shell.classList.toggle("glass", glass);
+        out[name] = ratio();
+      }
+      shell.classList.toggle("dark", wasDark);
+      shell.classList.toggle("glass", wasGlass);
+      win.remove();
+      return out;
+    });
+    for (const [name, value] of Object.entries(contrast)) {
+      assert(
+        value >= 4.5,
+        `the auth button must be readable in ${name} mode, contrast ${value} (all: ${JSON.stringify(contrast)})`,
+      );
+    }
+    console.log("smoke-ui: the post-auth button stays readable in every theme ok");
+  }
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

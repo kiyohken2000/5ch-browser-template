@@ -12,6 +12,7 @@ use scraper::{Html, Selector};
 
 pub const BBSMENU_URL: &str = "https://menu.5ch.io/bbsmenu.json";
 pub const EX0CH_BBSMENU_URL: &str = "https://bbspink.org/ex0ch/bbsmenu.json";
+pub const KENMO_BBSMENU_URL: &str = "https://kenmo.org/bbsmenu.json";
 
 #[derive(Debug, Error)]
 pub enum FetchError {
@@ -150,6 +151,19 @@ fn build_mount_path(segs: &[&str]) -> String {
     }
 }
 
+/// 5ch 本家とその系列 (bbspink を含む) のホストか。
+/// 5ch 互換を名乗る第三者のサイトと、挙動を分けたいところで使う。
+/// 末尾一致は必ずドット区切りで見る (`evil5ch.io` や `5ch.io.example.com` を通さない)。
+fn is_5ch_family_host(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    for domain in ["5ch.io", "5ch.net", "2ch.net", "bbspink.com", "bbspink.org"] {
+        if host == domain || host.ends_with(&format!(".{domain}")) {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn parse_board_location(input: &str) -> Result<BoardLocation, FetchError> {
     let normalized = normalize_5ch_url(input);
     let parsed = Url::parse(&normalized)?;
@@ -198,7 +212,11 @@ pub fn parse_board_location(input: &str) -> Result<BoardLocation, FetchError> {
 
     if let Some(board) = segs.last() {
         let board = board.to_string();
-        if board.is_empty() || board == "test" {
+        // 5ch / bbspink では `/test/` は read.cgi と bbs.cgi が置かれた CGI
+        // ディレクトリで板ではないため拒否する。一方 5ch 互換の他サイトには
+        // `test` という名前の板が実在することがある (kenmo.org の「テスト」板)。
+        // 一律で拒否すると一覧に出ているのに開けない板ができるのでホストで絞る。
+        if board.is_empty() || (board == "test" && is_5ch_family_host(&host)) {
             return Err(FetchError::Parse(
                 "unsupported url; use thread url, board url, or subject.txt".into(),
             ));
@@ -995,7 +1013,11 @@ pub async fn fetch_thread_responses_with(
 }
 
 pub fn parse_post_form_tokens(thread_url: &str, html: &str) -> Result<PostFormTokens, FetchError> {
-    let action = detect_post_form_action(html).ok_or_else(|| FetchError::Parse("form action".into()))?;
+    // 書き込みに必要な bbs / key / time は read.cgi が返す HTML のフォームから取る。
+    // フォームが無いサイト向けの組み立ては post_form_tokens_from_html が受け持つので、
+    // ここでは素直に失敗させる ("form action" のような内部的な文字は出さない)。
+    let action = detect_post_form_action(html)
+        .ok_or_else(|| FetchError::Parse("書き込みフォームが見つかりません".into()))?;
     let post_url = resolve_post_url(thread_url, &action)?;
     let bbs = extract_input_value(html, "bbs").ok_or_else(|| FetchError::Parse("bbs".into()))?;
     let key = extract_input_value(html, "key").ok_or_else(|| FetchError::Parse("key".into()))?;
@@ -1021,6 +1043,66 @@ pub fn parse_post_form_tokens(thread_url: &str, html: &str) -> Result<PostFormTo
     })
 }
 
+/// read.cgi の HTML にフォームが無いときに、スレッドの URL から書き込みトークンを
+/// 組み立てる。bbs.cgi へ渡す値はどれも URL から導けるので、フォームは本来必須ではない
+/// (スレ立ての create_thread は元からこの方式で、フォームを読んでいない)。
+///
+/// 5ch 互換を名乗るサイトでも read.cgi が JavaScript で描画する殻しか返さないことがあり
+/// (kenmo.org / 00c.org)、そのままではフォームが掻き取れず書き込めなかった。
+pub fn synthesize_post_form_tokens(thread_url: &str) -> Result<PostFormTokens, FetchError> {
+    let location = parse_board_location(thread_url)?;
+    let key = location
+        .thread_key
+        .clone()
+        .ok_or_else(|| FetchError::Parse("スレッドの URL ではありません".into()))?;
+    let time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string();
+    Ok(PostFormTokens {
+        thread_url: thread_url.to_string(),
+        post_url: format!(
+            "{}://{}{}test/bbs.cgi",
+            location.scheme, location.host, location.mount_path
+        ),
+        bbs: location.board,
+        key,
+        time,
+        // フォームが無いので隠しフィールドは分からない。どちらも 5ch では省略でき、
+        // from_index は ex0ch 専用なので付けない。
+        oekaki_thread1: None,
+        from_index: None,
+        // 実際に MESSAGE 欄があるかは確かめられない。診断表示だけに使う値なので、
+        // 組み立てた (フォームを見ていない) ことが分かるように false にしておく。
+        has_message_textarea: false,
+    })
+}
+
+/// read.cgi の HTML から書き込みトークンを決める。フォームがあればそこから取り、
+/// フォームが無いサイトでは URL から組み立てる。
+///
+/// 5ch でフォームの無いページに当たるのはスレが無い等のエラーページのときだが、
+/// その場合も組み立てて送れば bbs.cgi 側がサーバーの文言でエラーを返すので、
+/// 手前で諦めるより分かりやすい結果になる。
+pub fn post_form_tokens_from_html(
+    thread_url: &str,
+    html: &str,
+) -> Result<PostFormTokens, FetchError> {
+    match parse_post_form_tokens(thread_url, html) {
+        Ok(tokens) => Ok(tokens),
+        // フォームはあるのに bbs / key / time が欠けている場合は本当の解析失敗なので、
+        // 組み立てで覆い隠さずそのまま返す。
+        Err(e) => {
+            if detect_post_form_action(html).is_none() {
+                synthesize_post_form_tokens(thread_url)
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
 pub async fn fetch_post_form_tokens(client: &Client, thread_url: &str) -> Result<PostFormTokens, FetchError> {
     let normalized = normalize_5ch_url(thread_url);
     let response = client.get(&normalized).send().await?;
@@ -1029,7 +1111,7 @@ pub async fn fetch_post_form_tokens(client: &Client, thread_url: &str) -> Result
         return Err(FetchError::HttpStatus(status));
     }
     let html = response.text().await?;
-    parse_post_form_tokens(&normalized, &html)
+    post_form_tokens_from_html(&normalized, &html)
 }
 
 fn url_encode_sjis_bytes(bytes: &[u8]) -> String {
@@ -1109,7 +1191,11 @@ fn curl_exec(
     }
     if let Some(body) = form_body {
         args.push("-H".into());
-        args.push("Content-Type: application/x-www-form-urlencoded".into());
+        // 本文は build_sjis_form_body が Shift_JIS で percent-encode したもの。
+        // 5ch の bbs.cgi は charset を見ずに Shift_JIS 前提で読むので今まで問題に
+        // ならなかったが、charset を見て解釈するサイト (kenmo.org の自前クライアントも
+        // 明示している) では付けないと日本語が文字化けする。実際の中身どおり宣言する。
+        args.push("Content-Type: application/x-www-form-urlencoded; charset=Shift_JIS".into());
         args.push("--data-raw".into());
         args.push(body.into());
     }
@@ -1172,6 +1258,13 @@ fn curl_exec(
 /// Detect a 5ch/ex0ch "書き込みました" success page so we can stop the
 /// confirm/consent retry chain before it double-posts.
 pub fn is_post_success_page(html: &str) -> bool {
+    // 2ch/5ch 系の bbs.cgi が返す機械可読のマーカー。成功は 2ch_X:true、失敗は
+    // 2ch_X:error / 2ch_X:cookie。kenmo.org のように日本語の文言を一切出さず、
+    // このコメントだけで成否を返すサイトがある。見落とすと投稿できたのに
+    // 「失敗」と判定し、post_flow の再送で二重投稿になる。
+    if html.contains("2ch_X:true") {
+        return true;
+    }
     html.contains("書き込みました")
         || html.contains("書込みました")
         || html.contains("書き込みが完了しました")
@@ -1179,6 +1272,107 @@ pub fn is_post_success_page(html: &str) -> bool {
         || html.contains("書きこみが終わりました")
         || html.contains("書き込みが終わりました")
         || html.contains("投稿が完了")
+}
+
+/// bbs.cgi が機械可読のエラーを返した状態 (`<!-- 2ch_X:error -->` など)。
+/// 2ch 系の bbs.cgi は書き込みの結果を `2ch_X:true / error / cookie / check` の
+/// コメントで返す。error はそれ以上やることが無い確定した失敗 (規制、認証が必要、
+/// 本文が空、スレが無い等) で、理由は `<b>` の文言に入っている。
+pub fn is_post_error_page(html: &str) -> bool {
+    html.contains("2ch_X:error") || html.contains("2ch_X:check")
+}
+
+/// bbs.cgi が「クッキーを作成したので、もう一度書き込んでほしい」と返した状態。
+/// この応答では書き込みは行われていない。
+///
+/// 5ch はこの確認をフォーム付きで返すので同一セッションで送り返して完結できるが、
+/// kenmo.org のようにフォームを持たないサイトでは送り直す材料が無い。しかも即座に
+/// 送り直すと板の連続投稿制限 (BBS_SAMBA24) に当たって 429 や
+/// 「あと N 秒お待ちください」になるため、自動では送らず利用者の次の操作に任せる。
+/// クッキー自体は保存されるので、次の書き込みは 1 回で通る。
+/// bbs.cgi が返した人向けの文言 (`<b>...</b>` の中身) を取り出す。
+/// 2ch 系の bbs.cgi はエラーの理由をここに入れる慣習で、kenmo.org の自前
+/// クライアントも同じ場所を読んでいる。「あと 6 秒お待ちください」のように
+/// 利用者が次にどうすればいいか分かる文が入るので、そのまま画面に出す。
+pub fn extract_post_server_message(html: &str) -> Option<String> {
+    let start = html.find("<b>").or_else(|| html.find("<B>"))? + 3;
+    let rest = &html[start..];
+    let end = rest
+        .find("</b>")
+        .or_else(|| rest.find("</B>"))
+        .unwrap_or(rest.len());
+    let text = rest[..end]
+        .replace("<br>", " ")
+        .replace("<br/>", " ")
+        .replace("<br />", " ");
+    // 残ったタグを落として空白を畳む
+    let mut out = String::new();
+    let mut in_tag = false;
+    for c in text.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if in_tag => {}
+            _ => out.push(c),
+        }
+    }
+    let out = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+pub fn is_post_cookie_notice(html: &str) -> bool {
+    html.contains("2ch_X:cookie")
+        || html.contains("クッキーを作成しました")
+        || html.contains("もう一度書き込んでください")
+}
+
+/// bbs.cgi が「書き込みには認証が必要です」と返したときに、開くべき認証 URL。
+///
+/// kenmo.org / 00c.org の実運用板は書き込みに認証を要求し、1 回ごとに使い捨ての
+/// URL を文言の中の `<a href>` で渡してくる。その先は Cloudflare Turnstile と
+/// ブラウザのフィンガープリントを使う作りなので、専ブラ側では通せない。
+/// 利用者にブラウザで開いてもらうため URL だけ取り出す。
+pub fn extract_post_auth_url(html: &str) -> Option<String> {
+    if !html.contains("認証が必要") {
+        return None;
+        }
+    let start = html.find("href=\"")? + 6;
+    let rest = &html[start..];
+    let end = rest.find('"')?;
+    let url = &rest[..end];
+    // 投稿先と同じサイトの http(s) URL だけを通す (別サイトへ誘導されないように)
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return None;
+    }
+    Some(url.to_string())
+}
+
+/// bbs.cgi の文言に、次に何をすればいいかを足して返す。
+///
+/// 掲示板が返す文は短くて、初めて見ると何をすればいいか分からないものがある。
+/// 「もう一度やり直してください」は実測では「前の書き込みから間が開いていない」
+/// ときに返るもので、板の連続投稿制限 (BBS_SAMBA24、kenmo.org では 10 秒) が
+/// 明けるまで待てば通る。待ち時間が分かるときはサーバーが
+/// 「あと N 秒お待ちください」と教えてくれるので、そのときは何も足さない。
+pub fn post_server_message_with_hint(html: &str) -> Option<String> {
+    let message = extract_post_server_message(html)?;
+    let hint = if message.contains("認証が必要") {
+        Some("この掲示板は書き込みに認証が必要です。上の URL をブラウザで開いて認証してください")
+    } else if is_post_cookie_notice(html) {
+        Some("この掲示板は最初の書き込みだけ 2 回に分かれます。10 秒ほど待ってもう一度書き込んでください (次からは 1 回で通ります)")
+    } else if message.contains("もう一度やり直してください") {
+        Some("少し待ってからもう一度書き込んでください")
+    } else {
+        None
+    };
+    Some(match hint {
+        Some(h) => format!("{message} / {h}"),
+        None => message,
+    })
 }
 
 fn build_sjis_form_body(fields: &[(&str, &str)]) -> String {
@@ -1200,7 +1394,41 @@ pub fn curl_post_5ch(
     fields: &[(&str, &str)],
     extra_cookies: Option<&str>,
 ) -> Result<(u16, Option<String>, String), FetchError> {
-    let cookie_file = std::env::temp_dir().join(format!(
+    let (cookie_file, keep) = post_cookie_jar(post_url);
+    if !keep {
+        // Ensure no stale cookie jar exists
+        let _ = std::fs::remove_file(&cookie_file);
+    }
+    let result = curl_post_5ch_inner(thread_url, post_url, fields, &cookie_file, extra_cookies);
+    if !keep {
+        let _ = std::fs::remove_file(&cookie_file);
+    }
+    result
+}
+
+/// 書き込みに使う cookie jar の置き場所と、書き込み後も残すかどうか。
+///
+/// 5ch / bbspink は確認フォームを同一セッションで送り返して完結するので、従来どおり
+/// 1 回ごとの使い捨てにする (書き込みごとに真っ新な状態から始まる今の挙動を変えない)。
+/// それ以外の 5ch 互換サイトは「クッキーを作成しました」で一度突き返す方式なので、
+/// ここで捨てると毎回そこで止まってしまう。ホストごとに決まった場所へ置いて使い回す。
+fn post_cookie_jar(post_url: &str) -> (std::path::PathBuf, bool) {
+    let host = Url::parse(post_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()));
+    if let Some(host) = host {
+        if !is_5ch_family_host(&host) {
+            let slug: String = host
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                .collect();
+            return (
+                std::env::temp_dir().join(format!("ember_post_jar_{slug}.txt")),
+                true,
+            );
+        }
+    }
+    let path = std::env::temp_dir().join(format!(
         "ember_post_{}_{}.txt",
         std::process::id(),
         std::time::SystemTime::now()
@@ -1208,11 +1436,7 @@ pub fn curl_post_5ch(
             .map(|d| d.as_nanos())
             .unwrap_or(0)
     ));
-    // Ensure no stale cookie jar exists
-    let _ = std::fs::remove_file(&cookie_file);
-    let result = curl_post_5ch_inner(thread_url, post_url, fields, &cookie_file, extra_cookies);
-    let _ = std::fs::remove_file(&cookie_file);
-    result
+    (path, false)
 }
 
 fn curl_post_5ch_inner(
@@ -1252,6 +1476,13 @@ fn curl_post_5ch_inner(
         return Ok((status, ct, resp_body));
     }
 
+    // クッキーを作っただけの応答。書き込みは行われていないが、ここで送り直すと
+    // 連続投稿制限に当たって 429 になる。クッキーを保存した状態で呼び出し側へ返し、
+    // 送り直しは利用者の次の操作に任せる (次の書き込みは 1 回で通る)。
+    if is_post_cookie_notice(&resp_body) {
+        return Ok((status, ct, resp_body));
+    }
+
     // Step 4: If we got the cookie check/confirm page, auto-submit the confirm form
     // within the same cookie session to avoid double-posting
     let has_confirm = resp_body.contains("name=\"bbs\"") || resp_body.contains("name=bbs ");
@@ -1281,7 +1512,18 @@ fn curl_post_5ch_inner(
         }
     } else if !has_confirm && status == 200 {
         // uplift/consent page — submit consent form and retry original POST
-        if let Some(consent_form) = find_first_generic_form(&resp_body) {
+        let consent = find_first_generic_form(&resp_body);
+        // bbs.cgi が確定した失敗を返していて、送り返すフォームも無いなら、ここで確定。
+        //
+        // 以前はこの分岐が「200 でフォームが無いページ」なら何でも元の本文を送り直して
+        // いた。そのため「書き込むには認証が必要です」のようなエラーページでも即座に
+        // 再送してしまい、2 回目が板の連続投稿制限に当たって 429
+        // 「もう一度やり直してください」に差し替わり、本当の理由が消えていた。
+        // (5ch の consent ページはフォームを持つので、そちらは従来どおり処理される)
+        if consent.is_none() && is_post_error_page(&resp_body) {
+            return Ok((status, ct, resp_body));
+        }
+        if let Some(consent_form) = consent {
             let consent_url = if consent_form.action.starts_with("http") {
                 normalize_5ch_url(&consent_form.action)
             } else {
@@ -1589,10 +1831,14 @@ pub async fn submit_post_finalize_from_confirm(
 #[cfg(test)]
 mod tests {
     use super::{
-        cookie_names_for_url, detect_meta_charset, extract_tweet_id, normalize_5ch_url,
-        parse_board_location, parse_confirm_submit_form, parse_ogp, parse_post_form_tokens,
-        parse_tweet, probe_post_cookie_scope, resolve_dat_url_from_thread_url,
-        resolve_subject_url_from_thread_url, seed_cookie, syndication_token, Value,
+        cookie_names_for_url, detect_meta_charset, extract_post_server_message, extract_tweet_id,
+        extract_post_auth_url, is_5ch_family_host, is_post_error_page,
+        post_server_message_with_hint,
+        is_post_cookie_notice, is_post_success_page, normalize_5ch_url, parse_board_location,
+        parse_confirm_submit_form, parse_ogp, parse_post_form_tokens, parse_tweet,
+        post_cookie_jar, post_form_tokens_from_html, probe_post_cookie_scope,
+        resolve_dat_url_from_thread_url, resolve_subject_url_from_thread_url, seed_cookie,
+        synthesize_post_form_tokens, syndication_token, Value,
     };
     use reqwest::cookie::Jar;
 
@@ -1938,6 +2184,312 @@ mod tests {
     fn resolve_subject_url_rejects_unsupported_path() {
         let err = resolve_subject_url_from_thread_url("https://mao.5ch.io/test/").expect_err("unsupported path");
         assert!(err.to_string().contains("unsupported url"));
+    }
+
+    // kenmo.org / 00c.org の read.cgi が実際に返す中身 (JavaScript で描画する殻)。
+    // フォームが 1 つも無いので掻き取りでは書き込めない。
+    const SPA_SHELL_HTML: &str = concat!(
+        r#"<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width"/>"#,
+        r#"<title>嫌儲.org</title><script type="module" src="/webui/app.js"></script>"#,
+        r#"</head><body><div id="app"></div></body></html>"#,
+    );
+
+    #[test]
+    fn is_post_success_page_detects_the_2ch_x_true_marker() {
+        // kenmo.org の bbs.cgi は日本語の文言を出さずこのマーカーだけを返す
+        assert!(is_post_success_page(
+            "<html><!-- 2ch_X:true --><head><title>書きこみました。</title></head></html>"
+        ));
+        assert!(is_post_success_page("<!-- 2ch_X:true -->"));
+    }
+
+    #[test]
+    fn is_post_success_page_rejects_the_error_and_cookie_markers() {
+        // 失敗マーカーを成功と取り違えると再送で二重投稿になる
+        let error_page = concat!(
+            "<html>\n    <!-- 2ch_X:error -->\n    <head>\n      <title>ERROR</title>\n",
+            "    </head>\n    <body>\n      <b>掲示板またはスレッドが見つかりません</b>\n",
+            "    </body>\n  </html>",
+        );
+        assert!(!is_post_success_page(error_page));
+        assert!(!is_post_success_page("<html><!-- 2ch_X:cookie --></html>"));
+        assert!(!is_post_success_page("<html><!-- 2ch_X:check --></html>"));
+        assert!(!is_post_success_page("<html><body>なにもない</body></html>"));
+    }
+
+    #[test]
+    fn synthesize_post_form_tokens_builds_everything_from_the_url() {
+        let tokens =
+            synthesize_post_form_tokens("https://kenmo.org/test/read.cgi/poverty/1793582211/")
+                .expect("tokens");
+        assert_eq!(tokens.post_url, "https://kenmo.org/test/bbs.cgi");
+        assert_eq!(tokens.bbs, "poverty");
+        assert_eq!(tokens.key, "1793582211");
+        assert!(tokens.time.len() >= 10, "time should be a unix timestamp: {}", tokens.time);
+        assert!(tokens.time.chars().all(|c| c.is_ascii_digit()));
+        assert_eq!(tokens.oekaki_thread1, None);
+        assert_eq!(tokens.from_index, None);
+    }
+
+    #[test]
+    fn synthesize_post_form_tokens_keeps_the_mount_path() {
+        // ex0ch のようにマウントパス配下のサイトでも bbs.cgi の位置を間違えない
+        let tokens =
+            synthesize_post_form_tokens("https://bbspink.org/ex0ch/test/read.cgi/operate/1775635309/")
+                .expect("tokens");
+        assert_eq!(tokens.post_url, "https://bbspink.org/ex0ch/test/bbs.cgi");
+        assert_eq!(tokens.bbs, "operate");
+        assert_eq!(tokens.key, "1775635309");
+    }
+
+    #[test]
+    fn synthesize_post_form_tokens_rejects_a_board_url() {
+        let err = synthesize_post_form_tokens("https://kenmo.org/poverty/")
+            .expect_err("a board url has no thread key");
+        assert!(err.to_string().contains("スレッドの URL"), "{err}");
+    }
+
+    #[test]
+    fn post_form_tokens_from_html_falls_back_when_there_is_no_form() {
+        let tokens = post_form_tokens_from_html(
+            "https://kenmo.org/test/read.cgi/poverty/1793582211/",
+            SPA_SHELL_HTML,
+        )
+        .expect("tokens");
+        assert_eq!(tokens.post_url, "https://kenmo.org/test/bbs.cgi");
+        assert_eq!(tokens.bbs, "poverty");
+        assert_eq!(tokens.key, "1793582211");
+        assert!(!tokens.has_message_textarea);
+    }
+
+    #[test]
+    fn post_form_tokens_from_html_prefers_the_real_form() {
+        // フォームがあるときは従来どおり掻き取る (組み立てに置き換わらないこと)
+        let html = r#"
+        <form action="//mao.5ch.io/test/bbs.cgi" method="POST">
+          <input type="hidden" name="bbs" value="ngt">
+          <input type="hidden" name="key" value="9240230711">
+          <input type="hidden" name="time" value="1700000000">
+          <input type="hidden" name="oekaki_thread1" value="1">
+          <textarea name="MESSAGE"></textarea>
+        </form>"#;
+        let tokens =
+            post_form_tokens_from_html("https://mao.5ch.io/test/read.cgi/ngt/9240230711/", html)
+                .expect("tokens");
+        assert_eq!(tokens.post_url, "https://mao.5ch.io/test/bbs.cgi");
+        assert_eq!(tokens.time, "1700000000");
+        assert_eq!(tokens.oekaki_thread1.as_deref(), Some("1"));
+        assert!(tokens.has_message_textarea);
+    }
+
+    #[test]
+    fn post_form_tokens_from_html_keeps_a_broken_form_an_error() {
+        // フォームはあるのに key が無い = 本当の解析失敗。組み立てで覆い隠さない
+        let html = r#"
+        <form action="//mao.5ch.io/test/bbs.cgi" method="POST">
+          <input type="hidden" name="bbs" value="ngt">
+          <input type="hidden" name="time" value="1700000000">
+          <textarea name="MESSAGE"></textarea>
+        </form>"#;
+        let err =
+            post_form_tokens_from_html("https://mao.5ch.io/test/read.cgi/ngt/9240230711/", html)
+                .expect_err("a form without key is a parse failure");
+        assert!(err.to_string().contains("key"), "{err}");
+    }
+
+    #[test]
+    fn parse_board_location_allows_a_test_board_outside_5ch() {
+        // kenmo.org には test という実在の板があるので板 URL として通す
+        let loc = parse_board_location("https://kenmo.org/test/").expect("location");
+        assert_eq!(loc.host, "kenmo.org");
+        assert_eq!(loc.mount_path, "/");
+        assert_eq!(loc.board, "test");
+        assert_eq!(loc.thread_key, None);
+        assert_eq!(loc.subject_url(), "https://kenmo.org/test/subject.txt");
+    }
+
+    #[test]
+    fn parse_board_location_still_rejects_test_on_5ch_family_hosts() {
+        for url in [
+            "https://mao.5ch.io/test/",
+            "https://greta.5ch.net/test/",
+            "https://mercury.bbspink.com/test/",
+            "https://bbspink.org/test/",
+        ] {
+            let err = parse_board_location(url).expect_err("test dir is not a board");
+            assert!(err.to_string().contains("unsupported url"), "{url}");
+        }
+    }
+
+    #[test]
+    fn is_5ch_family_host_rejects_suffix_spoof() {
+        assert!(!is_5ch_family_host("5ch.io.example.com"));
+        assert!(!is_5ch_family_host("evil5ch.io"));
+        assert!(!is_5ch_family_host("kenmo.org"));
+        assert!(!is_5ch_family_host("00c.org"));
+        assert!(is_5ch_family_host("MAO.5CH.IO"));
+        assert!(is_5ch_family_host("bbspink.org"));
+        assert!(is_5ch_family_host("mercury.bbspink.com"));
+    }
+
+    #[test]
+    fn extract_post_server_message_reads_the_reason() {
+        assert_eq!(
+            extract_post_server_message(
+                "<html><!-- 2ch_X:error --><body><b>あと6秒お待ちください</b></body></html>"
+            )
+            .as_deref(),
+            Some("あと6秒お待ちください")
+        );
+        // <br> は空白にして 1 行にする
+        assert_eq!(
+            extract_post_server_message("<b>クッキーを作成しました<br>もう一度書き込んでください</b>")
+                .as_deref(),
+            Some("クッキーを作成しました もう一度書き込んでください")
+        );
+        // 改行や余分な空白を畳む
+        assert_eq!(
+            extract_post_server_message("<body>\n      <b>掲示板またはスレッドが見つかりません</b>\n")
+                .as_deref(),
+            Some("掲示板またはスレッドが見つかりません")
+        );
+        assert_eq!(extract_post_server_message("<html><body>なし</body></html>"), None);
+        assert_eq!(extract_post_server_message("<b></b>"), None);
+    }
+
+    #[test]
+    fn is_post_error_page_detects_the_machine_readable_failure() {
+        assert!(is_post_error_page(
+            "<html><!-- 2ch_X:error --><b>書き込むには認証が必要です</b></html>"
+        ));
+        assert!(is_post_error_page("<html><!-- 2ch_X:check --></html>"));
+        // 成功とクッキーの段はエラー扱いにしない (それぞれ別の経路で扱う)
+        assert!(!is_post_error_page("<html><!-- 2ch_X:true --></html>"));
+        assert!(!is_post_error_page("<html><!-- 2ch_X:cookie --></html>"));
+        assert!(!is_post_error_page("<html><body>なにもない</body></html>"));
+    }
+
+    #[test]
+    fn extract_post_auth_url_reads_the_verification_link() {
+        let html = concat!(
+            "<html><!-- 2ch_X:error --><body><b>書き込みには認証が必要です<br>",
+            "<a href=\"https://kenmo.org/548557\">https://kenmo.org/548557</a> を開いてください",
+            "</b></body></html>",
+        );
+        assert_eq!(
+            extract_post_auth_url(html).as_deref(),
+            Some("https://kenmo.org/548557")
+        );
+        // 文言が出ている応答にだけ反応する (普通のレスのリンクを拾わない)
+        assert_eq!(
+            extract_post_auth_url("<html><b>書き込みました</b><a href=\"https://example.com/\">x</a></html>"),
+            None
+        );
+        // 相対パスや javascript: は通さない
+        assert_eq!(
+            extract_post_auth_url("<b>認証が必要です<a href=\"/548557\">x</a></b>"),
+            None
+        );
+        assert_eq!(
+            extract_post_auth_url("<b>認証が必要です<a href=\"javascript:alert(1)\">x</a></b>"),
+            None
+        );
+    }
+
+    #[test]
+    fn post_server_message_with_hint_tells_you_to_authenticate() {
+        let html = concat!(
+            "<html><!-- 2ch_X:error --><body><b>書き込みには認証が必要です<br>",
+            "<a href=\"https://kenmo.org/548557\">https://kenmo.org/548557</a> を開いてください",
+            "</b></body></html>",
+        );
+        let m = post_server_message_with_hint(html).expect("message");
+        assert!(m.contains("書き込みには認証が必要です"), "{m}");
+        assert!(m.contains("https://kenmo.org/548557"), "{m}");
+        assert!(m.contains("ブラウザで開いて認証"), "{m}");
+    }
+
+    #[test]
+    fn post_server_message_with_hint_explains_what_to_do() {
+        // クッキーの段: 2 回に分かれることと待ち時間を伝える
+        let cookie = "<html><!-- 2ch_X:cookie --><b>クッキーを作成しました<br>もう一度書き込んでください</b></html>";
+        let m = post_server_message_with_hint(cookie).expect("message");
+        assert!(m.starts_with("クッキーを作成しました もう一度書き込んでください"), "{m}");
+        assert!(m.contains("10 秒ほど待って"), "{m}");
+
+        // やり直し要求: 文言だけでは何をすればいいか分からないので一言足す
+        let retry_please = "<html><!-- 2ch_X:error --><b>もう一度やり直してください</b></html>";
+        let m = post_server_message_with_hint(retry_please).expect("message");
+        assert!(m.contains("少し待ってからもう一度"), "{m}");
+
+        // 待ち時間をサーバーが言っているときは足さない
+        let countdown = "<html><!-- 2ch_X:error --><b>あと6秒お待ちください</b></html>";
+        assert_eq!(
+            post_server_message_with_hint(countdown).as_deref(),
+            Some("あと6秒お待ちください")
+        );
+
+        // それ以外はそのまま
+        assert_eq!(
+            post_server_message_with_hint("<b>掲示板またはスレッドが見つかりません</b>").as_deref(),
+            Some("掲示板またはスレッドが見つかりません")
+        );
+        assert_eq!(post_server_message_with_hint("<html>なし</html>"), None);
+    }
+
+    #[test]
+    fn is_post_cookie_notice_detects_the_cookie_step() {
+        let page = concat!(
+            "<html>\n    <!-- 2ch_X:cookie -->\n    <head>\n      <title>書き込み確認</title>\n",
+            "    </head>\n    <body>\n      <b>クッキーを作成しました<br>もう一度書き込んでください</b>\n",
+            "    </body>\n  </html>",
+        );
+        assert!(is_post_cookie_notice(page));
+        // 書き込めていないので成功扱いにはしない
+        assert!(!is_post_success_page(page));
+    }
+
+    #[test]
+    fn is_post_cookie_notice_ignores_success_and_other_errors() {
+        assert!(!is_post_cookie_notice("<html><!-- 2ch_X:true --></html>"));
+        assert!(!is_post_cookie_notice(
+            "<html><!-- 2ch_X:error --><b>あと6秒お待ちください</b></html>"
+        ));
+    }
+
+    #[test]
+    fn post_cookie_jar_is_reused_only_outside_the_5ch_family() {
+        // 5ch / bbspink は従来どおり 1 回ごとの使い捨て
+        let (p5, keep5) = post_cookie_jar("https://mao.5ch.io/test/bbs.cgi");
+        assert!(!keep5);
+        let (p5b, _) = post_cookie_jar("https://mao.5ch.io/test/bbs.cgi");
+        assert_ne!(p5, p5b, "5ch 側は毎回違う jar になること");
+        let (_, keep_pink) = post_cookie_jar("https://bbspink.org/ex0ch/test/bbs.cgi");
+        assert!(!keep_pink);
+
+        // それ以外はホストごとに同じ場所を使い回す
+        let (pk, keepk) = post_cookie_jar("https://kenmo.org/test/bbs.cgi");
+        let (pk2, _) = post_cookie_jar("https://kenmo.org/test/bbs.cgi");
+        assert!(keepk);
+        assert_eq!(pk, pk2);
+        assert!(pk.to_string_lossy().contains("kenmo_org"));
+        // ホストが違えば別の jar
+        let (pc, _) = post_cookie_jar("https://00c.org/test/bbs.cgi");
+        assert_ne!(pk, pc);
+    }
+
+    #[test]
+    fn parse_board_location_kenmo_thread_url() {
+        let loc = parse_board_location("https://kenmo.org/test/read.cgi/poverty/1793582211/")
+            .expect("location");
+        assert_eq!(loc.host, "kenmo.org");
+        assert_eq!(loc.mount_path, "/");
+        assert_eq!(loc.board, "poverty");
+        assert_eq!(loc.thread_key.as_deref(), Some("1793582211"));
+        assert_eq!(
+            loc.dat_url("1793582211"),
+            "https://kenmo.org/poverty/dat/1793582211.dat"
+        );
     }
 
     #[test]

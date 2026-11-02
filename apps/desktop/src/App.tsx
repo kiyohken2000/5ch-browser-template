@@ -308,6 +308,10 @@ type PostFlowTrace = {
   confirmSummary: string | null;
   finalizeSummary: string | null;
   submitSummary: string | null;
+  // 掲示板が返した人向けの文言 (「あと6秒お待ちください」など)。失敗の理由はこれが一番分かりやすい
+  serverMessage: string | null;
+  // 「書き込みには認証が必要です」のときに開く URL (Cloudflare Turnstile のページ)
+  authUrl: string | null;
   blocked: boolean;
 };
 type ThreadListItem = {
@@ -657,6 +661,7 @@ const BOOKMARK_KEY = "desktop.bookmarks.v1";
 const BOARD_CACHE_KEY = "desktop.boardCategories.v1";
 const EXPANDED_CATS_KEY = "desktop.expandedCategories.v1";
 const EX0CH_ENABLED_KEY = "desktop.ex0chEnabled.v1";
+const KENMO_ENABLED_KEY = "desktop.kenmoEnabled.v1";
 const LANDING_PAGE_URL = "https://ember-5ch.pages.dev";
 const BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/votepurchase";
 const BOARD_TREE_SCROLL_KEY = "desktop.boardTreeScrollTop.v1";
@@ -863,6 +868,7 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   ngIdPostCountMode: NG_ID_POST_COUNT_MODE_KEY,
   hlIdExpireDays: HL_ID_EXPIRE_DAYS_KEY,
   ex0chEnabled: EX0CH_ENABLED_KEY,
+  kenmoEnabled: KENMO_ENABLED_KEY,
   aiPrefs: AI_PREFS_KEY,
   uiZoom: UI_ZOOM_KEY,
   tabWidth: TAB_WIDTH_KEY,
@@ -2910,7 +2916,8 @@ export default function App() {
   const [composeSage, setComposeSage] = useState(false);
   const [composeBody, setComposeBody] = useState("");
   const [composePreview, setComposePreview] = useState(false);
-  const [composeResult, setComposeResult] = useState<{ ok: boolean; message: string } | null>(null);
+  // authUrl があるときは、そこを開くボタンを結果の下に出す (kenmo.org の書き込み認証)
+  const [composeResult, setComposeResult] = useState<{ ok: boolean; message: string; authUrl?: string } | null>(null);
   const [composeSubmitting, setComposeSubmitting] = useState(false);
   const [showNewThreadDialog, setShowNewThreadDialog] = useState(false);
   const [newThreadSubject, setNewThreadSubject] = useState("");
@@ -3000,6 +3007,15 @@ export default function App() {
       return raw === "true";
     } catch {
       return true;
+    }
+  });
+  // kenmo.org / 00c.org は 5ch 系列ではない 5ch 互換の掲示板なので、既定では
+  // 板一覧に出さない。板メニューから表示に切り替える。
+  const [kenmoEnabled, setKenmoEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(KENMO_ENABLED_KEY) === "true";
+    } catch {
+      return false;
     }
   });
   const [favorites, setFavorites] = useState<FavoritesData>({ boards: [], threads: [] });
@@ -4193,15 +4209,21 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   });
 
-  const fetchBoardCategories = async (overrideEx0chEnabled?: boolean) => {
+  // 5ch.io 本体以外の板一覧 (独自 bbsmenu を持つ 5ch 互換サイト) のうち、
+  // 表示する設定になっているものの識別子を Rust 側へ渡す。トグルの直後は state が
+  // まだ古いので、押した側の新しい値を override で受ける。
+  const fetchBoardCategories = async (override?: { ex0ch?: boolean; kenmo?: boolean }) => {
     if (!isTauriRuntime()) {
       setStatus("board fetch requires tauri runtime");
       return;
     }
     setStatus("loading boards...");
     try {
+      const enabledSources: string[] = [];
+      if (override?.ex0ch ?? ex0chEnabled) enabledSources.push("ex0ch");
+      if (override?.kenmo ?? kenmoEnabled) enabledSources.push("kenmo");
       const cats = await invoke<BoardCategory[]>("fetch_board_categories", {
-        enableEx0ch: overrideEx0chEnabled ?? ex0chEnabled,
+        enabledSources,
       });
       setBoardCategories(cats);
       try { localStorage.setItem(BOARD_CACHE_KEY, JSON.stringify(cats)); } catch { /* ignore */ }
@@ -4215,7 +4237,16 @@ export default function App() {
     setEx0chEnabled((prev) => {
       const next = !prev;
       saveUiSetting(EX0CH_ENABLED_KEY, String(next));
-      void fetchBoardCategories(next);
+      void fetchBoardCategories({ ex0ch: next });
+      return next;
+    });
+  };
+
+  const toggleKenmoEnabled = () => {
+    setKenmoEnabled((prev) => {
+      const next = !prev;
+      saveUiSetting(KENMO_ENABLED_KEY, String(next));
+      void fetchBoardCategories({ kenmo: next });
       return next;
     });
   };
@@ -6419,7 +6450,16 @@ export default function App() {
         setComposeResult({ ok: false, message: "Flow blocked" });
       } else if (r.submitSummary?.includes("error=true") || r.submitSummary?.includes("err_detected=true")) {
         finishSendPad(false);
-        setComposeResult({ ok: false, message: `Post failed: ${r.submitSummary}\nconfirm: ${r.confirmSummary ?? "-"}\nretry: ${r.finalizeSummary ?? "-"}` });
+        // 掲示板が理由を返しているならそれをそのまま見せる。内部の trace を並べるより
+        // 「あと6秒お待ちください」「クッキーを作成しました」の方が次の行動が分かる。
+        // (trace は従来どおり設定の probe 表示に残している)
+        setComposeResult({
+          ok: false,
+          message: r.serverMessage
+            ? `書き込めませんでした: ${r.serverMessage}`
+            : `Post failed: ${r.submitSummary}\nconfirm: ${r.confirmSummary ?? "-"}\nretry: ${r.finalizeSummary ?? "-"}`,
+          authUrl: r.authUrl ?? undefined,
+        });
         setPostHistory((prev) => [{ time: new Date().toLocaleTimeString(), threadUrl: postTargetUrl, body: composeBody.slice(0, 100), ok: false }, ...prev].slice(0, 50));
       } else if (r.submitSummary) {
         setComposeResult({ ok: true, message: `Post submitted: ${r.submitSummary}` });
@@ -12209,6 +12249,18 @@ export default function App() {
     {composeResult && (
       <div className={`compose-result ${composeResult.ok ? "compose-result-ok" : "compose-result-err"}`}>
         {composeResult.ok ? "OK" : "NG"}: {composeResult.message}
+        {composeResult.authUrl && (
+          <button
+            className="compose-auth-btn"
+            onClick={() => {
+              const url = composeResult.authUrl!;
+              void invoke("open_external_url", { url }).catch(() => window.open(url, "_blank"));
+            }}
+            title={composeResult.authUrl}
+          >
+            ブラウザで認証を開く
+          </button>
+        )}
       </div>
     )}
     {!composeDocked && ["r", "b", "rb", "l", "t", "lt", "lb", "rt"].map((edge) => (
@@ -12329,6 +12381,7 @@ export default function App() {
             { text: "板一覧を取得", action: () => fetchBoardCategories() },
             { text: "sep" },
             { text: ex0chEnabled ? "EXおろちつねるを非表示" : "EXおろちつねるを表示", action: toggleEx0chEnabled },
+            { text: kenmoEnabled ? "kenmo.org を非表示" : "kenmo.org を表示", action: toggleKenmoEnabled },
             { text: "sep" },
             { text: "板一覧タブ", action: () => setBoardPaneTab("boards") },
             { text: "お気に入りタブ", action: () => setBoardPaneTab("fav-threads") },
@@ -16809,7 +16862,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>181項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>183項目</span></div>
               </fieldset>
               </>)}
             </div>

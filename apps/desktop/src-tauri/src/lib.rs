@@ -1,11 +1,14 @@
 ﻿use core_auth::{login_be_front, login_donguri, login_uplift, LoginOutcome};
 use core_fetch::{
     build_cookie_client, create_thread, fetch_bbsmenu_from, fetch_bbsmenu_json,
-    fetch_post_form_tokens, fetch_subject_threads, fetch_thread_responses_with, is_post_success_page,
+    extract_post_auth_url, fetch_post_form_tokens, fetch_subject_threads,
+    fetch_thread_responses_with, is_post_cookie_notice, is_post_success_page,
+    post_server_message_with_hint,
     normalize_5ch_url, parse_confirm_submit_form, probe_post_cookie_scope, seed_cookie,
     submit_post_confirm, submit_post_confirm_with_html, submit_post_finalize_from_confirm,
     CreateThreadResult, OgpCard, PostConfirmResult, PostCookieReport, PostFinalizePreview,
     PostFormTokens, PostSubmitResult, ThreadFetchOptions, TweetCard, EX0CH_BBSMENU_URL,
+    KENMO_BBSMENU_URL,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -157,6 +160,12 @@ struct PostFlowTrace {
     confirm_summary: Option<String>,
     finalize_summary: Option<String>,
     submit_summary: Option<String>,
+    /// bbs.cgi が返した人向けの文言 (「あと 6 秒お待ちください」など)。
+    /// 失敗の理由をそのまま画面に出すために使う。
+    server_message: Option<String>,
+    /// 「書き込みには認証が必要です」のときに開くべき URL。
+    /// 先が Cloudflare Turnstile なので、ブラウザで開いてもらうしかない。
+    auth_url: Option<String>,
     blocked: bool,
 }
 
@@ -867,6 +876,12 @@ async fn probe_post_flow_trace(
     };
     let mut contains_ok = is_ok(&confirm_html);
     let mut contains_error = is_error(&confirm_html);
+    // 「クッキーを作成しました。もう一度書き込んでください」はまだ書き込めていない状態。
+    // ここで自動再送すると板の連続投稿制限に当たって弾かれるので再送しない。
+    // クッキーは保存されているので、利用者がもう一度押せば 1 回で通る。
+    let mut cookie_notice = is_post_cookie_notice(&confirm_html);
+    let mut server_message = post_server_message_with_hint(&confirm_html);
+    let mut auth_url = extract_post_auth_url(&confirm_html);
 
     let confirm_summary = Some(format!(
         "status={} ok={} err_detected={} type={} body={}",
@@ -886,7 +901,7 @@ async fn probe_post_flow_trace(
     // page that curl_post_5ch handled internally, setting cookies for the next attempt.
     // But skip retry if an explicit error was detected (no point retrying regulation/samba).
     let mut retry_summary: Option<String> = None;
-    if !contains_ok && !contains_error {
+    if !contains_ok && !contains_error && !cookie_notice {
         let _ = core_store::append_log("post_flow: first attempt failed (no success/error marker), retrying...");
         let (retry_confirm, retry_html) = submit_post_confirm_with_html(
             &client,
@@ -901,6 +916,9 @@ async fn probe_post_flow_trace(
 
         contains_ok = is_ok(&retry_html);
         contains_error = is_error(&retry_html);
+        cookie_notice = is_post_cookie_notice(&retry_html);
+        server_message = post_server_message_with_hint(&retry_html).or(server_message);
+        auth_url = extract_post_auth_url(&retry_html).or(auth_url);
         retry_summary = Some(format!(
             "retry: status={} ok={} err_detected={} body={}",
             retry_confirm.status,
@@ -917,8 +935,16 @@ async fn probe_post_flow_trace(
 
     let error_flag = !contains_ok;
     let submit_summary = Some(format!(
-        "status={} error={} err_detected={} retried={}",
-        confirm.status, error_flag, contains_error, retry_summary.is_some()
+        "status={} error={} err_detected={} retried={}{}",
+        confirm.status,
+        error_flag,
+        contains_error,
+        retry_summary.is_some(),
+        if cookie_notice {
+            " note=クッキーを作成しました。もう一度書き込んでください"
+        } else {
+            ""
+        },
     ));
     let _ = core_store::append_log(&format!(
         "post_flow: done error={} retried={}", error_flag, retry_summary.is_some()
@@ -931,6 +957,8 @@ async fn probe_post_flow_trace(
         confirm_summary,
         finalize_summary: retry_summary,
         submit_summary,
+        server_message,
+        auth_url,
         blocked: false,
     })
 }
@@ -1162,10 +1190,24 @@ fn collect_categories_from_menu(
     }
 }
 
+/// 5ch.io 本体以外の、独自 bbsmenu を持つ 5ch 互換サイト。
+/// `(識別子, bbsmenu URL, カテゴリ名プレフィックス)`。
+///
+/// どのサイトも 5ch.io 側と同名のカテゴリ (例: "BBSPINK") を含みうるので、
+/// 一覧で混ざらないようカテゴリ名にプレフィックスを付けて出自を明示する。
+/// フロント側は板メニューの表示/非表示に応じて識別子を `enabled_sources` で渡す。
+const EXTRA_BBSMENU_SOURCES: &[(&str, &str, &str)] = &[
+    ("ex0ch", EX0CH_BBSMENU_URL, "EXおろちつねる / "),
+    ("kenmo", KENMO_BBSMENU_URL, "kenmo.org / "),
+];
+
 #[tauri::command]
-async fn fetch_board_categories(enable_ex0ch: Option<bool>) -> Result<Vec<BoardCategory>, String> {
+async fn fetch_board_categories(
+    enabled_sources: Option<Vec<String>>,
+) -> Result<Vec<BoardCategory>, String> {
     let client = reqwest::Client::builder()
         .user_agent("Monazilla/1.00 Ember/0.1")
+        .timeout(Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -1174,19 +1216,18 @@ async fn fetch_board_categories(enable_ex0ch: Option<bool>) -> Result<Vec<BoardC
     let mut categories: Vec<BoardCategory> = Vec::new();
     collect_categories_from_menu(&menu, &mut categories, None);
 
-    // EXおろちつねる (bbspink.org/ex0ch/) は独自 bbsmenu を持ち、
-    // 5ch.io 側と同名 (例: "BBSPINK") のカテゴリを含むため、
-    // 衝突回避のため一律 "EXおろちつねる / " プレフィックスを付ける。
-    // 設定で OFF (enable_ex0ch=false) のときは取得自体をスキップ。
-    // 取得失敗時はサイレントにスキップ (5ch.io 側だけで動かす)。
-    if enable_ex0ch.unwrap_or(true) {
-        match fetch_bbsmenu_from(&client, EX0CH_BBSMENU_URL).await {
-            Ok(ex0ch_menu) => collect_categories_from_menu(
-                &ex0ch_menu,
-                &mut categories,
-                Some("EXおろちつねる / "),
-            ),
-            Err(e) => eprintln!("fetch_board_categories: ex0ch bbsmenu fetch failed: {e}"),
+    // 表示が指定されていないサイトは取得自体をしない。取得に失敗したサイトは
+    // サイレントに飛ばす (そのサイトが落ちていても 5ch.io 側の一覧は出す)。
+    let enabled = enabled_sources.unwrap_or_default();
+    for (id, menu_url, prefix) in EXTRA_BBSMENU_SOURCES {
+        if !enabled.iter().any(|s| s == id) {
+            continue;
+        }
+        match fetch_bbsmenu_from(&client, menu_url).await {
+            Ok(extra_menu) => {
+                collect_categories_from_menu(&extra_menu, &mut categories, Some(prefix))
+            }
+            Err(e) => eprintln!("fetch_board_categories: {id} bbsmenu fetch failed: {e}"),
         }
     }
 
