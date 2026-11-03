@@ -2314,21 +2314,39 @@ const finishSendPad = (ok: boolean) => {
   sendPadTimers.push(window.setTimeout(hideSendPad, ok ? 900 : 700));
 };
 
+// ID ごとの文字色。ライト用とダーク用で 2 本持つ。
+// 以前は白背景前提の濃い 20 色 1 本だけだったので、ダーク背景 (#252526) では
+// 20 色中 19 色がコントラスト 4.5:1 を切っていた (最悪 #5f0d8a の 1.39:1 =
+// ほぼ読めない)。色はインライン style で当たるため CSS 側からは直せず
+// (.dark .response-id-cell の color 指定がずっと効いていなかったのはこのため)、
+// パレットごと切り替えるしかない。
+// 色相は 20 等分し、9 飛ばしの順に並べてある — 連番で割り当てられる色同士が
+// 似ないようにするため (割り当ては出現順なので、隣のレスと混ざると困る)。
+// ライトは白に対して 7:1 以上、ダークは #252526 に対して 5.5:1 以上を満たす中で
+// 一番クロマが高い色を選んだ。実測の最小値はライト 6.99:1 / ダーク 5.52:1。
 const ID_COLORS = [
-  "#c41a1a", "#1a8fc4", "#1aaa3e", "#b06d15", "#8c1ac4",
-  "#c41a8a", "#0d8a7a", "#6b6b00", "#2d5faa", "#aa2d5f",
-  "#4a7a0d", "#8a4a00", "#0d5f8a", "#7a0d5f", "#5f8a0d",
-  "#aa0d2d", "#2d8aaa", "#5f0d8a", "#8a7a0d", "#0d8a3a",
+  "#b40808", "#056649", "#ab076a", "#04670e", "#9208b5",
+  "#336204", "#390af5", "#625904", "#0851bf", "#9d3407",
+  "#046262", "#b0073a", "#04672c", "#a20792", "#186704",
+  "#780ae6", "#4e6006", "#0a22f5", "#7f4e06", "#065e84",
 ];
-const idColorMap = new Map<string, string>();
-const getIdColor = (id: string): string => {
+const ID_COLORS_DARK = [
+  "#f97171", "#0adb9d", "#f967be", "#09dc1e", "#dd6cf9",
+  "#73d90d", "#a18bf9", "#d7c30f", "#5e9cf7", "#f77740",
+  "#10d5d5", "#f96c96", "#09dc5e", "#f859e8", "#33dc09",
+  "#bd80fa", "#aacf17", "#8995fa", "#f5970a", "#0aaef5",
+];
+// ID -> パレットの添字。色そのものではなく添字を覚えるので、ライト / ダークを
+// 切り替えても「同じ人は同じ色相」のままになる。
+const idColorMap = new Map<string, number>();
+const getIdColor = (id: string, dark = false): string => {
   if (!id) return "inherit";
-  let color = idColorMap.get(id);
-  if (!color) {
-    color = ID_COLORS[idColorMap.size % ID_COLORS.length];
-    idColorMap.set(id, color);
+  let idx = idColorMap.get(id);
+  if (idx === undefined) {
+    idx = idColorMap.size % ID_COLORS.length;
+    idColorMap.set(id, idx);
   }
-  return color;
+  return (dark ? ID_COLORS_DARK : ID_COLORS)[idx];
 };
 
 /** Detect whether a post body is likely ASCII Art */
@@ -2445,7 +2463,7 @@ const ogpDomainAllowed = (url: string, allow: string[], block: string[]): boolea
   return true;
 };
 
-const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
+const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[]; knownIds?: { has: (id: string) => boolean }; darkMode?: boolean }): { __html: string } => {
   let safe = html
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<a\s[^>]*>(.*?)<\/a>/gi, "$1")
@@ -2550,6 +2568,32 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
     /&gt;(\d+)/g,
     '<span class="anchor-ref" data-anchor="$1" role="link" tabindex="0">&gt;$1</span>'
   );
+  // 本文に書かれた ID (「ID:rkx/KRLd0」のように誰かを指して引用したもの) を、レス
+  // ヘッダの ID セルと同じホバーポップアップのトリガーにする。装飾するのは
+  // opts.knownIds に入っている「このスレに実在する ID」だけ。他スレや過去ログから
+  // 貼られた ID まで装飾すると、下線は出るのにポップアップが空という一番分かりにくい
+  // 状態になる。色もヘッダと同じ getIdColor を使うので、同じ人だと一目で分かる。
+  // タグの中は触らない (highlightHtmlPreservingTags と同じ split のイディオム)。
+  // href や data-* の中に span を差し込むと属性ごと壊れる。本文の大半は ID: を
+  // 含まないので、先に includes で安く弾く。
+  if (opts?.knownIds && safe.includes("ID:")) {
+    const known = opts.knownIds;
+    safe = safe
+      .split(/(<[^>]+>)/g)
+      .map((part) =>
+        part.startsWith("<")
+          ? part
+          // 直前が英数字なら拾わない (GUID: などの末尾一致を避ける)。5ch の ID は
+          // base64 の文字種なので、日本語や句読点のところで自然に切れる。文字種を
+          // この範囲に限っているので、引用符が混ざって属性が壊れることはない。
+          : part.replace(/(?<![A-Za-z0-9])ID:([A-Za-z0-9+\/]{4,24})/g, (m, id: string) =>
+              known.has(id)
+                ? `<span class="body-id-ref popup-id-trigger" data-popup-id="${id}" style="color:${getIdColor(id, opts?.darkMode)}">${m}</span>`
+                : m,
+            ),
+      )
+      .join("");
+  }
   // Convert sssp:// BE icons to https:// img preview
   safe = safe.replace(
     /sssp:\/\/(img\.5ch\.net\/[^\s<>&]+|img\.5ch\.io\/[^\s<>&]+)/gi,
@@ -2610,7 +2654,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   }
   return { __html: safe };
 };
-const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[] }): { __html: string } => {
+const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[]; knownIds?: { has: (id: string) => boolean }; darkMode?: boolean }): { __html: string } => {
   let out = renderResponseBody(html, opts).__html;
   out = highlightEntriesPreservingTags(out, highlightWords);
   out = highlightHtmlPreservingTags(out, query);
@@ -3862,6 +3906,16 @@ export default function App() {
     const flipUp = spaceBelow < maxH && spaceAbove > spaceBelow;
     const maxHeight = Math.max(120, Math.min(maxH, flipUp ? spaceAbove : spaceBelow));
     return { flipUp, maxHeight };
+  };
+  // ID ポップアップは右端をトリガーの右端に揃える (CSS の right 指定)。レスヘッダの
+  // ID セルはレス行の右側に固定されているので素直に収まるが、本文に書かれた ID は
+  // 行頭にも来る。そのとき right が大きくなりすぎてポップアップが画面の左へはみ出し、
+  // 左側が見切れる。幅は CSS の min(520px, 100vw - 16px) と同じ式で求められるので、
+  // 左端が画面内に残る位置まで right を戻す。
+  const fitIdPopupRight = (rect: DOMRect) => {
+    const width = Math.min(520, window.innerWidth - 16);
+    const maxRight = Math.max(0, window.innerWidth - width - 8);
+    return Math.min(Math.max(8, window.innerWidth - rect.right), maxRight);
   };
   // タッチ操作では「マウスが離れたら閉じる」が使えないので、まとめて閉じる手段が要る。
   const closeAllPopups = () => {
@@ -7153,7 +7207,7 @@ export default function App() {
           // 連投 ID の自動 NG (3 レス以上) を確認するため 3 件に揃えてある。
           { id: 1, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:00 ID:Smoke0001", text: "投稿フロートレース準備完了", beNumber: null, watchoi: null },
           { id: 2, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "sage", time: "2026/03/07 10:02 ID:SmokeSame", text: "BE/UPLIFT/どんぐりログイン確認済み", beNumber: null, watchoi: null },
-          { id: 3, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:04 ID:Smoke0003", text: ">>1 次: subject/dat取得連携", beNumber: null, watchoi: null },
+          { id: 3, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:04 ID:Smoke0003", text: ">>1 次: subject/dat取得連携 ID:SmokeSame と ID:SmokeGhost0 を参照", beNumber: null, watchoi: null },
           { id: 4, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:06 ID:SmokeSame", text: ">>3 参考 https://example.com/page を参照", beNumber: null, watchoi: null },
           { id: 5, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:08 ID:SmokeSame", text: "スレ一覧とレス表示の疎通まで確認完了", beNumber: null, watchoi: null },
         ]),
@@ -8447,7 +8501,7 @@ export default function App() {
       const id = idEl.getAttribute("data-popup-id") || "";
       if (id) {
         const rect = idEl.getBoundingClientRect();
-        const right = Math.max(8, window.innerWidth - rect.right);
+        const right = fitIdPopupRight(rect);
         setIdPopup({ right, y: rect.bottom + 2, anchorTop: rect.top, id, z: allocatePopupZ() });
       }
     }
@@ -8532,7 +8586,7 @@ export default function App() {
           <span
             className="response-id-cell popup-id-trigger"
             data-popup-id={id}
-            style={{ color: getIdColor(id), marginLeft: 6 }}
+            style={{ color: getIdColor(id, darkMode), marginLeft: 6 }}
           >
             ID:{id}
           </span>
@@ -8559,7 +8613,7 @@ export default function App() {
   const renderPopupBody = (resp: typeof responseItems[number]) =>
     ngResultMap.get(resp.id) === "abone"
       ? <div className="anchor-popup-body abone-body">{ABONE_TEXT}</div>
-      : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled })} />;
+      : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, darkMode })} />;
 
   const goFromLocationInput = () => {
     const next = rewrite5chNet(locationInput.trim());
@@ -13690,6 +13744,39 @@ export default function App() {
                   }
                   return;
                 }
+                // 本文に書かれた ID のクリック。ヘッダの ID セルと同じ扱いにする:
+                // タッチ操作ではホバーが無いのでタップを ID ポップアップに割り当て、
+                // マウスでは コピー / NGID / ハイライト のメニューを出す。マウスだと
+                // このメニューはヘッダの ID セル以外から開けない (ポップアップの
+                // 「メニュー」ボタンは touchMode のときだけ出る) ので、本文で見つけた
+                // ID をその場で NG に入れられるようにこちらにも口を作る。
+                //
+                // どちらの枝でも stopPropagation が要る。本文は dangerouslySetInnerHTML
+                // なので生成した span に直接ハンドラを付けられず、ペインへの委譲で拾う
+                // しかない。シェル直下の onClick が「開いているものを全部閉じる」ので、
+                // 止めないと出した直後に setIdMenu(null) / setIdPopup(null) で消える。
+                const bodyIdClick = target.closest<HTMLElement>(".body-id-ref");
+                if (bodyIdClick) {
+                  const bodyIdValue = bodyIdClick.getAttribute("data-popup-id") || "";
+                  if (bodyIdValue && isTouchMode() && idPopupEnabled) {
+                    e.stopPropagation();
+                    const rect = bodyIdClick.getBoundingClientRect();
+                    setIdPopup({ right: fitIdPopupRight(rect), y: rect.bottom + 2, anchorTop: rect.top, id: bodyIdValue, z: allocatePopupZ() });
+                    return;
+                  }
+                  // 本文は文字を選択してコピーする場所でもある。1 行をドラッグ選択して
+                  // 終点が ID の上に落ちたときにメニューが出ると選択を取り上げてしまうので、
+                  // 選択が空のときだけ出す。2 回目以降のクリックも外して、ダブルクリックの
+                  // 動作 (返信 / ここまで読んだ) はレス行側に残す。
+                  const sel = window.getSelection();
+                  if (bodyIdValue && !isTouchMode() && e.detail <= 1 && (!sel || sel.isCollapsed)) {
+                    e.stopPropagation();
+                    if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; }
+                    const p = clampMenuPosition(e.clientX, e.clientY, 160, 56);
+                    setIdMenu({ x: p.x, y: p.y, id: bodyIdValue, z: allocatePopupZ() });
+                    return;
+                  }
+                }
                 const anchor = target.closest<HTMLElement>(".anchor-ref");
                 if (!anchor) return;
                 const ids = getAnchorIds(anchor);
@@ -13728,6 +13815,20 @@ export default function App() {
               onMouseOver={(e) => {
                 if (isTouchMode()) return;
                 const target = e.target as HTMLElement;
+                // 本文に書かれた ID。ヘッダの ID セルと同じ ID ポップアップを出す。
+                // ポップアップの中の ID は handlePopupChainOver 側が同じことをしている。
+                const bodyId = target.closest<HTMLElement>(".body-id-ref");
+                if (bodyId) {
+                  if (!idPopupEnabled) return;
+                  if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; }
+                  const pid = bodyId.getAttribute("data-popup-id") || "";
+                  if (pid) {
+                    const rect = bodyId.getBoundingClientRect();
+                    const right = fitIdPopupRight(rect);
+                    setIdPopup({ right, y: rect.bottom + 2, anchorTop: rect.top, id: pid });
+                  }
+                  return;
+                }
                 const anchor = target.closest<HTMLElement>(".anchor-ref");
                 if (!anchor) { return; }
                 const ids = getAnchorIds(anchor).filter((id) => responseItems.some((r) => r.id === id));
@@ -13763,6 +13864,15 @@ export default function App() {
                       if (hoverPreviewRef.current) hoverPreviewRef.current.style.display = "none";
                     }, 300);
                   }
+                }
+                // 本文 ID から離れたとき。ポップアップ本体へ入った場合は閉じない
+                // (ポップアップの中のレスをクリックして飛べるようにする)。
+                if (target.closest(".body-id-ref")) {
+                  const toId = e.relatedTarget as HTMLElement | null;
+                  if (toId?.closest(".id-popup")) return;
+                  if (idPopupCloseTimer.current) clearTimeout(idPopupCloseTimer.current);
+                  idPopupCloseTimer.current = setTimeout(() => setIdPopup(null), 80);
+                  return;
                 }
                 if (!target.closest(".anchor-ref")) return;
                 const next = e.relatedTarget as HTMLElement | null;
@@ -13957,7 +14067,7 @@ export default function App() {
                         {id && (
                           <span
                             className={`response-id-cell${idHlColor ? ` highlight-word hl-c-${idHlColor}` : ""}`}
-                            style={idHlColor ? undefined : { color: getIdColor(id) }}
+                            style={idHlColor ? undefined : { color: getIdColor(id, darkMode) }}
                             onClick={(e) => {
                               e.stopPropagation();
                               if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; }
@@ -13965,7 +14075,7 @@ export default function App() {
                               // ID メニュー (コピー / NGID / ハイライト) はポップアップのヘッダから開ける。
                               if (isTouchMode() && idPopupEnabled) {
                                 const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                const right = Math.max(8, window.innerWidth - rect.right);
+                                const right = fitIdPopupRight(rect);
                                 setIdPopup({ right, y: rect.bottom + 2, anchorTop: rect.top, id, z: allocatePopupZ() });
                                 return;
                               }
@@ -13977,7 +14087,7 @@ export default function App() {
                               if (!idPopupEnabled) return;
                               if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; }
                               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                              const right = Math.max(8, window.innerWidth - rect.right);
+                              const right = fitIdPopupRight(rect);
                               setIdPopup({ right, y: rect.bottom + 2, anchorTop: rect.top, id });
                             }}
                             onMouseLeave={() => {
@@ -14004,7 +14114,7 @@ export default function App() {
                       </span>
                     </div>
                     <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}${longCollapsed ? " collapsed" : ""}`} style={longCollapsed ? ({ "--collapse-lines": collapsePreviewLines } as CSSProperties) : undefined} dangerouslySetInnerHTML={{ __html: (() => {
-                      const full = threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block }).__html;
+                      const full = threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block, knownIds: idCountMap, darkMode }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block, knownIds: idCountMap, darkMode }).__html;
                       // 折りたたみ中だけ表示文字数で切る。切り詰めは常にサニタイズ後の HTML に対して行う
                       const shown = longCollapsed && collapsePreviewChars > 0 ? truncateResponseHtml(full, collapsePreviewChars) : full;
                       return shown + (responseBodyBottomPad ? "<br><br>" : "");
@@ -16057,7 +16167,7 @@ export default function App() {
                   )}
                   {ngResultMap.get(r.id) === "abone"
                     ? <span className="id-popup-text abone-body">{ABONE_TEXT}</span>
-                    : <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled })} />}
+                    : <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, darkMode })} />}
                 </div>
                 );
               })}
@@ -16880,7 +16990,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>184項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>186項目</span></div>
               </fieldset>
               </>)}
             </div>

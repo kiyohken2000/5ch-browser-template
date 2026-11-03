@@ -1338,6 +1338,14 @@ li.fav-drag-over {
   text-decoration: underline;
 }
 
+/* 本文に書かれた ID (「ID:rkx/KRLd0」のような引用)。ホバーでレスヘッダの ID セルと
+   同じ ID ポップアップが出る。色は ID ごとの固定色をインライン style で持たせている
+   ので (ヘッダと同じ getIdColor)、ここでは色を指定しない。下線は付けない — 本文が
+   装飾で賥やかなるので、目印は色とカーソルの形だけに留める。 */
+.body-id-ref {
+  cursor: pointer;
+}
+
 .anchor-popup {
   position: fixed;
   z-index: 60;
@@ -6802,13 +6810,20 @@ a.body-link-image:hover::after {
   z-index: 810;
 }
 
-/* ガラス+ダーク: ID文字を明度ブースト + 黒の濃い縁取りで暗色パレットの可読性を確保 */
-.shell.glass.dark .response-id-cell {
-  filter: brightness(1.7) saturate(0.95);
+/* ガラス+ダーク: ID 文字の黒縁取り。ガラスは背景が透けて明るくなる
+   ことがあるので、ダーク用パレットでも縁取りが無いと沈む。
+   以前はここで filter: brightness(1.7) も掛けていたが、あれは白背景前提の
+   濃いパレットをダークで読ませるための補正。パレットをモード別の 2 本に
+   したので不要 (明るい色に 1.7 を掛けると飛んで白くなる)。
+   太字はヘッダの ID セルだけ。本文中の ID まで太くすると文の途中で重くなる。 */
+.shell.glass.dark .response-id-cell,
+.shell.glass.dark .body-id-ref {
   text-shadow:
     0 0 1px rgba(0, 0, 0, 1),
     0 0 3px rgba(0, 0, 0, 0.95),
     0 0 6px rgba(0, 0, 0, 0.7);
+}
+.shell.glass.dark .response-id-cell {
   font-weight: 600;
 }
 

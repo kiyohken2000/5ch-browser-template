@@ -574,6 +574,97 @@ try {
     console.log("smoke-ui: back-ref popup placement ok");
   }
 
+  // --- 本文に書かれた ID のホバーで同一 ID のレスがポップアップする ---
+  // プレースホルダの >>3 の本文には「ID:SmokeSame」と「ID:SmokeGhost0」が書いてある。
+  // ID:SmokeSame は >>2 / >>4 / >>5 の 3 レスとして実在し、ID:SmokeGhost0 はこのスレに
+  // 居ない。実在する方だけを装飾するのがこの機能の肝で、両方装飾すると「下線はあるのに
+  // ポップアップが空」という一番分かりにくい状態になる。
+  {
+    const bodyIds = await page.$$eval(
+      '.response-scroll .response-block[data-response-no="3"] .body-id-ref',
+      (els) => els.map((el) => ({ text: el.textContent, id: el.getAttribute("data-popup-id"), color: el.style.color })),
+    );
+    assert(
+      bodyIds.length === 1,
+      `only the ID that exists in the thread should be decorated, got ${JSON.stringify(bodyIds)}`,
+    );
+    assert(bodyIds[0].text === "ID:SmokeSame", `the decorated text should keep the ID: prefix, got ${bodyIds[0].text}`);
+    assert(bodyIds[0].id === "SmokeSame", `data-popup-id should carry the bare ID, got ${bodyIds[0].id}`);
+    // 居ない ID は素のテキストとして残る (消えたり壊れたりしない)
+    const body3 = await page.$eval(
+      '.response-scroll .response-block[data-response-no="3"] .response-body',
+      (el) => el.textContent || "",
+    );
+    assert(
+      body3.includes("ID:SmokeGhost0"),
+      `an ID that is not in the thread must stay as plain text, got ${JSON.stringify(body3)}`,
+    );
+    // 色はヘッダの ID セルと同じ (同じ人だと一目で分かる、が狙い)
+    const headerColor = await page.$eval(
+      '.response-scroll .response-block[data-response-no="2"] .response-id-cell',
+      (el) => el.style.color,
+    );
+    assert(headerColor !== "", "the header ID cell should carry a per-ID color");
+    assert(
+      bodyIds[0].color === headerColor,
+      `the body ID should reuse the header color, got ${bodyIds[0].color} vs ${headerColor}`,
+    );
+    // ホバーで ID ポップアップが開き、その ID の 3 レスが並ぶ
+    await page.hover('.response-scroll .response-block[data-response-no="3"] .body-id-ref');
+    await page.waitForSelector(".id-popup", { timeout: 2000 });
+    const idPopupHeader = await page.$eval(".id-popup .id-popup-header", (el) => el.textContent || "");
+    assert(
+      idPopupHeader.includes("ID:SmokeSame") && idPopupHeader.includes("3"),
+      `the popup should report the ID and its 3 posts, got ${JSON.stringify(idPopupHeader)}`,
+    );
+    const idPopupRows = await page.$$eval(".id-popup .response-viewer-no", (els) => els.map((el) => el.textContent));
+    assert(
+      idPopupRows.length === 3,
+      `the popup should list the 3 posts of that ID, got ${JSON.stringify(idPopupRows)}`,
+    );
+    // ポップアップは右端をトリガーの右端に揃える (CSS の right 指定)。レスヘッダの
+    // ID セルは行の右側に固定なので収まるが、本文の ID は行頭にも来るので right が
+    // 大きくなりすぎて左へはみ出し、左側が見切れる。既定のウィンドウ幅では偶然
+    // 収まってしまい壊しても落ちなかったので、ウィンドウを狭めてから測る。
+    const vpBeforeIdPopup = page.viewportSize();
+    await page.setViewportSize({ width: 700, height: vpBeforeIdPopup.height });
+    await new Promise((res) => setTimeout(res, 150));
+    await page.hover('.response-scroll .response-block[data-response-no="3"] .body-id-ref');
+    await page.waitForSelector(".id-popup", { timeout: 2000 });
+    const idPopupBox = await page.evaluate(() => {
+      const p = document.querySelector(".id-popup").getBoundingClientRect();
+      return { left: Math.round(p.left), right: Math.round(p.right), w: window.innerWidth };
+    });
+    assert(
+      idPopupBox.left >= 0 && idPopupBox.right <= idPopupBox.w,
+      `the ID popup must stay inside the window, got ${JSON.stringify(idPopupBox)}`,
+    );
+    await page.setViewportSize(vpBeforeIdPopup);
+    await new Promise((res) => setTimeout(res, 150));
+    // 離れたら閉じる (ポップアップに入らずに横へ抜けるケース)
+    await page.mouse.move(5, 5);
+    await new Promise((res) => setTimeout(res, 300));
+    assert(!(await page.$(".id-popup")), "leaving a body ID without entering the popup should close it");
+    // クリックでヘッダの ID セルと同じメニューが出る。マウス操作ではこのメニューを
+    // ヘッダ以外から開く手段が無かった (ポップアップの「メニュー」ボタンは touchMode
+    // のときだけ出る)。シェル直下の onClick が開いているものを全部閉じるので、
+    // stopPropagation を落とすとメニューは出た瞬間に消える。
+    await page.click('.response-scroll .response-block[data-response-no="3"] .body-id-ref');
+    await page.waitForSelector(".thread-menu", { timeout: 2000 });
+    const bodyIdMenuText = await page.$eval(".thread-menu", (el) => el.textContent || "");
+    for (const label of ["\u3053\u306eID\u3092\u30b3\u30d4\u30fc", "NGID\u306b\u8ffd\u52a0", "ID\u3092\u30cf\u30a4\u30e9\u30a4\u30c8"]) {
+      assert(
+        bodyIdMenuText.includes(label),
+        `the body ID menu should offer ${label}, got ${JSON.stringify(bodyIdMenuText)}`,
+      );
+    }
+    await page.keyboard.press("Escape");
+    await page.click(".pane.responses");
+    await new Promise((res) => setTimeout(res, 150));
+    assert(!(await page.$(".thread-menu")), "clicking away should close the body ID menu");
+    console.log("smoke-ui: body-text ID hover popup ok");
+  }
+
   // double-click response row opens compose with quote
   // first close any open compose window
   const openCompose = await page.$(".compose-window");
@@ -1720,6 +1811,71 @@ try {
   const noDarkClass = await page.$eval(".shell", (el) => !el.classList.contains("dark"));
   assert(noDarkClass, "shell should not have dark class after light toggle");
   console.log("smoke-ui: dark mode toggle ok");
+
+  // --- ID の文字色が両モードで読めること ---
+  // ID_COLORS は白背景前提の濃い 20 色 1 本だけで、ダーク背景 (#252526) では
+  // 20 色中 19 色が 4.5:1 を切っていた (最悪 1.39:1 = ほぼ読めない)。色はインライン
+  // style の color なので CSS 側からは直せず (.dark .response-id-cell の color が
+  // 効いていなかったのはこのため)、ライト用 / ダーク用の 2 本に分けた。
+  // ここでは実際に描かれている ID セルの色を拾い、背景とのコントラストを両モードで測る。
+  // パレット全 20 色の検証はパレット生成時に実測してある (ライト最小 6.99:1 /
+  // ダーク最小 5.52:1)。ここで見るのは「モードでパレットが入れ替わること」と
+  // 「実際に出ている色が読める値であること」。
+  {
+    const measureIdColors = () => page.$$eval(".response-scroll .response-id-cell", (els) => {
+      const lum = (c) => {
+        const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+        const [r, g, b] = c.map(f);
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const parse = (s) => (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+      // 背景は透明な祖先を飛ばして、最初に塗られている色を使う
+      const bgOf = (el) => {
+        for (let n = el; n; n = n.parentElement) {
+          const bg = window.getComputedStyle(n).backgroundColor;
+          if (bg && bg !== "transparent" && !/^rgba\(0,\s*0,\s*0,\s*0\)$/.test(bg)) return parse(bg);
+        }
+        return [255, 255, 255];
+      };
+      return els.map((el) => {
+        const color = window.getComputedStyle(el).color;
+        const [l1, l2] = [lum(parse(color)), lum(bgOf(el))].sort((a, b) => b - a);
+        return { color, ratio: Math.round(((l1 + 0.05) / (l2 + 0.05)) * 100) / 100 };
+      });
+    });
+
+    const lightColors = await measureIdColors();
+    assert(lightColors.length > 0, "the response pane should show ID cells to measure");
+    for (const m of lightColors) {
+      assert(m.ratio >= 4.5, `an ID must stay readable in light mode, got ${m.color} at ${m.ratio}:1`);
+    }
+
+    await (await page.$('.menu-item:has-text("表示")')).click();
+    await new Promise((r) => setTimeout(r, 100));
+    await page.click('.menu-dropdown button:has-text("ダークテーマ")');
+    await new Promise((r) => setTimeout(r, 200));
+    const darkColors = await measureIdColors();
+    for (const m of darkColors) {
+      assert(m.ratio >= 4.5, `an ID must stay readable in dark mode, got ${m.color} at ${m.ratio}:1`);
+    }
+    // パレットが本当に入れ替わっていること。入れ替わっていないと上のコントラスト検査が
+    // 「たまたま通る」余地が残る (明るい色が 1 つでも混じっていれば済んでしまう)。
+    assert(
+      darkColors.length === lightColors.length
+        && darkColors.every((m, i) => m.color !== lightColors[i].color),
+      `every ID color should change with the theme, got ${JSON.stringify(darkColors.map((m) => m.color))} vs ${JSON.stringify(lightColors.map((m) => m.color))}`,
+    );
+
+    await (await page.$('.menu-item:has-text("表示")')).click();
+    await new Promise((r) => setTimeout(r, 100));
+    await page.click('.menu-dropdown button:has-text("ライトテーマ")');
+    await new Promise((r) => setTimeout(r, 150));
+    assert(
+      await page.$eval(".shell", (el) => !el.classList.contains("dark")),
+      "the shell should be back in light mode after the ID colour check",
+    );
+    console.log("smoke-ui: ID colours stay readable in both themes ok");
+  }
 
   // --- NG regex ---
   // Test regex pattern matching via NG panel
