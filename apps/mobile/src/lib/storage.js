@@ -44,6 +44,8 @@ export const KEYS = {
   postDrafts: 'postDrafts.v1',
   termsConsent: 'termsConsent.v1',
   searchHistory: 'searchHistory.v1',
+  threadFilterHistory: 'threadFilterHistory.v1',
+  knownThreads: 'knownThreads.v1',
   // 端末固有（同期しない — §10-1）
   scrollPositions: 'scrollPositions.v1',
 }

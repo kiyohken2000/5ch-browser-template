@@ -11,6 +11,7 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -28,7 +29,9 @@ import {
   SORT_MODES,
   sortThreads,
 } from 'lib/sort'
+import { pushHistory } from 'lib/search'
 import { KEYS, load, save } from 'lib/storage'
+import { diffKnownThreads } from 'lib/threadLists'
 import { parseBoardLocation } from 'lib/urls'
 import { selectNgFilters } from 'slices/ng.slice'
 import { toggleBoardFavorite, touchBoard } from 'slices/watch.slice'
@@ -53,6 +56,10 @@ export default function Threads({ route, navigation }) {
   const [error, setError] = useState(null)
   const [sortMode, setSortMode] = useState(DEFAULT_SORT)
   const [filter, setFilter] = useState('')
+  const [filterFocused, setFilterFocused] = useState(false)
+  const [filterHistory, setFilterHistory] = useState([])
+  // 前回の一覧に無かったスレ。更新しても、この画面を閉じるまでは印を残す
+  const [newKeys, setNewKeys] = useState(() => new Set())
 
   /** お気に入りと履歴に入れる形。URL が読めない板は入れない。 */
   const boardInfo = useMemo(() => {
@@ -139,6 +146,18 @@ export default function Threads({ route, navigation }) {
     try {
       const got = await fetchSubject(boardUrl)
       setThreads(got.threads)
+      // 空の応答で「全部初めて」と覚え直さない
+      if (got.threads.length > 0) {
+        const diff = diffKnownThreads(
+          await load(KEYS.knownThreads, {}),
+          boardUrl,
+          got.threads,
+        )
+        setNewKeys((prev) => new Set([...prev, ...diff.newKeys]))
+        save(KEYS.knownThreads, diff.known).then((ok) => {
+          if (!ok) console.warn('[threads] スレ一覧の記録に失敗した')
+        })
+      }
     } catch (e) {
       console.warn(`[threads] スレ一覧の取得に失敗: ${e?.message || e}`)
       setError(e?.message || 'スレ一覧を取得できませんでした')
@@ -151,6 +170,26 @@ export default function Threads({ route, navigation }) {
   useEffect(() => {
     read()
   }, [read])
+
+  useEffect(() => {
+    let alive = true
+    load(KEYS.threadFilterHistory, []).then((got) => {
+      if (alive && Array.isArray(got)) setFilterHistory(got)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const rememberFilter = useCallback(() => {
+    setFilterHistory((prev) => {
+      const next = pushHistory(prev, filter)
+      save(KEYS.threadFilterHistory, next).then((ok) => {
+        if (!ok) console.warn('[threads] 絞り込み履歴の保存に失敗した')
+      })
+      return next
+    })
+  }, [filter])
 
   // 既読のスレは「どこまで読んだか」を出す
   const watchById = useMemo(() => {
@@ -187,11 +226,53 @@ export default function Threads({ route, navigation }) {
         <TextInput
           value={filter}
           onChangeText={setFilter}
+          onFocus={() => setFilterFocused(true)}
+          onBlur={() => setFilterFocused(false)}
+          onSubmitEditing={rememberFilter}
+          returnKeyType="search"
           placeholder="スレタイを絞り込む"
           placeholderTextColor={theme.textFaint}
           style={[styles.filterInput, { color: theme.text }]}
           autoCorrect={false}
         />
+        {filterFocused && !filter && filterHistory.length > 0 ? (
+          <ScrollView
+            horizontal
+            keyboardShouldPersistTaps="always"
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.historyRow}
+          >
+            {filterHistory.map((word) => (
+              <Pressable
+                key={word}
+                accessibilityRole="button"
+                accessibilityLabel={`${word} で絞り込む`}
+                onPress={() => setFilter(word)}
+                style={[styles.sortChip, { borderColor: theme.border }]}
+              >
+                <Text style={[styles.sortChipText, { color: theme.textDim }]}>
+                  {word}
+                </Text>
+              </Pressable>
+            ))}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="絞り込み履歴を消す"
+              onPress={() => {
+                setFilterHistory([])
+                save(KEYS.threadFilterHistory, []).then((ok) => {
+                  if (!ok)
+                    console.warn('[threads] 絞り込み履歴の消去に失敗した')
+                })
+              }}
+              style={styles.historyClear}
+            >
+              <Text style={[styles.sortChipText, { color: theme.textFaint }]}>
+                消す
+              </Text>
+            </Pressable>
+          </ScrollView>
+        ) : null}
         <View style={styles.sortRow}>
           {SORT_MODES.map((m) => (
             <Pressable
@@ -279,6 +360,14 @@ export default function Threads({ route, navigation }) {
                 ]}
                 numberOfLines={2}
               >
+                {newKeys.has(item.threadKey) ? (
+                  <Text
+                    accessibilityLabel="新着スレ"
+                    style={{ color: theme.accent, fontWeight: '700' }}
+                  >
+                    {'[新着] '}
+                  </Text>
+                ) : null}
                 {item.title}
               </Text>
               <View style={styles.meta}>
@@ -330,6 +419,8 @@ export default function Threads({ route, navigation }) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  historyRow: { gap: 6, alignItems: 'center' },
+  historyClear: { paddingHorizontal: 8, paddingVertical: 4 },
   toTop: {
     position: 'absolute',
     right: 16,

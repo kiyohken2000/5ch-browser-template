@@ -14,6 +14,8 @@
  * そのまま持ち込む。
  */
 
+import { splitNameWatchoi } from './parse'
+
 /** NG の強さ。複数に一致したときは強い方を採る。 */
 export const NG_MODES = ['hide-images', 'abone', 'hide']
 const NG_MODE_RANK = { 'hide-images': 0, abone: 1, hide: 2 }
@@ -131,36 +133,88 @@ export function evalNg(resp, filters) {
  * 要素を落とさないのは、呼ぶ側が「あぼーん」として 1 行だけ出す選択を
  * できるようにするため。**隠すときは `visibleResponses` を使う。**
  *
- * @param {Array} responses `{no, name, id, plainBody}` を持つレス
+ * パスの順はデスクトップ版と同じ。**どのパスも `>>1` は対象外**（スレの説明が入るので）。
+ *   1. エントリに直接一致
+ *   2. ID 連鎖: 連鎖指定のワードに当たったレスの ID とワッチョイを、同じスレの他レスへ
+ *   3. 連投 ID の自動 NG: しきい値以上書いた ID。ID は日替わりなのでリストには溜めない
+ *   4. 返信の連鎖: 隠れたレスへ安価を打ったレス。昇順に回すので返信の返信にも波及する
+ *
+ * @param {Array} responses `{no, name, id, plainBody, parsed?}` を持つレス
  * @param {object} filters
+ * @param {{autoIdCount?: number, autoIdMode?: string,
+ *          chainReplies?: boolean, chainRepliesMode?: string}} [options]
  */
-export function applyNg(responses, filters) {
+export function applyNg(responses, filters, options = {}) {
+  const { autoIdCount = 0, autoIdMode = 'hide' } = options
+  const { chainReplies = false, chainRepliesMode = 'abone' } = options
   const first = responses.map((r) => ({ resp: r, ...evalNg(r, filters) }))
+  const watchoiOf = (r) => splitNameWatchoi(r.name).watchoi
 
-  // ID 連鎖: 連鎖指定のワードに当たったレスの ID を、同じスレの他レスへ広げる
-  const chained = new Map()
+  const chainedIds = new Map()
+  const chainedWatchois = new Map()
+  const addChain = (map, key, mode) => {
+    if (key) map.set(key, strongerMode(map.get(key) ?? null, mode))
+  }
   for (const row of first) {
-    if (row.chainMode && row.resp.id) {
-      const prev = chained.get(row.resp.id)
-      chained.set(
-        row.resp.id,
-        prev ? strongerMode(prev, row.chainMode) : row.chainMode,
-      )
+    if (row.chainMode) {
+      addChain(chainedIds, row.resp.id, row.chainMode)
+      addChain(chainedWatchois, watchoiOf(row.resp), row.chainMode)
     }
   }
 
-  return first.map((row) => {
+  const counts = new Map()
+  if (autoIdCount > 0) {
+    for (const r of responses) {
+      if (r.id) counts.set(r.id, (counts.get(r.id) || 0) + 1)
+    }
+  }
+
+  const rows = first.map((row) => {
     let { mode, by } = row
-    const chain = row.resp.id ? chained.get(row.resp.id) : undefined
-    if (chain) {
-      const next = strongerMode(mode, chain)
-      if (next !== mode) {
-        mode = next
-        by = `ID 連鎖: ${row.resp.id}`
+    const { no, id } = row.resp
+    if (no !== 1) {
+      const raise = (next, label) => {
+        if (next && strongerMode(mode, next) !== mode) {
+          mode = strongerMode(mode, next)
+          by = label
+        }
+      }
+      raise(id ? chainedIds.get(id) : null, `ID 連鎖: ${id}`)
+      const watchoi = watchoiOf(row.resp)
+      raise(watchoi ? chainedWatchois.get(watchoi) : null, `連鎖: ${watchoi}`)
+      if (autoIdCount > 0 && id && counts.get(id) >= autoIdCount) {
+        raise(autoIdMode, `連投 ID: ${id}`)
       }
     }
     return { ...row.resp, ngMode: mode || null, ngBy: by || null }
   })
+
+  if (!chainReplies) return rows
+
+  // 安価の参照元。範囲指定（>>1-1000）は連鎖させない。巻き込みが広すぎるので
+  const repliedBy = new Map()
+  for (const row of rows) {
+    for (const target of row.parsed?.directAnchors || []) {
+      if (!repliedBy.has(target)) repliedBy.set(target, [])
+      repliedBy.get(target).push(row.no)
+    }
+  }
+  const byNo = new Map(rows.map((row) => [row.no, row]))
+  for (const row of rows) {
+    if (row.no !== 1 && (row.ngMode === 'hide' || row.ngMode === 'abone')) {
+      for (const from of repliedBy.get(row.no) || []) {
+        const target = byNo.get(from)
+        if (target && target.no !== 1 && target.no !== row.no) {
+          const next = strongerMode(target.ngMode, chainRepliesMode)
+          if (next !== target.ngMode) {
+            target.ngMode = next
+            target.ngBy = `返信の連鎖: >>${row.no}`
+          }
+        }
+      }
+    }
+  }
+  return rows
 }
 
 /**
@@ -169,6 +223,16 @@ export function applyNg(responses, filters) {
  */
 export function visibleResponses(rows) {
   return rows.filter((r) => r.ngMode !== 'hide')
+}
+
+/** まとめて登録する文字列を項目に分ける。1 行 1 項目で、空行と重複は除く。 */
+export function parseNgLines(text) {
+  const out = []
+  for (const line of (text || '').split(/\r?\n/)) {
+    const value = line.trim()
+    if (value && !out.includes(value)) out.push(value)
+  }
+  return out
 }
 
 /** 画像を隠すか。`hide-images` と `abone` のどちらでも隠す。 */

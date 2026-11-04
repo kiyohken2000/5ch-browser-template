@@ -46,6 +46,37 @@ export function pushRecentThread(list, entry, max = MAX_RECENT_OPENED) {
   )
 }
 
+/** 前回の一覧を覚えておく板の数。古く開いた板から捨てる。 */
+export const MAX_KNOWN_BOARDS = 50
+
+/**
+ * 前回の一覧に無かったスレを求める。初めて開いた板では、全部が新着にならないよう空を返す。
+ *
+ * @param {object} known 板の URL → スレのキーの配列
+ * @returns {{newKeys: Set<string>, known: object}} 新しいスレと、次回のために覚える内容
+ */
+export function diffKnownThreads(known, boardUrl, threads) {
+  const prev = known?.[boardUrl]
+  const keys = threads.map((t) => t.threadKey)
+  const newKeys = new Set()
+  if (Array.isArray(prev)) {
+    const seen = new Set(prev)
+    for (const key of keys) {
+      if (!seen.has(key)) newKeys.add(key)
+    }
+  }
+  const rest = { ...known }
+  delete rest[boardUrl]
+  const boards = Object.keys(rest)
+  for (const board of boards.slice(
+    0,
+    Math.max(0, boards.length - MAX_KNOWN_BOARDS + 1),
+  )) {
+    delete rest[board]
+  }
+  return { newKeys, known: { ...rest, [boardUrl]: keys } }
+}
+
 /** お気に入りの登録と解除。新しいものを先頭に置く。 */
 export function toggleThread(list, entry) {
   const items = list || []

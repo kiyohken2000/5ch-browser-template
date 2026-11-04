@@ -1,5 +1,7 @@
 import {
+  MAX_KNOWN_BOARDS,
   MAX_MY_POSTS,
+  diffKnownThreads,
   MAX_RECENT_OPENED,
   postedThreads,
   pushMyPost,
@@ -115,5 +117,32 @@ describe('withWatchInfo', () => {
       totalCount: 1,
     })
     expect(got.title).toBe('監視側')
+  })
+})
+
+describe('diffKnownThreads', () => {
+  const board = 'https://egg.5ch.io/a/'
+  const th = (key) => ({ threadKey: key })
+
+  it('初めて開いた板では新着にしない', () => {
+    const got = diffKnownThreads({}, board, [th('1'), th('2')])
+    expect(got.newKeys.size).toBe(0)
+    expect(got.known[board]).toEqual(['1', '2'])
+  })
+
+  it('前回の一覧に無かったスレだけを新着にする', () => {
+    const got = diffKnownThreads({ [board]: ['1'] }, board, [th('1'), th('2')])
+    expect([...got.newKeys]).toEqual(['2'])
+    expect(got.known[board]).toEqual(['1', '2'])
+  })
+
+  it('覚える板の数に上限がある', () => {
+    let known = {}
+    for (let i = 0; i <= MAX_KNOWN_BOARDS; i += 1) {
+      known = diffKnownThreads(known, `b${i}`, [th('1')]).known
+    }
+    expect(Object.keys(known)).toHaveLength(MAX_KNOWN_BOARDS)
+    expect(known.b0).toBeUndefined()
+    expect(known[`b${MAX_KNOWN_BOARDS}`]).toEqual(['1'])
   })
 })

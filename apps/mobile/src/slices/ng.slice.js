@@ -4,7 +4,7 @@
  */
 import { createAsyncThunk, createSelector, createSlice } from '@reduxjs/toolkit'
 
-import { emptyFilters } from 'lib/ng'
+import { emptyFilters, parseNgLines } from 'lib/ng'
 import { KEYS, load, save } from 'lib/storage'
 
 export const loadNgFilters = createAsyncThunk('ng/load', async () =>
@@ -59,6 +59,53 @@ const ngSlice = createSlice({
       )
       persist(state)
     },
+    /** 複数行をまとめて登録する。重複は飛ばす。 */
+    addNgLines: (state, { payload }) => {
+      const { list, text } = payload
+      if (!LISTS.includes(list)) return
+      const known = new Set(
+        state[list].map((e) => (typeof e === 'string' ? e : e.value)),
+      )
+      let changed = false
+      for (const value of parseNgLines(text)) {
+        if (!known.has(value)) {
+          state[list].push({
+            value,
+            mode: 'hide',
+            chainId: false,
+            match: 'partial',
+          })
+          changed = true
+        }
+      }
+      if (changed) persist(state)
+    },
+    /** 項目を更新する。語句の変更では、モードなどの設定を引き継ぐ。 */
+    updateNg: (state, { payload }) => {
+      const { list, value, changes } = payload
+      if (!LISTS.includes(list)) return
+      const nextValue = changes.value?.trim()
+      if (
+        changes.value !== undefined &&
+        (!nextValue ||
+          (nextValue !== value &&
+            state[list].some(
+              (e) => (typeof e === 'string' ? e : e.value) === nextValue,
+            )))
+      ) {
+        return
+      }
+      state[list] = state[list].map((e) => {
+        const entry = typeof e === 'string' ? { value: e, mode: 'hide' } : e
+        if (entry.value !== value) return entry
+        return {
+          ...entry,
+          ...changes,
+          ...(nextValue ? { value: nextValue } : null),
+        }
+      })
+      persist(state)
+    },
     toggleNgDisabled: (state, { payload }) => {
       const { list, value } = payload
       if (!LISTS.includes(list)) return
@@ -85,7 +132,8 @@ const ngSlice = createSlice({
   },
 })
 
-export const { addNg, removeNg, toggleNgDisabled } = ngSlice.actions
+export const { addNg, addNgLines, removeNg, toggleNgDisabled, updateNg } =
+  ngSlice.actions
 
 /** 判定に渡す形（`loaded` を含めない）。 */
 export const selectNgFilters = createSelector(

@@ -155,6 +155,7 @@ export function parseBody(rawBody) {
 
   const blocks = []
   const anchors = []
+  const directAnchors = []
   const ids = []
   const urls = []
 
@@ -167,8 +168,11 @@ export function parseBody(rawBody) {
     }
     const tokens = tokenizeText(seg.lines.join('\n'))
     for (const t of tokens) {
-      if (t.type === 'anchor') anchors.push(...t.nums)
-      else if (t.type === 'id') ids.push(t.id)
+      if (t.type === 'anchor') {
+        anchors.push(...t.nums)
+        // NG の返信の連鎖に使う。範囲指定は巻き込みが広いので含めない
+        if (!t.text.includes('-')) directAnchors.push(...t.nums)
+      } else if (t.type === 'id') ids.push(t.id)
       else if (t.type === 'url') urls.push(t.url)
     }
     blocks.push({ kind: 'text', tokens })
@@ -179,6 +183,7 @@ export function parseBody(rawBody) {
     // コピー・共有・NG・検索に使う本文なので、BE アイコンの URL は含めない
     plain: withoutBeIcons(plain),
     anchors: Array.from(new Set(anchors)),
+    directAnchors: Array.from(new Set(directAnchors)),
     ids: Array.from(new Set(ids)),
     urls: Array.from(new Set(urls)),
   }

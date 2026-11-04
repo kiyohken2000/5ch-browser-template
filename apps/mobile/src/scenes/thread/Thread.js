@@ -42,7 +42,6 @@ import {
   ActivityIndicator,
   BackHandler,
   Keyboard,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -80,13 +79,13 @@ import {
   idSequences,
 } from 'lib/extract'
 import { HttpError } from 'lib/http'
+import { parseDatBytes, splitNameWatchoi, watchoiParts } from 'lib/parse'
 import { openInAppBrowser } from 'lib/inAppBrowser'
 import { collectImages, extractMedia } from 'lib/media'
 import { quoteReply } from 'lib/postDrafts'
 import { CONTACT_URL, DELETION_REQUEST_URL } from 'lib/terms'
 import useIsCellular from 'lib/useIsCellular'
 import { applyNg, visibleResponses } from 'lib/ng'
-import { parseDatBytes } from 'lib/parse'
 import { findResponses, findRowByNo } from 'lib/search'
 import {
   appendCachedThread,
@@ -410,8 +409,21 @@ export default function Thread({ route, navigation }) {
    * 本文リストも参照ポップアップも ID シートも被参照一覧も検索も、全部この配列を引く。
    */
   const ngRows = useMemo(
-    () => applyNg(parsedRows, ngFilters),
-    [parsedRows, ngFilters],
+    () =>
+      applyNg(parsedRows, ngFilters, {
+        autoIdCount: settings.ngAutoIdCount,
+        autoIdMode: settings.ngAutoIdMode,
+        chainReplies: settings.ngChainReplies,
+        chainRepliesMode: settings.ngChainRepliesMode,
+      }),
+    [
+      parsedRows,
+      ngFilters,
+      settings.ngAutoIdCount,
+      settings.ngAutoIdMode,
+      settings.ngChainReplies,
+      settings.ngChainRepliesMode,
+    ],
   )
   const shown = useMemo(() => visibleResponses(ngRows), [ngRows])
   const idSeqs = useMemo(() => idSequences(parsedRows), [parsedRows])
@@ -731,9 +743,7 @@ export default function Thread({ route, navigation }) {
       console.warn(`[thread] 開けない URL: ${url}`)
       return
     }
-    Linking.openURL(safe).catch((e) =>
-      console.warn(`[thread] URL を開けない: ${e?.message || e}`),
-    )
+    openInAppBrowser(safe)
   }, [])
 
   /** スレタイの全文と先頭のレス。長いスレを読んでいる途中で >>1 を見返すため。 */
@@ -959,6 +969,26 @@ export default function Thread({ route, navigation }) {
         label: 'この名前を NG に追加',
         run: () => addNgAndClose({ list: 'names', value: name }, name),
       })
+    }
+    const { watchoi } = splitNameWatchoi(name)
+    if (watchoi) {
+      items.push({
+        label: `ワッチョイを NG に追加`,
+        run: () => addNgAndClose({ list: 'names', value: watchoi }, watchoi),
+      })
+      const parts = watchoiParts(watchoi)
+      if (parts) {
+        items.push({
+          label: `ワッチョイ前半を NG に追加（${parts.front}）`,
+          run: () =>
+            addNgAndClose({ list: 'names', value: parts.front }, parts.front),
+        })
+        items.push({
+          label: `ワッチョイ後半を NG に追加（${parts.back}）`,
+          run: () =>
+            addNgAndClose({ list: 'names', value: parts.back }, parts.back),
+        })
+      }
     }
     items.push({
       label: 'このレスを報告',

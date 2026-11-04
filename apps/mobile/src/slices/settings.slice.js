@@ -33,6 +33,12 @@ export const DEFAULTS = {
   tapScroll: true,
   /** ジェスチャの割り当て。読むときは normalizeGestures を通す（§9-1） */
   gestures: DEFAULT_GESTURES,
+  /** 連投 ID の自動 NG のレス数しきい値。0 は無効。リストには溜めない */
+  ngAutoIdCount: 0,
+  ngAutoIdMode: 'hide',
+  /** NG レスへの返信も NG にする */
+  ngChainReplies: false,
+  ngChainRepliesMode: 'abone',
   /** 書き込み画面を開いたときの sage の初期値。書き込みごとに変えられる（§8-9） */
   composeSageDefault: false,
   /** 書き込んだあとも書き込み画面を閉じない（§8-9） */

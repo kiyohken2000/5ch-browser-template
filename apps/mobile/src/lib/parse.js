@@ -136,6 +136,17 @@ export function splitNameWatchoi(raw) {
   return { name: value.slice(0, m.index), watchoi: m[1].trim() }
 }
 
+/**
+ * ワッチョイの前半と後半。`ﾜｯﾁｮｲW 0b6b-v/9N` → `['0b6b', 'v/9N']`。
+ * IP を表示する板では末尾が IP になるので、`xxxx-yyyy` の形を探す。
+ */
+export function watchoiParts(watchoi) {
+  const m = /(?:^|\s)([0-9A-Za-z]+)-([0-9A-Za-z+/-]+)(?=\s|$)/.exec(
+    watchoi || '',
+  )
+  return m ? { front: m[1], back: m[2] } : null
+}
+
 const ID_RE = /\bID:([^\s<>]+)/
 const BE_RE = /BE:(\d+)-/
 const DATE_RE = /^(\d{4}\/\d{2}\/\d{2}\([^)]*\)\s*\d{2}:\d{2}:\d{2}(?:\.\d+)?)/

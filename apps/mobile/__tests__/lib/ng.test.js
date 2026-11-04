@@ -4,6 +4,7 @@ import {
   evalNg,
   isNgThreadTitle,
   ngMatch,
+  parseNgLines,
   shouldHideImages,
   visibleResponses,
   visibleThreads,
@@ -173,5 +174,77 @@ describe('スレ一覧の NG', () => {
   it('NG 設定が無ければ何も落とさない', () => {
     const threads = [{ title: 'a' }, { title: 'b' }]
     expect(visibleThreads(threads, null).length).toBe(2)
+  })
+})
+
+describe('applyNg — 連投と返信の連鎖', () => {
+  const res = (no, id, anchors = [], name = '名無し') => ({
+    no,
+    id,
+    name,
+    plainBody: `本文${no}`,
+    parsed: { directAnchors: anchors },
+  })
+
+  it('しきい値以上書いた ID だけを自動で NG にする', () => {
+    const rows = [res(1, 'a'), res(2, 'a'), res(3, 'a'), res(4, 'b')]
+    const got = applyNg(rows, emptyFilters(), { autoIdCount: 3 })
+    expect(got.map((r) => r.ngMode)).toEqual([null, 'hide', 'hide', null])
+    expect(got[1].ngBy).toContain('連投')
+  })
+
+  it('連投のモードを指定できて、しきい値 0 は無効', () => {
+    const rows = [res(2, 'a'), res(3, 'a')]
+    const abone = applyNg(rows, emptyFilters(), {
+      autoIdCount: 2,
+      autoIdMode: 'abone',
+    })
+    expect(abone[0].ngMode).toBe('abone')
+    expect(applyNg(rows, emptyFilters())[0].ngMode).toBeNull()
+  })
+
+  const filters = { ...emptyFilters(), ids: [{ value: 'x', mode: 'hide' }] }
+
+  it('NG レスへの返信を連鎖させ、返信の返信にも波及する', () => {
+    const rows = [res(2, 'x'), res(3, 'b', [2]), res(4, 'c', [3]), res(5, 'd')]
+    const got = applyNg(rows, filters, { chainReplies: true })
+    expect(got.map((r) => r.ngMode)).toEqual(['hide', 'abone', 'abone', null])
+  })
+
+  it('連鎖は既定で無効', () => {
+    const rows = [res(2, 'x'), res(3, 'b', [2])]
+    expect(applyNg(rows, filters)[1].ngMode).toBeNull()
+  })
+
+  it('>>1 が NG でも連鎖しない（全レスが消えるのを防ぐ）', () => {
+    const rows = [res(1, 'x'), res(2, 'b', [1])]
+    const got = applyNg(rows, filters, { chainReplies: true })
+    expect(got[1].ngMode).toBeNull()
+  })
+
+  it('入力の行を書き換えない', () => {
+    const rows = [res(2, 'x'), res(3, 'b', [2])]
+    applyNg(rows, filters, { chainReplies: true })
+    expect(rows[1].ngMode).toBeUndefined()
+  })
+})
+
+describe('applyNg — ワッチョイの連鎖', () => {
+  it('連鎖指定のワードに当たったレスのワッチョイへ広げる', () => {
+    const rows = [
+      { no: 2, id: 'a', name: '名無し (W aa-bb)', plainBody: '悪口' },
+      { no: 3, id: 'b', name: '名無し (W aa-bb)', plainBody: '普通' },
+    ]
+    const got = applyNg(rows, {
+      ...emptyFilters(),
+      words: [{ value: '悪口', mode: 'hide', chainId: true }],
+    })
+    expect(got[1].ngMode).toBe('hide')
+  })
+})
+
+describe('parseNgLines', () => {
+  it('1 行 1 項目で、空行と重複を除く', () => {
+    expect(parseNgLines(' a \n\nb\r\na\n')).toEqual(['a', 'b'])
   })
 })
