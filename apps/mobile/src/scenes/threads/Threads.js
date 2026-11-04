@@ -16,8 +16,9 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { useSelector } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 
+import Icon from 'components/Icon'
 import { fetchSubject } from 'lib/api'
 import { visibleThreads } from 'lib/ng'
 import {
@@ -28,12 +29,16 @@ import {
   sortThreads,
 } from 'lib/sort'
 import { KEYS, load, save } from 'lib/storage'
+import { parseBoardLocation } from 'lib/urls'
 import { selectNgFilters } from 'slices/ng.slice'
+import { toggleBoardFavorite, touchBoard } from 'slices/watch.slice'
 import { useEmberTheme } from 'theme/ember'
 
 export default function Threads({ route, navigation }) {
   const { boardUrl, boardName } = route.params
   const theme = useEmberTheme()
+  const dispatch = useDispatch()
+  const boardFavorites = useSelector((state) => state.watch.boardFavorites)
   const ngFilters = useSelector(selectNgFilters)
   const watchList = useSelector((state) => state.watch.watchList)
 
@@ -44,9 +49,62 @@ export default function Threads({ route, navigation }) {
   const [sortMode, setSortMode] = useState(DEFAULT_SORT)
   const [filter, setFilter] = useState('')
 
+  /** お気に入りと履歴に入れる形。URL が読めない板は入れない。 */
+  const boardInfo = useMemo(() => {
+    try {
+      const at = parseBoardLocation(boardUrl)
+      return {
+        name: boardName || '',
+        url: at.boardUrl(),
+        board: at.board,
+        host: at.host,
+      }
+    } catch (e) {
+      console.warn(`[threads] 板 URL を読めない: ${boardUrl}`)
+      return null
+    }
+  }, [boardUrl, boardName])
+
   useEffect(() => {
-    navigation.setOptions({ title: boardName || 'スレ一覧' })
-  }, [navigation, boardName])
+    if (boardInfo) dispatch(touchBoard(boardInfo))
+  }, [boardInfo, dispatch])
+
+  const isFavorite = boardFavorites.some((b) => b.url === boardInfo?.url)
+
+  useEffect(() => {
+    navigation.setOptions({
+      title: boardName || boardInfo?.board || 'スレ一覧',
+      headerRightContainerStyle: styles.headerRightBox,
+      // 中央寄せのままだと、左の枠が幅 0 基準のため長いタイトルが戻るボタンに被る
+      headerTitleAlign: 'left',
+      headerTitleContainerStyle: styles.headerTitleBox,
+      headerRight: () =>
+        boardInfo ? (
+          <Pressable
+            hitSlop={10}
+            style={styles.headerStar}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isFavorite ? 'お気に入りから外す' : 'お気に入りに追加'
+            }
+            onPress={() =>
+              dispatch(
+                toggleBoardFavorite({
+                  ...boardInfo,
+                  name: boardInfo.name || boardInfo.board,
+                }),
+              )
+            }
+          >
+            <Icon
+              name={isFavorite ? 'starFilled' : 'star'}
+              size={22}
+              color={theme.accent}
+            />
+          </Pressable>
+        ) : null,
+    })
+  }, [navigation, boardName, boardInfo, isFavorite, theme.accent, dispatch])
 
   // ソート設定は板ごとに覚える
   useEffect(() => {
@@ -246,6 +304,9 @@ export default function Threads({ route, navigation }) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  headerTitleBox: { flexGrow: 1, flexShrink: 1 },
+  headerRightBox: { flexGrow: 0, flexBasis: 'auto', flexShrink: 0 },
+  headerStar: { paddingRight: 14 },
   center: {
     flex: 1,
     alignItems: 'center',

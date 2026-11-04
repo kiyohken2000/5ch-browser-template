@@ -7,7 +7,8 @@
 
 ## 現在の段階
 
-**M1（読めるようにする）の途中。** 板一覧 → スレ一覧 → スレビューまで通っている。
+**M1（読めるようにする）の終盤。** 検索・画像・OGP・ジェスチャ・キャッシュまで入っている。
+残りは `docs/MOBILE_FEASIBILITY_STUDY.md` §12-1。
 投稿（M2）・AI（M3）・通知や画像アップロード（M4）は未着手。
 
 ## コマンド
@@ -18,8 +19,9 @@
 ```bash
 yarn install            # 依存
 npx expo run:android    # Android の開発ビルドを作って起動（初回のみ時間がかかる）
+eas build --profile development --platform ios   # iOS シミュレーター用の開発ビルド
 yarn start              # 開発サーバー（開発ビルドを入れた後はこれで繋がる）
-yarn test               # ユニットテスト (jest-expo)。160 件 / 9 スイート
+yarn test               # ユニットテスト (jest-expo)。270 件 / 16 スイート
 yarn test:live          # 実際の 5ch に当てる通し確認。**CI では回さない**
 yarn lint               # ESLint (エラーのみ見るなら npx eslint src/ __tests__/ --quiet)
 npx expo export --platform android --output-dir .expo-export   # バンドル確認
@@ -40,12 +42,19 @@ src/
 │   ├── idcolor.js   ID → 色とアイコン（FNV-1a）
 │   ├── urls.js      URL の正規化とホスト検証
 │   ├── sort.js      スレ一覧の並べ替えと勢い
+│   ├── boards.js    最近開いた板
+│   ├── search.js    スレ内検索とスレ横断検索（ff5ch）
+│   ├── media.js     URL の分類（画像 / YouTube / OGP）
+│   ├── ogp.js       OGP カードの取得と解析
+│   ├── gestures.js  タップスクロールとスワイプの判定
+│   ├── threadCache.js スレ本文の SQLite キャッシュ
+│   ├── saveImage.js 画像を写真へ保存
 │   ├── http.js      fetch の薄いラッパ（UA / タイムアウト / Range）
 │   ├── api.js       5ch の取得経路（差分取得を含む）
 │   └── storage.js   AsyncStorage の薄いラッパ
 ├── slices/     Redux Toolkit 2.x（ng / settings / watch）
-├── scenes/     画面（home / boards / threads / thread / settings）
-├── components/ 描画部品（ResponseItem / ResponseBody / ResponseSheet）
+├── scenes/     画面（home / boards / threads / thread / search / settings）
+├── components/ 描画部品（ResponseItem / ResponseBody / ResponseSheet / ResponseMedia / ImageViewer）
 ├── theme/      配色（ember.js）とアイコン（images.js）
 └── routes/     ナビゲーション
 ```
@@ -69,6 +78,8 @@ src/
   自己申告が 5ch の慣習で、善意の証拠になる
 - **対応は 5ch.io のみ。** bbspink / EXおろちつねる は非対応（決定済み）
 - **Cookie 値（`Be3M` / `Be3D` / `sid`）はログに出さない**
+- **`StyleSheet.absoluteFillObject` は RN 0.88 で廃止された。** 使うと黙って効かない。`StyleSheet.absoluteFill` を使う
+- **`ember://` で画面を開ける**（`ember://thread?threadUrl=...` / `ember://board?boardUrl=...` / `ember://search`）。iOS シミュレーターは毎回確認ダイアログが出る
 - `.catch(() => {})` 禁止。失敗は `console.warn` に出す
 - **リリースは EAS で独立して行う。** `scripts/release.sh`（デスクトップ版）には
   干渉しない

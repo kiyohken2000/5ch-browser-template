@@ -15,6 +15,7 @@
 import React from 'react'
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 
+import { noteAaTouch } from 'lib/gestures'
 import { idColor } from 'lib/idcolor'
 import { MONO_FONT } from 'theme/ember'
 
@@ -85,6 +86,8 @@ function AaBlock({ block, theme, fontSize }) {
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator
+      // AA の横スクロールをスレ移動のスワイプと取り違えないための印（§9-1）
+      onTouchStart={() => noteAaTouch()}
       style={[
         styles.aaWrap,
         { backgroundColor: theme.aaBg, borderColor: theme.border },

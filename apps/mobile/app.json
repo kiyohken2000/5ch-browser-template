@@ -27,7 +27,10 @@
       "buildNumber": "1",
       "infoPlist": {
         "CFBundleDisplayName": "Ember",
-        "CFBundleDevelopmentRegion": "ja_JP"
+        "CFBundleDevelopmentRegion": "ja_JP",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
       },
       "userInterfaceStyle": "automatic"
     },
@@ -40,14 +43,6 @@
         "backgroundColor": "#0b0d12"
       },
       "permissions": [
-        "VIBRATE",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO",
-        "com.google.android.gms.permission.AD_ID",
         "VIBRATE",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
@@ -83,6 +78,9 @@
         {
           "ios": {
             "deploymentTarget": "17.0"
+          },
+          "android": {
+            "usesCleartextTraffic": true
           }
         }
       ],

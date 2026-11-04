@@ -184,10 +184,11 @@ pin だが、`@react-navigation/{core,elements,native}` はいずれも `^0.2.4`
 | **`react-native-popup-menu`** | `^0.19.0` | 小さいメニュー（ソート切替・スレ一覧の長押し） | M1 |
 | **`expo-dev-client`** | `~58.0.18` | **開発ビルド。** ネイティブを含む依存が入ったので **Expo Go では動かなくなった**（下の注意） | **必要** |
 | **`expo-build-properties`** | `~58.0.12` | **iOS の `deploymentTarget` を 17.0 に固定**（§3-6 の決定を実際に効かせる） | **使用中** |
-| **`expo-media-library`** | `~58.0.13` | 画像の保存と選択。権限文言は `app.json` に日本語で入れた | M4 |
+| **`expo-file-system`** | `~58.0.13` | 画像の保存（ダウンロード先）。M3 でモデル保存にも使う | **使用中** |
+| **`expo-media-library`** | `~58.0.13` | 画像の保存と選択。権限文言は `app.json` に日本語で入れた。**保存は使用中**（SDK 58 は `Asset.create()` の新 API。旧 `saveToLibraryAsync` は実行時に例外） | **使用中** |
 | **`expo-image-manipulator`** | `~58.0.16` | 投稿前の画像の縮小・回転 | M4 |
 | **`expo-tracking-transparency`** | `~58.0.2` | ATT。**下の注意を読むこと** | 未定 |
-| **`react-native-purchases`** | `^11.0.0` | RevenueCat。**下の注意を読むこと** | 未定 |
+| **`react-native-purchases`** | **`10.16.0`（固定）** | RevenueCat。**下の注意を読むこと。** 11.0.0 が要求する `PurchasesHybridCommon 20.1.0` は 2026-11-04 時点で CocoaPods に未公開（最新 19.17.0）で、`pod install` が失敗する。外すときは先に trunk を確認する | 未定 |
 
 **注意 1: Expo Go はもう使えない。** `react-native-purchases` などネイティブモジュールを含む依存が入ったので、**開発ビルド（`expo-dev-client`）が必要**になった。
 
@@ -210,7 +211,6 @@ eas build --profile development --platform ios   # iOS は EAS（Mac が無い�
 | 依存 | 用途 | 段階 |
 |---|---|---|
 | `expo-image-picker` | 画像投稿（`expo-media-library` と役割が重なるので、どちらを使うかは M4 で決める） | M4 |
-| `expo-file-system` | ファイル操作・モデル保存 | M3 |
 | `@kesha-antonov/react-native-background-downloader` | **モデルの背景ダウンロード。** 1GB 級の DL がアプリを閉じると死ぬのを防ぐ。FeedOwn が採用している | M3 |
 | `expo-device` | 端末 RAM 判定（FeedOwn が使用） | M3 |
 | `expo-notifications` | ネイティブのローカル通知 | M4 |
@@ -695,7 +695,7 @@ Geschar は「ジェスチャ操作を特色とした」の一行だけで評価
 | ジェスチャ | 割り当て | 衝突の注意 |
 |---|---|---|
 | リスト最上部からの下スワイプ | 更新 | OS 標準の pull to refresh に一致 |
-| 本文領域の左右スワイプ | 前のスレ / 次のスレ | **iOS の画面左端スワイプ（戻る）を避ける。左端 20pt は反応させない** |
+| 本文領域の左右スワイプ | 前のスレ / 次のスレ | **iOS の画面左端スワイプ（戻る）を避ける。左端 50pt は反応させない**（スタックの戻るジェスチャの既定幅に合わせた。当初は 20pt） |
 | **2 本指の上スワイプ** | 先頭へ | 1 本指のスクロールと分離できる |
 | **2 本指の下スワイプ** | 末尾へ | 同上 |
 | 画面上端（ステータスバー）タップ | 先頭へ | iOS 標準の挙動に乗る |
@@ -1248,22 +1248,28 @@ Ronin（浪人）/ BE / どんぐり / UPLIFT。デスクトップ版は `core-a
 
 | できているもの | 場所 |
 |---|---|
-| プロトコル層（Shift_JIS / dat / subject.txt / URL 正規化 / HTTP / 差分取得） | `src/lib/{sjis,bytes,parse,entities,urls,http,api}.js` |
+| プロトコル層（Shift_JIS / dat / subject.txt / URL 正規化 / HTTP / 差分取得 + `If-Modified-Since`） | `src/lib/{sjis,bytes,parse,entities,urls,http,api}.js` |
 | AA 検出・本文のトークン化・NG 判定・ID の色とアイコン・スレの並べ替え | `src/lib/{aa,body,ng,idcolor,sort}.js` |
-| 永続化（影キーつき） | `src/lib/storage.js`、`src/slices/{ng,settings,watch}.slice.js` |
-| 画面: 板一覧 / スレ一覧 / スレビュー / ホーム（監視リスト）/ 設定 + NG 管理 | `src/scenes/` |
-| 参照ポップアップ・ID シート・被参照一覧（**連鎖で辿れる**、NG 適用済み） | `src/components/ResponseSheet.js` |
-| ユニットテスト **160 件 / 9 スイート** | `__tests__/lib/` |
+| 永続化（影キーつき）とスレ本文の SQLite キャッシュ | `src/lib/{storage,threadCache}.js`、`src/slices/{ng,settings,watch}.slice.js` |
+| 画面: 板一覧（お気に入り / 最近開いた板 / 板一覧の 3 グループ）/ スレ一覧 / スレビュー / ホーム / スレ横断検索 / 設定 + NG 管理 | `src/scenes/` |
+| 参照ポップアップ・ID シート・被参照一覧（`@gorhom/bottom-sheet`。連鎖で積める、NG 適用済み）、スレタイ全文 + 先頭 20 レス | `src/components/ResponseSheet.js` |
+| スレ内検索・レスメニューのコピー / 共有 / NG 語追加 | `src/scenes/thread/Thread.js`、`src/lib/search.js` |
+| 画像サムネ・サムネマスク・YouTube・OGP カード | `src/components/ResponseMedia.js`、`src/lib/{media,ogp}.js` |
+| 画像ビューア（下スワイプで閉じる / 左右で前後 / ピンチ拡大 / 保存） | `src/components/ImageViewer.js`、`src/lib/saveImage.js` |
+| ジェスチャ（タップスクロール / 左右でスレ移動 / 2 本指で先頭・末尾 / ピンチで文字サイズ） | `src/lib/gestures.js` |
+| ガラス効果（スレビューの下部バー。Android は半透明） | `src/scenes/thread/Thread.js` |
+| ユニットテスト 270 件 / 16 スイート | `__tests__/lib/` |
 | CI | `.github/workflows/mobile.yml`（lint / test / バンドル。既存のワークフローには触っていない） |
 
 | まだ無いもの |
 |---|
-| スレ内検索・スレ横断検索（受け入れ条件 7） |
-| OGP カード・画像サムネ・サムネマスク・YouTube（受け入れ条件 8） |
-| ジェスチャとタップスクロール（受け入れ条件 14、§9-1） |
-| 長押しメニューの「返信」「コピー」「共有」（NG 追加と既読設定だけ入っている） |
-| SQLite のスレッドキャッシュ（今はメモリのみ。オフライン閲覧が効かない） |
-| ガラス効果（§9-3） |
+| 長押しメニューの「返信」（投稿画面が必要なので M2） |
+| ジェスチャの割り当て変更 UI（§9-1）。今は固定 |
+| セルラー時に画像を読まない設定（§9-6）。回線判定の `expo-network` がビルドに無い |
+
+**動作確認の状況（2026-11-04）:** Android エミュレーター（Pixel_10）で `adb` から実操作して、ボトムシートの連鎖・ドラッグ・背景タップ、タップスクロール、左右スワイプ、スレ横断以外の主要操作、画像の保存（`DCIM` にファイルが出ることまで）を確認した。**2 本指のジェスチャとピンチは `adb` で送れないので未確認。** iOS シミュレーターは表示を確認しただけで、操作はユーザーが行っている（2022 年版の idb は Xcode 27 の `SimulatorKit` の移動に対応しておらず、タップを送れない）。
+
+**`http://` の許可（2026-11-04 決定）。** iOS の ATS は `http://` の画像と OGP を止める（`The resource could not be loaded because the App Transport Security policy...` を実測）が、5ch の本文には `http://` の画像 URL が普通に混ざる。そこで `NSAllowsArbitraryLoads` を入れ、Android のリリースビルドも `usesCleartextTraffic` で揃えた。**App Store 審査で理由を問われることがある。** 説明は「ユーザーの投稿に含まれる任意の URL の画像を表示するため」。自動で通信する先は `lib/media.js` の `isPublicHost` でローカル / プライベートのアドレスを除いている。
 
 **受け入れ条件 — 次の全部が実機で動くこと。**
 
@@ -1480,6 +1486,7 @@ NG 判定。方式は M0 のベンチで決定済みであること。モデル�
 | iOS 最小 OS | **17.0**（`expo-build-properties` で固定） | §3-6。FeedOwn の実測値 |
 | 開発の回し方 | **Expo Go ではなく開発ビルド（`expo-dev-client`）** | §3-4。ネイティブモジュールを含む依存が入ったため |
 | アプリアイコン | **デスクトップ版と同じ炎を使う。** 背景はランディングと同じ `#0b0d12` | §17-4。ユーザーの判断（2026-11-04） |
+| スレビューの置き場 | **タブの外のルートスタックに 1 枚だけ。** タブごとに別のスレは開かない | §7。同じスレが 2 枚に分かれて新着がずれるのを防ぎ、本文を広くする。ユーザーの判断（2026-11-04） |
 | 依存の版の揃え方 | **`npx expo install --fix` が「up to date」を返す状態を保つ。** 手で版を書かない | §3-2。SDK 58 内のパッチ更新は追従する。SDK を跨ぐ更新（59 系が出たとき）は別途判断 |
 
 すべて 2026-11-04 の決定。
@@ -1712,7 +1719,7 @@ AA を含むレス、1000 レス到達済みのスレ、あぼーんで縮んだ
 | `appVersionSource: "remote"` | バージョンを EAS 側で管理する。`app.json` に書かない |
 | `autoIncrement` | ビルド番号を自動で上げる |
 | `channel` | **ビルドプロファイルと OTA チャンネルを対応させる**（development / internal / production）。`expo-updates` はこのチャンネルへ配る |
-| `ios.simulator: false` | development ビルドも実機向け（§9-8 の制約と整合） |
+| `ios.simulator: false` | development ビルドも実機向け（§9-8 の制約と整合）。**現在の `apps/mobile/eas.json` は `true`。** 2026-11-04 からユーザーの判断でシミュレーター上で開発しているため。実機の確認に入るときに切り替える |
 
 ### 17-2. デスクトップ版との違い
 

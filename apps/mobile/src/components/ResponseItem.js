@@ -12,7 +12,9 @@ import React, { memo, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { idIcon, idColor } from 'lib/idcolor'
+import { shouldHideImages } from 'lib/ng'
 import ResponseBody from './ResponseBody'
+import ResponseMedia from './ResponseMedia'
 
 function ResponseItem({
   row,
@@ -21,6 +23,10 @@ function ResponseItem({
   backlinks,
   collapseLines,
   showReadLine,
+  highlighted,
+  mediaOptions,
+  onImage,
+  onTap,
   onAnchor,
   onId,
   onBacklinks,
@@ -63,11 +69,15 @@ function ResponseItem({
       ) : null}
 
       <Pressable
+        onPress={(e) => onTap && onTap(e)}
         onLongPress={() => onLongPress && onLongPress(row)}
         delayLongPress={350}
         style={[
           styles.card,
-          { backgroundColor: theme.surface, borderColor: theme.border },
+          {
+            backgroundColor: highlighted ? theme.accentDim : theme.surface,
+            borderColor: theme.border,
+          },
         ]}
       >
         <View style={styles.header}>
@@ -138,6 +148,15 @@ function ResponseItem({
             onUrl={onUrl}
           />
         </View>
+
+        <ResponseMedia
+          media={row.media}
+          options={mediaOptions}
+          hideImages={shouldHideImages(row)}
+          theme={theme}
+          onImage={onImage}
+          onUrl={onUrl}
+        />
 
         {collapsible ? (
           <Pressable onPress={() => setExpanded((v) => !v)} hitSlop={6}>

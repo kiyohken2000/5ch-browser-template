@@ -4,6 +4,9 @@
  * **5ch.io のみ。** bbspink / EXおろちつねる は非対応（決定、§14 決定済み #3）。
  * 対象外のホストは lib/urls.js の `parseBoardLocation` が弾くので、
  * `fetchBbsmenu` の段階で一覧から落ちる。
+ *
+ * 画面は「お気に入り」「最近開いた板」「板一覧」の 3 グループ。絞り込み中は
+ * 板一覧の該当だけを出す。
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
@@ -19,10 +22,12 @@ import {
 } from 'react-native'
 import { useDispatch, useSelector } from 'react-redux'
 
+import Icon from 'components/Icon'
 import { fetchBbsmenu } from 'lib/api'
+import { recentWithoutFavorites } from 'lib/boards'
 import { KEYS, load, save } from 'lib/storage'
 import { useEmberTheme } from 'theme/ember'
-import { toggleBoardFavorite } from 'slices/watch.slice'
+import { clearRecentBoards, toggleBoardFavorite } from 'slices/watch.slice'
 
 /** カテゴリ見出しの開閉マーク。お気に入りの節は折りたためないので無印。 */
 function sectionMarker(section) {
@@ -34,6 +39,7 @@ export default function Boards({ navigation }) {
   const theme = useEmberTheme()
   const dispatch = useDispatch()
   const boardFavorites = useSelector((state) => state.watch.boardFavorites)
+  const recentBoards = useSelector((state) => state.watch.recentBoards)
 
   const [categories, setCategories] = useState([])
   const [expanded, setExpanded] = useState({})
@@ -88,10 +94,26 @@ export default function Boards({ navigation }) {
   const sections = useMemo(() => {
     const q = filter.trim().toLowerCase()
     const out = []
+    const recent = recentWithoutFavorites(recentBoards, boardFavorites)
 
-    if (boardFavorites.length > 0 && !q) {
-      out.push({ title: 'お気に入り', key: '__fav__', data: boardFavorites })
+    if (!q) {
+      out.push({
+        title: 'お気に入り',
+        key: '__fav__',
+        group: true,
+        emptyHint: '板の ★ をタップすると、ここに並びます',
+        data: boardFavorites,
+      })
+      out.push({
+        title: '最近開いた板',
+        key: '__recent__',
+        group: true,
+        clearable: recent.length > 0,
+        emptyHint: '開いた板がここに並びます',
+        data: recent,
+      })
     }
+    out.push({ title: '板一覧', key: '__all__', group: true, data: [] })
 
     for (const cat of categories) {
       const boards = q
@@ -112,7 +134,7 @@ export default function Boards({ navigation }) {
       })
     }
     return out
-  }, [categories, expanded, filter, boardFavorites])
+  }, [categories, expanded, filter, boardFavorites, recentBoards])
 
   if (loading && categories.length === 0) {
     return (
@@ -174,10 +196,19 @@ export default function Boards({ navigation }) {
             }
             style={[
               styles.sectionHeader,
-              { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+              {
+                backgroundColor: section.group ? theme.bg : theme.surfaceAlt,
+                borderColor: theme.border,
+              },
+              section.group ? styles.groupHeader : null,
             ]}
           >
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+            <Text
+              style={[
+                section.group ? styles.groupTitle : styles.sectionTitle,
+                { color: section.group ? theme.textDim : theme.text },
+              ]}
+            >
               {sectionMarker(section)}
               {section.title}
             </Text>
@@ -186,8 +217,25 @@ export default function Boards({ navigation }) {
                 {section.count}
               </Text>
             ) : null}
+            {section.clearable ? (
+              <Pressable
+                onPress={() => dispatch(clearRecentBoards())}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="最近開いた板を消す"
+              >
+                <Text style={{ color: theme.textDim, fontSize: 12 }}>消す</Text>
+              </Pressable>
+            ) : null}
           </Pressable>
         )}
+        renderSectionFooter={({ section }) =>
+          section.emptyHint && section.data.length === 0 ? (
+            <Text style={[styles.emptyHint, { color: theme.textFaint }]}>
+              {section.emptyHint}
+            </Text>
+          ) : null
+        }
         renderItem={({ item }) => (
           <Pressable
             onPress={() =>
@@ -195,16 +243,6 @@ export default function Boards({ navigation }) {
                 boardUrl: item.url,
                 boardName: item.name,
               })
-            }
-            onLongPress={() =>
-              dispatch(
-                toggleBoardFavorite({
-                  name: item.name,
-                  url: item.url,
-                  board: item.board,
-                  host: item.host,
-                }),
-              )
             }
             style={({ pressed }) => [
               styles.row,
@@ -220,9 +258,22 @@ export default function Boards({ navigation }) {
             >
               {item.name}
             </Text>
-            {favUrls.has(item.url) ? (
-              <Text style={{ color: theme.accent }}>★</Text>
-            ) : null}
+            <Pressable
+              onPress={() => dispatch(toggleBoardFavorite(item))}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={
+                favUrls.has(item.url)
+                  ? `${item.name} をお気に入りから外す`
+                  : `${item.name} をお気に入りに追加`
+              }
+            >
+              <Icon
+                name={favUrls.has(item.url) ? 'starFilled' : 'star'}
+                size={20}
+                color={favUrls.has(item.url) ? theme.accent : theme.textFaint}
+              />
+            </Pressable>
           </Pressable>
         )}
         ListEmptyComponent={
@@ -266,6 +317,9 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 14, fontWeight: '600' },
   sectionCount: { fontSize: 12 },
+  groupHeader: { paddingTop: 18, paddingBottom: 6 },
+  groupTitle: { fontSize: 13, fontWeight: '700' },
+  emptyHint: { fontSize: 13, paddingHorizontal: 20, paddingVertical: 12 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -274,5 +328,5 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  boardName: { fontSize: 15, flexShrink: 1 },
+  boardName: { fontSize: 15, flexShrink: 1, flex: 1 },
 })

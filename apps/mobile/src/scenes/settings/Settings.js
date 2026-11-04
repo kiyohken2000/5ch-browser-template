@@ -6,8 +6,11 @@
  * あり、画面側は Redux の値を読むだけなので、経路ごとの適用漏れが起きない。
  */
 
-import React, { useState } from 'react'
+import Constants from 'expo-constants'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
+  Image,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -18,6 +21,7 @@ import {
 } from 'react-native'
 import { useDispatch, useSelector } from 'react-redux'
 
+import { clearThreadCache, threadCacheStats } from 'lib/threadCache'
 import {
   addNg,
   removeNg,
@@ -26,6 +30,16 @@ import {
 } from 'slices/ng.slice'
 import { setSetting } from 'slices/settings.slice'
 import { useEmberTheme } from 'theme/ember'
+import { images } from 'theme/images'
+
+const LANDING_PAGE_URL = 'https://ember-5ch.pages.dev'
+const APP_VERSION = Constants?.expoConfig?.version || '不明'
+
+function openLanding() {
+  Linking.openURL(LANDING_PAGE_URL).catch((e) =>
+    console.warn(`[settings] 公式サイトを開けない: ${e?.message || e}`),
+  )
+}
 
 const NG_LISTS = [
   { key: 'words', label: 'NG ワード（本文）', hint: '/正規表現/ も使えます' },
@@ -77,7 +91,27 @@ export default function Settings() {
   const ng = useSelector(selectNgFilters)
   const [drafts, setDrafts] = useState({})
 
+  const [cache, setCache] = useState({ count: 0, bytes: 0 })
+
   const set = (key, value) => dispatch(setSetting({ key, value }))
+
+  const refreshCache = useCallback(() => {
+    threadCacheStats().then(setCache)
+  }, [])
+  useEffect(() => {
+    refreshCache()
+  }, [refreshCache])
+
+  const toggle = (key, label, hint) => (
+    <Row key={key} theme={theme} label={label} hint={hint}>
+      <Switch
+        accessibilityLabel={label}
+        value={settings[key]}
+        onValueChange={(v) => set(key, v)}
+        trackColor={{ true: theme.accent }}
+      />
+    </Row>
+  )
 
   return (
     <ScrollView
@@ -159,13 +193,51 @@ export default function Settings() {
             trackColor={{ true: theme.accent }}
           />
         </Row>
+      </Section>
 
-        <Row theme={theme} label="サムネイルをぼかす" hint="公共の場で開くとき">
-          <Switch
-            value={settings.thumbMask}
-            onValueChange={(v) => set('thumbMask', v)}
-            trackColor={{ true: theme.accent }}
-          />
+      <Section title="ガラス効果" theme={theme}>
+        {toggle('glass', 'バーをすりガラスにする', 'レス本文には掛けません')}
+      </Section>
+
+      <Section title="画像とリンク" theme={theme}>
+        {toggle('thumbnails', '画像のサムネイルを出す')}
+        {toggle('thumbMask', 'サムネイルをぼかす', '公共の場で開くとき')}
+        {toggle('youtubeThumbs', 'YouTube のサムネイルを出す')}
+        {toggle(
+          'ogpCards',
+          'リンクのカードを出す',
+          'リンク先へ自動で接続します',
+        )}
+      </Section>
+
+      <Section title="操作" theme={theme}>
+        {toggle(
+          'tapScroll',
+          'タップでスクロール',
+          'レスの空き部分で、画面の上下 3 割をタップ',
+        )}
+        {toggle(
+          'swipeThreads',
+          '左右スワイプで前後のスレへ',
+          'ホームの並び順で移動します',
+        )}
+      </Section>
+
+      <Section title="キャッシュ" theme={theme}>
+        <Row
+          theme={theme}
+          label="保存したスレ"
+          hint={`${cache.count} スレ / ${(cache.bytes / 1024 / 1024).toFixed(
+            1,
+          )} MB`}
+        >
+          <Pressable
+            onPress={() => clearThreadCache().then(refreshCache)}
+            hitSlop={8}
+            accessibilityRole="button"
+          >
+            <Text style={{ color: theme.danger }}>消去</Text>
+          </Pressable>
         </Row>
       </Section>
 
@@ -252,13 +324,29 @@ export default function Settings() {
       ))}
 
       <Section title="このアプリについて" theme={theme}>
-        <View style={styles.row}>
-          <Text style={{ color: theme.textDim, fontSize: 13, lineHeight: 20 }}>
-            Ember — 5ch.io 専用の掲示板ブラウザ{'\n'}
-            広告もアプリ内課金も入れません（不変条件 1）。{'\n'}
-            対応は 5ch.io のみです。
-          </Text>
+        <View style={[styles.about, { borderColor: theme.border }]}>
+          <Image
+            source={images.icon}
+            style={styles.aboutIcon}
+            accessibilityLabel="Ember のアイコン"
+          />
+          <View style={styles.rowLabel}>
+            <Text style={[styles.aboutName, { color: theme.text }]}>Ember</Text>
+            <Text style={[styles.hint, { color: theme.textDim }]}>
+              バージョン {APP_VERSION}
+            </Text>
+          </View>
         </View>
+        <Pressable
+          accessibilityRole="link"
+          onPress={openLanding}
+          style={[styles.row, { borderColor: theme.border }]}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>公式サイト</Text>
+          <Text style={{ color: theme.accent, fontSize: 13 }}>
+            ember-5ch.pages.dev
+          </Text>
+        </Pressable>
       </Section>
     </ScrollView>
   )
@@ -283,6 +371,16 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   rowLabel: { flex: 1, gap: 2 },
+  about: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  aboutIcon: { width: 56, height: 56, borderRadius: 13 },
+  aboutName: { fontSize: 17, fontWeight: '700' },
   label: { fontSize: 15 },
   hint: { fontSize: 11 },
   chips: { flexDirection: 'row', gap: 6 },

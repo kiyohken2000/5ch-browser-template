@@ -2,7 +2,7 @@
 /**
  * NG フィルタの状態。判定そのものは lib/ng.js（画面はそこだけを通る）。
  */
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
+import { createAsyncThunk, createSelector, createSlice } from '@reduxjs/toolkit'
 
 import { emptyFilters } from 'lib/ng'
 import { KEYS, load, save } from 'lib/storage'
@@ -88,11 +88,14 @@ const ngSlice = createSlice({
 export const { addNg, removeNg, toggleNgDisabled } = ngSlice.actions
 
 /** 判定に渡す形（`loaded` を含めない）。 */
-export const selectNgFilters = (state) => ({
-  words: state.ng.words,
-  ids: state.ng.ids,
-  names: state.ng.names,
-  threadWords: state.ng.threadWords,
-})
+export const selectNgFilters = createSelector(
+  [
+    (state) => state.ng.words,
+    (state) => state.ng.ids,
+    (state) => state.ng.names,
+    (state) => state.ng.threadWords,
+  ],
+  (words, ids, names, threadWords) => ({ words, ids, names, threadWords }),
+)
 
 export default ngSlice.reducer

@@ -9,164 +9,261 @@
  * 描く。`hide` の行はそもそも渡ってこない。
  *
  * **連鎖で辿れる**（§8-7 必須）。シートの中の `>>` をタップすると、
- * 今のシートの上にもう 1 枚積む。戻るボタンで 1 枚ずつ戻る。
+ * 今のシートの上にもう 1 枚積む。下へドラッグか「戻る」で 1 枚ずつ戻る。
+ * 積まれた枚数は `stack` が持ち、シート 1 枚が配列の要素 1 つに対応する。
+ * 閉じる操作の結果は `onDismissAt` で受けて配列を切り詰める（画面と配列をずらさない）。
+ *
+ * 高さは半分と全画面の 2 段（§3-4）。ドラッグの処理は UI スレッドで動く（不変条件 4）。
  */
 
-import React from 'react'
 import {
-  FlatList,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native'
+  BottomSheetBackdrop,
+  BottomSheetFlatList,
+  BottomSheetModal,
+} from '@gorhom/bottom-sheet'
+import React, { useCallback, useEffect, useRef } from 'react'
+import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { idColor, idIcon } from 'lib/idcolor'
+import { shouldHideImages } from 'lib/ng'
 import ResponseBody from './ResponseBody'
+import ResponseMedia from './ResponseMedia'
 
-export default function ResponseSheet({
-  stack,
-  theme,
-  fontSize,
-  onClose,
-  onBack,
-  onAnchor,
-  onId,
-  onUrl,
-}) {
-  const top = stack.length > 0 ? stack[stack.length - 1] : null
-  if (!top) return null
+const SNAP_POINTS = ['55%', '92%']
 
+function renderBackdrop(props) {
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <View
-        style={[
-          styles.sheet,
-          { backgroundColor: theme.surface, borderColor: theme.border },
-        ]}
-      >
-        <View style={[styles.head, { borderColor: theme.border }]}>
-          {stack.length > 1 ? (
-            <Pressable onPress={onBack} hitSlop={8}>
-              <Text style={[styles.headBtn, { color: theme.accent }]}>
-                戻る
-              </Text>
-            </Pressable>
-          ) : (
-            <View style={styles.headSpacer} />
-          )}
-          <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
-            {top.title}
-          </Text>
-          <Pressable onPress={onClose} hitSlop={8}>
-            <Text style={[styles.headBtn, { color: theme.accent }]}>
-              閉じる
-            </Text>
-          </Pressable>
-        </View>
-
-        <FlatList
-          data={top.rows}
-          keyExtractor={(r) => String(r.no)}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={{ color: theme.textDim }}>
-                {top.emptyText || '該当するレスがありません'}
-              </Text>
-            </View>
-          }
-          renderItem={({ item }) => {
-            if (item.ngMode === 'abone') {
-              return (
-                <View style={[styles.row, { borderColor: theme.border }]}>
-                  <Text
-                    style={{ color: theme.textFaint, fontSize: fontSize - 2 }}
-                  >
-                    あぼーん
-                  </Text>
-                </View>
-              )
-            }
-            return (
-              <View style={[styles.row, { borderColor: theme.border }]}>
-                <View style={styles.rowHead}>
-                  <Text
-                    style={[
-                      styles.no,
-                      { color: theme.textDim, fontSize: fontSize - 3 },
-                    ]}
-                  >
-                    {item.no}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.name,
-                      { color: theme.textDim, fontSize: fontSize - 3 },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {item.name || '名無し'}
-                  </Text>
-                  {item.id ? (
-                    <Text
-                      style={[
-                        styles.id,
-                        {
-                          color: idColor(item.id, theme.dark) || theme.textDim,
-                          fontSize: fontSize - 4,
-                        },
-                      ]}
-                    >
-                      {idIcon(item.id)} ID:{item.id}
-                    </Text>
-                  ) : null}
-                </View>
-                <ResponseBody
-                  parsed={item.parsed}
-                  theme={theme}
-                  fontSize={fontSize}
-                  onAnchor={(t) => onAnchor && onAnchor(t, item.no)}
-                  onId={onId}
-                  onUrl={onUrl}
-                />
-              </View>
-            )
-          }}
-        />
-      </View>
-    </Modal>
+    <BottomSheetBackdrop
+      {...props}
+      appearsOnIndex={0}
+      disappearsOnIndex={-1}
+      pressBehavior="close"
+    />
   )
 }
 
+function SheetLayer({
+  sheet,
+  index,
+  isTop,
+  theme,
+  fontSize,
+  mediaOptions,
+  onDismissAt,
+  onCloseAll,
+  onAnchor,
+  onId,
+  onUrl,
+  onJump,
+  onImage,
+}) {
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (ref.current) ref.current.present()
+  }, [])
+
+  const dismiss = useCallback(() => {
+    if (ref.current) ref.current.dismiss()
+  }, [])
+
+  // Android の戻るボタンは、いちばん上のシートだけを閉じる
+  useEffect(() => {
+    if (!isTop) return undefined
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      dismiss()
+      return true
+    })
+    return () => sub.remove()
+  }, [isTop, dismiss])
+
+  const renderItem = useCallback(
+    ({ item }) => {
+      if (item.ngMode === 'abone') {
+        return (
+          <View style={[styles.row, { borderColor: theme.border }]}>
+            <Text style={{ color: theme.textFaint, fontSize: fontSize - 2 }}>
+              あぼーん
+            </Text>
+          </View>
+        )
+      }
+      return (
+        <Pressable
+          onPress={() => onJump && onJump(item.no)}
+          style={[styles.row, { borderColor: theme.border }]}
+        >
+          <View style={styles.rowHead}>
+            <Text
+              style={[
+                styles.no,
+                { color: theme.textDim, fontSize: fontSize - 3 },
+              ]}
+            >
+              {item.no}
+            </Text>
+            <Text
+              style={[
+                styles.name,
+                { color: theme.textDim, fontSize: fontSize - 3 },
+              ]}
+              numberOfLines={1}
+            >
+              {item.name || '名無し'}
+            </Text>
+            {item.id ? (
+              <Text
+                style={[
+                  styles.id,
+                  {
+                    color: idColor(item.id, theme.dark) || theme.textDim,
+                    fontSize: fontSize - 4,
+                  },
+                ]}
+              >
+                {idIcon(item.id)} ID:{item.id}
+              </Text>
+            ) : null}
+          </View>
+          <ResponseBody
+            parsed={item.parsed}
+            theme={theme}
+            fontSize={fontSize}
+            onAnchor={(t) => onAnchor && onAnchor(t, item.no)}
+            onId={onId}
+            onUrl={onUrl}
+          />
+          <ResponseMedia
+            media={item.media}
+            options={mediaOptions}
+            hideImages={shouldHideImages(item)}
+            theme={theme}
+            onImage={onImage}
+            onUrl={onUrl}
+          />
+        </Pressable>
+      )
+    },
+    [theme, fontSize, mediaOptions, onJump, onAnchor, onId, onUrl, onImage],
+  )
+
+  return (
+    <BottomSheetModal
+      ref={ref}
+      name={`response-sheet-${index}`}
+      stackBehavior="push"
+      snapPoints={SNAP_POINTS}
+      enableDynamicSizing={false}
+      enablePanDownToClose
+      backdropComponent={renderBackdrop}
+      backgroundStyle={{ backgroundColor: theme.surface }}
+      handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
+      onDismiss={() => onDismissAt(index)}
+    >
+      <View style={[styles.head, { borderColor: theme.border }]}>
+        {index > 0 ? (
+          <Pressable onPress={dismiss} hitSlop={8} accessibilityRole="button">
+            <Text style={[styles.headBtn, { color: theme.accent }]}>戻る</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.headSpacer} />
+        )}
+        <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
+          {sheet.title}
+        </Text>
+        <Pressable onPress={onCloseAll} hitSlop={8} accessibilityRole="button">
+          <Text style={[styles.headBtn, { color: theme.accent }]}>閉じる</Text>
+        </Pressable>
+      </View>
+
+      {sheet.lead ? (
+        <Text
+          selectable
+          style={[
+            styles.lead,
+            { color: theme.text, borderColor: theme.border },
+          ]}
+        >
+          {sheet.lead}
+        </Text>
+      ) : null}
+
+      {sheet.actions && sheet.actions.length > 0 ? (
+        <View style={[styles.actions, { borderColor: theme.border }]}>
+          {sheet.actions.map((a) => (
+            <Pressable
+              key={a.label}
+              onPress={a.onPress}
+              hitSlop={6}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.action, { color: theme.accent }]}>
+                {a.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      <BottomSheetFlatList
+        data={sheet.rows}
+        keyExtractor={(r) => String(r.no)}
+        renderItem={renderItem}
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Text style={{ color: theme.textDim }}>
+              {sheet.emptyText || '該当するレスがありません'}
+            </Text>
+          </View>
+        }
+      />
+    </BottomSheetModal>
+  )
+}
+
+export default function ResponseSheet({ stack, ...rest }) {
+  return stack.map((sheet, index) => (
+    <SheetLayer
+      // 積む順序は変わらないので位置をそのままキーにする
+      // eslint-disable-next-line react/no-array-index-key
+      key={index}
+      sheet={sheet}
+      index={index}
+      isTop={index === stack.length - 1}
+      {...rest}
+    />
+  ))
+}
+
 const styles = StyleSheet.create({
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    maxHeight: '75%',
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
-  },
   head: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 10,
   },
   headBtn: { fontSize: 14, fontWeight: '600' },
   headSpacer: { width: 36 },
+  lead: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '600',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  actions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  action: { fontSize: 13, fontWeight: '600' },
   title: { flex: 1, textAlign: 'center', fontSize: 14, fontWeight: '700' },
   row: {
     paddingHorizontal: 14,

@@ -12,15 +12,18 @@
  */
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
+import { boardRef, pushRecentBoard } from 'lib/boards'
 import { KEYS, load, save } from 'lib/storage'
 
 export const loadWatch = createAsyncThunk('watch/load', async () => {
-  const [watchList, readMarkers, boardFavorites] = await Promise.all([
-    load(KEYS.watchList, []),
-    load(KEYS.readMarkers, {}),
-    load(KEYS.boardFavorites, []),
-  ])
-  return { watchList, readMarkers, boardFavorites }
+  const [watchList, readMarkers, boardFavorites, recentBoards] =
+    await Promise.all([
+      load(KEYS.watchList, []),
+      load(KEYS.readMarkers, {}),
+      load(KEYS.boardFavorites, []),
+      load(KEYS.recentBoards, []),
+    ])
+  return { watchList, readMarkers, boardFavorites, recentBoards }
 })
 
 function persistWatch(state) {
@@ -41,6 +44,12 @@ function persistBoards(state) {
   })
 }
 
+function persistRecentBoards(state) {
+  save(KEYS.recentBoards, state.recentBoards).then((ok) => {
+    if (!ok) console.warn('[watch] 最近開いた板の保存に失敗した')
+  })
+}
+
 const initialState = {
   /** [{ threadId, threadUrl, boardUrl, boardName, title, totalCount, lastSeenCount, lastFetchedAt }] */
   watchList: [],
@@ -48,6 +57,8 @@ const initialState = {
   readMarkers: {},
   /** [{ name, url, board, host }] */
   boardFavorites: [],
+  /** 新しい順。[{ name, url, board, host }] */
+  recentBoards: [],
   loaded: false,
 }
 
@@ -126,8 +137,19 @@ const watchSlice = createSlice({
     toggleBoardFavorite: (state, { payload }) => {
       const at = state.boardFavorites.findIndex((b) => b.url === payload.url)
       if (at >= 0) state.boardFavorites.splice(at, 1)
-      else state.boardFavorites.push(payload)
+      else state.boardFavorites.push(boardRef(payload))
       persistBoards(state)
+    },
+
+    /** 板を開いたら「最近開いた」の先頭へ。 */
+    touchBoard: (state, { payload }) => {
+      state.recentBoards = pushRecentBoard(state.recentBoards, payload)
+      persistRecentBoards(state)
+    },
+
+    clearRecentBoards: (state) => {
+      state.recentBoards = []
+      persistRecentBoards(state)
     },
   },
   extraReducers: (builder) => {
@@ -141,6 +163,9 @@ const watchSlice = createSlice({
           : {}
       state.boardFavorites = Array.isArray(payload.boardFavorites)
         ? payload.boardFavorites
+        : []
+      state.recentBoards = Array.isArray(payload.recentBoards)
+        ? payload.recentBoards
         : []
       state.loaded = true
     })
@@ -160,6 +185,8 @@ export const {
   removeFromWatch,
   setReadMarker,
   toggleBoardFavorite,
+  touchBoard,
+  clearRecentBoards,
 } = watchSlice.actions
 
 /** 新着レス数。0 以下なら新着なし。 */

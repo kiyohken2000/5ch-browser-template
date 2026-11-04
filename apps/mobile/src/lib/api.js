@@ -87,9 +87,20 @@ export async function fetchSubject(boardUrl, options = {}) {
 export async function fetchDat(threadUrl, options = {}) {
   const location = parseBoardLocation(threadUrl)
   if (!location.threadKey) throw new Error(`スレ URL ではない: ${threadUrl}`)
-  const { bytes } = await getBytes(location.datUrl(), options)
+  const { bytes, headers } = await getBytes(location.datUrl(), options)
   const { entries, title } = parseDatBytes(bytes, 1)
-  return { location, entries, title, byteLength: bytes.length, raw: bytes }
+  return {
+    location,
+    entries,
+    title,
+    byteLength: bytes.length,
+    raw: bytes,
+    lastModified: readLastModified(headers),
+  }
+}
+
+function readLastModified(headers) {
+  return headers?.get?.('last-modified') || null
 }
 
 /**
@@ -104,8 +115,13 @@ export async function fetchDat(threadUrl, options = {}) {
  * 起きるので、**その場合は全体を取り直す。**
  *
  * @param {string} threadUrl
- * @param {object} prev 前回の状態 `{ byteLength, entryCount }`
- * @returns {{mode: 'full'|'append'|'nochange', entries, title, byteLength, appended}}
+ * `prev.lastModified` があれば `If-Modified-Since` も付ける。更新が無ければ
+ * 304 が返り、転送量は 0 になる（§9-6）。
+ *
+ * @param {object} prev 前回の状態 `{ byteLength, entryCount, lastModified }`
+ * @returns {{mode: 'full'|'append'|'nochange', entries, title, byteLength,
+ *   appended, raw, chunk, lastModified}} `full` は `raw` が全体、`append` は
+ *   `chunk` が確定した追記分（途中で切れた最終行は含まない）。
  */
 export async function fetchDatDelta(threadUrl, prev, options = {}) {
   const location = parseBoardLocation(threadUrl)
@@ -125,7 +141,13 @@ export async function fetchDatDelta(threadUrl, prev, options = {}) {
   try {
     result = await getBytes(location.datUrl(), {
       ...options,
-      headers: { ...(options.headers || {}), Range: `bytes=${from}-` },
+      headers: {
+        ...(options.headers || {}),
+        ...(prev?.lastModified
+          ? { 'If-Modified-Since': prev.lastModified }
+          : {}),
+        Range: `bytes=${from}-`,
+      },
     })
   } catch (e) {
     if (e instanceof HttpError && e.status === 416) {
@@ -135,6 +157,20 @@ export async function fetchDatDelta(threadUrl, prev, options = {}) {
     throw e
   }
 
+  if (result.status === 304) {
+    return {
+      location,
+      entries: [],
+      title: '',
+      byteLength: have,
+      mode: 'nochange',
+      appended: 0,
+      lastModified: prev.lastModified,
+    }
+  }
+
+  const lastModified = readLastModified(result.headers)
+
   // Range を無視して全体を返すサーバーに当たったときは全体として扱う
   if (result.status === 200) {
     const { entries, title } = parseDatBytes(result.bytes, 1)
@@ -143,6 +179,8 @@ export async function fetchDatDelta(threadUrl, prev, options = {}) {
       entries,
       title,
       byteLength: result.bytes.length,
+      raw: result.bytes,
+      lastModified,
       mode: 'full',
       appended: entries.length,
     }
@@ -169,6 +207,7 @@ export async function fetchDatDelta(threadUrl, prev, options = {}) {
       byteLength: have,
       mode: 'nochange',
       appended: 0,
+      lastModified,
     }
   }
 
@@ -180,6 +219,8 @@ export async function fetchDatDelta(threadUrl, prev, options = {}) {
     entries,
     title: '',
     byteLength: have + consumed,
+    chunk: body.subarray(0, consumed),
+    lastModified,
     mode: 'append',
     appended: entries.length,
   }

@@ -11,8 +11,16 @@ export const DEFAULTS = {
   theme: 'auto',
   /** レス本文の文字サイズ（pt）。デスクトップ版は 10〜32 を許す */
   fontSize: 15,
+  /** バーをすりガラスにする。iOS のみで、本文には掛けない（§9-3） */
+  glass: true,
   /** サムネイルのマスク。公共の場で開くのでモバイルでは既定で入れる（§8-4） */
   thumbMask: true,
+  /** レスの画像 URL をサムネイルで出す（§8-4） */
+  thumbnails: true,
+  /** YouTube のサムネイル（§8-4） */
+  youtubeThumbs: true,
+  /** 外部リンクの OGP カード（§8-4） */
+  ogpCards: true,
   /** 長文の折りたたみ。AA ブロックは対象外（§9-2） */
   collapseLongPosts: true,
   collapseLineThreshold: 15,
@@ -22,6 +30,8 @@ export const DEFAULTS = {
   bodyIdTappable: true,
   /** 画面上部 / 下部のタップで 1 画面分スクロール（twinkle から借用） */
   tapScroll: true,
+  /** 左右スワイプで監視リストの前後のスレへ（§9-1） */
+  swipeThreads: true,
   /** セルラーでは画像を自動で読まない（§9-6） */
   cellularSaveData: true,
 }

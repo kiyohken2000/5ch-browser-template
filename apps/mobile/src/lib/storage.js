@@ -36,6 +36,7 @@ export const KEYS = {
   boardCache: 'boardCache.v1',
   expandedCategories: 'expandedCategories.v1',
   boardFavorites: 'boardFavorites.v1',
+  recentBoards: 'recentBoards.v1',
   sortPrefs: 'sortPrefs.v1',
   recentOpened: 'recentOpened.v1',
   nameHistory: 'nameHistory.v1',
