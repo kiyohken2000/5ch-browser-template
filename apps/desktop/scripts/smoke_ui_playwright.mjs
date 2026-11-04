@@ -720,6 +720,70 @@ try {
   assert(ngListItemsAfter === 0, "NG list should be empty after removing word");
   console.log("smoke-ui: ng remove word ok");
 
+  // NG の語句をその場で編集: 語句だけが変わり、モードなどの設定は残る
+  // 編集後の語句はプレースホルダの >>2 (「BE/UPLIFT/どんぐりログイン確認済み」) に当たる
+  await page.fill(".ng-panel-add input", "typoword");
+  await page.click(".ng-panel-add button:has-text('追加')");
+  await page.click(".ng-list li .ng-mode-label"); // 非表示 → 画像
+  await page.click(".ng-list li .ng-mode-label"); // 画像 → あぼーん
+  await page.click(".ng-list li button:has-text('>>1除外OFF')");
+  const ngEditValue = () => page.$eval(".ng-list li .ng-val", (el) => el.textContent);
+  // Esc は取り消し
+  await page.dblclick(".ng-list li .ng-val");
+  await page.fill(".ng-val-edit", "cancelled");
+  await page.press(".ng-val-edit", "Escape");
+  assert((await ngEditValue()) === "typoword", "Escape should discard the NG edit");
+  // フォーカスが外れても取り消し
+  await page.dblclick(".ng-list li .ng-val");
+  await page.fill(".ng-val-edit", "cancelled");
+  await page.click(".ng-panel-add input");
+  assert((await ngEditValue()) === "typoword", "focusing another input should discard the NG edit");
+  await page.dblclick(".ng-list li .ng-val");
+  await page.fill(".ng-val-edit", "cancelled");
+  await page.click(".ng-section-header > span");
+  assert((await ngEditValue()) === "typoword", "clicking a blank part of the panel should discard the NG edit");
+  // 空欄は確定できず、編集を続ける
+  await page.dblclick(".ng-list li .ng-val");
+  await page.fill(".ng-val-edit", "   ");
+  await page.press(".ng-val-edit", "Enter");
+  assert(await page.$(".ng-val-edit"), "empty NG value should keep the editor open");
+  // Enter で確定し、新しい語句がすぐ効く
+  await page.fill(".ng-val-edit", "UPLIFT");
+  await page.press(".ng-val-edit", "Enter");
+  assert((await ngEditValue()) === "UPLIFT", "Enter should commit the NG edit");
+  const ngEditMode = await page.$eval(".ng-list li .ng-mode-label", (el) => el.textContent);
+  assert(ngEditMode === "あぼーん", `edit should keep the NG mode, got ${ngEditMode}`);
+  assert(await page.$(".ng-list li button:has-text('>>1除外ON')"), "edit should keep >>1 exclusion");
+  assert(await page.$('.response-block.abone-block[data-response-no="2"]'), "edited NG word should apply immediately");
+  // 重複は確定できず、編集を続ける
+  await page.fill(".ng-panel-add input", "otherword");
+  await page.click(".ng-panel-add button:has-text('追加')");
+  await page.dblclick(".ng-list li:nth-child(2) .ng-val");
+  await page.fill(".ng-val-edit", "UPLIFT");
+  await page.press(".ng-val-edit", "Enter");
+  assert(await page.$(".ng-val-edit"), "duplicate NG value should keep the editor open");
+  await page.press(".ng-val-edit", "Escape");
+  const ngEditCount = await page.$$eval(".ng-list li", (els) => els.length);
+  assert(ngEditCount === 2, `duplicate edit should not change the list, got ${ngEditCount} entries`);
+  await page.click(".ng-remove");
+  await page.click(".ng-remove");
+  // スレ一覧 NG は別のリストなので同じ操作を確かめる
+  // (2 つのパネルは同じ位置に開くので、NG パネルは閉じておく)
+  await page.click("section[aria-label='NGフィルタ'] .ng-panel-header button:has-text('閉じる')");
+  await page.click("button[title='スレ一覧NGワード']");
+  await page.fill(".thread-ng-panel .ng-panel-add input", "threadtypo");
+  await page.press(".thread-ng-panel .ng-panel-add input", "Enter");
+  await page.dblclick(".thread-ng-panel .ng-list li .ng-val");
+  await page.fill(".thread-ng-panel .ng-val-edit", "threadfixed");
+  await page.press(".thread-ng-panel .ng-val-edit", "Enter");
+  const threadNgEdited = await page.$eval(".thread-ng-panel .ng-list li .ng-val", (el) => el.textContent);
+  assert(threadNgEdited === "threadfixed", `thread NG word should be editable, got ${threadNgEdited}`);
+  await page.click(".thread-ng-panel .ng-remove");
+  await page.click(".thread-ng-panel .ng-panel-header button");
+  await page.click("button[title='NGフィルタ']");
+  await page.waitForSelector("section[aria-label='NGフィルタ']");
+  console.log("smoke-ui: ng inline edit ok");
+
   // NG モードの 3 段トグル (非表示 → 画像 → あぼーん) と、あぼーん表示
   // プレースホルダの >>2 (「BE/UPLIFT/どんぐりログイン確認済み」) に当てる
   await page.selectOption(".ng-panel-add .ng-mode-select", "abone");

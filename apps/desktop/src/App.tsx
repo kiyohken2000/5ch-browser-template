@@ -3559,6 +3559,8 @@ export default function App() {
   const [highlightAddColor, setHighlightAddColor] = useState("yellow");
   const [ngBulkOpen, setNgBulkOpen] = useState(false);
   const [ngBulkText, setNgBulkText] = useState("");
+  // NG パネルでその場編集中のエントリ。text が入力中の値、value が編集前の値。
+  const [ngEdit, setNgEdit] = useState<{ type: "words" | "ids" | "names" | "thread_words"; value: string; text: string } | null>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [autoRefreshPersistEnabled, setAutoRefreshPersistEnabled] = useState<boolean>(() => {
     try {
@@ -4761,6 +4763,68 @@ export default function App() {
   const removeNgEntry = (type: "words" | "ids" | "names" | "thread_words", value: string) => {
     void persistNgFilters({ ...ngFilters, [type]: ngFilters[type].filter((v) => ngVal(v) !== value) });
     setStatus(`removed NG ${type}: ${value}`);
+  };
+
+  // 語句だけを差し替える。削除→再登録と違い、モード・>>1除外・ID連鎖・完全一致・
+  // ON/OFF・登録日時は引き継ぐ (登録日時を変えると NG ID の自動削除の期限が延びるため)。
+  // 空欄と重複は確定させず、入力を残したまま理由をステータスバーに出す。
+  const commitNgEdit = () => {
+    if (!ngEdit) return;
+    const { type, value } = ngEdit;
+    const next = ngEdit.text.trim();
+    if (next === value) { setNgEdit(null); return; }
+    if (!next) {
+      setStatus("NGの語句は空にできません (削除は × から)");
+      return;
+    }
+    if (ngFilters[type].some((e) => ngVal(e) === next)) {
+      setStatus(`すでに登録されています: ${next}`);
+      return;
+    }
+    void persistNgFilters({
+      ...ngFilters,
+      [type]: ngFilters[type].map((e) => {
+        if (ngVal(e) !== value) return e;
+        return typeof e === "string" ? next : { ...e, value: next };
+      }),
+    });
+    setNgEdit(null);
+    setStatus(`NGを変更しました: ${value} → ${next}`);
+  };
+
+  const renderNgValue = (type: "words" | "ids" | "names" | "thread_words", value: string, title: string) => {
+    if (ngEdit?.type !== type || ngEdit.value !== value) {
+      return (
+        <span
+          className="ng-val"
+          title={`${title}\nダブルクリックで編集`}
+          onDoubleClick={() => setNgEdit({ type, value, text: value })}
+        >{value}</span>
+      );
+    }
+    return (
+      <input
+        className="ng-val-edit"
+        aria-label="NGの語句を編集"
+        title="Enter で確定 / Esc で取り消し"
+        autoFocus
+        value={ngEdit.text}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setNgEdit({ ...ngEdit, text: e.target.value })}
+        onKeyDown={(e) => {
+          // 変換確定の Enter で確定してしまわないように
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === "Enter") { e.stopPropagation(); commitNgEdit(); }
+          // 開いているポップアップ等まで一緒に閉じないように、ここで止める
+          if (e.key === "Escape") { e.stopPropagation(); setNgEdit(null); }
+        }}
+        onBlur={(e) => {
+          // 別ウィンドウへ切り替えただけなら続ける (正規表現をコピーしに行く場合など)
+          if (document.activeElement === e.currentTarget) return;
+          setNgEdit(null);
+        }}
+      />
+    );
   };
 
   const toggleNgEntry = (type: "words" | "ids" | "names" | "thread_words", value: string) => {
@@ -14939,7 +15003,7 @@ export default function App() {
                         onClick={() => toggleNgEntry("thread_words", v)}
                         title={off ? "クリックで有効化" : "クリックで無効化"}
                       >{off ? "OFF" : "ON"}</button>
-                      <span>{v}</span>
+                      {renderNgValue("thread_words", v, v)}
                       <button className="ng-remove" onClick={() => removeNgEntry("thread_words", v)}>×</button>
                     </li>
                   );
@@ -15141,7 +15205,7 @@ export default function App() {
                                   title={`${formatNgAddedAt(addedAt as number)} に登録\n${formatNgAddedAt(expiresAt)} 以降に削除`}
                                 >{formatNgExpiresIn(expiresAt - Date.now())}</span>
                           )}
-                          <span className="ng-val" title={addedAt === null ? v : `${v}\n${formatNgAddedAt(addedAt)} に登録`}>{v}</span>
+                          {renderNgValue(type, v, addedAt === null ? v : `${v}\n${formatNgAddedAt(addedAt)} に登録`)}
                           <button className="ng-remove" onClick={() => removeNgEntry(type, v)}>×</button>
                         </li>
                       );
@@ -16990,7 +17054,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>186項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>187項目</span></div>
               </fieldset>
               </>)}
             </div>
