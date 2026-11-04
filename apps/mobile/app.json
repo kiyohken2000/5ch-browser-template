@@ -15,7 +15,8 @@
     "backgroundColor": "#0b0d12",
     "updates": {
       "enabled": true,
-      "fallbackToCacheTimeout": 10000
+      "fallbackToCacheTimeout": 10000,
+      "url": "https://u.expo.dev/53f5eb87-33cf-4eee-835a-77cce26f4151"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -39,7 +40,22 @@
         "backgroundColor": "#0b0d12"
       },
       "permissions": [
-        "VIBRATE"
+        "VIBRATE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "com.google.android.gms.permission.AD_ID",
+        "VIBRATE",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "com.google.android.gms.permission.AD_ID"
       ]
     },
     "runtimeVersion": {
@@ -84,6 +100,11 @@
           "userTrackingPermission": "この許可は使いません。広告も計測も行いません。"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "53f5eb87-33cf-4eee-835a-77cce26f4151"
+      }
+    }
   }
 }
