@@ -196,6 +196,20 @@ const watchSlice = createSlice({
       }
     },
 
+    /** dat 落ちの印。一覧に控えた全部に付ける。 */
+    setDatDropped: (state, { payload }) => {
+      const { threadId, dropped } = payload
+      const fields = { datDropped: !!dropped }
+      if (refreshEntry(state.watchList, threadId, fields)) persistWatch(state)
+      if (refreshEntry(state.favorites, threadId, fields)) {
+        persistFavorites(state)
+      }
+      if (refreshEntry(state.recentOpened, threadId, fields)) {
+        persistRecentOpened(state)
+      }
+      if (refreshEntry(state.myPosts, threadId, fields)) persistMyPosts(state)
+    },
+
     /** スレを開いたら「最近開いた」の先頭へ。 */
     touchRecentThread: (state, { payload }) => {
       state.recentOpened = pushRecentThread(state.recentOpened, payload)
@@ -301,6 +315,7 @@ export const {
   toggleBoardFavorite,
   touchBoard,
   clearRecentBoards,
+  setDatDropped,
   touchRecentThread,
   removeRecentThread,
   toggleFavorite,

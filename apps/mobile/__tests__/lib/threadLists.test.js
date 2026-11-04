@@ -100,6 +100,15 @@ describe('withWatchInfo', () => {
     expect(withWatchInfo(t('1'), undefined).totalCount).toBe(10)
   })
 
+  it('dat 落ちの印を引き継ぐ', () => {
+    expect(
+      withWatchInfo(t('1'), { totalCount: 1, datDropped: true }).datDropped,
+    ).toBe(true)
+    expect(
+      withWatchInfo(t('1', { datDropped: true }), { totalCount: 1 }).datDropped,
+    ).toBe(true)
+  })
+
   it('タイトルが空なら監視リストの値で補う', () => {
     const got = withWatchInfo(t('1', { title: '' }), {
       title: '監視側',

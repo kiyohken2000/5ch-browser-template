@@ -94,5 +94,6 @@ export function withWatchInfo(entry, watchEntry) {
     boardName: entry.boardName || watchEntry.boardName,
     totalCount: watchEntry.totalCount,
     lastSeenCount: watchEntry.lastSeenCount,
+    datDropped: watchEntry.datDropped ?? entry.datDropped,
   }
 }

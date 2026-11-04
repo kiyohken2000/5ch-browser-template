@@ -80,6 +80,14 @@ export function normalize5chUrl(input) {
   } else if (host === '5ch.net') {
     host = '5ch.io'
   }
+  // スマホのブラウザで開くと itest.5ch.io/<サーバー>/... に転送される。
+  // 共有シートから届く URL はこの形なので、本来のサーバーの形へ戻す
+  if (host === 'itest.5ch.io') {
+    const thread = /^\/([a-z0-9-]+)(\/test\/read\.cgi\/.*)$/i.exec(u.path)
+    if (thread) return `https://${thread[1]}.5ch.io${thread[2]}`
+    const board = /^\/([a-z0-9-]+)\/subback\/([^/]+)\/?$/i.exec(u.path)
+    if (board) return `https://${board[1]}.5ch.io/${board[2]}/`
+  }
   const authority = u.port ? `${host}:${u.port}` : host
   return `${u.scheme}://${authority}${u.path}${u.query}${u.hash}`
 }

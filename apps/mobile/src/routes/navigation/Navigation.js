@@ -23,9 +23,11 @@
  * 書き込み画面はスレビューから全画面モーダルで開く。リンクからは開けない。
  */
 
-import React from 'react'
+import { useShareIntent } from 'expo-share-intent'
+import React, { useEffect, useState } from 'react'
 import {
   NavigationContainer,
+  useNavigationContainerRef,
   DefaultTheme,
   DarkTheme,
 } from '@react-navigation/native'
@@ -36,6 +38,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Toast from 'react-native-toast-message'
 
 import Icon from 'components/Icon'
+import { sharedUrl, shareTarget } from 'lib/shareTarget'
 import Boards from 'scenes/boards/Boards'
 import Home from 'scenes/home/Home'
 import Post from 'scenes/post/Post'
@@ -90,6 +93,15 @@ function belowStatusBar(Scene, { bar = false } = {}) {
       </View>
     )
   }
+}
+
+/**
+ * スレが変わったら画面を作り直す。リンクや共有で別のスレを開くと同じ画面が
+ * 使い回され、前のスレの本文が残ったまま新しいスレとして扱われてしまうため。
+ */
+function ThreadForUrl(props) {
+  const { route } = props
+  return <Thread key={route.params?.threadUrl} {...props} />
 }
 
 const HomeTop = belowStatusBar(Home)
@@ -206,6 +218,27 @@ function Tabs() {
 
 export default function Navigation() {
   const theme = useEmberTheme()
+  const navRef = useNavigationContainerRef()
+  const [navReady, setNavReady] = useState(false)
+  const { hasShareIntent, shareIntent, resetShareIntent, error } =
+    useShareIntent()
+
+  useEffect(() => {
+    if (error) console.warn(`[share] 共有を受け取れない: ${error}`)
+  }, [error])
+
+  // 共有シートから来た 5ch の URL を開く（§6-3）
+  useEffect(() => {
+    if (!hasShareIntent || !navReady) return
+    const target = shareTarget(sharedUrl(shareIntent))
+    if (target) {
+      navRef.navigate(target.name, target.params)
+    } else {
+      Toast.show({ type: 'info', text1: '5ch の URL ではありません' })
+    }
+    resetShareIntent()
+  }, [hasShareIntent, shareIntent, navReady, navRef, resetShareIntent])
+
   const navTheme = {
     ...(theme.dark ? DarkTheme : DefaultTheme),
     colors: {
@@ -221,7 +254,12 @@ export default function Navigation() {
   return (
     <>
       <StatusBar barStyle={theme.dark ? 'light-content' : 'dark-content'} />
-      <NavigationContainer theme={navTheme} linking={linking}>
+      <NavigationContainer
+        ref={navRef}
+        theme={navTheme}
+        linking={linking}
+        onReady={() => setNavReady(true)}
+      >
         <RootStack.Navigator screenOptions={stackScreens(theme)}>
           <RootStack.Screen
             name="Tabs"
@@ -230,7 +268,7 @@ export default function Navigation() {
           />
           <RootStack.Screen
             name="Thread"
-            component={Thread}
+            component={ThreadForUrl}
             options={{ headerBackAccessibilityLabel: '戻る' }}
           />
           <RootStack.Screen

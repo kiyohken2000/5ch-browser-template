@@ -24,6 +24,8 @@ function ResponseItem({
   collapseLines,
   showReadLine,
   highlighted,
+  mine,
+  replyToMe,
   mediaOptions,
   onImage,
   onTap,
@@ -81,6 +83,14 @@ function ResponseItem({
           },
         ]}
       >
+        {mine || replyToMe ? (
+          <View
+            style={[
+              styles.ownBar,
+              { backgroundColor: theme.accent, width: mine ? 4 : 2 },
+            ]}
+          />
+        ) : null}
         <View style={styles.header}>
           <Text
             style={[
@@ -99,6 +109,16 @@ function ResponseItem({
           >
             {row.name || '名無し'}
           </Text>
+          {mine || replyToMe ? (
+            <Text
+              style={[
+                styles.ownTag,
+                { color: theme.accent, fontSize: fontSize - 4 },
+              ]}
+            >
+              {mine ? '自分' : '自分宛て'}
+            </Text>
+          ) : null}
           {backlinks && backlinks.length > 0 ? (
             <Pressable
               accessibilityRole="button"
@@ -194,6 +214,8 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  ownTag: { fontWeight: '700' },
+  ownBar: { position: 'absolute', left: 0, top: 0, bottom: 0 },
   header2: {
     flexDirection: 'row',
     alignItems: 'center',

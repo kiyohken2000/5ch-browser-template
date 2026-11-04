@@ -30,6 +30,7 @@ import {
   removeFromWatch,
   removePostedThread,
   removeRecentThread,
+  setDatDropped,
   toggleFavorite,
   updateCount,
 } from 'slices/watch.slice'
@@ -129,6 +130,13 @@ export default function Home({ navigation }) {
           if (n !== undefined && n !== item.totalCount) {
             dispatch(updateCount({ threadId: item.threadId, totalCount: n }))
           }
+          // 一覧を読めたのに載っていないスレは dat 落ち。空の応答では判断しない
+          if (got.threads.length > 0) {
+            const dropped = n === undefined
+            if (dropped !== !!item.datDropped) {
+              dispatch(setDatDropped({ threadId: item.threadId, dropped }))
+            }
+          }
         }
       } catch (e) {
         console.warn(
@@ -202,7 +210,7 @@ export default function Home({ navigation }) {
           />
         }
         renderItem={({ item }) => {
-          const unread = newCount(item)
+          const unread = item.datDropped ? 0 : newCount(item)
           const marker = readMarkers[item.threadId]
           return (
             <Pressable
@@ -227,7 +235,10 @@ export default function Home({ navigation }) {
             >
               <View style={styles.rowTop}>
                 <Text
-                  style={[styles.title, { color: theme.text }]}
+                  style={[
+                    styles.title,
+                    { color: item.datDropped ? theme.textFaint : theme.text },
+                  ]}
                   numberOfLines={2}
                 >
                   {item.title || '(無題)'}
@@ -245,6 +256,11 @@ export default function Home({ navigation }) {
                 ) : null}
               </View>
               <View style={styles.meta}>
+                {item.datDropped ? (
+                  <Text style={[styles.datTag, { color: theme.danger }]}>
+                    dat落ち
+                  </Text>
+                ) : null}
                 <Text style={[styles.metaText, { color: theme.textFaint }]}>
                   {item.boardName}
                 </Text>
@@ -344,6 +360,7 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: '700' },
   meta: { flexDirection: 'row', gap: 12 },
   metaText: { fontSize: 11 },
+  datTag: { fontSize: 11, fontWeight: '700' },
   menu: { paddingBottom: 32 },
   menuTitle: {
     paddingHorizontal: 18,

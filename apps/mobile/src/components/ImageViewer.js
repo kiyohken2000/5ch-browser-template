@@ -12,11 +12,11 @@
  */
 
 import * as Haptics from 'expo-haptics'
+import { Image } from 'expo-image'
 import React, { useCallback, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -49,6 +49,8 @@ const SPRING = { damping: 20, stiffness: 220 }
 
 function ImagePage({ url, width, height, dismissY, onClose, onZoomChange }) {
   const [zoomed, setZoomed] = useState(false)
+  /** 'loading' | 'done' | 'failed'。大きい画像は表示まで数秒かかる */
+  const [status, setStatus] = useState('loading')
   const scale = useSharedValue(1)
   const savedScale = useSharedValue(1)
   const x = useSharedValue(0)
@@ -161,16 +163,28 @@ function ImagePage({ url, width, height, dismissY, onClose, onZoomChange }) {
           <Image
             source={{ uri: url }}
             style={{ width, height }}
-            resizeMode="contain"
-            onError={(e) =>
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            onDisplay={() => setStatus('done')}
+            onError={(e) => {
               console.warn(
-                `[media] 画像を読めない: ${url}: ${
-                  e?.nativeEvent?.error || '不明なエラー'
-                }`,
+                `[media] 画像を読めない: ${url}: ${e?.error || '不明なエラー'}`,
               )
-            }
+              setStatus('failed')
+            }}
           />
         </Animated.View>
+        {status === 'done' ? null : (
+          <View style={styles.pageStatus} pointerEvents="none">
+            {status === 'loading' ? (
+              <ActivityIndicator color="#fff" accessibilityLabel="読み込み中" />
+            ) : (
+              <Text style={styles.pageStatusText}>
+                画像を読み込めませんでした
+              </Text>
+            )}
+          </View>
+        )}
       </View>
     </GestureDetector>
   )
@@ -317,6 +331,12 @@ const BAR_HEIGHT = 44
 const styles = StyleSheet.create({
   root: { flex: 1 },
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: '#000' },
+  pageStatus: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pageStatusText: { color: '#fff', fontSize: 14 },
   bottomBar: {
     position: 'absolute',
     left: 16,

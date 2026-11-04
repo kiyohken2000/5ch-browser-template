@@ -73,7 +73,10 @@ import {
   tapScrollDirection,
   twoFingerPattern,
 } from 'lib/gestures'
+import { extractGroups, findMyResNumbers, findRepliesToMe } from 'lib/extract'
+import { HttpError } from 'lib/http'
 import { collectImages, extractMedia } from 'lib/media'
+import useIsCellular from 'lib/useIsCellular'
 import { applyNg, visibleResponses } from 'lib/ng'
 import { parseDatBytes } from 'lib/parse'
 import { findResponses, findRowByNo } from 'lib/search'
@@ -88,6 +91,7 @@ import { setSetting } from 'slices/settings.slice'
 import {
   markSeen,
   setReadMarker,
+  setDatDropped,
   touchRecentThread,
   touchThread,
   toggleFavorite,
@@ -103,6 +107,16 @@ const TOP_SETTLE_INTERVAL_MS = 250
 const TOP_SETTLE_MAX_TICKS = 12
 /** スレタイのタップで出す先頭のレス数。 */
 const HEAD_RES_COUNT = 20
+
+function extractItemColor(theme, selected, count) {
+  if (selected) return theme.accent
+  return count === 0 ? theme.textFaint : theme.text
+}
+
+/** dat が無くなった応答か。一時的な失敗と分けて、再試行を勧めない。 */
+function isDatDropped(e) {
+  return e instanceof HttpError && e.status === 404
+}
 
 function parseRows(entries) {
   return entries.map((e) => {
@@ -158,6 +172,7 @@ export default function Thread({ route, navigation }) {
   const settings = useSelector((state) => state.settings)
   const readMarkers = useSelector((state) => state.watch.readMarkers)
   const favorites = useSelector((state) => state.watch.favorites)
+  const myPosts = useSelector((state) => state.watch.myPosts)
 
   const { dismissAll } = useBottomSheetModal()
   const menuRef = useRef(null)
@@ -184,6 +199,14 @@ export default function Thread({ route, navigation }) {
   const [gotoOpen, setGotoOpen] = useState(false)
   const [gotoNo, setGotoNo] = useState('')
   const gotoRef = useRef(null)
+  const [extractOpen, setExtractOpen] = useState(false)
+  /** 本文の絞り込み。null なら全レス */
+  const [filterKey, setFilterKey] = useState(null)
+  /** 絞り込む前に見ていたレス番号。解除したらそこへ戻す */
+  const noBeforeFilter = useRef(null)
+  /** dat が 404 を返した。保存した本文があれば見せ続ける */
+  const [datDropped, setDatDrop] = useState(false)
+  const extractRef = useRef(null)
 
   const threadId = useMemo(() => {
     try {
@@ -233,6 +256,14 @@ export default function Thread({ route, navigation }) {
 
   // ---- 取得 ----------------------------------------------------------------
 
+  const noteDatDropped = useCallback(
+    (dropped) => {
+      setDatDrop(dropped)
+      dispatch(setDatDropped({ threadId, dropped }))
+    },
+    [dispatch, threadId],
+  )
+
   const readFull = useCallback(async () => {
     setError(null)
     try {
@@ -260,8 +291,13 @@ export default function Thread({ route, navigation }) {
         }),
       )
       dispatch(markSeen({ threadId, totalCount: got.entries.length }))
+      noteDatDropped(false)
     } catch (e) {
       console.warn(`[thread] スレの取得に失敗: ${e?.message || e}`)
+      if (isDatDropped(e)) {
+        noteDatDropped(true)
+        return
+      }
       setError(e?.message || 'スレを取得できませんでした')
     } finally {
       setLoading(false)
@@ -306,15 +342,17 @@ export default function Thread({ route, navigation }) {
         dispatch(updateCount({ threadId, totalCount: entryCount }))
       }
       dispatch(markSeen({ threadId, totalCount: stateRef.current.entryCount }))
+      noteDatDropped(false)
       return true
     } catch (e) {
       console.warn(`[thread] 差分取得に失敗: ${e?.message || e}`)
-      setError(e?.message || '更新できませんでした')
+      if (isDatDropped(e)) noteDatDropped(true)
+      else setError(e?.message || '更新できませんでした')
       return false
     } finally {
       setRefreshing(false)
     }
-  }, [threadUrl, threadId, dispatch])
+  }, [threadUrl, threadId, dispatch, noteDatDropped])
 
   useEffect(() => {
     let alive = true
@@ -369,6 +407,16 @@ export default function Thread({ route, navigation }) {
   )
   const shown = useMemo(() => visibleResponses(ngRows), [ngRows])
 
+  // 自分のレスは本文と時刻の照合で求める（lib/extract.js）
+  const mineNos = useMemo(
+    () =>
+      findMyResNumbers(
+        parsedRows,
+        myPosts.filter((p) => p.threadId === threadId),
+      ),
+    [parsedRows, myPosts, threadId],
+  )
+
   const closeViewer = useCallback(() => setViewerUrl(null), [])
 
   /** ビューアの並び。今見ている画像が一覧に無ければ、その 1 枚だけにする。 */
@@ -388,15 +436,42 @@ export default function Thread({ route, navigation }) {
   }, [ngRows])
 
   const backlinks = useMemo(() => buildBacklinks(entries), [entries])
+  const repliesToMe = useMemo(
+    () => findRepliesToMe(backlinks, mineNos),
+    [backlinks, mineNos],
+  )
+  const extractItems = useMemo(() => {
+    if (!extractOpen && !filterKey) return []
+    const groups = extractGroups(shown, backlinks, mineNos)
+    return [
+      { key: 'images', label: '画像', nos: groups.images },
+      { key: 'videos', label: '動画', nos: groups.videos },
+      { key: 'mine', label: '自分のレス', nos: groups.mine },
+      { key: 'links', label: '外部リンク', nos: groups.links },
+      { key: 'popular', label: '人気レス', nos: groups.popular },
+    ]
+  }, [extractOpen, filterKey, shown, backlinks, mineNos])
 
+  // 本文に並べる行。新着が来ても絞り込みはそのまま効く
+  const activeFilter = extractItems.find((item) => item.key === filterKey)
+  const listRows = useMemo(() => {
+    if (!activeFilter) return shown
+    const nos = new Set(activeFilter.nos)
+    return shown.filter((r) => nos.has(r.no))
+  }, [shown, activeFilter])
+
+  const isCellular = useIsCellular()
+  const saveData = settings.cellularSaveData && isCellular
   const mediaOptions = useMemo(
     () => ({
+      saveData,
       thumbnails: settings.thumbnails,
       thumbMask: settings.thumbMask,
       youtubeThumbs: settings.youtubeThumbs,
       ogpCards: settings.ogpCards,
     }),
     [
+      saveData,
       settings.thumbnails,
       settings.thumbMask,
       settings.youtubeThumbs,
@@ -466,8 +541,10 @@ export default function Thread({ route, navigation }) {
   const jumpToNo = useCallback(
     (no) => {
       dismissAll()
+      // 絞り込み中でも目的のレスへ行けるように、全レスへ戻してから飛ぶ
+      setFilterKey(null)
       const at = shown.findIndex((r) => r.no === no)
-      if (at >= 0) setTimeout(() => scrollToRow(at), 60)
+      if (at >= 0) setTimeout(() => scrollToRow(at), 80)
     },
     [shown, scrollToRow, dismissAll],
   )
@@ -481,14 +558,15 @@ export default function Thread({ route, navigation }) {
     }
     if (gotoRef.current) gotoRef.current.dismiss()
     Keyboard.dismiss()
-    scrollToRow(found.index)
+    setFilterKey(null)
+    setTimeout(() => scrollToRow(found.index), filterKey ? 80 : 0)
     if (!found.exact) {
       showToast({
         title: `>>${no} は NG で隠れています`,
         body: `>>${found.no} へ移動しました`,
       })
     }
-  }, [gotoNo, shown, scrollToRow])
+  }, [gotoNo, shown, scrollToRow, filterKey])
 
   const onTapRow = useCallback(
     (e) => {
@@ -521,6 +599,7 @@ export default function Thread({ route, navigation }) {
       if (hits.length === 0) return
       const next = (index + hits.length) % hits.length
       setHitAt(next)
+      setFilterKey(null)
       const at = shown.findIndex((r) => r.no === hits[next].no)
       if (at >= 0) scrollToRow(at)
     },
@@ -530,6 +609,7 @@ export default function Thread({ route, navigation }) {
   // 語を打ったら最初の一致へ
   useEffect(() => {
     if (searchOpen && hits.length > 0) {
+      setFilterKey(null)
       const at = shown.findIndex((r) => r.no === hits[0].no)
       if (at >= 0) scrollToRow(at)
     }
@@ -554,6 +634,34 @@ export default function Thread({ route, navigation }) {
   const pushSheet = useCallback(
     (sheet) => setSheetStack((s) => [...s, sheet]),
     [],
+  )
+
+  useEffect(() => {
+    if (extractOpen && extractRef.current) extractRef.current.present()
+  }, [extractOpen])
+
+  /** 絞り込みを切り替える。解除したら元の位置へ戻す。 */
+  const chooseFilter = useCallback(
+    (key) => {
+      if (extractRef.current) extractRef.current.dismiss()
+      const next = key === filterKey ? null : key
+      if (!filterKey && next) {
+        const first = listRef.current?.getFirstVisibleIndex?.() ?? 0
+        noBeforeFilter.current = shown[first]?.no ?? null
+      }
+      setFilterKey(next)
+      setTimeout(() => {
+        if (!listRef.current) return
+        if (next) {
+          listRef.current.scrollToOffset({ offset: 0, animated: false })
+          return
+        }
+        // 高さの推定がずれるので、オフセットではなくレスの位置で戻す
+        const at = shown.findIndex((r) => r.no === noBeforeFilter.current)
+        if (at >= 0) scrollToRow(at)
+      }, 60)
+    },
+    [filterKey, shown, scrollToRow],
   )
 
   const openAnchor = useCallback(
@@ -1028,8 +1136,10 @@ export default function Thread({ route, navigation }) {
         collapseLines={
           settings.collapseLongPosts ? settings.collapseLineThreshold : 0
         }
-        showReadLine={index === markerIndex}
+        showReadLine={!filterKey && index === markerIndex}
         highlighted={item.no === currentHitNo}
+        mine={mineNos.has(item.no)}
+        replyToMe={repliesToMe.has(item.no)}
         mediaOptions={mediaOptions}
         onImage={setViewerUrl}
         onTap={onTapRow}
@@ -1047,6 +1157,7 @@ export default function Thread({ route, navigation }) {
       settings.collapseLineThreshold,
       backlinks,
       markerIndex,
+      filterKey,
       currentHitNo,
       mediaOptions,
       onTapRow,
@@ -1071,6 +1182,37 @@ export default function Thread({ route, navigation }) {
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.bg }]}>
+      {activeFilter ? (
+        <View
+          style={[
+            styles.filterBar,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <Text style={[styles.filterText, { color: theme.text }]}>
+            {activeFilter.label} {listRows.length} レス
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="絞り込みを解除"
+            hitSlop={8}
+            onPress={() => chooseFilter(null)}
+          >
+            <Text style={{ color: theme.accent, fontWeight: '600' }}>解除</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {datDropped ? (
+        <View style={[styles.datBar, { backgroundColor: theme.accentDim }]}>
+          <Text style={{ color: theme.text, fontSize: 13 }}>
+            {entries.length > 0
+              ? 'dat 落ちしました。保存した本文を表示しています。書き込みはできません。'
+              : 'dat 落ちしたスレです。保存した本文がありません。'}
+          </Text>
+        </View>
+      ) : null}
+
       {error ? (
         <Pressable
           onPress={entries.length > 0 ? readDelta : readFull}
@@ -1166,7 +1308,7 @@ export default function Thread({ route, navigation }) {
           <FlashList
             ref={listRef}
             renderScrollComponent={ScrollWithGestures}
-            data={shown}
+            data={listRows}
             extraData={renderItem}
             keyExtractor={(r) => String(r.no)}
             keyboardShouldPersistTaps="handled"
@@ -1230,6 +1372,12 @@ export default function Thread({ route, navigation }) {
             : ''}
         </Text>
         <FooterButton
+          icon="filter"
+          label="抽出"
+          color={theme.accent}
+          onPress={() => setExtractOpen(true)}
+        />
+        <FooterButton
           icon="hash"
           label="番号へ"
           color={theme.accent}
@@ -1247,12 +1395,14 @@ export default function Thread({ route, navigation }) {
           color={theme.accent}
           onPress={scrollToLast}
         />
-        <FooterButton
-          icon="compose"
-          label="書く"
-          color={theme.accent}
-          onPress={() => openPost()}
-        />
+        {datDropped ? null : (
+          <FooterButton
+            icon="compose"
+            label="書く"
+            color={theme.accent}
+            onPress={() => openPost()}
+          />
+        )}
       </View>
 
       <ResponseSheet
@@ -1268,6 +1418,71 @@ export default function Thread({ route, navigation }) {
         onUrl={openUrl}
         onJump={jumpToNo}
       />
+
+      {extractOpen ? (
+        <BottomSheetModal
+          animationConfigs={animationConfigs}
+          accessible={false}
+          ref={extractRef}
+          name="extract-menu"
+          stackBehavior="push"
+          enablePanDownToClose
+          enableDynamicSizing
+          backdropComponent={renderMenuBackdrop}
+          backgroundStyle={{ backgroundColor: theme.surface }}
+          handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
+          onDismiss={() => setExtractOpen(false)}
+        >
+          <BottomSheetView style={styles.menu}>
+            <Text style={[styles.menuTitle, { color: theme.textDim }]}>
+              抽出
+            </Text>
+            {extractItems.map(({ key, label, nos }) => (
+              <Pressable
+                key={key}
+                accessibilityRole="button"
+                accessibilityLabel={`${label} ${nos.length} 件`}
+                accessibilityState={{
+                  disabled: nos.length === 0,
+                  selected: filterKey === key,
+                }}
+                disabled={nos.length === 0}
+                style={styles.extractItem}
+                onPress={() => chooseFilter(key)}
+              >
+                <Text
+                  style={[
+                    styles.menuText,
+                    {
+                      color: extractItemColor(
+                        theme,
+                        filterKey === key,
+                        nos.length,
+                      ),
+                    },
+                  ]}
+                >
+                  {label}
+                </Text>
+                <Text style={{ color: theme.textDim, fontSize: 13 }}>
+                  {nos.length}
+                </Text>
+              </Pressable>
+            ))}
+            {filterKey ? (
+              <Pressable
+                accessibilityRole="button"
+                style={styles.extractItem}
+                onPress={() => chooseFilter(null)}
+              >
+                <Text style={[styles.menuText, { color: theme.accent }]}>
+                  絞り込みを解除
+                </Text>
+              </Pressable>
+            ) : null}
+          </BottomSheetView>
+        </BottomSheetModal>
+      ) : null}
 
       {gotoOpen ? (
         <BottomSheetModal
@@ -1479,6 +1694,23 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   menuItem: { paddingHorizontal: 18, paddingVertical: 12 },
+  filterBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  filterText: { fontSize: 13, fontWeight: '600' },
+  datBar: { paddingHorizontal: 16, paddingVertical: 9 },
+  extractItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
   menuText: { fontSize: 15 },
   menuNg: {
     flexDirection: 'row',

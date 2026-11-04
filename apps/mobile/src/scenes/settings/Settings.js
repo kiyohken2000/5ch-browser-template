@@ -24,6 +24,7 @@ import {
   gestureActionLabel,
   normalizeGestures,
 } from 'lib/gestures'
+import { clearImageCache } from 'lib/imageCache'
 import { clearThreadCache, threadCacheStats } from 'lib/threadCache'
 import { selectNgFilters } from 'slices/ng.slice'
 import { setSetting } from 'slices/settings.slice'
@@ -64,6 +65,7 @@ export default function Settings({ navigation }) {
     ng.words.length + ng.ids.length + ng.names.length + ng.threadWords.length
 
   const [cache, setCache] = useState({ count: 0, bytes: 0 })
+  const [imageCacheCleared, setImageCacheCleared] = useState(false)
 
   const set = (key, value) => dispatch(setSetting({ key, value }))
 
@@ -174,6 +176,11 @@ export default function Settings({ navigation }) {
       <SettingsSection title="画像とリンク" theme={theme}>
         {toggle('thumbnails', '画像のサムネイルを出す')}
         {toggle('thumbMask', 'サムネイルをぼかす', '公共の場で開くとき')}
+        {toggle(
+          'cellularSaveData',
+          'モバイル回線では画像を読み込まない',
+          'タップで読み込みます。リンクのカードも出しません',
+        )}
         {toggle('youtubeThumbs', 'YouTube のサムネイルを出す')}
         {toggle(
           'ogpCards',
@@ -282,6 +289,20 @@ export default function Settings({ navigation }) {
             onPress={() => clearThreadCache().then(refreshCache)}
             hitSlop={8}
             accessibilityRole="button"
+          >
+            <Text style={{ color: theme.danger }}>消去</Text>
+          </Pressable>
+        </Row>
+        <Row
+          theme={theme}
+          label="画像"
+          hint={imageCacheCleared ? '消去しました' : 'サムネイルと表示した画像'}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="画像のキャッシュを消去"
+            onPress={() => clearImageCache().then(setImageCacheCleared)}
+            hitSlop={8}
           >
             <Text style={{ color: theme.danger }}>消去</Text>
           </Pressable>
