@@ -45,11 +45,15 @@ else
   #                                      将来スクリプトに版数を直書きする場合はこの除外を見直すこと。
   #   - apps/desktop/scripts/          : 上と同じ理由 (ビルド/テスト用スクリプト)。v0.0.222 で
   #                                      run_smoke_ui.ps1 の経緯コメントが誤検知したため追加。
+  #   - apps/mobile/                   : バージョンはデスクトップ版と別管理 (app.json) で、
+  #                                      release.sh の更新対象でもない。「v0.0.317 のデスクトップ版と
+  #                                      同じ」といった経緯コメントが誤検知したため追加 (v0.0.318)。
   EXCLUDES=(
     ':!docs/'
     ':!apps/landing/public/latest.json'
     ':!scripts/'
     ':!apps/desktop/scripts/'
+    ':!apps/mobile/'
   )
   LEAKS=$(git grep -nF "$OLD_VERSION" -- "${EXCLUDES[@]}" || true)
   if [[ -n "$LEAKS" ]]; then
