@@ -5,7 +5,7 @@
  * 並べ替えは lib/sort.js の純粋関数に任せ、同点は subject.txt の元の並びで割る。
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
@@ -34,7 +34,12 @@ import { selectNgFilters } from 'slices/ng.slice'
 import { toggleBoardFavorite, touchBoard } from 'slices/watch.slice'
 import { useEmberTheme } from 'theme/ember'
 
+/** これより下へスクロールしたら「先頭へ」を出す。 */
+const TO_TOP_MIN_OFFSET = 400
+
 export default function Threads({ route, navigation }) {
+  const listRef = useRef(null)
+  const [showToTop, setShowToTop] = useState(false)
   const { boardUrl, boardName } = route.params
   const theme = useEmberTheme()
   const dispatch = useDispatch()
@@ -226,8 +231,13 @@ export default function Threads({ route, navigation }) {
       ) : null}
 
       <FlatList
+        ref={listRef}
         data={shown}
         keyExtractor={(item) => item.threadId}
+        scrollEventThrottle={100}
+        onScroll={(e) =>
+          setShowToTop(e.nativeEvent.contentOffset.y > TO_TOP_MIN_OFFSET)
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -298,12 +308,44 @@ export default function Threads({ route, navigation }) {
           </View>
         }
       />
+
+      {showToTop ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="先頭へ"
+          onPress={() =>
+            listRef.current?.scrollToOffset({ offset: 0, animated: true })
+          }
+          style={[
+            styles.toTop,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <Icon name="toTop" size={22} color={theme.accent} />
+        </Pressable>
+      ) : null}
     </View>
   )
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  toTop: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
   headerTitleBox: { flexGrow: 1, flexShrink: 1 },
   headerRightBox: { flexGrow: 0, flexBasis: 'auto', flexShrink: 0 },
   headerStar: { paddingRight: 14 },

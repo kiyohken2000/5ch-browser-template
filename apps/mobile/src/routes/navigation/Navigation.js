@@ -140,7 +140,11 @@ function BoardStack() {
   return (
     <Stack.Navigator screenOptions={stackScreens(theme)}>
       <Stack.Screen name="Boards" component={BoardsTop} options={NO_HEADER} />
-      <Stack.Screen name="Threads" component={Threads} />
+      <Stack.Screen
+        name="Threads"
+        component={Threads}
+        options={{ headerBackAccessibilityLabel: '戻る' }}
+      />
     </Stack.Navigator>
   )
 }
