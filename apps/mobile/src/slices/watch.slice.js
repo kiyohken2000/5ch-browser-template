@@ -232,6 +232,11 @@ const watchSlice = createSlice({
       persistMyPosts(state)
     },
 
+    clearMyPosts: (state) => {
+      state.myPosts = []
+      persistMyPosts(state)
+    },
+
     removePostedThread: (state, { payload }) => {
       state.myPosts = removePosts(state.myPosts, payload)
       persistMyPosts(state)
@@ -320,6 +325,7 @@ export const {
   removeRecentThread,
   toggleFavorite,
   recordMyPost,
+  clearMyPosts,
   removePostedThread,
 } = watchSlice.actions
 

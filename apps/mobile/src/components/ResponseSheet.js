@@ -24,9 +24,9 @@ import {
 import React, { useCallback, useEffect, useRef } from 'react'
 import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native'
 
-import { idColor, idIcon } from 'lib/idcolor'
 import { shouldHideImages } from 'lib/ng'
 import ResponseBody from './ResponseBody'
+import ResponseHeader from './ResponseHeader'
 import ResponseMedia from './ResponseMedia'
 import useSheetAnimation from './useSheetAnimation'
 
@@ -56,7 +56,9 @@ function SheetLayer({
   onId,
   onUrl,
   onJump,
+  onReply,
   onImage,
+  idSeqs,
 }) {
   const animationConfigs = useSheetAnimation()
   const ref = useRef(null)
@@ -96,38 +98,27 @@ function SheetLayer({
           onPress={() => onJump && onJump(item.no)}
           style={[styles.row, { borderColor: theme.border }]}
         >
-          <View style={styles.rowHead}>
-            <Text
-              style={[
-                styles.no,
-                { color: theme.textDim, fontSize: fontSize - 3 },
-              ]}
-            >
-              {item.no}
-            </Text>
-            <Text
-              style={[
-                styles.name,
-                { color: theme.textDim, fontSize: fontSize - 3 },
-              ]}
-              numberOfLines={1}
-            >
-              {item.name || '名無し'}
-            </Text>
-            {item.id ? (
-              <Text
-                style={[
-                  styles.id,
-                  {
-                    color: idColor(item.id, theme.dark) || theme.textDim,
-                    fontSize: fontSize - 4,
-                  },
-                ]}
+          <ResponseHeader
+            row={item}
+            theme={theme}
+            fontSize={fontSize}
+            idSeq={idSeqs?.get(item.no)}
+            onId={onId}
+          >
+            {onReply ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`レス ${item.no} に返信`}
+                hitSlop={8}
+                onPress={() => onReply(item.no)}
+                style={styles.reply}
               >
-                {idIcon(item.id)} ID:{item.id}
-              </Text>
+                <Text style={{ color: theme.accent, fontSize: fontSize - 3 }}>
+                  ここにレス
+                </Text>
+              </Pressable>
             ) : null}
-          </View>
+          </ResponseHeader>
           <ResponseBody
             parsed={item.parsed}
             hideImages={shouldHideImages(item)}
@@ -148,7 +139,18 @@ function SheetLayer({
         </Pressable>
       )
     },
-    [theme, fontSize, mediaOptions, onJump, onAnchor, onId, onUrl, onImage],
+    [
+      theme,
+      fontSize,
+      mediaOptions,
+      onJump,
+      onReply,
+      idSeqs,
+      onAnchor,
+      onId,
+      onUrl,
+      onImage,
+    ],
   )
 
   return (
@@ -242,6 +244,7 @@ export default function ResponseSheet({ stack, ...rest }) {
 }
 
 const styles = StyleSheet.create({
+  reply: { marginLeft: 'auto' },
   head: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -272,8 +275,8 @@ const styles = StyleSheet.create({
   action: { fontSize: 13, fontWeight: '600' },
   title: { flex: 1, textAlign: 'center', fontSize: 14, fontWeight: '700' },
   row: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 4,
   },

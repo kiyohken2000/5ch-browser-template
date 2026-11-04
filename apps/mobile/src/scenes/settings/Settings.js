@@ -62,6 +62,7 @@ export default function Settings({ navigation }) {
   const [gesturePicker, setGesturePicker] = useState(null)
   const gestures = normalizeGestures(settings.gestures)
   const account = useSelector((state) => state.account)
+  const myPostCount = useSelector((state) => state.watch.myPosts.length)
   const loggedIn = [
     account.be.status === 'in' ? 'BE' : null,
     account.uplift.status === 'in' ? 'UPLIFT' : null,
@@ -264,6 +265,32 @@ export default function Settings({ navigation }) {
           'sage を最初からオンにする',
           '書き込み画面を開いたときの初期状態',
         )}
+        {toggle(
+          'composeKeepOpen',
+          '書き込んだあとも画面を閉じない',
+          '続けて書くとき',
+        )}
+        {toggle(
+          'keepPostHistory',
+          '書き込み履歴を残す',
+          '切ると新しい書き込みに「自分」の印が付きません',
+        )}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`書き込み履歴 ${myPostCount} 件`}
+          onPress={() => navigation.navigate('PostHistory')}
+          style={[styles.row, { borderColor: theme.border }]}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>
+            書き込み履歴
+          </Text>
+          <View style={styles.rowValue}>
+            <Text style={{ color: theme.textDim, fontSize: 13 }}>
+              {myPostCount} 件
+            </Text>
+            <Icon name="chevronRight" size={16} color={theme.textFaint} />
+          </View>
+        </Pressable>
       </SettingsSection>
 
       <SettingsSection title="アカウント" theme={theme}>
@@ -333,6 +360,16 @@ export default function Settings({ navigation }) {
       </SettingsSection>
 
       <SettingsSection title="このアプリについて" theme={theme}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => navigation.navigate('Terms')}
+          style={[styles.row, { borderColor: theme.border }]}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>
+            書き込みの利用条件
+          </Text>
+          <Icon name="chevronRight" size={16} color={theme.textFaint} />
+        </Pressable>
         <View style={[styles.about, { borderColor: theme.border }]}>
           <Image
             source={images.icon}

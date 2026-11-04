@@ -125,6 +125,17 @@ export function parseDatBytes(bytes, startNo = 1) {
   return { entries, title, trailingPartial }
 }
 
+/**
+ * 名前の末尾のワッチョイを分ける。`名無し (ﾜｯﾁｮｲW 0b6b-v/9N)` の形。
+ * 括弧の中に空白がないものは名前の一部として残す。
+ */
+export function splitNameWatchoi(raw) {
+  const value = raw || ''
+  const m = value.match(/\s*[(（]([^)）]+)[)）]\s*$/)
+  if (!m || !/\S+\s+\S+/.test(m[1].trim())) return { name: value, watchoi: '' }
+  return { name: value.slice(0, m.index), watchoi: m[1].trim() }
+}
+
 const ID_RE = /\bID:([^\s<>]+)/
 const BE_RE = /BE:(\d+)-/
 const DATE_RE = /^(\d{4}\/\d{2}\/\d{2}\([^)]*\)\s*\d{2}:\d{2}:\d{2}(?:\.\d+)?)/

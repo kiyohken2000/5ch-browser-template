@@ -4,10 +4,15 @@ import {
   isSageMail,
   mailToRemember,
   mailToSend,
+  messageStats,
+  messageToDatBody,
+  pushName,
+  quoteReply,
   sageChecked,
   withDraft,
   withoutDraft,
 } from 'lib/postDrafts'
+import { parseBody } from 'lib/body'
 
 describe('sage', () => {
   it('スイッチが入っていれば sage を送り、切れていればメール欄の値を送る', () => {
@@ -25,6 +30,47 @@ describe('sage', () => {
     expect(mailToRemember('sage')).toBe('')
     expect(mailToRemember(' Sage ')).toBe('')
     expect(mailToRemember('abc')).toBe('abc')
+  })
+})
+
+describe('pushName', () => {
+  it('先頭へ入れ、同じ名前は重ねない', () => {
+    expect(pushName(['a', 'b'], 'b')).toEqual(['b', 'a'])
+  })
+
+  it('空の名前は覚えない', () => {
+    expect(pushName(['a'], '  ')).toEqual(['a'])
+  })
+})
+
+describe('quoteReply', () => {
+  it('各行に引用の印を付ける', () => {
+    expect(quoteReply(5, '一行目\n二行目')).toBe('>>5\n> 一行目\n> 二行目\n')
+  })
+})
+
+describe('messageToDatBody', () => {
+  const tokens = (text) =>
+    parseBody(messageToDatBody(text)).blocks.flatMap((b) => b.tokens)
+
+  it('>> をアンカーとして解析できる形にする', () => {
+    const got = tokens('>>434\n本文')
+    expect(got[0]).toMatchObject({ type: 'anchor', text: '>>434' })
+    expect(parseBody(messageToDatBody('>>434\n本文')).plain).toBe('>>434\n本文')
+  })
+
+  it('タグに見える入力をタグとして扱わない', () => {
+    expect(parseBody(messageToDatBody('<b>太字</b>')).plain).toBe('<b>太字</b>')
+  })
+})
+
+describe('messageStats', () => {
+  it('改行を除いて数え、絵文字は 1 文字にする', () => {
+    expect(messageStats('あ😀\nい')).toEqual({ chars: 3, lines: 2 })
+  })
+
+  it('空なら 0', () => {
+    expect(messageStats('')).toEqual({ chars: 0, lines: 0 })
   })
 })
 

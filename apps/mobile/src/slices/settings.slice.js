@@ -35,6 +35,10 @@ export const DEFAULTS = {
   gestures: DEFAULT_GESTURES,
   /** 書き込み画面を開いたときの sage の初期値。書き込みごとに変えられる（§8-9） */
   composeSageDefault: false,
+  /** 書き込んだあとも書き込み画面を閉じない（§8-9） */
+  composeKeepOpen: false,
+  /** 書き込み履歴を残す。切ると「自分」の印も新しく付かない（§8-13） */
+  keepPostHistory: true,
   /** セルラーでは画像を自動で読まない（§9-6） */
   cellularSaveData: true,
 }

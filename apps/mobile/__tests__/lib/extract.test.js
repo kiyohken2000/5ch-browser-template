@@ -3,6 +3,7 @@ import {
   extractGroups,
   findMyResNumbers,
   findRepliesToMe,
+  idSequences,
   parseResTime,
 } from 'lib/extract'
 import { parseBody } from 'lib/body'
@@ -67,6 +68,21 @@ describe('findMyResNumbers', () => {
     expect([
       ...findMyResNumbers(rows, [{ message: ' 一行目 \n二行目\n', at }]),
     ]).toEqual([1])
+  })
+})
+
+describe('idSequences', () => {
+  it('ID ごとの何番目かと総数を返す', () => {
+    const got = idSequences([
+      { no: 1, id: 'a' },
+      { no: 2, id: 'b' },
+      { no: 3, id: 'a' },
+      { no: 4, id: '' },
+    ])
+    expect(got.get(1)).toEqual({ seq: 1, count: 2 })
+    expect(got.get(3)).toEqual({ seq: 2, count: 2 })
+    expect(got.get(2)).toEqual({ seq: 1, count: 1 })
+    expect(got.has(4)).toBe(false)
   })
 })
 

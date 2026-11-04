@@ -42,6 +42,7 @@ export const KEYS = {
   nameHistory: 'nameHistory.v1',
   postDefaults: 'postDefaults.v1',
   postDrafts: 'postDrafts.v1',
+  termsConsent: 'termsConsent.v1',
   searchHistory: 'searchHistory.v1',
   // 端末固有（同期しない — §10-1）
   scrollPositions: 'scrollPositions.v1',

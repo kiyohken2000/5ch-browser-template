@@ -1,0 +1,149 @@
+/**
+ * レスの見出し。本文リストとシートで同じものを使う。
+ *
+ * 色と項目はデスクトップ版に揃える（番号 / 名前 / ワッチョイ / メール / ▼N、日付 / ID / BE）。
+ * 画面が狭いので、名前は折り返し、ID は 2 行目の右に寄せる。
+ */
+
+import React from 'react'
+import { Pressable, StyleSheet, Text, View } from 'react-native'
+
+import { idColor, idIcon } from 'lib/idcolor'
+import { splitNameWatchoi } from 'lib/parse'
+
+export default function ResponseHeader({
+  row,
+  theme,
+  fontSize,
+  backlinks,
+  mine,
+  replyToMe,
+  idSeq,
+  onId,
+  onBacklinks,
+  children,
+}) {
+  const { name, watchoi } = splitNameWatchoi(row.name)
+  const small = fontSize - 4
+  const color = idColor(row.id, theme.dark)
+
+  return (
+    <View style={styles.wrap}>
+      <View style={styles.line}>
+        <Text
+          style={[styles.no, { color: theme.resNo, fontSize: fontSize - 3 }]}
+        >
+          {row.no}
+        </Text>
+        {mine ? (
+          <Text style={[styles.tag, { color: theme.mine, fontSize: small }]}>
+            [自分]
+          </Text>
+        ) : null}
+        {replyToMe ? (
+          <Text style={[styles.tag, { color: theme.reply, fontSize: small }]}>
+            [自分宛]
+          </Text>
+        ) : null}
+        <Text
+          style={[
+            styles.name,
+            { color: theme.resName, fontSize: fontSize - 3 },
+          ]}
+        >
+          {name || '名無し'}
+        </Text>
+        {watchoi ? (
+          <Text style={{ color: theme.textDim, fontSize: small }}>
+            ({watchoi})
+          </Text>
+        ) : null}
+        {row.mail ? (
+          <Text style={{ color: theme.textDim, fontSize: small }}>
+            [{row.mail}]
+          </Text>
+        ) : null}
+        {backlinks && backlinks.length > 0 ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`レス ${row.no} への返信 ${backlinks.length} 件`}
+            onPress={() => onBacklinks && onBacklinks(row.no)}
+            hitSlop={8}
+          >
+            <Text
+              style={[
+                styles.backlinks,
+                { color: theme.link, fontSize: fontSize - 3 },
+              ]}
+            >
+              ▼{backlinks.length}
+            </Text>
+          </Pressable>
+        ) : null}
+        {children}
+      </View>
+
+      <View style={styles.line2}>
+        <Text style={{ color: theme.textFaint, fontSize: small }}>
+          {row.date}
+        </Text>
+        <View style={styles.right}>
+          {row.id ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`ID:${row.id}`}
+              onPress={() => onId && onId(row.id)}
+              hitSlop={6}
+            >
+              <Text
+                style={[
+                  styles.id,
+                  { color: color || theme.textDim, fontSize: small },
+                ]}
+              >
+                {idIcon(row.id)} ID:{row.id}
+                {idSeq && idSeq.count > 1
+                  ? `(${idSeq.seq}/${idSeq.count})`
+                  : ''}
+              </Text>
+            </Pressable>
+          ) : null}
+          {row.be ? (
+            <Text style={{ color: theme.be, fontSize: small }}>
+              BE:{row.be}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  wrap: { gap: 1 },
+  line: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    columnGap: 5,
+  },
+  line2: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    columnGap: 8,
+  },
+  right: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    columnGap: 6,
+    marginLeft: 'auto',
+  },
+  no: { fontWeight: '700' },
+  name: { fontWeight: '700' },
+  tag: { fontWeight: '700' },
+  backlinks: { fontWeight: '700' },
+  id: { fontWeight: '600' },
+})

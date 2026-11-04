@@ -261,6 +261,15 @@ describe('submitPost', () => {
 })
 
 describe('resultText', () => {
+  it('回線の失敗は何が起きたかを伝える', () => {
+    expect(resultText({ kind: 'uncertain', reason: 'timeout' })).toContain(
+      '応答がありませんでした',
+    )
+    expect(resultText({ kind: 'uncertain', reason: 'network' })).toContain(
+      '通信が切れました',
+    )
+  })
+
   it('uncertain は送り直す前の確認を促す', () => {
     expect(resultText({ kind: 'uncertain', message: null })).toContain(
       '送り直す前に',

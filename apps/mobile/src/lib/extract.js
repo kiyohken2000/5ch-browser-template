@@ -56,6 +56,24 @@ export function extractGroups(rows, backlinks, mine) {
   }
 }
 
+/** ID ごとの何番目の書き込みか。レス番号 → `{ seq, count }`。 */
+export function idSequences(rows) {
+  const counts = new Map()
+  for (const row of rows) {
+    if (row.id) counts.set(row.id, (counts.get(row.id) || 0) + 1)
+  }
+  const seen = new Map()
+  const out = new Map()
+  for (const row of rows) {
+    if (row.id) {
+      const seq = (seen.get(row.id) || 0) + 1
+      seen.set(row.id, seq)
+      out.set(row.no, { seq, count: counts.get(row.id) })
+    }
+  }
+  return out
+}
+
 /** `2026/11/04(水) 23:26:46.07` を時刻にする。5ch の時刻は日本時間。 */
 export function parseResTime(date) {
   const m = /(\d{4})\/(\d{1,2})\/(\d{1,2})\D+(\d{1,2}):(\d{2}):(\d{2})/.exec(

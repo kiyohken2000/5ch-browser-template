@@ -73,9 +73,15 @@ import {
   tapScrollDirection,
   twoFingerPattern,
 } from 'lib/gestures'
-import { extractGroups, findMyResNumbers, findRepliesToMe } from 'lib/extract'
+import {
+  extractGroups,
+  findMyResNumbers,
+  findRepliesToMe,
+  idSequences,
+} from 'lib/extract'
 import { HttpError } from 'lib/http'
 import { collectImages, extractMedia } from 'lib/media'
+import { quoteReply } from 'lib/postDrafts'
 import useIsCellular from 'lib/useIsCellular'
 import { applyNg, visibleResponses } from 'lib/ng'
 import { parseDatBytes } from 'lib/parse'
@@ -201,7 +207,7 @@ export default function Thread({ route, navigation }) {
   const gotoRef = useRef(null)
   const [extractOpen, setExtractOpen] = useState(false)
   /** 本文の絞り込み。null なら全レス */
-  const [filterKey, setFilterKey] = useState(null)
+  const [filterKey, setFilterKey] = useState(route.params.initialFilter ?? null)
   /** 絞り込む前に見ていたレス番号。解除したらそこへ戻す */
   const noBeforeFilter = useRef(null)
   /** dat が 404 を返した。保存した本文があれば見せ続ける */
@@ -406,6 +412,7 @@ export default function Thread({ route, navigation }) {
     [parsedRows, ngFilters],
   )
   const shown = useMemo(() => visibleResponses(ngRows), [ngRows])
+  const idSeqs = useMemo(() => idSequences(parsedRows), [parsedRows])
 
   // 自分のレスは本文と時刻の照合で求める（lib/extract.js）
   const mineNos = useMemo(
@@ -887,12 +894,13 @@ export default function Thread({ route, navigation }) {
       navigation.navigate('Post', {
         threadId,
         threadUrl,
+        threadRouteKey: route.key,
         boardUrl,
         boardName,
         title,
         quote,
       }),
-    [navigation, threadId, threadUrl, boardUrl, boardName, title],
+    [navigation, threadId, threadUrl, route.key, boardUrl, boardName, title],
   )
 
   // 書き込み画面から戻ったら、書いたレスを取りに行って末尾へ送る。
@@ -915,6 +923,13 @@ export default function Thread({ route, navigation }) {
         run: () => {
           closeMenu()
           openPost(`>>${no}\n`)
+        },
+      },
+      {
+        label: '引用して返信',
+        run: () => {
+          closeMenu()
+          openPost(quoteReply(no, plainBody))
         },
       },
       {
@@ -972,6 +987,7 @@ export default function Thread({ route, navigation }) {
       restoredRef.current ||
       loading ||
       markerIndex < 0 ||
+      filterKey ||
       shown.length === 0
     ) {
       return undefined
@@ -1140,6 +1156,7 @@ export default function Thread({ route, navigation }) {
         highlighted={item.no === currentHitNo}
         mine={mineNos.has(item.no)}
         replyToMe={repliesToMe.has(item.no)}
+        idSeq={idSeqs.get(item.no)}
         mediaOptions={mediaOptions}
         onImage={setViewerUrl}
         onTap={onTapRow}
@@ -1158,6 +1175,7 @@ export default function Thread({ route, navigation }) {
       backlinks,
       markerIndex,
       filterKey,
+      idSeqs,
       currentHitNo,
       mediaOptions,
       onTapRow,
@@ -1417,6 +1435,15 @@ export default function Thread({ route, navigation }) {
         onId={openId}
         onUrl={openUrl}
         onJump={jumpToNo}
+        idSeqs={idSeqs}
+        onReply={
+          datDropped
+            ? undefined
+            : (no) => {
+                dismissAll()
+                openPost(`>>${no}\n`)
+              }
+        }
       />
 
       {extractOpen ? (

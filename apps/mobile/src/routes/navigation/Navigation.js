@@ -45,6 +45,8 @@ import Post from 'scenes/post/Post'
 import Search from 'scenes/search/Search'
 import AccountSettings from 'scenes/settings/AccountSettings'
 import NgSettings from 'scenes/settings/NgSettings'
+import PostHistory from 'scenes/settings/PostHistory'
+import Terms from 'scenes/settings/Terms'
 import Settings from 'scenes/settings/Settings'
 import Thread from 'scenes/thread/Thread'
 import Threads from 'scenes/threads/Threads'
@@ -176,6 +178,22 @@ function SettingsStack() {
         component={AccountSettings}
         options={{
           title: 'アカウント',
+          headerBackAccessibilityLabel: '戻る',
+        }}
+      />
+      <Stack.Screen
+        name="PostHistory"
+        component={PostHistory}
+        options={{
+          title: '書き込み履歴',
+          headerBackAccessibilityLabel: '戻る',
+        }}
+      />
+      <Stack.Screen
+        name="Terms"
+        component={Terms}
+        options={{
+          title: '書き込みの利用条件',
           headerBackAccessibilityLabel: '戻る',
         }}
       />

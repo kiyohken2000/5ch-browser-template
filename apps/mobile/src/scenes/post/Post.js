@@ -7,10 +7,12 @@
  * 送信ボタンは送信中に押せない。二重投稿を画面の側でも防ぐ。
  */
 
+import { CommonActions } from '@react-navigation/native'
 import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -19,6 +21,7 @@ import {
   KeyboardAvoidingView,
   Linking,
   Pressable,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -26,17 +29,25 @@ import {
   View,
 } from 'react-native'
 import { useDispatch, useSelector } from 'react-redux'
+import Toast from 'react-native-toast-message'
 
+import ResponseBody from 'components/ResponseBody'
+import TermsBody from 'components/TermsBody'
+import { parseBody } from 'lib/body'
 import {
   appendQuote,
   mailToRemember,
   mailToSend,
+  messageStats,
+  messageToDatBody,
+  pushName,
   sageChecked,
   withoutDraft,
   withDraft,
 } from 'lib/postDrafts'
 import { resultText, submitPost } from 'lib/post'
 import { KEYS, load, save } from 'lib/storage'
+import { hasConsented, TERMS_VERSION } from 'lib/terms'
 import { normalizeExternalUrl } from 'lib/urls'
 import { recordMyPost } from 'slices/watch.slice'
 import { useEmberTheme } from 'theme/ember'
@@ -48,8 +59,15 @@ function warnIfFailed(ok, what) {
 }
 
 export default function Post({ route, navigation }) {
-  const { threadId, threadUrl, boardUrl, boardName, title, quote } =
-    route.params
+  const {
+    threadId,
+    threadUrl,
+    threadRouteKey,
+    boardUrl,
+    boardName,
+    title,
+    quote,
+  } = route.params
   const dispatch = useDispatch()
   const beLoggedIn = useSelector((state) => state.account.be.status === 'in')
   const upliftLoggedIn = useSelector(
@@ -58,6 +76,8 @@ export default function Post({ route, navigation }) {
   const theme = useEmberTheme()
   const fontSize = useSelector((state) => state.settings.fontSize)
   const sageDefault = useSelector((state) => state.settings.composeSageDefault)
+  const keepOpen = useSelector((state) => state.settings.composeKeepOpen)
+  const keepHistory = useSelector((state) => state.settings.keepPostHistory)
   // キーボードの余白の計算に使う、画面の上端の位置（ヘッダーの高さの分）
   const [topOffset, setTopOffset] = useState(0)
   const rootRef = useRef(null)
@@ -70,21 +90,46 @@ export default function Post({ route, navigation }) {
   const [loaded, setLoaded] = useState(false)
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState(null)
+  /** null は確認中。同意するまで入力欄を出さない */
+  const [consented, setConsented] = useState(null)
+  const [names, setNames] = useState([])
+  const [nameFocused, setNameFocused] = useState(false)
+  const [preview, setPreview] = useState(false)
   const sendingRef = useRef(false)
   const draftsRef = useRef({})
 
   useEffect(() => {
     let alive = true
-    Promise.all([load(KEYS.postDefaults, {}), load(KEYS.postDrafts, {})]).then(
-      ([defaults, drafts]) => {
-        if (!alive) return
-        draftsRef.current = drafts && typeof drafts === 'object' ? drafts : {}
-        setName(defaults?.name || '')
-        setMail(mailToRemember(defaults?.mail))
-        setMessage(appendQuote(draftsRef.current[threadUrl], quote))
-        setLoaded(true)
-      },
+    load(KEYS.termsConsent, null).then((stored) => {
+      if (alive) setConsented(hasConsented(stored))
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const acceptTerms = useCallback(() => {
+    setConsented(true)
+    save(KEYS.termsConsent, { version: TERMS_VERSION, at: Date.now() }).then(
+      (ok) => warnIfFailed(ok, '同意'),
     )
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    Promise.all([
+      load(KEYS.postDefaults, {}),
+      load(KEYS.postDrafts, {}),
+      load(KEYS.nameHistory, []),
+    ]).then(([defaults, drafts, history]) => {
+      if (!alive) return
+      setNames(Array.isArray(history) ? history : [])
+      draftsRef.current = drafts && typeof drafts === 'object' ? drafts : {}
+      setName(defaults?.name || '')
+      setMail(mailToRemember(defaults?.mail))
+      setMessage(appendQuote(draftsRef.current[threadUrl], quote))
+      setLoaded(true)
+    })
     return () => {
       alive = false
     }
@@ -141,38 +186,65 @@ export default function Post({ route, navigation }) {
       setResult(got)
       return
     }
-    latestRef.current.posted = true
-    dispatch(
-      recordMyPost({
-        threadId,
-        threadUrl,
-        boardUrl,
-        boardName,
-        title,
-        message,
-        at: Date.now(),
-      }),
-    )
+    const nextNames = pushName(names, name)
+    setNames(nextNames)
+    save(KEYS.nameHistory, nextNames).then((ok) => warnIfFailed(ok, '名前履歴'))
+    if (keepHistory) {
+      dispatch(
+        recordMyPost({
+          threadId,
+          threadUrl,
+          boardUrl,
+          boardName,
+          title,
+          message,
+          at: Date.now(),
+        }),
+      )
+    }
     draftsRef.current = withoutDraft(draftsRef.current, threadUrl)
     save(KEYS.postDrafts, draftsRef.current).then((ok) =>
       warnIfFailed(ok, '本文'),
     )
+    if (keepOpen && threadRouteKey) {
+      // 閉じずに次を書ける。後ろのスレには新着を取りに行かせる
+      setMessage('')
+      setPreview(false)
+      Toast.show({ type: 'success', text1: '書き込みました' })
+      navigation.dispatch({
+        ...CommonActions.setParams({ postedAt: Date.now() }),
+        source: threadRouteKey,
+      })
+      return
+    }
+    latestRef.current.posted = true
     navigation.popTo('Thread', { postedAt: Date.now() }, { merge: true })
   }, [
     dispatch,
     threadId,
     threadUrl,
+    threadRouteKey,
     boardUrl,
     boardName,
     title,
     name,
+    names,
     mail,
     sage,
     message,
     navigation,
+    keepOpen,
+    keepHistory,
   ])
 
-  const canSend = loaded && !sending && message.trim().length > 0
+  const canSend =
+    consented === true && loaded && !sending && message.trim().length > 0
+  const stats = messageStats(message)
+  const previewBody = useMemo(
+    () => (preview ? parseBody(messageToDatBody(message)) : null),
+    [preview, message],
+  )
+  const nameChoices = names.filter((n) => n !== name)
   const sageOn = sageChecked(mail, sage)
 
   const toggleSage = useCallback(
@@ -185,6 +257,13 @@ export default function Post({ route, navigation }) {
   )
 
   useLayoutEffect(() => {
+    if (consented === false) {
+      navigation.setOptions({
+        title: '書き込みの利用条件',
+        headerRight: () => null,
+      })
+      return
+    }
     navigation.setOptions({
       title: '書き込み',
       headerRight: () =>
@@ -211,9 +290,57 @@ export default function Post({ route, navigation }) {
           </Pressable>
         ),
     })
-  }, [navigation, sending, canSend, send, theme.accent, theme.textFaint])
+  }, [
+    navigation,
+    consented,
+    sending,
+    canSend,
+    send,
+    theme.accent,
+    theme.textFaint,
+  ])
 
   const authUrl = result?.authUrl ? normalizeExternalUrl(result.authUrl) : null
+
+  if (consented === null) {
+    return <View style={[styles.flex, { backgroundColor: theme.bg }]} />
+  }
+
+  if (consented === false) {
+    return (
+      <View style={[styles.flex, { backgroundColor: theme.bg }]}>
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.termsBody}
+        >
+          <Text style={[styles.termsLead, { color: theme.text }]}>
+            初めて書き込む前に、次の内容を確認してください。
+          </Text>
+          <TermsBody theme={theme} />
+        </ScrollView>
+        <View style={[styles.termsActions, { borderColor: theme.border }]}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={acceptTerms}
+            style={[styles.termsAgree, { backgroundColor: theme.accent }]}
+          >
+            <Text style={[styles.termsAgreeText, { color: theme.badgeText }]}>
+              同意して書き込む
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={{ color: theme.textDim, fontSize: 14 }}>
+              同意しない
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    )
+  }
 
   return (
     <KeyboardAvoidingView
@@ -266,6 +393,8 @@ export default function Post({ route, navigation }) {
           accessibilityLabel="名前"
           value={name}
           onChangeText={setName}
+          onFocus={() => setNameFocused(true)}
+          onBlur={() => setNameFocused(false)}
           placeholder="名前（省略可）"
           placeholderTextColor={theme.textFaint}
           autoCorrect={false}
@@ -287,6 +416,28 @@ export default function Post({ route, navigation }) {
         />
       </View>
 
+      {nameFocused && nameChoices.length > 0 ? (
+        <ScrollView
+          horizontal
+          keyboardShouldPersistTaps="always"
+          showsHorizontalScrollIndicator={false}
+          style={[styles.names, { borderColor: theme.border }]}
+          contentContainerStyle={styles.namesContent}
+        >
+          {nameChoices.map((n) => (
+            <Pressable
+              key={n}
+              accessibilityRole="button"
+              accessibilityLabel={`名前を ${n} にする`}
+              onPress={() => setName(n)}
+              style={[styles.nameChip, { borderColor: theme.border }]}
+            >
+              <Text style={{ color: theme.textDim, fontSize: 12 }}>{n}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
+
       <View style={[styles.sageRow, { borderColor: theme.border }]}>
         <Text style={{ color: theme.text, fontSize: 14 }}>sage</Text>
         <Text style={[styles.accountHint, { color: theme.textDim }]}>
@@ -303,18 +454,50 @@ export default function Post({ route, navigation }) {
         />
       </View>
 
-      <TextInput
-        accessibilityLabel="本文"
-        value={message}
-        onChangeText={setMessage}
-        placeholder="本文"
-        placeholderTextColor={theme.textFaint}
-        multiline
-        autoFocus
-        textAlignVertical="top"
-        editable={!sending}
-        style={[styles.body, { color: theme.text, fontSize }]}
-      />
+      {previewBody ? (
+        <ScrollView
+          accessibilityLabel="プレビュー"
+          style={styles.flex}
+          contentContainerStyle={styles.previewBody}
+        >
+          <ResponseBody
+            parsed={previewBody}
+            theme={theme}
+            fontSize={fontSize}
+          />
+        </ScrollView>
+      ) : (
+        <TextInput
+          accessibilityLabel="本文"
+          value={message}
+          onChangeText={setMessage}
+          placeholder="本文"
+          placeholderTextColor={theme.textFaint}
+          multiline
+          autoFocus
+          textAlignVertical="top"
+          editable={!sending}
+          style={[styles.body, { color: theme.text, fontSize }]}
+        />
+      )}
+
+      <View style={[styles.counterRow, { borderColor: theme.border }]}>
+        <Text style={{ color: theme.textDim, fontSize: 12 }}>
+          {`${stats.chars} 文字 / ${stats.lines} 行`}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: preview }}
+          hitSlop={8}
+          onPress={() => setPreview((v) => !v)}
+        >
+          <Text
+            style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}
+          >
+            {preview ? '編集に戻る' : 'プレビュー'}
+          </Text>
+        </Pressable>
+      </View>
     </KeyboardAvoidingView>
   )
 }
@@ -348,4 +531,38 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   body: { flex: 1, padding: 16, lineHeight: 22 },
+  previewBody: { padding: 16 },
+  termsBody: { padding: 20, gap: 18 },
+  termsLead: { fontSize: 15, lineHeight: 22 },
+  termsActions: {
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 28,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  termsAgree: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    paddingVertical: 13,
+    borderRadius: 10,
+  },
+  termsAgreeText: { fontSize: 15, fontWeight: '700' },
+  counterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  names: { flexGrow: 0, borderBottomWidth: StyleSheet.hairlineWidth },
+  namesContent: { paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
+  nameChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
 })

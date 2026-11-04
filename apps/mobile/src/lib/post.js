@@ -312,8 +312,15 @@ export async function submitPost(
       return { kind: 'failed', message: e?.message || String(e), authUrl: null }
     }
     console.warn(`[post] 送信に失敗: ${e.kind}`)
-    return { kind: 'uncertain', message: e.message, authUrl: null }
+    return { kind: 'uncertain', message: null, authUrl: null, reason: e.kind }
   }
+}
+
+/** 回線が切れる前提なので、何が起きたかを分けて伝える（§9-10）。 */
+const UNCERTAIN_REASON = {
+  timeout: '応答がありませんでした。\n',
+  network: '通信が切れました。\n',
+  status: 'サーバーでエラーが起きました。\n',
 }
 
 /** 結果を利用者への文にする。次に何をすればいいかが分かるように。 */
@@ -325,7 +332,9 @@ export function resultText(result) {
     case 'error':
       return result.message || '書き込めませんでした。'
     case 'uncertain':
-      return `${server}書き込めたか確認できませんでした。送り直す前にスレを開いて確かめてください。`
+      return `${
+        UNCERTAIN_REASON[result.reason] || server
+      }書き込めたか確認できませんでした。送り直す前にスレを開いて確かめてください。`
     case 'failed':
       return result.message || '書き込めませんでした。'
     default:

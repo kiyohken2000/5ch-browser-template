@@ -25,6 +25,46 @@ export function mailToRemember(mail) {
   return isSageMail(mail) ? '' : mail || ''
 }
 
+/** 名前履歴の件数。 */
+export const MAX_NAMES = 20
+
+/** 使った名前を先頭へ。空の名前は覚えない。 */
+export function pushName(history, name) {
+  const value = (name || '').trim()
+  const items = Array.isArray(history) ? history : []
+  if (!value) return items
+  return [value, ...items.filter((n) => n !== value)].slice(0, MAX_NAMES)
+}
+
+/** 引用つきの返信。本文の各行に `> ` を付ける。 */
+export function quoteReply(no, plainBody) {
+  const lines = (plainBody || '')
+    .split('\n')
+    .map((line) => `> ${line}`)
+    .join('\n')
+  return `>>${no}\n${lines}\n`
+}
+
+/**
+ * 入力した本文を dat の本文の形にする。プレビューで `parseBody` に渡すため。
+ * サーバーと同じく `<` `>` を実体参照にし、改行を `<br>` にする。
+ */
+export function messageToDatBody(text) {
+  return (text || '')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, ' <br> ')
+}
+
+/** 文字数と行数。絵文字も 1 文字に数える。 */
+export function messageStats(text) {
+  const value = text || ''
+  return {
+    chars: Array.from(value.replace(/\n/g, '')).length,
+    lines: value ? value.split('\n').length : 0,
+  }
+}
+
 /** これを超えたら古いものから捨てる。 */
 export const MAX_DRAFTS = 50
 

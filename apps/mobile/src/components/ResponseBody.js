@@ -61,7 +61,7 @@ function InlineTokens({ tokens, theme, fontSize, onAnchor, onId, onUrl }) {
           return (
             <Text
               key={i}
-              style={{ color: theme.accent }}
+              style={{ color: theme.link }}
               onPress={() => onAnchor && onAnchor(t)}
               suppressHighlighting={false}
             >
@@ -87,7 +87,7 @@ function InlineTokens({ tokens, theme, fontSize, onAnchor, onId, onUrl }) {
           return (
             <Text
               key={i}
-              style={[styles.link, { color: theme.accent }]}
+              style={[styles.link, { color: theme.link }]}
               onPress={() => onUrl && onUrl(t.url)}
             >
               {t.text}

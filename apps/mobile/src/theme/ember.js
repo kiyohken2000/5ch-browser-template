@@ -30,6 +30,13 @@ export const light = {
   badgeText: '#ffffff',
   readLine: '#c0441b',
   aaBg: '#fbfbfd',
+  // レスの配色はデスクトップ版に揃える
+  resNo: '#226688',
+  resName: '#008800',
+  link: '#0066cc',
+  be: '#cc6600',
+  mine: '#e08010',
+  reply: '#2090d0',
 }
 
 export const dark = {
@@ -49,6 +56,13 @@ export const dark = {
   badgeText: '#1a1a1b',
   readLine: '#f08050',
   aaBg: '#1f1f21',
+  // レスの配色はデスクトップ版に揃える
+  resNo: '#6a9fb8',
+  resName: '#3a9a3a',
+  link: '#6cb6ff',
+  be: '#ff9933',
+  mine: '#e08010',
+  reply: '#2090d0',
 }
 
 /**
