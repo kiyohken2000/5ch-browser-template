@@ -86,6 +86,7 @@ src/
 - **アイコンはデスクトップ版と同じ炎。** 元は `apps/desktop/src-tauri/icons/icon.png`。
   単純な拡大ではなくアルファをマスクに取り出して塗り直してある
   （作り方は `docs/MOBILE_FEASIBILITY_STUDY.md` §17-4）
-- **`react-native-purchases` と `expo-tracking-transparency` は依存に入っているだけで
-  呼んでいない。** 不変条件 1「広告もアプリ内課金も入れない」はまだ有効。
-  課金を入れるなら先に `docs/MOBILE_FEASIBILITY_STUDY.md` の §2 を書き換えること（未決 #14）
+- **RevenueCat はユーザー数を見るためだけに起動している**（`lib/usageStats.js`）。購入の処理は
+  呼ばない。不変条件 1「広告もアプリ内課金も入れない」は有効で、課金を入れるなら先に
+  `docs/MOBILE_FEASIBILITY_STUDY.md` の §2 を書き換えること。読んでいるスレや板の情報は送らない
+- **`expo-tracking-transparency` は依存に入っているだけで呼んでいない**

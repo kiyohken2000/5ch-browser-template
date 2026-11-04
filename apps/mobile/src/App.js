@@ -12,6 +12,7 @@ import { imageAssets } from 'theme/images'
 import { loadNgFilters } from 'slices/ng.slice'
 import { loadSettings } from 'slices/settings.slice'
 import { loadWatch } from 'slices/watch.slice'
+import { startUsageStats } from 'lib/usageStats'
 import Router from './routes'
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
 
   useEffect(() => {
     let alive = true
+    startUsageStats()
     const boot = async () => {
       // 永続化の読み込みとアセットの先読みを同時に回す。
       // 読み込みが失敗しても起動は止めない（既定値で立ち上げる）。
