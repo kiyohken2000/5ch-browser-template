@@ -7,6 +7,12 @@
 
 export const TERMS_VERSION = 1
 
+/** 5ch の削除要請板（bbsmenu の「運営」カテゴリ）。 */
+export const DELETION_REQUEST_URL = 'https://ace.5ch.io/saku2ch/index2.html'
+/** Ember の問い合わせ先。公式サイトにも載せている。 */
+export const CONTACT_URL =
+  'https://github.com/kiyohken2000/5ch-browser-template/issues'
+
 export const TERMS_SECTIONS = [
   {
     title: '書き込みは公開されます',
@@ -22,11 +28,11 @@ export const TERMS_SECTIONS = [
   },
   {
     title: '不快な書き込みへの対処',
-    body: '他人の書き込みは、NG ワード・NG ID・NG 名前で非表示にできます。削除は 5ch.io の削除依頼から申請してください。',
+    body: '他人の書き込みは、NG ワード・NG ID・NG 名前で非表示にできます。問題のある書き込みは、レスを長押しして「このレスを報告」から 5ch.io の削除要請板へ申請できます。',
   },
   {
     title: 'お問い合わせ',
-    body: 'Ember についてのお問い合わせは、公式サイト（ember-5ch.pages.dev）をご覧ください。',
+    body: 'Ember についてのお問い合わせは、設定の「問い合わせ」から受け付けています。',
   },
 ]
 

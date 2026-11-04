@@ -208,6 +208,7 @@ pin だが、`@react-navigation/{core,elements,native}` はいずれも `^0.2.4`
 | **`expo-system-ui`** | `~58.0.7` | Android のダーク表示とルートの背景色（`userInterfaceStyle` に必要） | M1 |
 | **`expo-document-picker`** | `~58.0.4` | 設定の JSON インポート（§9-7） | M1〜M3 |
 | **`expo-keep-awake`** | `~58.0.3` | オートスクロール中に画面を消さない | M4 |
+| **`expo-web-browser`** | `~58.0.7` | 報告と問い合わせをアプリ内ブラウザで開く。**次の再ビルドから有効**（`lib/inAppBrowser.js`） | M2 |
 | **`@expo/ui`** | `~58.0.27` | SwiftUI / Jetpack Compose の部品。**使うかは未定。** 再ビルドを減らすために先に入れた。スレ本文には使わない（性能の資料が無い。不変条件 4） | 未定 |
 
 **注意 1: Expo Go はもう使えない。** `react-native-purchases` などネイティブモジュールを含む依存が入ったので、**開発ビルド（`expo-dev-client`）が必要**になった。
@@ -1306,7 +1307,7 @@ Ronin（浪人）/ BE / どんぐり / UPLIFT。デスクトップ版は `core-a
 
 BE / UPLIFT のログインも実装した（`src/lib/auth.js`、`src/scenes/settings/AccountSettings.js`）。成否は転送先の URL で判定する（BE は `/status`、UPLIFT は `/dashboard`）。どちらの Cookie も `Domain=.5ch.io` なので、OS の保管に任せれば全サーバーへ送られる。OS の Cookie は個別に消せないので、ログアウトすると全部消して、もう片方は入り直す。
 
-**書き込みの利用条件（2026-11-05）:** 初めて書き込むときに全文を出し、同意するまで入力できない（`src/lib/terms.js`）。App Store Review Guideline 1.2 への対応で、ユーザーが BakuSoku の審査で指摘された経験による。文言を変えて再同意が必要なら `TERMS_VERSION` を上げる。**1.2 は不適切な投稿の報告手段と連絡先も求めるので、報告の導線は提出前に要確認。**
+**書き込みの利用条件（2026-11-05）:** 初めて書き込むときに全文を出し、同意するまで入力できない（`src/lib/terms.js`）。App Store Review Guideline 1.2 への対応で、ユーザーが BakuSoku の審査で指摘された経験による。文言を変えて再同意が必要なら `TERMS_VERSION` を上げる。1.2 が求める報告手段はレスの長押しメニューの「このレスを報告」（5ch の削除要請板 `ace.5ch.io/saku2ch/index2.html` をアプリ内ブラウザで開く。入っていないビルドでは外部ブラウザ）、連絡先は設定の「問い合わせ」（GitHub Issues）。**Ember に通報を受けて処理する仕組みは持たない**（投稿は 5ch 上にあり、Ember から消せない）ので、審査で足りないと言われたら再検討する。
 
 まだ無いもの: どんぐりのログイン。
 

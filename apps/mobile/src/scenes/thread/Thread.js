@@ -80,8 +80,10 @@ import {
   idSequences,
 } from 'lib/extract'
 import { HttpError } from 'lib/http'
+import { openInAppBrowser } from 'lib/inAppBrowser'
 import { collectImages, extractMedia } from 'lib/media'
 import { quoteReply } from 'lib/postDrafts'
+import { CONTACT_URL, DELETION_REQUEST_URL } from 'lib/terms'
 import useIsCellular from 'lib/useIsCellular'
 import { applyNg, visibleResponses } from 'lib/ng'
 import { parseDatBytes } from 'lib/parse'
@@ -958,6 +960,28 @@ export default function Thread({ route, navigation }) {
         run: () => addNgAndClose({ list: 'names', value: name }, name),
       })
     }
+    items.push({
+      label: 'このレスを報告',
+      run: () => {
+        closeMenu()
+        pushSheet({
+          title: `>>${no} を報告`,
+          lead: '問題のある書き込みは、5ch の削除要請板へ申請できます。下のレスの URL を添えてください。見たくない場合は、ID や名前を NG にして隠せます。',
+          rows: pickRows([no]),
+          actions: [
+            { label: 'URL をコピー', onPress: () => copy(resUrl(no), 'URL') },
+            {
+              label: '削除要請板を開く',
+              onPress: () => openInAppBrowser(DELETION_REQUEST_URL),
+            },
+            {
+              label: 'Ember に問い合わせ',
+              onPress: () => openInAppBrowser(CONTACT_URL),
+            },
+          ],
+        })
+      },
+    })
     items.push({
       label: 'ここまで読んだ',
       run: () =>

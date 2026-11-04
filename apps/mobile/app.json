@@ -128,7 +128,8 @@
           ]
         }
       ],
-      "expo-image"
+      "expo-image",
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {

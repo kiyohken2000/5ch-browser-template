@@ -8,6 +8,7 @@
 import React from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
+import { POPULAR_MIN_BACKLINKS } from 'lib/extract'
 import { idColor, idIcon } from 'lib/idcolor'
 import { splitNameWatchoi } from 'lib/parse'
 
@@ -73,7 +74,13 @@ export default function ResponseHeader({
             <Text
               style={[
                 styles.backlinks,
-                { color: theme.link, fontSize: fontSize - 3 },
+                {
+                  color:
+                    backlinks.length >= POPULAR_MIN_BACKLINKS
+                      ? theme.danger
+                      : theme.link,
+                  fontSize: fontSize - 3,
+                },
               ]}
             >
               ▼{backlinks.length}
