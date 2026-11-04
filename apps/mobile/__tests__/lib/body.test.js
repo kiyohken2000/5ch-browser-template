@@ -1,3 +1,4 @@
+import { extractMedia } from 'lib/media'
 import fs from 'fs'
 import path from 'path'
 
@@ -221,5 +222,61 @@ describe('実データ', () => {
     const { entries } = parseDatBytes(load('dat_aa.dat'), 1)
     const withAa = entries.filter((e) => hasAaBlock(parseBody(e.body))).length
     expect(withAa).toBe(entries.length)
+  })
+})
+
+describe('省略された URL', () => {
+  const url = (s) => tokenizeText(s).find((t) => t.type === 'url')
+
+  it.each([
+    ['ttps://example.com/a', 'https://example.com/a'],
+    ['ttp://example.com/a', 'http://example.com/a'],
+    ['ps://example.com/a', 'https://example.com/a'],
+    ['s://example.com/a', 'https://example.com/a'],
+    ['://example.com/a', 'https://example.com/a'],
+    ['example.com/a?b=1', 'https://example.com/a?b=1'],
+    ['見て example.com/a', 'https://example.com/a'],
+  ])('%s を開ける形に戻す', (raw, expected) => {
+    expect(url(raw).url).toBe(expected)
+  })
+
+  it('表示は書かれたままにする', () => {
+    expect(url('ttps://example.com/a').text).toBe('ttps://example.com/a')
+  })
+
+  it.each([
+    'v0.0.287',
+    'example.com',
+    'ver1.2 です',
+    'and/or',
+    'ftp://example.com/a',
+    '名前.com/パス',
+    'メールはa@example.com/b',
+  ])('%s は URL にしない', (raw) => {
+    expect(url(raw)).toBeUndefined()
+  })
+
+  it('BE アイコンを URL にしない', () => {
+    const got = parseBody(' sssp://img.5ch.io/ico/001.gif <br> 本文 ')
+    expect(got.urls).toEqual([])
+  })
+
+  it('日本語の直後のスキームなし URL は読まない', () => {
+    expect(url('これexample.com/a')).toBeUndefined()
+  })
+
+  it('実際の投稿の動画リンクが動画になる', () => {
+    const got = parseBody(
+      ' sssp://img.5ch.io/ico/001.gif <br> きもちいい <br> video.twimg.com/amplify_video/2110606314393198593/vid/avc1/1106x720/u_4elZ_ayNerLf5h.mp4 ',
+    )
+    const media = extractMedia(got.urls)
+    expect(media.videos.map((v) => v.url)).toEqual([
+      'https://video.twimg.com/amplify_video/2110606314393198593/vid/avc1/1106x720/u_4elZ_ayNerLf5h.mp4',
+    ])
+  })
+
+  it('スキームなしの画像も画像になる', () => {
+    const got = parseBody(' i.imgur.com/abc.jpg ')
+    expect(extractMedia(got.urls).images).toHaveLength(1)
   })
 })

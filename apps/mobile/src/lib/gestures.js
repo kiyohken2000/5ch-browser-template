@@ -18,6 +18,19 @@ const PULL_UP_MIN_DY = 70
 /** 2 本指の縦スワイプと認める最小の移動量。 */
 const TWO_FINGER_MIN_DY = 60
 
+/** オートスクロールの速さの範囲（pt/秒）。デスクトップ版は 5〜500 */
+export const AUTO_SCROLL_MIN = 5
+export const AUTO_SCROLL_MAX = 500
+
+/** 速さを 1 段階変える。遅いときは細かく、速いときは大きく。 */
+export function nextAutoScrollSpeed(speed, direction) {
+  const step = direction > 0 ? 1.5 : 1 / 1.5
+  const next = Math.round(speed * step)
+  // 丸めで止まらないよう、最低でも 1 動かす
+  const moved = next === speed ? speed + direction : next
+  return Math.min(AUTO_SCROLL_MAX, Math.max(AUTO_SCROLL_MIN, moved))
+}
+
 export const FONT_MIN = 10
 export const FONT_MAX = 32
 

@@ -43,7 +43,7 @@ const TO_TOP_MIN_OFFSET = 400
 export default function Threads({ route, navigation }) {
   const listRef = useRef(null)
   const [showToTop, setShowToTop] = useState(false)
-  const { boardUrl, boardName } = route.params
+  const { boardUrl, boardName, initialFilter } = route.params
   const theme = useEmberTheme()
   const dispatch = useDispatch()
   const boardFavorites = useSelector((state) => state.watch.boardFavorites)
@@ -55,7 +55,11 @@ export default function Threads({ route, navigation }) {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
   const [sortMode, setSortMode] = useState(DEFAULT_SORT)
-  const [filter, setFilter] = useState('')
+  const [filter, setFilter] = useState(initialFilter || '')
+  // 開いたままの画面へ別の語で来たときも絞り込み直す（BE でスレ抽出など）
+  useEffect(() => {
+    if (initialFilter) setFilter(initialFilter)
+  }, [initialFilter])
   const [filterFocused, setFilterFocused] = useState(false)
   const [filterHistory, setFilterHistory] = useState([])
   // 前回の一覧に無かったスレ。更新しても、この画面を閉じるまでは印を残す

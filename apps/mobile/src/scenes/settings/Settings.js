@@ -96,6 +96,39 @@ export default function Settings({ navigation }) {
     </Row>
   )
 
+  const choiceChips = (key, options) => (
+    <View style={styles.chips}>
+      {options.map(([value, label]) => {
+        const on = settings[key] === value
+        return (
+          <Pressable
+            key={value}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: on }}
+            accessibilityLabel={`${key} ${label}`}
+            onPress={() => set(key, value)}
+            style={[
+              styles.chip,
+              {
+                backgroundColor: on ? theme.accent : 'transparent',
+                borderColor: on ? theme.accent : theme.border,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: on ? theme.badgeText : theme.textDim,
+                fontSize: 12,
+              }}
+            >
+              {label}
+            </Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+
   return (
     <ScrollView
       style={[styles.flex, { backgroundColor: theme.bg }]}
@@ -157,6 +190,14 @@ export default function Settings({ navigation }) {
           </View>
         </Row>
 
+        <Row theme={theme} label="本文の太さ">
+          {choiceChips('bodyWeight', [
+            ['normal', '標準'],
+            ['medium', 'やや太い'],
+            ['bold', '太い'],
+          ])}
+        </Row>
+
         <Row
           theme={theme}
           label="長文を折りたたむ"
@@ -184,6 +225,25 @@ export default function Settings({ navigation }) {
 
       <SettingsSection title="画像とリンク" theme={theme}>
         {toggle('thumbnails', '画像のサムネイルを出す')}
+        <Row theme={theme} label="サムネイルの大きさ">
+          {choiceChips('thumbSize', [
+            [64, '小'],
+            [96, '中'],
+            [140, '大'],
+          ])}
+        </Row>
+        <Row
+          theme={theme}
+          label="大きい画像はタップで読み込む"
+          hint="読み込む前に大きさを確かめます"
+        >
+          {choiceChips('imageMaxKb', [
+            [0, 'なし'],
+            [500, '500K'],
+            [1024, '1M'],
+            [3072, '3M'],
+          ])}
+        </Row>
         {toggle('thumbMask', 'サムネイルをぼかす', '公共の場で開くとき')}
         {toggle(
           'cellularSaveData',

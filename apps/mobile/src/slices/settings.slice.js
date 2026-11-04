@@ -18,6 +18,10 @@ export const DEFAULTS = {
   thumbMask: true,
   /** レスの画像 URL をサムネイルで出す（§8-4） */
   thumbnails: true,
+  /** サムネイルの一辺（pt） */
+  thumbSize: 96,
+  /** これより大きい画像はタップで読み込む（KB）。0 は制限なし */
+  imageMaxKb: 0,
   /** YouTube のサムネイル（§8-4） */
   youtubeThumbs: true,
   /** 外部リンクの OGP カード（§8-4） */
@@ -29,6 +33,10 @@ export const DEFAULTS = {
   aaHorizontalScroll: true,
   /** 本文中の ID をタップできるようにする（§8-4） */
   bodyIdTappable: true,
+  /** オートスクロールの速さ（pt/秒） */
+  autoScrollSpeed: 40,
+  /** 本文の太さ。'normal' | 'medium' | 'bold' */
+  bodyWeight: 'normal',
   /** 画面上部 / 下部のタップで 1 画面分スクロール（twinkle から借用） */
   tapScroll: true,
   /** ジェスチャの割り当て。読むときは normalizeGestures を通す（§9-1） */

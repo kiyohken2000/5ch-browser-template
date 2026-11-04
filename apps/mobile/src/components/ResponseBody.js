@@ -47,13 +47,28 @@ function BeIcons({ icons, size }) {
   )
 }
 
-function InlineTokens({ tokens, theme, fontSize, onAnchor, onId, onUrl }) {
+const WEIGHTS = { normal: '400', medium: '500', bold: '600' }
+
+function InlineTokens({
+  tokens,
+  theme,
+  fontSize,
+  weight,
+  onAnchor,
+  onId,
+  onUrl,
+}) {
   if (tokens.length === 0) return null
   return (
     <Text
       style={[
         styles.body,
-        { color: theme.text, fontSize, lineHeight: fontSize * 1.55 },
+        {
+          color: theme.text,
+          fontSize,
+          lineHeight: fontSize * 1.55,
+          fontWeight: WEIGHTS[weight] || WEIGHTS.normal,
+        },
       ]}
     >
       {tokens.map((t, i) => {
@@ -87,7 +102,7 @@ function InlineTokens({ tokens, theme, fontSize, onAnchor, onId, onUrl }) {
           return (
             <Text
               key={i}
-              style={[styles.link, { color: theme.link }]}
+              style={{ color: theme.link }}
               onPress={() => onUrl && onUrl(t.url)}
             >
               {t.text}
@@ -132,6 +147,7 @@ export default function ResponseBody({
   parsed,
   theme,
   fontSize = 15,
+  weight = 'normal',
   hideImages = false,
   onAnchor,
   onId,
@@ -155,6 +171,7 @@ export default function ResponseBody({
               tokens={tokens}
               theme={theme}
               fontSize={fontSize}
+              weight={weight}
               onAnchor={onAnchor}
               onId={onId}
               onUrl={onUrl}
@@ -170,7 +187,6 @@ const styles = StyleSheet.create({
   container: { gap: 4 },
   body: {},
   bodyId: { fontWeight: '600' },
-  link: { textDecorationLine: 'underline' },
   beIcons: { flexDirection: 'row', gap: 4 },
   aaWrap: {
     borderWidth: StyleSheet.hairlineWidth,

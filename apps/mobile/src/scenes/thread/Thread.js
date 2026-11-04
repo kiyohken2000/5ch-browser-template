@@ -30,6 +30,7 @@ import { FlashList } from '@shopify/flash-list'
 import { BlurView } from 'expo-blur'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import React, {
   forwardRef,
   useCallback,
@@ -58,6 +59,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useDispatch, useSelector } from 'react-redux'
 
 import Icon from 'components/Icon'
+import ImageGallery from 'components/ImageGallery'
 import ImageViewer from 'components/ImageViewer'
 import ResponseItem from 'components/ResponseItem'
 import ResponseSheet from 'components/ResponseSheet'
@@ -67,6 +69,7 @@ import {
   isAtBottom,
   isPullAtBottom,
   nextPageOffset,
+  nextAutoScrollSpeed,
   normalizeGestures,
   pinchFontSize,
   tapScrollDirection,
@@ -80,6 +83,7 @@ import {
 } from 'lib/extract'
 import { HttpError } from 'lib/http'
 import { parseDatBytes, splitNameWatchoi, watchoiParts } from 'lib/parse'
+import { beProfileUrl, beThreadHistoryUrl } from 'lib/be'
 import { openInAppBrowser } from 'lib/inAppBrowser'
 import { collectImages, extractMedia } from 'lib/media'
 import { quoteReply } from 'lib/postDrafts'
@@ -111,6 +115,7 @@ import { showToast } from 'utils/showToast'
 /** 本文の上に重ねるバーの高さ（ガラスの下をレスが通る — §9-3）。 */
 const FOOTER_HEIGHT = 44
 const TOP_SETTLE_INTERVAL_MS = 250
+const AUTO_SCROLL_INTERVAL_MS = 33
 const TOP_SETTLE_MAX_TICKS = 12
 /** スレタイのタップで出す先頭のレス数。 */
 const HEAD_RES_COUNT = 20
@@ -208,6 +213,10 @@ export default function Thread({ route, navigation }) {
   const gotoRef = useRef(null)
   const [extractOpen, setExtractOpen] = useState(false)
   const [listTop, setListTop] = useState(0)
+  const [galleryOpen, setGalleryOpen] = useState(false)
+  const [beMenu, setBeMenu] = useState(null)
+  const beMenuRef = useRef(null)
+  const [autoScrolling, setAutoScrolling] = useState(false)
   /** 本文の絞り込み。null なら全レス */
   const [filterKey, setFilterKey] = useState(route.params.initialFilter ?? null)
   /** 絞り込む前に見ていたレス番号。解除したらそこへ戻す */
@@ -440,6 +449,10 @@ export default function Thread({ route, navigation }) {
   )
 
   const closeViewer = useCallback(() => setViewerUrl(null), [])
+  const galleryImages = useMemo(
+    () => (galleryOpen ? collectImages(shown) : []),
+    [galleryOpen, shown],
+  )
 
   /** ビューアの並び。今見ている画像が一覧に無ければ、その 1 枚だけにする。 */
   const viewerImages = useMemo(() => {
@@ -487,6 +500,8 @@ export default function Thread({ route, navigation }) {
   const mediaOptions = useMemo(
     () => ({
       saveData,
+      thumbSize: settings.thumbSize,
+      imageMaxKb: settings.imageMaxKb,
       thumbnails: settings.thumbnails,
       thumbMask: settings.thumbMask,
       youtubeThumbs: settings.youtubeThumbs,
@@ -494,6 +509,8 @@ export default function Thread({ route, navigation }) {
     }),
     [
       saveData,
+      settings.thumbSize,
+      settings.imageMaxKb,
       settings.thumbnails,
       settings.thumbMask,
       settings.youtubeThumbs,
@@ -555,6 +572,37 @@ export default function Thread({ route, navigation }) {
   }, [stopSettlingTop])
 
   useEffect(() => stopSettlingTop, [stopSettlingTop])
+
+  // オートスクロール。指で触るか末尾に着いたら止まる。読んでいる間は画面を消さない
+  const speedRef = useRef(settings.autoScrollSpeed)
+  speedRef.current = settings.autoScrollSpeed
+  useEffect(() => {
+    if (!autoScrolling) return undefined
+    const tag = 'ember-auto-scroll'
+    activateKeepAwakeAsync(tag).catch((e) =>
+      console.warn(`[thread] 画面を点けたままにできない: ${e?.message || e}`),
+    )
+    let { offset } = scrollRef.current
+    let last = Date.now()
+    const id = setInterval(() => {
+      const now = Date.now()
+      if (scrollRef.current.atBottom) {
+        setAutoScrolling(false)
+        return
+      }
+      offset += (speedRef.current * (now - last)) / 1000
+      last = now
+      if (listRef.current) {
+        listRef.current.scrollToOffset({ offset, animated: false })
+      }
+    }, AUTO_SCROLL_INTERVAL_MS)
+    return () => {
+      clearInterval(id)
+      deactivateKeepAwake(tag).catch((e) =>
+        console.warn(`[thread] 画面の設定を戻せない: ${e?.message || e}`),
+      )
+    }
+  }, [autoScrolling])
 
   const scrollToLast = useCallback(() => {
     if (listRef.current) listRef.current.scrollToEnd({ animated: true })
@@ -661,6 +709,43 @@ export default function Thread({ route, navigation }) {
   useEffect(() => {
     if (extractOpen && extractRef.current) extractRef.current.present()
   }, [extractOpen])
+
+  useEffect(() => {
+    if (beMenu && beMenuRef.current) beMenuRef.current.present()
+  }, [beMenu])
+
+  /** デスクトップ版と同じ 4 項目。 */
+  const beActions = useMemo(() => {
+    if (!beMenu) return []
+    return [
+      {
+        label: 'ブラウザで開く',
+        run: () => openInAppBrowser(beProfileUrl(beMenu)),
+      },
+      {
+        label: 'この BE でスレ抽出',
+        run: () =>
+          navigation.navigate('Tabs', {
+            screen: 'BoardTab',
+            params: {
+              screen: 'Threads',
+              params: { boardUrl, boardName, initialFilter: beMenu },
+            },
+          }),
+      },
+      {
+        label: 'この BE をスレタイ NG に追加',
+        run: () => {
+          dispatch(addNg({ list: 'threadWords', value: beMenu }))
+          showToast({ title: 'NG に追加しました', body: `BE:${beMenu}` })
+        },
+      },
+      {
+        label: 'スレ立て履歴を表示',
+        run: () => openInAppBrowser(beThreadHistoryUrl(beMenu)),
+      },
+    ]
+  }, [beMenu, boardUrl, boardName, navigation, dispatch])
 
   /** 絞り込みを切り替える。解除したら元の位置へ戻す。 */
   const chooseFilter = useCallback(
@@ -1203,6 +1288,7 @@ export default function Thread({ route, navigation }) {
         row={item}
         theme={theme}
         fontSize={settings.fontSize}
+        bodyWeight={settings.bodyWeight}
         backlinks={backlinks.get(item.no)}
         collapseLines={
           settings.collapseLongPosts ? settings.collapseLineThreshold : 0
@@ -1218,6 +1304,7 @@ export default function Thread({ route, navigation }) {
         onAnchor={openAnchor}
         onId={openId}
         onBacklinks={openBacklinks}
+        onBe={setBeMenu}
         onUrl={openUrl}
         onLongPress={setMenuRow}
       />
@@ -1225,12 +1312,14 @@ export default function Thread({ route, navigation }) {
     [
       theme,
       settings.fontSize,
+      settings.bodyWeight,
       settings.collapseLongPosts,
       settings.collapseLineThreshold,
       backlinks,
       markerIndex,
       filterKey,
       idSeqs,
+      setBeMenu,
       currentHitNo,
       mediaOptions,
       onTapRow,
@@ -1273,6 +1362,65 @@ export default function Thread({ route, navigation }) {
           >
             <Text style={{ color: theme.accent, fontWeight: '600' }}>解除</Text>
           </Pressable>
+        </View>
+      ) : null}
+
+      {autoScrolling ? (
+        <View
+          style={[
+            styles.filterBar,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <Text style={[styles.filterText, { color: theme.text }]}>
+            オートスクロール {settings.autoScrollSpeed}
+          </Text>
+          <View style={styles.autoScrollButtons}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="遅くする"
+              hitSlop={8}
+              onPress={() =>
+                dispatch(
+                  setSetting({
+                    key: 'autoScrollSpeed',
+                    value: nextAutoScrollSpeed(settings.autoScrollSpeed, -1),
+                  }),
+                )
+              }
+            >
+              <Text style={{ color: theme.accent, fontWeight: '600' }}>
+                遅く
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="速くする"
+              hitSlop={8}
+              onPress={() =>
+                dispatch(
+                  setSetting({
+                    key: 'autoScrollSpeed',
+                    value: nextAutoScrollSpeed(settings.autoScrollSpeed, 1),
+                  }),
+                )
+              }
+            >
+              <Text style={{ color: theme.accent, fontWeight: '600' }}>
+                速く
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="オートスクロールを止める"
+              hitSlop={8}
+              onPress={() => setAutoScrolling(false)}
+            >
+              <Text style={{ color: theme.danger, fontWeight: '600' }}>
+                停止
+              </Text>
+            </Pressable>
+          </View>
         </View>
       ) : null}
 
@@ -1388,7 +1536,10 @@ export default function Thread({ route, navigation }) {
             keyExtractor={(r) => String(r.no)}
             keyboardShouldPersistTaps="handled"
             scrollEventThrottle={64}
-            onScrollBeginDrag={stopSettlingTop}
+            onScrollBeginDrag={() => {
+              stopSettlingTop()
+              setAutoScrolling(false)
+            }}
             onScroll={(e) => {
               const { contentOffset, layoutMeasurement, contentSize } =
                 e.nativeEvent
@@ -1492,6 +1643,11 @@ export default function Thread({ route, navigation }) {
         onId={openId}
         onUrl={openUrl}
         onJump={jumpToNo}
+        onBe={(be) => {
+          dismissAll()
+          setBeMenu(be)
+        }}
+        bodyWeight={settings.bodyWeight}
         topInset={listTop}
         idSeqs={idSeqs}
         onReply={
@@ -1503,6 +1659,43 @@ export default function Thread({ route, navigation }) {
               }
         }
       />
+
+      {beMenu ? (
+        <BottomSheetModal
+          animationConfigs={animationConfigs}
+          accessible={false}
+          ref={beMenuRef}
+          name="be-menu"
+          stackBehavior="push"
+          enablePanDownToClose
+          enableDynamicSizing
+          backdropComponent={renderMenuBackdrop}
+          backgroundStyle={{ backgroundColor: theme.surface }}
+          handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
+          onDismiss={() => setBeMenu(null)}
+        >
+          <BottomSheetView style={styles.menu}>
+            <Text style={[styles.menuTitle, { color: theme.textDim }]}>
+              {`BE:${beMenu}`}
+            </Text>
+            {beActions.map((a) => (
+              <Pressable
+                key={a.label}
+                accessibilityRole="button"
+                style={styles.menuItem}
+                onPress={() => {
+                  a.run()
+                  if (beMenuRef.current) beMenuRef.current.dismiss()
+                }}
+              >
+                <Text style={[styles.menuText, { color: theme.text }]}>
+                  {a.label}
+                </Text>
+              </Pressable>
+            ))}
+          </BottomSheetView>
+        </BottomSheetModal>
+      ) : null}
 
       {extractOpen ? (
         <BottomSheetModal
@@ -1554,6 +1747,30 @@ export default function Thread({ route, navigation }) {
                 </Text>
               </Pressable>
             ))}
+            <Pressable
+              accessibilityRole="button"
+              style={styles.extractItem}
+              onPress={() => {
+                if (extractRef.current) extractRef.current.dismiss()
+                setAutoScrolling(true)
+              }}
+            >
+              <Text style={[styles.menuText, { color: theme.text }]}>
+                オートスクロール
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              style={[styles.extractItem, { borderColor: theme.border }]}
+              onPress={() => {
+                if (extractRef.current) extractRef.current.dismiss()
+                setGalleryOpen(true)
+              }}
+            >
+              <Text style={[styles.menuText, { color: theme.text }]}>
+                画像の一覧を開く
+              </Text>
+            </Pressable>
             {filterKey ? (
               <Pressable
                 accessibilityRole="button"
@@ -1691,6 +1908,20 @@ export default function Thread({ route, navigation }) {
         </BottomSheetModal>
       ) : null}
 
+      {galleryOpen ? (
+        <ImageGallery
+          images={galleryImages}
+          theme={theme}
+          mediaOptions={mediaOptions}
+          onOpen={setViewerUrl}
+          onJump={(no) => {
+            setGalleryOpen(false)
+            jumpToNo(no)
+          }}
+          onClose={() => setGalleryOpen(false)}
+        />
+      ) : null}
+
       <Modal
         visible={viewerUrl !== null}
         transparent
@@ -1789,6 +2020,7 @@ const styles = StyleSheet.create({
   },
   filterText: { fontSize: 13, fontWeight: '600' },
   datBar: { paddingHorizontal: 16, paddingVertical: 9 },
+  autoScrollButtons: { flexDirection: 'row', gap: 18 },
   extractItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',

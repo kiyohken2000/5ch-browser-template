@@ -20,6 +20,7 @@ function ResponseItem({
   row,
   theme,
   fontSize,
+  bodyWeight,
   backlinks,
   collapseLines,
   showReadLine,
@@ -33,6 +34,7 @@ function ResponseItem({
   onAnchor,
   onId,
   onBacklinks,
+  onBe,
   onUrl,
   onLongPress,
 }) {
@@ -101,11 +103,13 @@ function ResponseItem({
           idSeq={idSeq}
           onId={onId}
           onBacklinks={onBacklinks}
+          onBe={onBe}
         />
 
         <View style={collapsed ? styles.collapsed : null}>
           <ResponseBody
             parsed={row.parsed}
+            weight={bodyWeight}
             hideImages={shouldHideImages(row)}
             theme={theme}
             fontSize={fontSize}

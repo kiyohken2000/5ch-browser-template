@@ -12,22 +12,74 @@ import { Image } from 'expo-image'
 import React, { memo, useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
+import { fetchImageBytes, formatBytes, isOverLimit } from 'lib/imageSize'
 import { fetchOgp, isUsableCard } from 'lib/ogp'
 import { splitUrl } from 'lib/urls'
 import Icon from './Icon'
+import InlineVideo from './InlineVideo'
 
 const THUMB = 96
 const MASK_BLUR = 30
 
-function Thumb({ uri, masked, deferred, theme, onOpen, video, label }) {
+export function Thumb({
+  uri,
+  masked,
+  deferred,
+  maxKb = 0,
+  size = THUMB,
+  square = false,
+  theme,
+  onOpen,
+  onLongPress,
+  video,
+  label,
+}) {
   const [revealed, setRevealed] = useState(false)
   const [loadRequested, setLoadRequested] = useState(false)
   const [failed, setFailed] = useState(false)
+  /** 制限を超えた画像の大きさ。超えていなければ null */
+  const [overBytes, setOverBytes] = useState(null)
+  const [sizeChecked, setSizeChecked] = useState(!(maxKb > 0) || !!video)
 
-  if (failed) return null
+  useEffect(() => {
+    if (!(maxKb > 0) || video || deferred) {
+      setSizeChecked(true)
+      return undefined
+    }
+    let alive = true
+    fetchImageBytes(uri).then((bytes) => {
+      if (!alive) return
+      setOverBytes(isOverLimit(bytes, maxKb) ? bytes : null)
+      setSizeChecked(true)
+    })
+    return () => {
+      alive = false
+    }
+  }, [uri, maxKb, video, deferred])
 
-  // セルラーでは、タップされるまで画像に接続しない（§9-6）
-  if (deferred && !loadRequested) {
+  const boxStyle = [
+    styles.thumb,
+    { width: size, height: size, backgroundColor: theme.surfaceAlt },
+    square ? styles.square : null,
+  ]
+
+  if (failed) {
+    // 一覧ではマスが抜けると番号だけが浮くので、読めなかったことを出す
+    if (!square) return null
+    return (
+      <Pressable onLongPress={onLongPress} style={boxStyle}>
+        <Text style={[styles.deferredText, { color: theme.textFaint }]}>
+          読み込めませんでした
+        </Text>
+      </Pressable>
+    )
+  }
+
+  // 大きさを確かめている間は接続しない
+  if (!sizeChecked) return <View style={boxStyle} />
+
+  // セルラーと、大きすぎる画像は、タップされるまで画像に接続しない（§9-6）
+  if ((deferred || overBytes !== null) && !loadRequested) {
     return (
       <Pressable
         accessibilityLabel={`${label}を読み込む`}
@@ -36,11 +88,13 @@ function Thumb({ uri, masked, deferred, theme, onOpen, video, label }) {
           setLoadRequested(true)
           setRevealed(true)
         }}
-        style={[styles.thumb, { backgroundColor: theme.surfaceAlt }]}
+        onLongPress={onLongPress}
+        style={boxStyle}
       >
         <View style={styles.deferred}>
           <Icon name="download" size={20} color={theme.textDim} />
           <Text style={[styles.deferredText, { color: theme.textDim }]}>
+            {overBytes !== null ? `${formatBytes(overBytes)}\n` : ''}
             タップで読み込む
           </Text>
         </View>
@@ -55,7 +109,8 @@ function Thumb({ uri, masked, deferred, theme, onOpen, video, label }) {
       accessibilityLabel={label}
       accessibilityRole="imagebutton"
       onPress={() => (hidden ? setRevealed(true) : onOpen())}
-      style={[styles.thumb, { backgroundColor: theme.surfaceAlt }]}
+      onLongPress={onLongPress}
+      style={boxStyle}
     >
       <Image
         source={{ uri }}
@@ -157,7 +212,10 @@ function ResponseMedia({ media, options, hideImages, theme, onImage, onUrl }) {
   const videos = !hideImages && options.youtubeThumbs ? media.youtube : []
   // カードはリンク先へ自動で接続するので、セルラーでは出さない。リンク自体は本文にある
   const links = options.ogpCards && !options.saveData ? media.links : []
-  if (images.length + videos.length + links.length === 0) return null
+  const files = !hideImages ? media.videos || [] : []
+  if (images.length + videos.length + links.length + files.length === 0) {
+    return null
+  }
 
   return (
     <View style={styles.wrap}>
@@ -170,6 +228,8 @@ function ResponseMedia({ media, options, hideImages, theme, onImage, onUrl }) {
               label="画像"
               masked={options.thumbMask}
               deferred={options.saveData}
+              maxKb={options.imageMaxKb}
+              size={options.thumbSize}
               theme={theme}
               onOpen={() => onImage && onImage(m.url)}
             />
@@ -181,6 +241,7 @@ function ResponseMedia({ media, options, hideImages, theme, onImage, onUrl }) {
               label="動画"
               masked={options.thumbMask}
               deferred={options.saveData}
+              size={options.thumbSize}
               theme={theme}
               video
               onOpen={() => onUrl && onUrl(m.url)}
@@ -188,6 +249,15 @@ function ResponseMedia({ media, options, hideImages, theme, onImage, onUrl }) {
           ))}
         </View>
       ) : null}
+      {files.map((m) => (
+        <InlineVideo
+          key={m.url}
+          url={m.url}
+          theme={theme}
+          autoThumb={options.thumbnails && !options.saveData}
+          masked={options.thumbMask}
+        />
+      ))}
       {links.map((m) => (
         <OgpCard
           key={m.url}
@@ -215,9 +285,8 @@ const styles = StyleSheet.create({
   deferredText: { fontSize: 10, textAlign: 'center' },
   wrap: { gap: 6, marginTop: 6 },
   thumbs: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  square: { borderRadius: 0 },
   thumb: {
-    width: THUMB,
-    height: THUMB,
     borderRadius: 6,
     overflow: 'hidden',
     alignItems: 'center',

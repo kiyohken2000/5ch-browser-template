@@ -20,8 +20,8 @@ const IMAGE_EXT_RE = /\.(?:jpe?g|png|gif|webp|heic|avif)$/i
 const YOUTUBE_RE =
   /(?:youtu\.be\/|youtube\.com\/(?:embed\/|shorts\/|watch\?[^"]*v=))([A-Za-z0-9_-]{11})/i
 
-/** 動画はサムネイルにできないのでカードにもしない。 */
-const VIDEO_EXT_RE = /\.(?:mp4|webm|mov|m3u8)$/i
+/** 動画ファイルへの直リンク。タップしてその場で再生する。 */
+const VIDEO_EXT_RE = /\.(?:mp4|webm|mov|m3u8)\/?$/i
 
 /** 自動で通信してよいホストか。ローカル / プライベートのアドレスを弾く。 */
 export function isPublicHost(host) {
@@ -48,7 +48,7 @@ export function isPublicHost(host) {
 
 /**
  * 1 つの URL を分類する。
- * @returns {{kind: 'image'|'youtube'|'link'|'none', url: string, videoId?: string, thumb?: string}}
+ * @returns {{kind: 'image'|'youtube'|'video'|'link'|'none', url: string, videoId?: string, thumb?: string}}
  */
 export function classifyUrl(raw) {
   const url = normalizeExternalUrl(raw)
@@ -66,7 +66,15 @@ export function classifyUrl(raw) {
     }
   }
   if (IMAGE_EXT_RE.test(parts.path)) return { kind: 'image', url }
-  if (VIDEO_EXT_RE.test(parts.path)) return { kind: 'none', url }
+  if (VIDEO_EXT_RE.test(parts.path)) {
+    // `.mp4/` と書かれることがある。スラッシュ付きのままでは取得できない
+    return {
+      kind: 'video',
+      url: `${parts.scheme}://${parts.host}${
+        parts.port ? `:${parts.port}` : ''
+      }${parts.path.replace(/\/$/, '')}${parts.query}${parts.hash}`,
+    }
+  }
   if (isAllowedHost(parts.host)) return { kind: 'none', url }
   return { kind: 'link', url }
 }
@@ -80,14 +88,16 @@ export function extractMedia(urls, options = {}) {
   const { maxCards = 2 } = options
   const images = []
   const youtube = []
+  const videos = []
   const links = []
   for (const raw of urls || []) {
     const c = classifyUrl(raw)
     if (c.kind === 'image') images.push(c)
     else if (c.kind === 'youtube') youtube.push(c)
+    else if (c.kind === 'video') videos.push(c)
     else if (c.kind === 'link' && links.length < maxCards) links.push(c)
   }
-  return { images, youtube, links }
+  return { images, youtube, videos, links }
 }
 
 /**

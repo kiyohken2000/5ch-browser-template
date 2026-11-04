@@ -67,9 +67,11 @@ function SheetLayer({
   onUrl,
   onJump,
   onReply,
+  onBe,
   onImage,
   idSeqs,
   topInset,
+  bodyWeight,
 }) {
   const animationConfigs = useSheetAnimation()
   const ref = useRef(null)
@@ -130,23 +132,11 @@ function SheetLayer({
             fontSize={fontSize}
             idSeq={idSeqs?.get(item.no)}
             onId={onId}
-          >
-            {onReply ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`レス ${item.no} に返信`}
-                hitSlop={8}
-                onPress={() => onReply(item.no)}
-                style={styles.reply}
-              >
-                <Text style={{ color: theme.accent, fontSize: fontSize - 3 }}>
-                  ここにレス
-                </Text>
-              </Pressable>
-            ) : null}
-          </ResponseHeader>
+            onBe={onBe}
+          />
           <ResponseBody
             parsed={item.parsed}
+            weight={bodyWeight}
             hideImages={shouldHideImages(item)}
             theme={theme}
             fontSize={fontSize}
@@ -162,6 +152,19 @@ function SheetLayer({
             onImage={onImage}
             onUrl={onUrl}
           />
+          {onReply ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`レス ${item.no} に返信`}
+              hitSlop={8}
+              onPress={() => onReply(item.no)}
+              style={styles.reply}
+            >
+              <Text style={{ color: theme.accent, fontSize: fontSize - 3 }}>
+                ここにレス
+              </Text>
+            </Pressable>
+          ) : null}
         </Pressable>
       )
     },
@@ -171,7 +174,9 @@ function SheetLayer({
       mediaOptions,
       onJump,
       onReply,
+      onBe,
       idSeqs,
+      bodyWeight,
       onAnchor,
       onId,
       onUrl,
@@ -279,7 +284,7 @@ export default function ResponseSheet({ stack, ...rest }) {
 }
 
 const styles = StyleSheet.create({
-  reply: { marginLeft: 'auto' },
+  reply: { alignSelf: 'flex-end', marginTop: 8 },
   head: {
     flexDirection: 'row',
     alignItems: 'center',

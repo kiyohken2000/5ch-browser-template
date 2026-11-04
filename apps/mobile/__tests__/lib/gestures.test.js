@@ -5,6 +5,7 @@ import {
   pinchFontSize,
   tapScrollDirection,
   DEFAULT_GESTURES,
+  nextAutoScrollSpeed,
   normalizeGestures,
   twoFingerPattern,
 } from 'lib/gestures'
@@ -115,5 +116,18 @@ describe('pinchFontSize', () => {
   it('10〜32 に収める', () => {
     expect(pinchFontSize(15, 0.1)).toBe(10)
     expect(pinchFontSize(15, 10)).toBe(32)
+  })
+})
+
+describe('nextAutoScrollSpeed', () => {
+  it('上げ下げできて、範囲に収まる', () => {
+    expect(nextAutoScrollSpeed(40, 1)).toBe(60)
+    expect(nextAutoScrollSpeed(60, -1)).toBe(40)
+    expect(nextAutoScrollSpeed(500, 1)).toBe(500)
+    expect(nextAutoScrollSpeed(5, -1)).toBe(5)
+  })
+
+  it('小さい値でも丸めで止まらない', () => {
+    expect(nextAutoScrollSpeed(5, 1)).toBeGreaterThan(5)
   })
 })

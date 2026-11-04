@@ -34,8 +34,25 @@ const ANCHOR_RE =
 /** 本文中の ID。v0.0.317 でデスクトップ版が本文 ID の着色を入れた箇所と同じ形。 */
 const ID_RE = /\bID:([0-9A-Za-z+/]{6,12}(?:●|＠|@)?)/
 
-/** URL。末尾の句読点・閉じ括弧は URL に含めない。 */
-const URL_RE = /https?:\/\/[^\s<>"'（）()「」【】、。]+/
+/**
+ * URL。末尾の句読点・閉じ括弧は URL に含めない。
+ *
+ * デスクトップ版と同じく、5ch でよく書かれる省略形も URL として読む。
+ * `ttps://` `ps://` `s://` `://` と、行頭や空白の直後の `example.com/path`。
+ * スキームなしの形は誤認しやすいので、スラッシュ付きの ASCII だけに限る。
+ */
+const URL_RE =
+  /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>"'（）()「」【】、。]+|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>"\u0080-\uFFFF]+/
+
+/** 省略された URL を開ける形に戻す。 */
+export function completeUrl(raw) {
+  if (/^https?:\/\//i.test(raw)) return raw
+  if (/^ttps?:\/\//i.test(raw)) return `h${raw}`
+  if (/^ps:\/\//i.test(raw)) return `htt${raw}`
+  if (/^s:\/\//i.test(raw)) return `http${raw}`
+  if (raw.startsWith('://')) return `https${raw}`
+  return `https://${raw}`
+}
 
 /**
  * BE アイコンを文字のトークンから分ける。アイコンの行に残る改行も落とすので、
@@ -124,7 +141,7 @@ export function tokenizeText(text) {
         to: nums.length > 0 ? nums[nums.length - 1] : 0,
       })
     } else if (hit.type === 'url') {
-      tokens.push({ type: 'url', text: whole, url: whole })
+      tokens.push({ type: 'url', text: whole, url: completeUrl(whole) })
     } else if (hit.type === 'id') {
       tokens.push({ type: 'id', text: whole, id: hit.m[1] })
     } else {

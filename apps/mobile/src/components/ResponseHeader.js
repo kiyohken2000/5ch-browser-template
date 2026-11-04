@@ -22,7 +22,7 @@ export default function ResponseHeader({
   idSeq,
   onId,
   onBacklinks,
-  children,
+  onBe,
 }) {
   const { name, watchoi } = splitNameWatchoi(row.name)
   const small = fontSize - 4
@@ -87,7 +87,6 @@ export default function ResponseHeader({
             </Text>
           </Pressable>
         ) : null}
-        {children}
       </View>
 
       <View style={styles.line2}>
@@ -116,9 +115,17 @@ export default function ResponseHeader({
             </Pressable>
           ) : null}
           {row.be ? (
-            <Text style={{ color: theme.be, fontSize: small }}>
-              BE:{row.be}
-            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`BE:${row.be}`}
+              hitSlop={6}
+              disabled={!onBe}
+              onPress={() => onBe && onBe(row.be)}
+            >
+              <Text style={{ color: theme.be, fontSize: small }}>
+                BE:{row.be}
+              </Text>
+            </Pressable>
           ) : null}
         </View>
       </View>

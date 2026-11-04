@@ -64,7 +64,19 @@ describe('classifyUrl', () => {
   })
 
   it('動画ファイルはカードにしない', () => {
-    expect(classifyUrl('https://example.com/a.mp4').kind).toBe('none')
+    expect(classifyUrl('https://example.com/a.mp4').kind).toBe('video')
+    expect(classifyUrl('https://example.com/a.mp4/')).toEqual({
+      kind: 'video',
+      url: 'https://example.com/a.mp4',
+    })
+    expect(classifyUrl('https://example.com/a.mp4?x=1').url).toBe(
+      'https://example.com/a.mp4?x=1',
+    )
+    expect(
+      classifyUrl(
+        'https://video.twimg.com/amplify_video/1/vid/avc1/1106x720/a.mp4?tag=1',
+      ).kind,
+    ).toBe('video')
   })
 
   it('プライベートのアドレスの画像も取りに行かない', () => {

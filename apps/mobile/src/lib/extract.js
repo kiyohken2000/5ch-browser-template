@@ -11,7 +11,8 @@ export const POPULAR_MIN_BACKLINKS = 3
 /** 自分の書き込みとレスの時刻の差の許容。端末とサーバーの時計のずれを見込む。 */
 const MY_POST_WINDOW_MS = 10 * 60 * 1000
 
-const VIDEO_URL_RE = /\.(?:mp4|webm|mov|m3u8)(?:[?#]|$)/i
+const VIDEO_URL_RE =
+  /\.(?:mp4|webm|mov|m3u8)\/?(?:[?#]|$)|nicovideo\.jp|nico\.ms/i
 
 /** 「画像だけ隠す」の NG が掛かったレスは、画像と動画の抽出に出さない。 */
 function imagesHidden(row) {
@@ -26,12 +27,15 @@ function hasVideo(row) {
   if (imagesHidden(row)) return false
   return (
     (row.media?.youtube?.length || 0) > 0 ||
+    (row.media?.videos?.length || 0) > 0 ||
     (row.parsed?.urls || []).some((u) => VIDEO_URL_RE.test(u))
   )
 }
 
 function hasExternalLink(row) {
-  return (row.parsed?.urls || []).some((u) => classifyUrl(u).kind === 'link')
+  return (row.parsed?.urls || []).some(
+    (u) => classifyUrl(u).kind === 'link' && !VIDEO_URL_RE.test(u),
+  )
 }
 
 /**
