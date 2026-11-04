@@ -11,5 +11,15 @@ web-build/
 web-report/
 *.idea
 *.DS_Store
-dist.expo-export*/
+dist/
+.expo-export*/
 
+# prebuild が生成するネイティブプロジェクト。
+# Expo の CNG (continuous native generation) に乗るので、app.json と
+# config plugin が正典であり、ios/ と android/ は使い捨て。
+# `npx expo run:ios` / `run:android` を回すとここに数百ファイル出るが、
+# コミットしない。ネイティブを直接いじる必要が出たら、そのときに
+# bare workflow へ移るかどうかを決める (その場合はこの 3 行を外す)。
+/ios/
+/android/
+Podfile.lock
