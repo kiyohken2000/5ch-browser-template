@@ -670,10 +670,32 @@ export default function Thread({ route, navigation }) {
     [threadUrl],
   )
 
+  const openPost = useCallback(
+    (quote) => navigation.navigate('Post', { threadUrl, title, quote }),
+    [navigation, threadUrl, title],
+  )
+
+  // 書き込み画面から戻ったら、書いたレスを取りに行く。読んでいる位置は動かさない
+  const { postedAt } = route.params
+  const handledPostRef = useRef(postedAt)
+  useEffect(() => {
+    if (!postedAt || handledPostRef.current === postedAt) return
+    handledPostRef.current = postedAt
+    showToast({ title: '書き込みました' })
+    readDelta()
+  }, [postedAt, readDelta])
+
   const menuActions = useMemo(() => {
     if (!menuRow) return []
     const { no, id, name, plainBody } = menuRow
     const items = [
+      {
+        label: 'このレスに返信',
+        run: () => {
+          closeMenu()
+          openPost(`>>${no}\n`)
+        },
+      },
       {
         label: 'このレスをコピー',
         run: () => copy(plainBody, `>>${no}`),
@@ -1138,6 +1160,13 @@ export default function Thread({ route, navigation }) {
             : ''}
         </Text>
         <Pressable
+          onPress={() => openPost()}
+          hitSlop={8}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.footerBtn, { color: theme.accent }]}>書く</Text>
+        </Pressable>
+        <Pressable
           onPress={() => setGotoOpen((v) => !v)}
           hitSlop={8}
           accessibilityRole="button"
@@ -1174,6 +1203,7 @@ export default function Thread({ route, navigation }) {
 
       {menuRow ? (
         <BottomSheetModal
+          accessible={false}
           ref={menuRef}
           name="response-menu"
           stackBehavior="push"

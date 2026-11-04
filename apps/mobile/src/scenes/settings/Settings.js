@@ -281,6 +281,14 @@ export default function Settings() {
         ))}
       </Section>
 
+      <Section title="書き込み" theme={theme}>
+        {toggle(
+          'composeSageDefault',
+          'sage を最初からオンにする',
+          '書き込み画面を開いたときの初期状態',
+        )}
+      </Section>
+
       <Section title="キャッシュ" theme={theme}>
         <Row
           theme={theme}

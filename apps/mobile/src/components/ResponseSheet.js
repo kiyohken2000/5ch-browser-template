@@ -90,6 +90,7 @@ function SheetLayer({
       }
       return (
         <Pressable
+          accessible={false}
           onPress={() => onJump && onJump(item.no)}
           style={[styles.row, { borderColor: theme.border }]}
         >
@@ -149,6 +150,7 @@ function SheetLayer({
 
   return (
     <BottomSheetModal
+      accessible={false}
       ref={ref}
       name={`response-sheet-${index}`}
       stackBehavior="push"

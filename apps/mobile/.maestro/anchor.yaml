@@ -1,0 +1,23 @@
+# §16-3 項目 3: >> をタップするとポップアップが出て、ポップアップ内の >> で連鎖して辿れる
+# 実行時に渡す値: ANCHOR_FROM（>> を含むレス）/ ANCHOR_1（その参照先）/ ANCHOR_2（さらにその参照先）
+appId: net.votepurchase.ember
+tags: [release]
+---
+- runFlow: open-thread.yaml
+- tapOn: "番号へ"
+- inputText: "${ANCHOR_FROM}"
+- pressKey: Enter
+- waitForAnimationToEnd
+- tapOn: ">>${ANCHOR_1}"
+- extendedWaitUntil:
+    visible: ".*>>${ANCHOR_1}.*>>${ANCHOR_FROM} から.*"
+    timeout: 5000
+# 背景のレスにも同じ >> が見えるので、シートの中（「閉じる」より下）に絞る
+- tapOn:
+    text: ">>${ANCHOR_2}"
+    below: "閉じる"
+- extendedWaitUntil:
+    visible: ".*>>${ANCHOR_2}.*>>${ANCHOR_1} から.*"
+    timeout: 5000
+- takeScreenshot: anchor_chain
+- tapOn: "閉じる"

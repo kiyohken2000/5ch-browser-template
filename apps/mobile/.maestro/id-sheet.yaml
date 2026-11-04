@@ -1,0 +1,14 @@
+# §16-3 項目 4: ID をタップすると同じ ID のレス一覧が出る
+appId: net.votepurchase.ember
+tags: [release]
+---
+- runFlow: open-thread.yaml
+- tapOn:
+    text: "ID:${NG_ID}"
+    index: 0
+- extendedWaitUntil:
+    visible: "この ID を NG に追加"
+    timeout: 5000
+- takeScreenshot: id_sheet
+- assertVisible: "ID をコピー"
+- tapOn: "閉じる"

@@ -1,0 +1,8 @@
+# 監視リストから検査用のスレを開く。各フローから runFlow で呼ぶ。
+appId: net.votepurchase.ember
+---
+- tapOn: "ホーム, tab, 1 of 4"
+- tapOn: ".*${THREAD_TITLE}.*"
+- extendedWaitUntil:
+    visible: "末尾へ"
+    timeout: 15000

@@ -20,6 +20,7 @@
  *   ember://thread?threadUrl=<スレ URL>
  *   ember://board?boardUrl=<板 URL>&boardName=<板名>
  *   ember://search / ember://settings
+ * 書き込み画面はスレビューから全画面モーダルで開く。リンクからは開けない。
  */
 
 import React from 'react'
@@ -37,6 +38,7 @@ import Toast from 'react-native-toast-message'
 import Icon from 'components/Icon'
 import Boards from 'scenes/boards/Boards'
 import Home from 'scenes/home/Home'
+import Post from 'scenes/post/Post'
 import Search from 'scenes/search/Search'
 import Settings from 'scenes/settings/Settings'
 import Thread from 'scenes/thread/Thread'
@@ -221,6 +223,14 @@ export default function Navigation() {
             name="Thread"
             component={Thread}
             options={{ headerBackAccessibilityLabel: '戻る' }}
+          />
+          <RootStack.Screen
+            name="Post"
+            component={Post}
+            options={{
+              presentation: 'modal',
+              headerBackAccessibilityLabel: '閉じる',
+            }}
           />
         </RootStack.Navigator>
       </NavigationContainer>

@@ -33,6 +33,8 @@ export const DEFAULTS = {
   tapScroll: true,
   /** ジェスチャの割り当て。読むときは normalizeGestures を通す（§9-1） */
   gestures: DEFAULT_GESTURES,
+  /** 書き込み画面を開いたときの sage の初期値。書き込みごとに変えられる（§8-9） */
+  composeSageDefault: false,
   /** セルラーでは画像を自動で読まない（§9-6） */
   cellularSaveData: true,
 }

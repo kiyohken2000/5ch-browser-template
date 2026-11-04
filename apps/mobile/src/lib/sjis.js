@@ -47,7 +47,12 @@ export function encodeSjis(text) {
   if (!text) return new Uint8Array(0)
   const codes = Encoding.stringToCode(text)
   return Uint8Array.from(
-    Encoding.convert(codes, { to: 'SJIS', from: 'UNICODE' }),
+    // Shift_JIS に無い文字（絵文字など）は 5ch が解釈する数値文字参照で送る
+    Encoding.convert(codes, {
+      to: 'SJIS',
+      from: 'UNICODE',
+      fallback: 'html-entity',
+    }),
   )
 }
 

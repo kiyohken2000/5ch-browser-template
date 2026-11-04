@@ -1,0 +1,23 @@
+# §16-3 項目 12（本文と ID シート）: NG に入れた ID が本文から消える。最後に登録を消す
+appId: net.votepurchase.ember
+tags: [release]
+onFlowComplete:
+  - tapOn:
+      text: "戻る"
+      optional: true
+  - tapOn: "設定, tab, 4 of 4"
+  - scrollUntilVisible:
+      element: "${NG_ID}"
+      direction: DOWN
+  - tapOn:
+      text: "削除"
+      rightOf: "${NG_ID}"
+---
+- runFlow: open-thread.yaml
+- tapOn:
+    text: "ID:${NG_ID}"
+    index: 0
+- tapOn: "この ID を NG に追加"
+- waitForAnimationToEnd
+- takeScreenshot: ng_after
+- assertNotVisible: "ID:${NG_ID}"

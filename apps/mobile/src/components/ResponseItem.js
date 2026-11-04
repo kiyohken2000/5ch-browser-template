@@ -69,6 +69,7 @@ function ResponseItem({
       ) : null}
 
       <Pressable
+        accessible={false}
         onPress={(e) => onTap && onTap(e)}
         onLongPress={() => onLongPress && onLongPress(row)}
         delayLongPress={350}
@@ -100,6 +101,8 @@ function ResponseItem({
           </Text>
           {backlinks && backlinks.length > 0 ? (
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`レス ${row.no} への返信 ${backlinks.length} 件`}
               onPress={() => onBacklinks && onBacklinks(row.no)}
               hitSlop={8}
             >
@@ -125,7 +128,12 @@ function ResponseItem({
             {row.date}
           </Text>
           {row.id ? (
-            <Pressable onPress={() => onId && onId(row.id)} hitSlop={6}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`ID:${row.id}`}
+              onPress={() => onId && onId(row.id)}
+              hitSlop={6}
+            >
               <Text
                 style={[
                   styles.id,

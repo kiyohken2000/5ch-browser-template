@@ -8,6 +8,7 @@
 
 import React, { useCallback, useState } from 'react'
 import {
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -64,6 +65,21 @@ export default function Home({ navigation }) {
     setRefreshing(false)
   }, [watchList, dispatch])
 
+  /** 長押しの誤操作で消えないように、確かめてから外す。 */
+  const confirmRemove = useCallback(
+    (item) => {
+      Alert.alert('監視リストから外しますか？', item.title || '(無題)', [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: '外す',
+          style: 'destructive',
+          onPress: () => dispatch(removeFromWatch(item.threadId)),
+        },
+      ])
+    },
+    [dispatch],
+  )
+
   return (
     <View style={[styles.flex, { backgroundColor: theme.bg }]}>
       <FlatList
@@ -90,7 +106,7 @@ export default function Home({ navigation }) {
                   totalCount: item.totalCount,
                 })
               }
-              onLongPress={() => dispatch(removeFromWatch(item.threadId))}
+              onLongPress={() => confirmRemove(item)}
               style={({ pressed }) => [
                 styles.row,
                 {
