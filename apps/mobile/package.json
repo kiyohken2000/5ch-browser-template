@@ -28,6 +28,7 @@
     "@react-navigation/native": "^7.1.17",
     "@react-navigation/stack": "^7.4.8",
     "@reduxjs/toolkit": "^2.9.0",
+    "@shopify/flash-list": "2.3.2",
     "@shopify/react-native-skia": "2.14.0",
     "encoding-japanese": "^2.5.0",
     "expo": "^58.0.23",

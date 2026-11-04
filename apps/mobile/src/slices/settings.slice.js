@@ -30,8 +30,6 @@ export const DEFAULTS = {
   bodyIdTappable: true,
   /** 画面上部 / 下部のタップで 1 画面分スクロール（twinkle から借用） */
   tapScroll: true,
-  /** 左右スワイプで監視リストの前後のスレへ（§9-1） */
-  swipeThreads: true,
   /** セルラーでは画像を自動で読まない（§9-6） */
   cellularSaveData: true,
 }

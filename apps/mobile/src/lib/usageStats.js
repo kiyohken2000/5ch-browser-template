@@ -11,20 +11,24 @@
  */
 
 import { Platform } from 'react-native'
-import Purchases, { LOG_LEVEL } from 'react-native-purchases'
+import Purchases from 'react-native-purchases'
 
 const API_KEYS = {
   ios: 'appl_kpiSVerbTxJWtkcjEQKNfrBIyHN',
   android: 'goog_bhsacFIQwqkigFugbbinmIrQzzd',
 }
 
+function ignoreLog() {}
+
 export function startUsageStats() {
   const apiKey = API_KEYS[Platform.OS]
   if (!apiKey) return false
   try {
     // 商品を登録していないので、SDK は商品の取得失敗を毎回エラーとして記録する。
-    // 使っていない機能のログなので止める。起動の失敗は下の catch で拾う
-    Purchases.setLogLevel(LOG_LEVEL.SILENT)
+    // 使っていない機能のログなので画面にもコンソールにも出さない。
+    // configure より先に登録する（登録が無いと configure が console へ流す処理を
+    // 入れる。setLogLevel は非同期で間に合わない）。起動の失敗は下の catch で拾う
+    Purchases.setLogHandler(ignoreLog)
     Purchases.configure({ apiKey })
     return true
   } catch (e) {

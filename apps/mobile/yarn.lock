@@ -1940,6 +1940,11 @@
   resolved "https://registry.yarnpkg.com/@rtsao/scc/-/scc-1.1.0.tgz#927dd2fae9bc3361403ac2c7a00c32ddce9ad7e8"
   integrity sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==
 
+"@shopify/flash-list@2.3.2":
+  version "2.3.2"
+  resolved "https://registry.yarnpkg.com/@shopify/flash-list/-/flash-list-2.3.2.tgz#d96a00f2195629b070117f1eaabc12f8b25be8f1"
+  integrity sha512-vQnd0y0Ag11yzS30llaeCrtIU3xYTMe7KEOP3dveLImnVjQEUw6BEg1+Ztja6aODlVNz1BpvxtlQ5eZGxiLwKw==
+
 "@shopify/react-native-skia@2.14.0":
   version "2.14.0"
   resolved "https://registry.yarnpkg.com/@shopify/react-native-skia/-/react-native-skia-2.14.0.tgz#bdccc54b61a4efed78f114df0f436218ae3d7831"

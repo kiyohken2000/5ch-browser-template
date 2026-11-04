@@ -100,3 +100,19 @@ export function findResponses(rows, query) {
     return terms.every((t) => hay.includes(t))
   })
 }
+
+/**
+ * レス番号から、表示中の行の位置を引く。
+ * NG で隠れたレスを指定されたら、そのすぐ後の表示中のレスを返す
+ * （隠れたレスの中身は見せず、読む位置だけ合わせる — 不変条件 2）。
+ *
+ * @param {Array<{no: number}>} rows 表示中の行（レス番号の昇順）
+ * @param {number} no
+ * @returns {{index: number, no: number, exact: boolean}|null} 範囲外なら null
+ */
+export function findRowByNo(rows, no) {
+  if (!Number.isInteger(no) || no < 1) return null
+  const index = (rows || []).findIndex((r) => r.no >= no)
+  if (index < 0) return null
+  return { index, no: rows[index].no, exact: rows[index].no === no }
+}

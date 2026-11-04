@@ -22,7 +22,7 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "net.votepurchase.ember",
       "buildNumber": "1",
       "infoPlist": {

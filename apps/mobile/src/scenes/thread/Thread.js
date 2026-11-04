@@ -26,19 +26,28 @@ import {
   BottomSheetView,
   useBottomSheetModal,
 } from '@gorhom/bottom-sheet'
+import { FlashList } from '@shopify/flash-list'
 import { BlurView } from 'expo-blur'
 import * as Clipboard from 'expo-clipboard'
 import * as Haptics from 'expo-haptics'
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import {
   ActivityIndicator,
   BackHandler,
-  FlatList,
+  Keyboard,
   Linking,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -56,19 +65,17 @@ import ResponseSheet from 'components/ResponseSheet'
 import { fetchDat, fetchDatDelta } from 'lib/api'
 import { buildBacklinks, parseBody } from 'lib/body'
 import {
-  adjacentThread,
+  isAtBottom,
+  isPullAtBottom,
   nextPageOffset,
   pinchFontSize,
-  swipeAction,
-  SWIPE_EDGE,
   tapScrollDirection,
-  touchedAaSince,
   twoFingerAction,
 } from 'lib/gestures'
 import { collectImages, extractMedia } from 'lib/media'
 import { applyNg, visibleResponses } from 'lib/ng'
 import { parseDatBytes } from 'lib/parse'
-import { findResponses } from 'lib/search'
+import { findResponses, findRowByNo } from 'lib/search'
 import {
   appendCachedThread,
   getCachedThread,
@@ -129,15 +136,15 @@ export default function Thread({ route, navigation }) {
   const ngFilters = useSelector(selectNgFilters)
   const settings = useSelector((state) => state.settings)
   const readMarkers = useSelector((state) => state.watch.readMarkers)
-  const watchList = useSelector((state) => state.watch.watchList)
 
   const { dismissAll } = useBottomSheetModal()
   const menuRef = useRef(null)
   const listRef = useRef(null)
   const listBoxRef = useRef(null)
   const stateRef = useRef({ byteLength: 0, entryCount: 0, lastModified: null })
-  const scrollRef = useRef({ offset: 0, height: 0, top: 0 })
-  const swipeBeganAt = useRef(0)
+  const scrollRef = useRef({ offset: 0, height: 0, top: 0, atBottom: false })
+  const pullStartedAtBottom = useRef(false)
+  const gestureRef = useRef(null)
 
   const [entries, setEntries] = useState([])
   const [title, setTitle] = useState(initialTitle || '')
@@ -151,6 +158,9 @@ export default function Thread({ route, navigation }) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [hitAt, setHitAt] = useState(0)
+  const [checkingNew, setCheckingNew] = useState(false)
+  const [gotoOpen, setGotoOpen] = useState(false)
+  const [gotoNo, setGotoNo] = useState('')
 
   const threadId = useMemo(() => {
     try {
@@ -246,9 +256,11 @@ export default function Thread({ route, navigation }) {
         dispatch(updateCount({ threadId, totalCount: entryCount }))
       }
       dispatch(markSeen({ threadId, totalCount: stateRef.current.entryCount }))
+      return true
     } catch (e) {
       console.warn(`[thread] 差分取得に失敗: ${e?.message || e}`)
       setError(e?.message || '更新できませんでした')
+      return false
     } finally {
       setRefreshing(false)
     }
@@ -344,11 +356,28 @@ export default function Thread({ route, navigation }) {
 
   // ---- スクロール ----------------------------------------------------------
 
-  const scrollToRow = useCallback((index) => {
+  /** 行へ移動する。行の高さが未確定でも FlashList が測りながら合わせてくれる。 */
+  const scrollToRow = useCallback((index, animated = false) => {
     const list = listRef.current
-    if (list && index >= 0) {
-      list.scrollToIndex({ index, animated: false, viewPosition: 0.1 })
+    if (!list || index < 0) return
+    const done = list.scrollToIndex({ index, animated, viewPosition: 0.1 })
+    if (done && done.catch) {
+      done.catch((e) =>
+        console.warn(
+          `[thread] ${index} 行目へ移動できない: ${e?.message || e}`,
+        ),
+      )
     }
+  }, [])
+
+  const scrollToFirst = useCallback(() => {
+    if (listRef.current) {
+      listRef.current.scrollToOffset({ offset: 0, animated: true })
+    }
+  }, [])
+
+  const scrollToLast = useCallback(() => {
+    if (listRef.current) listRef.current.scrollToEnd({ animated: true })
   }, [])
 
   const jumpToNo = useCallback(
@@ -360,24 +389,24 @@ export default function Thread({ route, navigation }) {
     [shown, scrollToRow, dismissAll],
   )
 
-  const onScrollToIndexFailed = useCallback((info) => {
-    // 高さが未確定の行へは、一度近くまで寄せて描かせてから再試行する
-    const list = listRef.current
-    if (!list) return
-    list.scrollToOffset({
-      offset: info.averageItemLength * info.index,
-      animated: false,
-    })
-    setTimeout(() => {
-      if (listRef.current && info.index < info.highestMeasuredFrameIndex + 30) {
-        listRef.current.scrollToIndex({
-          index: info.index,
-          animated: false,
-          viewPosition: 0.1,
-        })
-      }
-    }, 120)
-  }, [])
+  const goToNo = useCallback(() => {
+    const no = Number.parseInt(gotoNo, 10)
+    const found = findRowByNo(shown, no)
+    if (!found) {
+      showToast({ title: `>>${gotoNo} はありません` })
+      return
+    }
+    setGotoOpen(false)
+    setGotoNo('')
+    Keyboard.dismiss()
+    scrollToRow(found.index)
+    if (!found.exact) {
+      showToast({
+        title: `>>${no} は NG で隠れています`,
+        body: `>>${found.no} へ移動しました`,
+      })
+    }
+  }, [gotoNo, shown, scrollToRow])
 
   const onTapRow = useCallback(
     (e) => {
@@ -521,9 +550,38 @@ export default function Thread({ route, navigation }) {
       actions: [
         { label: 'スレタイをコピー', onPress: () => copy(name, 'スレタイ') },
         { label: 'URL をコピー', onPress: () => copy(threadUrl, 'URL') },
+        {
+          label: '最後まで読んだ',
+          onPress: () => {
+            const last = shown[shown.length - 1]
+            if (last) {
+              dispatch(
+                setReadMarker({
+                  threadId,
+                  lastReadNo: last.no,
+                  totalCount: ngRows.length,
+                }),
+              )
+            }
+            dismissAll()
+            showToast({ title: '最後まで読んだことにしました' })
+          },
+        },
       ],
     })
-  }, [title, initialTitle, pickRows, pushSheet, copy, threadUrl])
+  }, [
+    title,
+    initialTitle,
+    pickRows,
+    pushSheet,
+    copy,
+    threadUrl,
+    shown,
+    dispatch,
+    threadId,
+    ngRows.length,
+    dismissAll,
+  ])
 
   useEffect(() => {
     navigation.setOptions({
@@ -681,50 +739,50 @@ export default function Thread({ route, navigation }) {
 
   // ---- ジェスチャ（§9-1） --------------------------------------------------
 
-  const goAdjacent = useCallback(
-    (action) => {
-      const target = adjacentThread(watchList, threadId, action)
-      if (!target) {
-        showToast({
-          title:
-            action === 'next' ? '次のスレはありません' : '前のスレはありません',
-        })
-        return
-      }
-      haptic()
-      navigation.replace('Thread', {
-        threadUrl: target.threadUrl,
-        boardUrl: target.boardUrl,
-        boardName: target.boardName,
-        title: target.title,
-        totalCount: target.totalCount,
-      })
-    },
-    [watchList, threadId, navigation],
-  )
-
-  const onSwipeEnd = useCallback(
+  const onTwoFingerEnd = useCallback(
     (e) => {
-      if (!settings.swipeThreads) return
-      if (touchedAaSince(swipeBeganAt.current)) return
-      const action = swipeAction({
-        dx: e.translationX,
-        dy: e.translationY,
-        vx: e.velocityX,
-      })
-      if (action) goAdjacent(action)
+      const action = twoFingerAction(e.translationY)
+      if (!action) return
+      haptic()
+      if (action === 'top') scrollToFirst()
+      else scrollToLast()
     },
-    [settings.swipeThreads, goAdjacent],
+    [scrollToFirst, scrollToLast],
   )
 
-  const onTwoFingerEnd = useCallback((e) => {
-    const action = twoFingerAction(e.translationY)
-    const list = listRef.current
-    if (!action || !list) return
+  const checkingRef = useRef(false)
+
+  /** 最下部からさらに引いたとき。結果の件数を知らせる。 */
+  const checkNew = useCallback(async () => {
+    if (checkingRef.current) return
+    checkingRef.current = true
+    setCheckingNew(true)
     haptic()
-    if (action === 'top') list.scrollToOffset({ offset: 0, animated: true })
-    else list.scrollToEnd({ animated: true })
-  }, [])
+    const before = stateRef.current.entryCount
+    const failed = !(await readDelta())
+    checkingRef.current = false
+    setCheckingNew(false)
+    if (failed) return
+    const added = stateRef.current.entryCount - before
+    showToast({
+      title: added > 0 ? `新着 ${added} 件` : '新着はありません',
+    })
+  }, [readDelta])
+
+  const listFooter = useMemo(
+    () => (
+      <View style={styles.pullHint}>
+        {checkingNew ? (
+          <ActivityIndicator color={theme.accent} />
+        ) : (
+          <Text style={[styles.pullHintText, { color: theme.textFaint }]}>
+            下に引いて新着を確認
+          </Text>
+        )}
+      </View>
+    ),
+    [checkingNew, theme.accent, theme.textFaint],
+  )
 
   const fontSizeRef = useRef(settings.fontSize)
   fontSizeRef.current = settings.fontSize
@@ -740,16 +798,6 @@ export default function Thread({ route, navigation }) {
   )
 
   const gesture = useMemo(() => {
-    const swipe = Gesture.Pan()
-      .runOnJS(true)
-      .maxPointers(1)
-      .activeOffsetX([-30, 30])
-      .failOffsetY([-20, 20])
-      .hitSlop({ left: -SWIPE_EDGE })
-      .onBegin(() => {
-        swipeBeganAt.current = Date.now()
-      })
-      .onEnd(onSwipeEnd)
     const twoFinger = Gesture.Pan()
       .runOnJS(true)
       .minPointers(2)
@@ -757,15 +805,52 @@ export default function Thread({ route, navigation }) {
       .activeOffsetY([-20, 20])
       .onEnd(onTwoFingerEnd)
     const pinch = Gesture.Pinch().runOnJS(true).onEnd(onPinchEnd)
-    const native = Gesture.Native()
-    return Gesture.Simultaneous(native, swipe, twoFinger, pinch)
-  }, [onSwipeEnd, onTwoFingerEnd, onPinchEnd])
+    const pullAtBottom = Gesture.Pan()
+      .runOnJS(true)
+      .maxPointers(1)
+      .activeOffsetY([-15, 15])
+      .onBegin(() => {
+        pullStartedAtBottom.current = scrollRef.current.atBottom
+      })
+      .onEnd((e) => {
+        if (isPullAtBottom(pullStartedAtBottom.current, e.translationY)) {
+          checkNew()
+        }
+      })
+    // スクロール部品そのものを Native として同時に動かす。こう宣言しないと
+    // Android で Pan が本文のスクロールを奪うか、逆にスクロールに打ち切られる
+    return Gesture.Simultaneous(
+      Gesture.Native(),
+      pullAtBottom,
+      twoFinger,
+      pinch,
+    )
+  }, [onTwoFingerEnd, onPinchEnd, checkNew])
+
+  gestureRef.current = gesture
+
+  // FlashList に渡すスクロール部品。作り直すとスクロール位置を失うので 1 度だけ作り、
+  // ジェスチャは ref から読む
+  const ScrollWithGestures = useMemo(
+    () =>
+      forwardRef(function ThreadScroll(props, ref) {
+        return (
+          <GestureDetector gesture={gestureRef.current}>
+            <ScrollView ref={ref} {...props} />
+          </GestureDetector>
+        )
+      }),
+    [],
+  )
 
   // ---- 描画 ----------------------------------------------------------------
 
   const renderItem = useCallback(
     ({ item, index }) => (
       <ResponseItem
+        // FlashList は行を再利用する。展開やマスク解除の状態が別のレスへ
+        // 移らないよう、レスごとに作り直す
+        key={item.no}
         row={item}
         theme={theme}
         fontSize={settings.fontSize}
@@ -893,7 +978,54 @@ export default function Thread({ route, navigation }) {
         </View>
       ) : null}
 
-      <GestureDetector gesture={gesture}>
+      {gotoOpen ? (
+        <View
+          style={[
+            styles.searchBar,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <TextInput
+            value={gotoNo}
+            onChangeText={(v) => setGotoNo(v.replace(/[^0-9]/g, ''))}
+            placeholder={`レス番号（1〜${ngRows.length}）`}
+            placeholderTextColor={theme.textFaint}
+            keyboardType="number-pad"
+            returnKeyType="go"
+            autoFocus
+            onSubmitEditing={goToNo}
+            style={[styles.searchInput, { color: theme.text }]}
+          />
+          <Pressable
+            onPress={goToNo}
+            hitSlop={8}
+            disabled={!gotoNo}
+            accessibilityRole="button"
+          >
+            <Text
+              style={{
+                color: gotoNo ? theme.accent : theme.textFaint,
+                fontWeight: '600',
+              }}
+            >
+              移動
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="番号指定を閉じる"
+            accessibilityRole="button"
+            hitSlop={6}
+            onPress={() => {
+              setGotoOpen(false)
+              setGotoNo('')
+            }}
+          >
+            <Icon name="close" size={20} color={theme.textDim} />
+          </Pressable>
+        </View>
+      ) : null}
+
+      <View style={styles.flex}>
         <View
           ref={listBoxRef}
           style={styles.flex}
@@ -908,19 +1040,25 @@ export default function Thread({ route, navigation }) {
             }
           }}
         >
-          <FlatList
+          <FlashList
             ref={listRef}
+            renderScrollComponent={ScrollWithGestures}
             data={shown}
+            extraData={renderItem}
             keyExtractor={(r) => String(r.no)}
-            initialNumToRender={20}
-            windowSize={11}
-            removeClippedSubviews
             keyboardShouldPersistTaps="handled"
             scrollEventThrottle={64}
             onScroll={(e) => {
-              scrollRef.current.offset = e.nativeEvent.contentOffset.y
+              const { contentOffset, layoutMeasurement, contentSize } =
+                e.nativeEvent
+              scrollRef.current.offset = contentOffset.y
+              scrollRef.current.atBottom = isAtBottom({
+                offset: contentOffset.y,
+                viewport: layoutMeasurement.height,
+                content: contentSize.height,
+              })
             }}
-            onScrollToIndexFailed={onScrollToIndexFailed}
+            ListFooterComponent={listFooter}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -936,7 +1074,7 @@ export default function Thread({ route, navigation }) {
             scrollIndicatorInsets={{ bottom: footerHeight }}
           />
         </View>
-      </GestureDetector>
+      </View>
 
       <View
         style={[
@@ -964,34 +1102,21 @@ export default function Thread({ route, navigation }) {
             ? `（NG ${ngRows.length - shown.length}）`
             : ''}
         </Text>
-        <Pressable onPress={openThreadInfo} hitSlop={8}>
-          <Text style={[styles.footerBtn, { color: theme.accent }]}>先頭</Text>
-        </Pressable>
         <Pressable
-          onPress={() => {
-            const last = shown[shown.length - 1]
-            if (last)
-              dispatch(
-                setReadMarker({
-                  threadId,
-                  lastReadNo: last.no,
-                  totalCount: ngRows.length,
-                }),
-              )
-          }}
+          onPress={() => setGotoOpen((v) => !v)}
           hitSlop={8}
+          accessibilityRole="button"
         >
           <Text style={[styles.footerBtn, { color: theme.accent }]}>
-            ここまで読んだ
+            番号へ
           </Text>
         </Pressable>
-        <Pressable
-          onPress={() => {
-            const list = listRef.current
-            if (list) list.scrollToEnd({ animated: true })
-          }}
-          hitSlop={8}
-        >
+        <Pressable onPress={scrollToFirst} hitSlop={8}>
+          <Text style={[styles.footerBtn, { color: theme.accent }]}>
+            先頭へ
+          </Text>
+        </Pressable>
+        <Pressable onPress={scrollToLast} hitSlop={8}>
           <Text style={[styles.footerBtn, { color: theme.accent }]}>
             末尾へ
           </Text>
@@ -1110,6 +1235,8 @@ const styles = StyleSheet.create({
     gap: 18,
     paddingRight: 14,
   },
+  pullHint: { alignItems: 'center', paddingVertical: 24 },
+  pullHintText: { fontSize: 12 },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',

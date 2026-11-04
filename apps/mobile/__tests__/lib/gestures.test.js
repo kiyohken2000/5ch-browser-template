@@ -1,11 +1,9 @@
 import {
-  adjacentThread,
+  isAtBottom,
+  isPullAtBottom,
   nextPageOffset,
-  noteAaTouch,
   pinchFontSize,
-  swipeAction,
   tapScrollDirection,
-  touchedAaSince,
   twoFingerAction,
 } from 'lib/gestures'
 
@@ -32,22 +30,43 @@ describe('nextPageOffset', () => {
   })
 })
 
-describe('swipeAction', () => {
-  it('左へスワイプで次、右へで前', () => {
-    expect(swipeAction({ dx: -120, dy: 0, vx: 0 })).toBe('next')
-    expect(swipeAction({ dx: 120, dy: 0, vx: 0 })).toBe('prev')
+describe('isAtBottom', () => {
+  it('端まで来ていれば真', () => {
+    expect(isAtBottom({ offset: 1000, viewport: 500, content: 1500 })).toBe(
+      true,
+    )
   })
 
-  it('短くても速ければ成立する', () => {
-    expect(swipeAction({ dx: -40, dy: 0, vx: -800 })).toBe('next')
+  it('少しの誤差は許す', () => {
+    expect(isAtBottom({ offset: 970, viewport: 500, content: 1500 })).toBe(true)
   })
 
-  it('短くて遅いものは成立しない', () => {
-    expect(swipeAction({ dx: -40, dy: 0, vx: -100 })).toBeNull()
+  it('途中なら偽', () => {
+    expect(isAtBottom({ offset: 500, viewport: 500, content: 1500 })).toBe(
+      false,
+    )
   })
 
-  it('斜めはスクロールとみなす', () => {
-    expect(swipeAction({ dx: -120, dy: 100, vx: 0 })).toBeNull()
+  it('本文が画面より短ければ真', () => {
+    expect(isAtBottom({ offset: 0, viewport: 800, content: 300 })).toBe(true)
+  })
+})
+
+describe('isPullAtBottom', () => {
+  it('最下部で触り始めて上へ大きく動かすと成立', () => {
+    expect(isPullAtBottom(true, -100)).toBe(true)
+  })
+
+  it('動きが小さければ不成立', () => {
+    expect(isPullAtBottom(true, -30)).toBe(false)
+  })
+
+  it('下へ動かしたら不成立', () => {
+    expect(isPullAtBottom(true, 100)).toBe(false)
+  })
+
+  it('途中から始めたら不成立', () => {
+    expect(isPullAtBottom(false, -200)).toBe(false)
   })
 })
 
@@ -70,35 +89,5 @@ describe('pinchFontSize', () => {
   it('10〜32 に収める', () => {
     expect(pinchFontSize(15, 0.1)).toBe(10)
     expect(pinchFontSize(15, 10)).toBe(32)
-  })
-})
-
-describe('adjacentThread', () => {
-  const list = [{ threadId: 'a' }, { threadId: 'b' }, { threadId: 'c' }]
-
-  it('前後を引く', () => {
-    expect(adjacentThread(list, 'b', 'next').threadId).toBe('c')
-    expect(adjacentThread(list, 'b', 'prev').threadId).toBe('a')
-  })
-
-  it('端でループしない', () => {
-    expect(adjacentThread(list, 'c', 'next')).toBeNull()
-    expect(adjacentThread(list, 'a', 'prev')).toBeNull()
-  })
-
-  it('リストに無ければ null', () => {
-    expect(adjacentThread(list, 'x', 'next')).toBeNull()
-  })
-})
-
-describe('AA を触っている間のスワイプ', () => {
-  it('ジェスチャの開始より後に AA を触っていれば真', () => {
-    noteAaTouch(1000)
-    expect(touchedAaSince(1000)).toBe(true)
-  })
-
-  it('それより前の接触は関係ない', () => {
-    noteAaTouch(1000)
-    expect(touchedAaSince(5000)).toBe(false)
   })
 })

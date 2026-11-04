@@ -1,4 +1,9 @@
-import { findResponses, mapFf5chItems, pushHistory } from 'lib/search'
+import {
+  findResponses,
+  findRowByNo,
+  mapFf5chItems,
+  pushHistory,
+} from 'lib/search'
 
 describe('mapFf5chItems — スレ横断検索の結果', () => {
   it('http の 5ch.io URL を https に寄せてスレの情報にする', () => {
@@ -125,5 +130,25 @@ describe('findResponses — スレ内検索', () => {
 
   it('空の語では何も返さない', () => {
     expect(nos('   ')).toEqual([])
+  })
+})
+
+describe('findRowByNo — レス番号へ移動', () => {
+  const rows = [{ no: 1 }, { no: 2 }, { no: 5 }]
+
+  it('表示中のレスはその位置を返す', () => {
+    expect(findRowByNo(rows, 2)).toEqual({ index: 1, no: 2, exact: true })
+  })
+
+  it('NG で隠れた番号は、すぐ後の表示中のレスを返す', () => {
+    expect(findRowByNo(rows, 3)).toEqual({ index: 2, no: 5, exact: false })
+  })
+
+  it('最後より後は null', () => {
+    expect(findRowByNo(rows, 6)).toBeNull()
+  })
+
+  it.each([0, -1, 1.5, NaN])('%s は null', (no) => {
+    expect(findRowByNo(rows, no)).toBeNull()
   })
 })

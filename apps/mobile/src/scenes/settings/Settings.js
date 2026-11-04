@@ -216,11 +216,6 @@ export default function Settings() {
           'タップでスクロール',
           'レスの空き部分で、画面の上下 3 割をタップ',
         )}
-        {toggle(
-          'swipeThreads',
-          '左右スワイプで前後のスレへ',
-          'ホームの並び順で移動します',
-        )}
       </Section>
 
       <Section title="キャッシュ" theme={theme}>
