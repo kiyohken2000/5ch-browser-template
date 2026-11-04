@@ -38,10 +38,51 @@ export function nextPageOffset(offset, height, direction) {
   return Math.max(0, offset + direction * height * PAGE_RATIO)
 }
 
-/** 2 本指の縦スワイプ。上へ = 先頭、下へ = 末尾（§9-1）。 */
-export function twoFingerAction(dy) {
+/** ユーザーが割り当てを変えられるジェスチャ（§9-1）。 */
+export const GESTURE_PATTERNS = [
+  { key: 'twoFingerUp', label: '2 本指で上へスワイプ' },
+  { key: 'twoFingerDown', label: '2 本指で下へスワイプ' },
+  { key: 'twoFingerTap', label: '2 本指でタップ' },
+]
+
+/** 割り当てられる動作。スレ間の移動やタブ操作はモバイルに無いので含めない。 */
+export const GESTURE_ACTIONS = [
+  { key: 'none', label: 'なし' },
+  { key: 'scrollTop', label: '先頭へ' },
+  { key: 'scrollBottom', label: '末尾へ' },
+  { key: 'checkNew', label: '新着を確認' },
+  { key: 'toggleThumbMask', label: 'サムネイルのぼかしを切り替え' },
+  { key: 'toggleDark', label: 'ライト / ダークを切り替え' },
+]
+
+/**
+ * 2 本指タップの既定は「なし」。ピンチの出だしなどで誤って発動したときに、
+ * 公共の場でサムネイルのぼかしが外れると困るので、使う人が自分で選ぶ。
+ */
+export const DEFAULT_GESTURES = {
+  twoFingerUp: 'scrollTop',
+  twoFingerDown: 'scrollBottom',
+  twoFingerTap: 'none',
+}
+
+/** 保存値を信用しない。知らないパターンや動作は既定へ戻す。 */
+export function normalizeGestures(stored) {
+  const actions = new Set(GESTURE_ACTIONS.map((a) => a.key))
+  const out = { ...DEFAULT_GESTURES }
+  for (const { key } of GESTURE_PATTERNS) {
+    if (actions.has(stored?.[key])) out[key] = stored[key]
+  }
+  return out
+}
+
+export function gestureActionLabel(key) {
+  return GESTURE_ACTIONS.find((a) => a.key === key)?.label ?? 'なし'
+}
+
+/** 2 本指の縦スワイプがどのパターンか。短すぎるものは無視する。 */
+export function twoFingerPattern(dy) {
   if (Math.abs(dy) < TWO_FINGER_MIN_DY) return null
-  return dy < 0 ? 'top' : 'bottom'
+  return dy < 0 ? 'twoFingerUp' : 'twoFingerDown'
 }
 
 /** リストの最下部にいるか。本文が画面より短いときも最下部として扱う。 */

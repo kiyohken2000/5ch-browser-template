@@ -68,9 +68,10 @@ import {
   isAtBottom,
   isPullAtBottom,
   nextPageOffset,
+  normalizeGestures,
   pinchFontSize,
   tapScrollDirection,
-  twoFingerAction,
+  twoFingerPattern,
 } from 'lib/gestures'
 import { collectImages, extractMedia } from 'lib/media'
 import { applyNg, visibleResponses } from 'lib/ng'
@@ -739,17 +740,6 @@ export default function Thread({ route, navigation }) {
 
   // ---- ジェスチャ（§9-1） --------------------------------------------------
 
-  const onTwoFingerEnd = useCallback(
-    (e) => {
-      const action = twoFingerAction(e.translationY)
-      if (!action) return
-      haptic()
-      if (action === 'top') scrollToFirst()
-      else scrollToLast()
-    },
-    [scrollToFirst, scrollToLast],
-  )
-
   const checkingRef = useRef(false)
 
   /** 最下部からさらに引いたとき。結果の件数を知らせる。 */
@@ -784,6 +774,43 @@ export default function Thread({ route, navigation }) {
     [checkingNew, theme.accent, theme.textFaint],
   )
 
+  // スクロール部品は 1 度しか作らないので、最新の値は ref から読む
+  const gestureEnvRef = useRef(null)
+  gestureEnvRef.current = {
+    gestures: settings.gestures,
+    thumbMask: settings.thumbMask,
+    dark: theme.dark,
+  }
+
+  /** 割り当てられた動作を実行する（§9-1）。 */
+  const runGesture = useCallback(
+    (pattern) => {
+      const env = gestureEnvRef.current
+      const action = normalizeGestures(env.gestures)[pattern]
+      if (action === 'none') return
+      haptic()
+      if (action === 'scrollTop') scrollToFirst()
+      else if (action === 'scrollBottom') scrollToLast()
+      else if (action === 'checkNew') checkNew()
+      else if (action === 'toggleThumbMask') {
+        dispatch(setSetting({ key: 'thumbMask', value: !env.thumbMask }))
+      } else if (action === 'toggleDark') {
+        dispatch(
+          setSetting({ key: 'theme', value: env.dark ? 'light' : 'dark' }),
+        )
+      }
+    },
+    [scrollToFirst, scrollToLast, checkNew, dispatch],
+  )
+
+  const onTwoFingerEnd = useCallback(
+    (e) => {
+      const pattern = twoFingerPattern(e.translationY)
+      if (pattern) runGesture(pattern)
+    },
+    [runGesture],
+  )
+
   const fontSizeRef = useRef(settings.fontSize)
   fontSizeRef.current = settings.fontSize
 
@@ -804,6 +831,13 @@ export default function Thread({ route, navigation }) {
       .maxPointers(2)
       .activeOffsetY([-20, 20])
       .onEnd(onTwoFingerEnd)
+    const twoFingerTap = Gesture.Tap()
+      .runOnJS(true)
+      .minPointers(2)
+      .maxDuration(300)
+      .onEnd((e, success) => {
+        if (success) runGesture('twoFingerTap')
+      })
     const pinch = Gesture.Pinch().runOnJS(true).onEnd(onPinchEnd)
     const pullAtBottom = Gesture.Pan()
       .runOnJS(true)
@@ -823,9 +857,10 @@ export default function Thread({ route, navigation }) {
       Gesture.Native(),
       pullAtBottom,
       twoFinger,
+      twoFingerTap,
       pinch,
     )
-  }, [onTwoFingerEnd, onPinchEnd, checkNew])
+  }, [onTwoFingerEnd, onPinchEnd, checkNew, runGesture])
 
   gestureRef.current = gesture
 

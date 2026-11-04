@@ -21,6 +21,12 @@ import {
 } from 'react-native'
 import { useDispatch, useSelector } from 'react-redux'
 
+import {
+  GESTURE_ACTIONS,
+  GESTURE_PATTERNS,
+  gestureActionLabel,
+  normalizeGestures,
+} from 'lib/gestures'
 import { clearThreadCache, threadCacheStats } from 'lib/threadCache'
 import {
   addNg,
@@ -90,6 +96,8 @@ export default function Settings() {
   const settings = useSelector((state) => state.settings)
   const ng = useSelector(selectNgFilters)
   const [drafts, setDrafts] = useState({})
+  const [gesturePicker, setGesturePicker] = useState(null)
+  const gestures = normalizeGestures(settings.gestures)
 
   const [cache, setCache] = useState({ count: 0, bytes: 0 })
 
@@ -216,6 +224,61 @@ export default function Settings() {
           'タップでスクロール',
           'レスの空き部分で、画面の上下 3 割をタップ',
         )}
+      </Section>
+
+      <Section title="スレを読むときのジェスチャ" theme={theme}>
+        {GESTURE_PATTERNS.map(({ key, label }) => (
+          <View key={key}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${label}: ${gestureActionLabel(
+                gestures[key],
+              )}`}
+              accessibilityState={{ expanded: gesturePicker === key }}
+              onPress={() =>
+                setGesturePicker((open) => (open === key ? null : key))
+              }
+              style={[styles.row, { borderColor: theme.border }]}
+            >
+              <Text style={[styles.label, { color: theme.text }]}>{label}</Text>
+              <Text style={{ color: theme.accent, fontSize: 13 }}>
+                {gestureActionLabel(gestures[key])}
+              </Text>
+            </Pressable>
+            {gesturePicker === key
+              ? GESTURE_ACTIONS.map((action) => (
+                  <Pressable
+                    key={action.key}
+                    accessibilityRole="radio"
+                    accessibilityState={{
+                      checked: gestures[key] === action.key,
+                    }}
+                    onPress={() => {
+                      set('gestures', { ...gestures, [key]: action.key })
+                      setGesturePicker(null)
+                    }}
+                    style={[
+                      styles.row,
+                      styles.pickerRow,
+                      {
+                        backgroundColor: theme.surfaceAlt,
+                        borderColor: theme.border,
+                      },
+                    ]}
+                  >
+                    <Text style={{ color: theme.text, fontSize: 14 }}>
+                      {action.label}
+                    </Text>
+                    {gestures[key] === action.key ? (
+                      <Text style={{ color: theme.accent, fontSize: 14 }}>
+                        ✓
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                ))
+              : null}
+          </View>
+        ))}
       </Section>
 
       <Section title="キャッシュ" theme={theme}>
@@ -365,6 +428,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 12,
   },
+  pickerRow: { paddingLeft: 32 },
   rowLabel: { flex: 1, gap: 2 },
   about: {
     flexDirection: 'row',

@@ -4,7 +4,9 @@ import {
   nextPageOffset,
   pinchFontSize,
   tapScrollDirection,
-  twoFingerAction,
+  DEFAULT_GESTURES,
+  normalizeGestures,
+  twoFingerPattern,
 } from 'lib/gestures'
 
 describe('tapScrollDirection', () => {
@@ -70,14 +72,38 @@ describe('isPullAtBottom', () => {
   })
 })
 
-describe('twoFingerAction', () => {
+describe('normalizeGestures', () => {
+  it('何も保存されていなければ既定を返す', () => {
+    expect(normalizeGestures(undefined)).toEqual(DEFAULT_GESTURES)
+  })
+
+  it('2 本指タップの既定は何もしない（ぼかしが勝手に外れないように）', () => {
+    expect(DEFAULT_GESTURES.twoFingerTap).toBe('none')
+  })
+
+  it('保存された割り当てを使う', () => {
+    expect(normalizeGestures({ twoFingerTap: 'toggleDark' }).twoFingerTap).toBe(
+      'toggleDark',
+    )
+  })
+
+  it('知らない動作やパターンは捨てて既定に戻す', () => {
+    const got = normalizeGestures({
+      twoFingerUp: 'closeTab',
+      swipeLeft: 'none',
+    })
+    expect(got).toEqual(DEFAULT_GESTURES)
+  })
+})
+
+describe('twoFingerPattern', () => {
   it('上へで先頭、下へで末尾', () => {
-    expect(twoFingerAction(-100)).toBe('top')
-    expect(twoFingerAction(100)).toBe('bottom')
+    expect(twoFingerPattern(-100)).toBe('twoFingerUp')
+    expect(twoFingerPattern(100)).toBe('twoFingerDown')
   })
 
   it('小さい動きは無視する', () => {
-    expect(twoFingerAction(20)).toBeNull()
+    expect(twoFingerPattern(20)).toBeNull()
   })
 })
 

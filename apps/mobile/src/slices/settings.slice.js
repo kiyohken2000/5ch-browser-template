@@ -4,6 +4,7 @@
  */
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
+import { DEFAULT_GESTURES } from 'lib/gestures'
 import { KEYS, load, save } from 'lib/storage'
 
 export const DEFAULTS = {
@@ -30,6 +31,8 @@ export const DEFAULTS = {
   bodyIdTappable: true,
   /** 画面上部 / 下部のタップで 1 画面分スクロール（twinkle から借用） */
   tapScroll: true,
+  /** ジェスチャの割り当て。読むときは normalizeGestures を通す（§9-1） */
+  gestures: DEFAULT_GESTURES,
   /** セルラーでは画像を自動で読まない（§9-6） */
   cellularSaveData: true,
 }

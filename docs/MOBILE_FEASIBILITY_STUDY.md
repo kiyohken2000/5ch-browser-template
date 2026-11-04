@@ -702,7 +702,7 @@ Geschar は「ジェスチャ操作を特色とした」の一行だけで評価
 | ピンチ | 文字サイズ / AA の縮尺 | |
 | 2 本指タップ | サムネマスク切替 | 要検討 |
 
-**割り当て変更 UI はデスクトップ版と同じく用意する。** `GESTURE_PATTERNS` / `GESTURE_ACTIONS` の構造をそのまま使い、パターン定義だけ差し替える。
+**割り当て変更 UI はデスクトップ版と同じく用意する。** `GESTURE_PATTERNS` / `GESTURE_ACTIONS` の構造をそのまま使い、パターン定義だけ差し替える。変えられるのは 2 本指の上 / 下 / タップの 3 つ（`lib/gestures.js`）。2 本指タップの既定は「なし」にした。ピンチの出だしなどの誤発動で、公共の場でサムネイルのぼかしが外れないようにするため。
 
 ### 9-2. AA（アスキーアート）表示 — 新規実装
 
@@ -1255,7 +1255,7 @@ Ronin（浪人）/ BE / どんぐり / UPLIFT。デスクトップ版は `core-a
 | スレ内検索・レスメニューのコピー / 共有 / NG 語追加 | `src/scenes/thread/Thread.js`、`src/lib/search.js` |
 | 画像サムネ・サムネマスク・YouTube・OGP カード | `src/components/ResponseMedia.js`、`src/lib/{media,ogp}.js` |
 | 画像ビューア（下スワイプで閉じる / 左右で前後 / ピンチ拡大 / 保存） | `src/components/ImageViewer.js`、`src/lib/saveImage.js` |
-| ジェスチャ（タップスクロール / 2 本指で先頭・末尾 / ピンチで文字サイズ） | `src/lib/gestures.js` |
+| ジェスチャ（タップスクロール / 最下部で引いて新着確認 / ピンチで文字サイズ / 2 本指の上下とタップは設定で割り当て変更） | `src/lib/gestures.js`、`src/scenes/settings/Settings.js` |
 | ガラス効果（スレビューの下部バー。Android は半透明） | `src/scenes/thread/Thread.js` |
 | ユニットテスト 270 件 / 16 スイート | `__tests__/lib/` |
 | CI | `.github/workflows/mobile.yml`（lint / test / バンドル。既存のワークフローには触っていない） |
@@ -1263,7 +1263,6 @@ Ronin（浪人）/ BE / どんぐり / UPLIFT。デスクトップ版は `core-a
 | まだ無いもの |
 |---|
 | 長押しメニューの「返信」（投稿画面が必要なので M2） |
-| ジェスチャの割り当て変更 UI（§9-1）。今は固定 |
 | セルラー時に画像を読まない設定（§9-6）。回線判定の `expo-network` がビルドに無い |
 
 **動作確認の状況（2026-11-04）:** Android エミュレーター（Pixel_10）で `adb` から実操作して、ボトムシートの連鎖・ドラッグ・背景タップ、タップスクロール、スレ内検索、スレ横断検索、画像の保存（`DCIM` にファイルが出ることまで）を確認した。**2 本指のジェスチャとピンチは `adb` で送れないので未確認。** iOS シミュレーターは表示を確認しただけで、操作はユーザーが行っている（2022 年版の idb は Xcode 27 の `SimulatorKit` の移動に対応しておらず、タップを送れない）。

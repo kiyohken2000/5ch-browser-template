@@ -10,6 +10,8 @@
  *   ├─ 板        カテゴリツリー → スレ一覧
  *   ├─ 検索      スレ横断検索
  *   └─ 設定      表示設定 + NG 管理
+ *   タブの最上位の 4 画面にヘッダーは置かない。どの画面かはタブバーで分かるので、
+ *   その高さを中身に回す。戻る操作が要るスレ一覧とスレビューには残す。
  *   スレビューはタブの外のルートスタックに push する（§7）。**同時に開くスレは
  *   1 つだけ**で、タブバーは隠れて本文が広くなる。スレ間の移動はホームから
  *
@@ -28,6 +30,8 @@ import {
 } from '@react-navigation/native'
 import { createStackNavigator } from '@react-navigation/stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
+import { StatusBar, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Toast from 'react-native-toast-message'
 
 import Icon from 'components/Icon'
@@ -63,6 +67,34 @@ const linking = {
   },
 }
 
+/**
+ * ヘッダーを外した画面の上端をステータスバーの下に揃える。
+ * 上端の色は、画面の最上部がバーならバーの色に、そうでなければ背景色に合わせる。
+ */
+function belowStatusBar(Scene, { bar = false } = {}) {
+  return function TabTopScene(props) {
+    const theme = useEmberTheme()
+    const insets = useSafeAreaInsets()
+    return (
+      <View
+        style={{
+          flex: 1,
+          paddingTop: insets.top,
+          backgroundColor: bar ? theme.surface : theme.bg,
+        }}
+      >
+        <Scene {...props} />
+      </View>
+    )
+  }
+}
+
+const HomeTop = belowStatusBar(Home)
+const BoardsTop = belowStatusBar(Boards, { bar: true })
+const SearchTop = belowStatusBar(Search, { bar: true })
+const SettingsTop = belowStatusBar(Settings)
+const NO_HEADER = { headerShown: false }
+
 const tabIcon =
   (name) =>
   ({ color, size }) =>
@@ -82,11 +114,7 @@ function HomeStack() {
   const theme = useEmberTheme()
   return (
     <Stack.Navigator screenOptions={stackScreens(theme)}>
-      <Stack.Screen
-        name="Watch"
-        component={Home}
-        options={{ title: 'ホーム' }}
-      />
+      <Stack.Screen name="Watch" component={HomeTop} options={NO_HEADER} />
     </Stack.Navigator>
   )
 }
@@ -95,11 +123,7 @@ function BoardStack() {
   const theme = useEmberTheme()
   return (
     <Stack.Navigator screenOptions={stackScreens(theme)}>
-      <Stack.Screen
-        name="Boards"
-        component={Boards}
-        options={{ title: '板一覧' }}
-      />
+      <Stack.Screen name="Boards" component={BoardsTop} options={NO_HEADER} />
       <Stack.Screen name="Threads" component={Threads} />
     </Stack.Navigator>
   )
@@ -111,8 +135,8 @@ function SearchStack() {
     <Stack.Navigator screenOptions={stackScreens(theme)}>
       <Stack.Screen
         name="SearchTop"
-        component={Search}
-        options={{ title: '検索' }}
+        component={SearchTop}
+        options={NO_HEADER}
       />
     </Stack.Navigator>
   )
@@ -124,8 +148,8 @@ function SettingsStack() {
     <Stack.Navigator screenOptions={stackScreens(theme)}>
       <Stack.Screen
         name="SettingsTop"
-        component={Settings}
-        options={{ title: '設定' }}
+        component={SettingsTop}
+        options={NO_HEADER}
       />
     </Stack.Navigator>
   )
@@ -185,6 +209,7 @@ export default function Navigation() {
 
   return (
     <>
+      <StatusBar barStyle={theme.dark ? 'light-content' : 'dark-content'} />
       <NavigationContainer theme={navTheme} linking={linking}>
         <RootStack.Navigator screenOptions={stackScreens(theme)}>
           <RootStack.Screen
