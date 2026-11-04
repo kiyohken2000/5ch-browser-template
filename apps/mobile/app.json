@@ -1,0 +1,79 @@
+{
+  "expo": {
+    "name": "Ember",
+    "slug": "ember",
+    "description": "5ch.io 専用の掲示板ブラウザ",
+    "scheme": "ember",
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/images/logo-sm.png",
+    "updates": {
+      "enabled": true,
+      "fallbackToCacheTimeout": 10000
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "net.votepurchase.ember",
+      "buildNumber": "1",
+      "infoPlist": {
+        "CFBundleDisplayName": "Ember",
+        "CFBundleDevelopmentRegion": "ja_JP"
+      },
+      "userInterfaceStyle": "automatic"
+    },
+    "android": {
+      "package": "net.votepurchase.ember",
+      "versionCode": 1,
+      "userInterfaceStyle": "automatic",
+      "permissions": [
+        "VIBRATE"
+      ]
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "plugins": [
+      "expo-font",
+      "expo-asset",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      "expo-sqlite",
+      "expo-sharing",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "17.0"
+          }
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "画像を投稿するときに写真を選ぶため、写真へのアクセスを求めます。",
+          "savePhotosPermission": "スレッドの画像を端末に保存するため、写真へのアクセスを求めます。",
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
+      [
+        "expo-tracking-transparency",
+        {
+          "userTrackingPermission": "この許可は使いません。広告も計測も行いません。"
+        }
+      ]
+    ]
+  }
+}

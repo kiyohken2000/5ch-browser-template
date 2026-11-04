@@ -1,0 +1,47 @@
+name: mobile
+
+# モバイル版 (apps/mobile) 専用のワークフロー。
+# **既存の ci.yml / release.yml には手を入れない** (docs/MOBILE_FEASIBILITY_STUDY.md §3-7)。
+# apps/mobile 配下が変わったときだけ回す。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/mobile.yml'
+  pull_request:
+    paths:
+      - 'apps/mobile/**'
+      - '.github/workflows/mobile.yml'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: apps/mobile
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: yarn
+          cache-dependency-path: apps/mobile/yarn.lock
+
+      - name: 依存をインストール
+        run: yarn install --frozen-lockfile
+
+      - name: Lint (エラーのみで落とす)
+        run: npx eslint src/ __tests__/ --quiet
+
+      # 実ネットワークを使う通し確認 (yarn test:live) は CI では回さない。
+      # 相手のサーバーに毎 push で当てないため。
+      - name: ユニットテスト
+        run: npx jest --ci
+
+      - name: バンドルできることの確認 (Hermes バイトコードまで通す)
+        run: npx expo export --platform android --output-dir .expo-export-ci

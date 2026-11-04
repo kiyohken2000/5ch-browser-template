@@ -1,0 +1,57 @@
+import React, { useEffect, useState } from 'react'
+import { View } from 'react-native'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { Provider } from 'react-redux'
+
+import 'utils/ignore'
+import store from 'utils/store'
+import { fontAssets } from 'theme/fonts'
+import { imageAssets } from 'theme/images'
+import { loadNgFilters } from 'slices/ng.slice'
+import { loadSettings } from 'slices/settings.slice'
+import { loadWatch } from 'slices/watch.slice'
+import Router from './routes'
+
+export default function App() {
+  const [didLoad, setDidLoad] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    const boot = async () => {
+      // 永続化の読み込みとアセットの先読みを同時に回す。
+      // 読み込みが失敗しても起動は止めない（既定値で立ち上げる）。
+      const results = await Promise.allSettled([
+        ...imageAssets,
+        ...fontAssets,
+        store.dispatch(loadSettings()),
+        store.dispatch(loadNgFilters()),
+        store.dispatch(loadWatch()),
+      ])
+      for (const r of results) {
+        if (r.status === 'rejected') {
+          console.warn(
+            `[app] 起動時の読み込みに失敗: ${r.reason?.message || r.reason}`,
+          )
+        }
+      }
+      if (alive) setDidLoad(true)
+    }
+    boot()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  if (!didLoad) return <View />
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <Provider store={store}>
+          <Router />
+        </Provider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  )
+}
