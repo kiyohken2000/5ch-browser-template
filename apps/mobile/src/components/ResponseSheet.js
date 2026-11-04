@@ -21,8 +21,16 @@ import {
   BottomSheetFlatList,
   BottomSheetModal,
 } from '@gorhom/bottom-sheet'
-import React, { useCallback, useEffect, useRef } from 'react'
-import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  BackHandler,
+  Dimensions,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { shouldHideImages } from 'lib/ng'
 import ResponseBody from './ResponseBody'
@@ -31,6 +39,8 @@ import ResponseMedia from './ResponseMedia'
 import useSheetAnimation from './useSheetAnimation'
 
 const SNAP_POINTS = ['55%', '92%']
+/** シートの動きが止まるまでの時間（useSheetAnimation の 150ms より少し長く）。 */
+const SHEET_SETTLE_MS = 200
 
 function renderBackdrop(props) {
   return (
@@ -59,9 +69,25 @@ function SheetLayer({
   onReply,
   onImage,
   idSeqs,
+  topInset,
 }) {
   const animationConfigs = useSheetAnimation()
   const ref = useRef(null)
+  const insets = useSafeAreaInsets()
+  const listBoxRef = useRef(null)
+  const [listPad, setListPad] = useState(insets.bottom)
+
+  // シートの中身の枠は最大の高さで作られ、途中の高さでは画面の下へはみ出す。はみ出した
+  // 分を余白にしないと最後のレスに届かない。止まるたびに測り直す
+  const measureList = useCallback(() => {
+    setTimeout(() => {
+      if (!listBoxRef.current) return
+      listBoxRef.current.measureInWindow((x, y, width, height) => {
+        const hidden = y + height - Dimensions.get('window').height
+        setListPad(Math.max(0, hidden) + insets.bottom)
+      })
+    }, SHEET_SETTLE_MS)
+  }, [insets.bottom])
 
   useEffect(() => {
     if (ref.current) ref.current.present()
@@ -163,10 +189,16 @@ function SheetLayer({
       snapPoints={SNAP_POINTS}
       enableDynamicSizing={false}
       enablePanDownToClose
+      // 本文のスワイプはリストのスクロールに使う。途中の高さでもすぐ読み進められるように。
+      // シートの高さはつまみで変える
+      enableContentPanningGesture={false}
+      // ヘッダーの裏へ入らないようにする。入るとつまみが隠れて掴めなくなる
+      topInset={topInset}
       backdropComponent={renderBackdrop}
       backgroundStyle={{ backgroundColor: theme.surface }}
       handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
       onDismiss={() => onDismissAt(index)}
+      onChange={measureList}
     >
       <View style={[styles.head, { borderColor: theme.border }]}>
         {index > 0 ? (
@@ -213,18 +245,21 @@ function SheetLayer({
         </View>
       ) : null}
 
-      <BottomSheetFlatList
-        data={sheet.rows}
-        keyExtractor={(r) => String(r.no)}
-        renderItem={renderItem}
-        ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={{ color: theme.textDim }}>
-              {sheet.emptyText || '該当するレスがありません'}
-            </Text>
-          </View>
-        }
-      />
+      <View ref={listBoxRef} style={styles.listBox} onLayout={measureList}>
+        <BottomSheetFlatList
+          data={sheet.rows}
+          keyExtractor={(r) => String(r.no)}
+          contentContainerStyle={{ paddingBottom: listPad }}
+          renderItem={renderItem}
+          ListEmptyComponent={
+            <View style={styles.empty}>
+              <Text style={{ color: theme.textDim }}>
+                {sheet.emptyText || '該当するレスがありません'}
+              </Text>
+            </View>
+          }
+        />
+      </View>
     </BottomSheetModal>
   )
 }
@@ -284,5 +319,6 @@ const styles = StyleSheet.create({
   no: { fontWeight: '700' },
   name: { flexShrink: 1 },
   id: { fontWeight: '600' },
+  listBox: { flex: 1 },
   empty: { padding: 24, alignItems: 'center' },
 })

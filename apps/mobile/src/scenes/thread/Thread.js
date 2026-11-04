@@ -207,6 +207,7 @@ export default function Thread({ route, navigation }) {
   const [gotoNo, setGotoNo] = useState('')
   const gotoRef = useRef(null)
   const [extractOpen, setExtractOpen] = useState(false)
+  const [listTop, setListTop] = useState(0)
   /** 本文の絞り込み。null なら全レス */
   const [filterKey, setFilterKey] = useState(route.params.initialFilter ?? null)
   /** 絞り込む前に見ていたレス番号。解除したらそこへ戻す */
@@ -1373,6 +1374,8 @@ export default function Thread({ route, navigation }) {
             if (box) {
               box.measureInWindow((x, y) => {
                 scrollRef.current.top = y
+                // ボトムシートをヘッダーの下までに収めるのに使う
+                setListTop(y)
               })
             }
           }}
@@ -1489,6 +1492,7 @@ export default function Thread({ route, navigation }) {
         onId={openId}
         onUrl={openUrl}
         onJump={jumpToNo}
+        topInset={listTop}
         idSeqs={idSeqs}
         onReply={
           datDropped
