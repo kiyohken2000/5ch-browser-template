@@ -51,6 +51,10 @@ export default function Post({ route, navigation }) {
   const { threadId, threadUrl, boardUrl, boardName, title, quote } =
     route.params
   const dispatch = useDispatch()
+  const beLoggedIn = useSelector((state) => state.account.be.status === 'in')
+  const upliftLoggedIn = useSelector(
+    (state) => state.account.uplift.status === 'in',
+  )
   const theme = useEmberTheme()
   const fontSize = useSelector((state) => state.settings.fontSize)
   const sageDefault = useSelector((state) => state.settings.composeSageDefault)
@@ -285,6 +289,11 @@ export default function Post({ route, navigation }) {
 
       <View style={[styles.sageRow, { borderColor: theme.border }]}>
         <Text style={{ color: theme.text, fontSize: 14 }}>sage</Text>
+        <Text style={[styles.accountHint, { color: theme.textDim }]}>
+          {[beLoggedIn ? 'BE' : null, upliftLoggedIn ? 'UPLIFT' : null]
+            .filter(Boolean)
+            .join(' / ')}
+        </Text>
         <Switch
           accessibilityLabel="sage"
           value={sageOn}
@@ -329,6 +338,7 @@ const styles = StyleSheet.create({
   },
   field: { flex: 1, fontSize: 14, paddingHorizontal: 16, paddingVertical: 10 },
   divider: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
+  accountHint: { flex: 1, fontSize: 12, textAlign: 'right', paddingRight: 12 },
   sageRow: {
     flexDirection: 'row',
     alignItems: 'center',

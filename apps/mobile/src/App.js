@@ -10,6 +10,8 @@ import store from 'utils/store'
 import { fontAssets } from 'theme/fonts'
 import { imageAssets } from 'theme/images'
 import { loadNgFilters } from 'slices/ng.slice'
+import { ACCOUNTS } from 'lib/auth'
+import { restoreAccount } from 'slices/account.slice'
 import { loadSettings } from 'slices/settings.slice'
 import { loadWatch } from 'slices/watch.slice'
 import { startUsageStats } from 'lib/usageStats'
@@ -39,6 +41,10 @@ export default function App() {
         }
       }
       if (alive) setDidLoad(true)
+      // 自動ログインは通信を待つので、起動の妨げにしない
+      Object.keys(ACCOUNTS).forEach((provider) => {
+        store.dispatch(restoreAccount({ provider }))
+      })
     }
     boot()
     return () => {

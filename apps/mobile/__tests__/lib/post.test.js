@@ -121,6 +121,8 @@ describe('submitPost', () => {
     expect(f.posts()).toHaveLength(1)
     expect(f.posts()[0].url).toBe(POST_URL)
     expect(f.posts()[0].headers.Referer).toBe(THREAD)
+    // BE / UPLIFT の Cookie を送るのに要る
+    expect(f.posts()[0].credentials).toBe('include')
     expect(f.posts()[0].body).toContain('bbs=software')
     expect(f.posts()[0].body).toContain('key=1700000000')
   })

@@ -186,6 +186,13 @@ describe('実データ', () => {
     expect(icons[0].url).toBe('https://img.5ch.io/ico/nida.gif')
   })
 
+  it('plain に BE アイコンの URL を含めない（コピー・NG・検索に使うため）', () => {
+    const got = parseBody(
+      ' sssp://img.5ch.io/ico/001.gif <br> 本文 <br> 二行目 ',
+    )
+    expect(got.plain).toBe('本文\n二行目')
+  })
+
   it('BE アイコンを本文から分け、アイコンの行の改行も落とす', () => {
     const { tokens } = parseBody(' sssp://img.5ch.io/ico/001.gif <br> 本文 ')
       .blocks[0]

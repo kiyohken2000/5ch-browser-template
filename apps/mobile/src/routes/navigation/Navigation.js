@@ -43,6 +43,7 @@ import Boards from 'scenes/boards/Boards'
 import Home from 'scenes/home/Home'
 import Post from 'scenes/post/Post'
 import Search from 'scenes/search/Search'
+import AccountSettings from 'scenes/settings/AccountSettings'
 import NgSettings from 'scenes/settings/NgSettings'
 import Settings from 'scenes/settings/Settings'
 import Thread from 'scenes/thread/Thread'
@@ -165,6 +166,14 @@ function SettingsStack() {
         name="SettingsTop"
         component={SettingsTop}
         options={NO_HEADER}
+      />
+      <Stack.Screen
+        name="AccountSettings"
+        component={AccountSettings}
+        options={{
+          title: 'アカウント',
+          headerBackAccessibilityLabel: '戻る',
+        }}
       />
       <Stack.Screen
         name="NgSettings"

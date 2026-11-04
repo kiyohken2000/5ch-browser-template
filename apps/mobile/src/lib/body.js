@@ -143,6 +143,12 @@ export function tokenizeText(text) {
  * @param {string} rawBody dat から取った本文（タグ・実体参照つき）
  * @returns {{blocks: Array, plain: string, anchors: number[], ids: string[], urls: string[]}}
  */
+function withoutBeIcons(text) {
+  return text
+    .replace(new RegExp(`${BEICON_RE.source}[ \\t]*\\n?`, 'g'), '')
+    .trim()
+}
+
 export function parseBody(rawBody) {
   const plain = plainDatBody(rawBody)
   const segs = segmentBody(plain)
@@ -170,7 +176,8 @@ export function parseBody(rawBody) {
 
   return {
     blocks,
-    plain,
+    // コピー・共有・NG・検索に使う本文なので、BE アイコンの URL は含めない
+    plain: withoutBeIcons(plain),
     anchors: Array.from(new Set(anchors)),
     ids: Array.from(new Set(ids)),
     urls: Array.from(new Set(urls)),

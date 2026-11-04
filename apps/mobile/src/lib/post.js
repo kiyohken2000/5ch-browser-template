@@ -176,6 +176,8 @@ async function sendForm(send, url, fields, referer) {
   assertPostable(url)
   const res = await send(url, {
     method: 'POST',
+    // BE / UPLIFT の Cookie を送る。expo/fetch の既定だが、依存しないよう明示する
+    credentials: 'include',
     headers: postHeaders(referer),
     body: formBody(fields),
   })
@@ -196,7 +198,7 @@ async function readTokens(send, location, threadUrl) {
     extra: [],
   }
   try {
-    const res = await send(threadUrl)
+    const res = await send(threadUrl, { credentials: 'include' })
     const form = findPostForm(
       decodeSjis(new Uint8Array(await res.arrayBuffer())),
     )

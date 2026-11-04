@@ -61,6 +61,12 @@ export default function Settings({ navigation }) {
   const ng = useSelector(selectNgFilters)
   const [gesturePicker, setGesturePicker] = useState(null)
   const gestures = normalizeGestures(settings.gestures)
+  const account = useSelector((state) => state.account)
+  const loggedIn = [
+    account.be.status === 'in' ? 'BE' : null,
+    account.uplift.status === 'in' ? 'UPLIFT' : null,
+  ].filter(Boolean)
+  const accountText = loggedIn.length > 0 ? loggedIn.join(' / ') : '未ログイン'
   const ngCount =
     ng.words.length + ng.ids.length + ng.names.length + ng.threadWords.length
 
@@ -258,6 +264,23 @@ export default function Settings({ navigation }) {
           'sage を最初からオンにする',
           '書き込み画面を開いたときの初期状態',
         )}
+      </SettingsSection>
+
+      <SettingsSection title="アカウント" theme={theme}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`アカウント ${accountText}`}
+          onPress={() => navigation.navigate('AccountSettings')}
+          style={[styles.row, { borderColor: theme.border }]}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>BE / UPLIFT</Text>
+          <View style={styles.rowValue}>
+            <Text style={{ color: theme.textDim, fontSize: 13 }}>
+              {accountText}
+            </Text>
+            <Icon name="chevronRight" size={16} color={theme.textFaint} />
+          </View>
+        </Pressable>
       </SettingsSection>
 
       <SettingsSection title="NG" theme={theme}>
