@@ -1,22 +1,21 @@
 import React from 'react'
 import { Image, StyleSheet } from 'react-native'
 
-export default function Logo() {
+import { images } from 'theme/images'
+
+/** Ember のアイコン。デスクトップ版と同じ炎。 */
+export default function Logo({ size = 180 }) {
   return (
     <Image
-      style={styles.logo}
-      source={require('../../assets/images/logo-sm.png')}
+      style={[styles.logo, { width: size, height: size, borderRadius: size * 0.22 }]}
+      source={images.icon}
     />
   )
 }
 
 const styles = StyleSheet.create({
   logo: {
-    flex: 1,
-    height: 180,
-    width: 180,
     alignSelf: 'center',
     margin: 30,
-    borderRadius: 20,
   },
 })

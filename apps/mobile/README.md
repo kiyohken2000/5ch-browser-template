@@ -46,7 +46,7 @@ src/
 ├── slices/     Redux Toolkit 2.x（ng / settings / watch）
 ├── scenes/     画面（home / boards / threads / thread / settings）
 ├── components/ 描画部品（ResponseItem / ResponseBody / ResponseSheet）
-├── theme/      配色（ember.js）
+├── theme/      配色（ember.js）とアイコン（images.js）
 └── routes/     ナビゲーション
 ```
 
@@ -72,6 +72,9 @@ src/
 - `.catch(() => {})` 禁止。失敗は `console.warn` に出す
 - **リリースは EAS で独立して行う。** `scripts/release.sh`（デスクトップ版）には
   干渉しない
+- **アイコンはデスクトップ版と同じ炎。** 元は `apps/desktop/src-tauri/icons/icon.png`。
+  単純な拡大ではなくアルファをマスクに取り出して塗り直してある
+  （作り方は `docs/MOBILE_FEASIBILITY_STUDY.md` §17-4）
 - **`react-native-purchases` と `expo-tracking-transparency` は依存に入っているだけで
   呼んでいない。** 不変条件 1「広告もアプリ内課金も入れない」はまだ有効。
   課金を入れるなら先に `docs/MOBILE_FEASIBILITY_STUDY.md` の §2 を書き換えること（未決 #14）

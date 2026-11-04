@@ -10,7 +10,9 @@
     ],
     "version": "0.0.1",
     "orientation": "portrait",
-    "icon": "./assets/images/logo-sm.png",
+    "icon": "./assets/images/icon.png",
+    "primaryColor": "#f54011",
+    "backgroundColor": "#0b0d12",
     "updates": {
       "enabled": true,
       "fallbackToCacheTimeout": 10000
@@ -32,6 +34,10 @@
       "package": "net.votepurchase.ember",
       "versionCode": 1,
       "userInterfaceStyle": "automatic",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0b0d12"
+      },
       "permissions": [
         "VIBRATE"
       ]
@@ -45,9 +51,13 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash.png",
+          "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#0b0d12",
+          "dark": {
+            "image": "./assets/images/splash-icon.png",
+            "backgroundColor": "#0b0d12"
+          }
         }
       ],
       "expo-sqlite",
