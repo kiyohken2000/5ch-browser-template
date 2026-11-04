@@ -25,7 +25,7 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { useSelector } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 
 import {
   appendQuote,
@@ -38,6 +38,7 @@ import {
 import { resultText, submitPost } from 'lib/post'
 import { KEYS, load, save } from 'lib/storage'
 import { normalizeExternalUrl } from 'lib/urls'
+import { recordMyPost } from 'slices/watch.slice'
 import { useEmberTheme } from 'theme/ember'
 
 const SAVE_DELAY_MS = 500
@@ -47,7 +48,9 @@ function warnIfFailed(ok, what) {
 }
 
 export default function Post({ route, navigation }) {
-  const { threadUrl, title, quote } = route.params
+  const { threadId, threadUrl, boardUrl, boardName, title, quote } =
+    route.params
+  const dispatch = useDispatch()
   const theme = useEmberTheme()
   const fontSize = useSelector((state) => state.settings.fontSize)
   const sageDefault = useSelector((state) => state.settings.composeSageDefault)
@@ -135,12 +138,35 @@ export default function Post({ route, navigation }) {
       return
     }
     latestRef.current.posted = true
+    dispatch(
+      recordMyPost({
+        threadId,
+        threadUrl,
+        boardUrl,
+        boardName,
+        title,
+        message,
+        at: Date.now(),
+      }),
+    )
     draftsRef.current = withoutDraft(draftsRef.current, threadUrl)
     save(KEYS.postDrafts, draftsRef.current).then((ok) =>
       warnIfFailed(ok, '本文'),
     )
     navigation.popTo('Thread', { postedAt: Date.now() }, { merge: true })
-  }, [threadUrl, name, mail, sage, message, navigation])
+  }, [
+    dispatch,
+    threadId,
+    threadUrl,
+    boardUrl,
+    boardName,
+    title,
+    name,
+    mail,
+    sage,
+    message,
+    navigation,
+  ])
 
   const canSend = loaded && !sending && message.trim().length > 0
   const sageOn = sageChecked(mail, sage)

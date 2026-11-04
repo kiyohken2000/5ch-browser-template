@@ -93,6 +93,10 @@ describe('resolveAction', () => {
   it('相対パスを投稿先のホストで解決する', () => {
     expect(resolveAction('../test/bbs.cgi', POST_URL)).toBe(POST_URL)
     expect(resolveAction('/test/bbs.cgi', POST_URL)).toBe(POST_URL)
+    // 実際のスレのページの形
+    expect(resolveAction('//egg.5ch.io/test/bbs.cgi', POST_URL)).toBe(
+      'https://egg.5ch.io/test/bbs.cgi',
+    )
     expect(resolveAction(null, POST_URL)).toBe(POST_URL)
   })
 })
@@ -191,6 +195,35 @@ describe('submitPost', () => {
     console.warn.mockRestore()
     expect(got.kind).toBe('success')
     expect(posted).toEqual([POST_URL])
+  })
+
+  it('4xx は受け付けられなかったと確定し、送り直さない', async () => {
+    const posts = []
+    const send = async (url, options = {}) => {
+      if (options.method === 'POST') posts.push(url)
+      return {
+        status: options.method === 'POST' ? 404 : 200,
+        arrayBuffer: async () => encodeSjis('<title>404</title>').buffer,
+      }
+    }
+    const got = await submitPost(input, { send })
+    expect(got.kind).toBe('error')
+    expect(got.message).toContain('404')
+    expect(posts).toHaveLength(1)
+  })
+
+  it('5xx は届いたか分からない扱いで、送り直さない', async () => {
+    const posts = []
+    const send = async (url, options = {}) => {
+      if (options.method === 'POST') posts.push(url)
+      return {
+        status: options.method === 'POST' ? 502 : 200,
+        arrayBuffer: async () => encodeSjis('<title>502</title>').buffer,
+      }
+    }
+    const got = await submitPost(input, { send })
+    expect(got.kind).toBe('uncertain')
+    expect(posts).toHaveLength(1)
   })
 
   it('空の本文は送らない', async () => {

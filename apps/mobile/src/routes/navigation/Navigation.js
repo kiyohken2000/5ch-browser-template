@@ -40,6 +40,7 @@ import Boards from 'scenes/boards/Boards'
 import Home from 'scenes/home/Home'
 import Post from 'scenes/post/Post'
 import Search from 'scenes/search/Search'
+import NgSettings from 'scenes/settings/NgSettings'
 import Settings from 'scenes/settings/Settings'
 import Thread from 'scenes/thread/Thread'
 import Threads from 'scenes/threads/Threads'
@@ -152,6 +153,14 @@ function SettingsStack() {
         name="SettingsTop"
         component={SettingsTop}
         options={NO_HEADER}
+      />
+      <Stack.Screen
+        name="NgSettings"
+        component={NgSettings}
+        options={{
+          title: 'NG 管理',
+          headerBackAccessibilityLabel: '戻る',
+        }}
       />
     </Stack.Navigator>
   )

@@ -88,14 +88,19 @@ import { setSetting } from 'slices/settings.slice'
 import {
   markSeen,
   setReadMarker,
+  touchRecentThread,
   touchThread,
+  toggleFavorite,
   updateCount,
 } from 'slices/watch.slice'
+import useSheetAnimation from 'components/useSheetAnimation'
 import { useEmberTheme } from 'theme/ember'
 import { showToast } from 'utils/showToast'
 
 /** 本文の上に重ねるバーの高さ（ガラスの下をレスが通る — §9-3）。 */
-const FOOTER_HEIGHT = 40
+const FOOTER_HEIGHT = 44
+const TOP_SETTLE_INTERVAL_MS = 250
+const TOP_SETTLE_MAX_TICKS = 12
 /** スレタイのタップで出す先頭のレス数。 */
 const HEAD_RES_COUNT = 20
 
@@ -129,7 +134,22 @@ function haptic() {
   )
 }
 
+/** 下部バーのボタン。見た目より広い範囲で押せる。 */
+function FooterButton({ icon, label, color, onPress }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={styles.footerBtn}
+    >
+      <Icon name={icon} size={22} color={color} />
+    </Pressable>
+  )
+}
+
 export default function Thread({ route, navigation }) {
+  const animationConfigs = useSheetAnimation()
   const { threadUrl, boardUrl, boardName, title: initialTitle } = route.params
   const theme = useEmberTheme()
   const insets = useSafeAreaInsets()
@@ -137,6 +157,7 @@ export default function Thread({ route, navigation }) {
   const ngFilters = useSelector(selectNgFilters)
   const settings = useSelector((state) => state.settings)
   const readMarkers = useSelector((state) => state.watch.readMarkers)
+  const favorites = useSelector((state) => state.watch.favorites)
 
   const { dismissAll } = useBottomSheetModal()
   const menuRef = useRef(null)
@@ -162,6 +183,7 @@ export default function Thread({ route, navigation }) {
   const [checkingNew, setCheckingNew] = useState(false)
   const [gotoOpen, setGotoOpen] = useState(false)
   const [gotoNo, setGotoNo] = useState('')
+  const gotoRef = useRef(null)
 
   const threadId = useMemo(() => {
     try {
@@ -172,6 +194,33 @@ export default function Thread({ route, navigation }) {
   }, [threadUrl])
 
   const marker = readMarkers[threadId]
+  const isFavorite = favorites.some((t) => t.threadId === threadId)
+
+  // 開いたスレを「最近開いた」へ。取得に失敗しても開いたことは残す
+  useEffect(() => {
+    dispatch(
+      touchRecentThread({
+        threadId,
+        threadUrl,
+        boardUrl,
+        boardName,
+        title: initialTitle,
+      }),
+    )
+  }, [dispatch, threadId, threadUrl, boardUrl, boardName, initialTitle])
+
+  const onToggleFavorite = useCallback(() => {
+    dispatch(
+      toggleFavorite({
+        threadId,
+        threadUrl,
+        boardUrl,
+        boardName,
+        title,
+        totalCount: stateRef.current.entryCount,
+      }),
+    )
+  }, [dispatch, threadId, threadUrl, boardUrl, boardName, title])
 
   // ---- ヘッダ --------------------------------------------------------------
 
@@ -371,11 +420,44 @@ export default function Thread({ route, navigation }) {
     }
   }, [])
 
-  const scrollToFirst = useCallback(() => {
-    if (listRef.current) {
-      listRef.current.scrollToOffset({ offset: 0, animated: true })
-    }
+  useEffect(() => {
+    if (gotoOpen && gotoRef.current) gotoRef.current.present()
+  }, [gotoOpen])
+
+  const topTimerRef = useRef(null)
+
+  const stopSettlingTop = useCallback(() => {
+    clearInterval(topTimerRef.current)
+    topTimerRef.current = null
   }, [])
+
+  /**
+   * 上へ戻る途中で未計測のレスの高さが確定すると、FlashList の位置補正で
+   * スクロール位置がずれて 0 まで届かない。止まったのに先頭でなければ、もう一度送る。
+   * 指で触ったら（onScrollBeginDrag）やめる。
+   */
+  const scrollToFirst = useCallback(() => {
+    if (!listRef.current) return
+    stopSettlingTop()
+    listRef.current.scrollToOffset({ offset: 0, animated: true })
+    let last = scrollRef.current.offset
+    let ticks = 0
+    topTimerRef.current = setInterval(() => {
+      const { offset } = scrollRef.current
+      ticks += 1
+      if (ticks >= TOP_SETTLE_MAX_TICKS || !listRef.current) {
+        stopSettlingTop()
+        return
+      }
+      // 0 に着いた後でも補正でずれるので、途中では打ち切らない
+      if (offset > 0.5 && Math.abs(offset - last) < 0.5) {
+        listRef.current.scrollToOffset({ offset: 0, animated: true })
+      }
+      last = offset
+    }, TOP_SETTLE_INTERVAL_MS)
+  }, [stopSettlingTop])
+
+  useEffect(() => stopSettlingTop, [stopSettlingTop])
 
   const scrollToLast = useCallback(() => {
     if (listRef.current) listRef.current.scrollToEnd({ animated: true })
@@ -397,8 +479,7 @@ export default function Thread({ route, navigation }) {
       showToast({ title: `>>${gotoNo} はありません` })
       return
     }
-    setGotoOpen(false)
-    setGotoNo('')
+    if (gotoRef.current) gotoRef.current.dismiss()
     Keyboard.dismiss()
     scrollToRow(found.index)
     if (!found.exact) {
@@ -611,6 +692,20 @@ export default function Thread({ route, navigation }) {
       headerRight: () => (
         <View style={styles.headerRight}>
           <Pressable
+            accessibilityLabel={
+              isFavorite ? 'お気に入りから外す' : 'お気に入りに追加'
+            }
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={onToggleFavorite}
+          >
+            <Icon
+              name={isFavorite ? 'starFilled' : 'star'}
+              size={22}
+              color={theme.accent}
+            />
+          </Pressable>
+          <Pressable
             accessibilityLabel="スレ内検索"
             accessibilityRole="button"
             hitSlop={8}
@@ -629,7 +724,16 @@ export default function Thread({ route, navigation }) {
         </View>
       ),
     })
-  }, [navigation, title, theme.accent, theme.text, shareThread, openThreadInfo])
+  }, [
+    navigation,
+    title,
+    theme.accent,
+    theme.text,
+    shareThread,
+    openThreadInfo,
+    isFavorite,
+    onToggleFavorite,
+  ])
 
   // ---- レスメニュー（長押し） ----------------------------------------------
 
@@ -671,19 +775,28 @@ export default function Thread({ route, navigation }) {
   )
 
   const openPost = useCallback(
-    (quote) => navigation.navigate('Post', { threadUrl, title, quote }),
-    [navigation, threadUrl, title],
+    (quote) =>
+      navigation.navigate('Post', {
+        threadId,
+        threadUrl,
+        boardUrl,
+        boardName,
+        title,
+        quote,
+      }),
+    [navigation, threadId, threadUrl, boardUrl, boardName, title],
   )
 
-  // 書き込み画面から戻ったら、書いたレスを取りに行く。読んでいる位置は動かさない
+  // 書き込み画面から戻ったら、書いたレスを取りに行って末尾へ送る。
+  // 自分で書いた直後なので、書いたレスを見せる。既読位置は変えない（不変条件 3）
   const { postedAt } = route.params
   const handledPostRef = useRef(postedAt)
   useEffect(() => {
     if (!postedAt || handledPostRef.current === postedAt) return
     handledPostRef.current = postedAt
     showToast({ title: '書き込みました' })
-    readDelta()
-  }, [postedAt, readDelta])
+    readDelta().then(() => setTimeout(scrollToLast, 120))
+  }, [postedAt, readDelta, scrollToLast])
 
   const menuActions = useMemo(() => {
     if (!menuRow) return []
@@ -1035,53 +1148,6 @@ export default function Thread({ route, navigation }) {
         </View>
       ) : null}
 
-      {gotoOpen ? (
-        <View
-          style={[
-            styles.searchBar,
-            { backgroundColor: theme.surface, borderColor: theme.border },
-          ]}
-        >
-          <TextInput
-            value={gotoNo}
-            onChangeText={(v) => setGotoNo(v.replace(/[^0-9]/g, ''))}
-            placeholder={`レス番号（1〜${ngRows.length}）`}
-            placeholderTextColor={theme.textFaint}
-            keyboardType="number-pad"
-            returnKeyType="go"
-            autoFocus
-            onSubmitEditing={goToNo}
-            style={[styles.searchInput, { color: theme.text }]}
-          />
-          <Pressable
-            onPress={goToNo}
-            hitSlop={8}
-            disabled={!gotoNo}
-            accessibilityRole="button"
-          >
-            <Text
-              style={{
-                color: gotoNo ? theme.accent : theme.textFaint,
-                fontWeight: '600',
-              }}
-            >
-              移動
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel="番号指定を閉じる"
-            accessibilityRole="button"
-            hitSlop={6}
-            onPress={() => {
-              setGotoOpen(false)
-              setGotoNo('')
-            }}
-          >
-            <Icon name="close" size={20} color={theme.textDim} />
-          </Pressable>
-        </View>
-      ) : null}
-
       <View style={styles.flex}>
         <View
           ref={listBoxRef}
@@ -1105,6 +1171,7 @@ export default function Thread({ route, navigation }) {
             keyExtractor={(r) => String(r.no)}
             keyboardShouldPersistTaps="handled"
             scrollEventThrottle={64}
+            onScrollBeginDrag={stopSettlingTop}
             onScroll={(e) => {
               const { contentOffset, layoutMeasurement, contentSize } =
                 e.nativeEvent
@@ -1153,38 +1220,39 @@ export default function Thread({ route, navigation }) {
             style={StyleSheet.absoluteFill}
           />
         ) : null}
-        <Text style={[styles.footerText, { color: theme.textDim }]}>
-          {shown.length} / {ngRows.length} レス
+        <Text
+          numberOfLines={1}
+          style={[styles.footerText, { color: theme.textDim }]}
+        >
+          {ngRows.length} レス
           {ngRows.length !== shown.length
             ? `（NG ${ngRows.length - shown.length}）`
             : ''}
         </Text>
-        <Pressable
+        <FooterButton
+          icon="hash"
+          label="番号へ"
+          color={theme.accent}
+          onPress={() => setGotoOpen(true)}
+        />
+        <FooterButton
+          icon="toTop"
+          label="先頭へ"
+          color={theme.accent}
+          onPress={scrollToFirst}
+        />
+        <FooterButton
+          icon="toBottom"
+          label="末尾へ"
+          color={theme.accent}
+          onPress={scrollToLast}
+        />
+        <FooterButton
+          icon="compose"
+          label="書く"
+          color={theme.accent}
           onPress={() => openPost()}
-          hitSlop={8}
-          accessibilityRole="button"
-        >
-          <Text style={[styles.footerBtn, { color: theme.accent }]}>書く</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => setGotoOpen((v) => !v)}
-          hitSlop={8}
-          accessibilityRole="button"
-        >
-          <Text style={[styles.footerBtn, { color: theme.accent }]}>
-            番号へ
-          </Text>
-        </Pressable>
-        <Pressable onPress={scrollToFirst} hitSlop={8}>
-          <Text style={[styles.footerBtn, { color: theme.accent }]}>
-            先頭へ
-          </Text>
-        </Pressable>
-        <Pressable onPress={scrollToLast} hitSlop={8}>
-          <Text style={[styles.footerBtn, { color: theme.accent }]}>
-            末尾へ
-          </Text>
-        </Pressable>
+        />
       </View>
 
       <ResponseSheet
@@ -1201,8 +1269,63 @@ export default function Thread({ route, navigation }) {
         onJump={jumpToNo}
       />
 
+      {gotoOpen ? (
+        <BottomSheetModal
+          animationConfigs={animationConfigs}
+          accessible={false}
+          ref={gotoRef}
+          name="goto-number"
+          enablePanDownToClose
+          enableDynamicSizing
+          keyboardBehavior="interactive"
+          keyboardBlurBehavior="restore"
+          backdropComponent={renderMenuBackdrop}
+          backgroundStyle={{ backgroundColor: theme.surface }}
+          handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
+          onDismiss={() => {
+            setGotoOpen(false)
+            setGotoNo('')
+          }}
+        >
+          <BottomSheetView style={styles.goto}>
+            <BottomSheetTextInput
+              accessibilityLabel="レス番号"
+              value={gotoNo}
+              onChangeText={(v) => setGotoNo(v.replace(/[^0-9]/g, ''))}
+              placeholder={`レス番号（1〜${ngRows.length}）`}
+              placeholderTextColor={theme.textFaint}
+              keyboardType="number-pad"
+              autoFocus
+              onSubmitEditing={goToNo}
+              style={[
+                styles.gotoInput,
+                { color: theme.text, borderColor: theme.border },
+              ]}
+            />
+            <Pressable
+              onPress={goToNo}
+              hitSlop={8}
+              disabled={!gotoNo}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !gotoNo }}
+            >
+              <Text
+                style={{
+                  color: gotoNo ? theme.accent : theme.textFaint,
+                  fontSize: 16,
+                  fontWeight: '600',
+                }}
+              >
+                移動
+              </Text>
+            </Pressable>
+          </BottomSheetView>
+        </BottomSheetModal>
+      ) : null}
+
       {menuRow ? (
         <BottomSheetModal
+          animationConfigs={animationConfigs}
           accessible={false}
           ref={menuRef}
           name="response-menu"
@@ -1320,12 +1443,33 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 8,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
-  footerText: { fontSize: 12 },
-  footerBtn: { fontSize: 13, fontWeight: '600' },
+  footerText: { flex: 1, fontSize: 12 },
+  footerBtn: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  goto: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 32,
+  },
+  gotoInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 8,
+  },
   menu: { paddingBottom: 32 },
   menuTitle: {
     paddingHorizontal: 18,

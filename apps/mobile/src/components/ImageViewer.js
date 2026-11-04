@@ -35,6 +35,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from 'react-native-reanimated'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
 import { PhotoPermissionError, saveImageToLibrary } from 'lib/saveImage'
@@ -177,6 +178,7 @@ function ImagePage({ url, width, height, dismissY, onClose, onZoomChange }) {
 
 export default function ImageViewer({ images, initialIndex, onClose }) {
   const { width, height } = useWindowDimensions()
+  const insets = useSafeAreaInsets()
   const dismissY = useSharedValue(0)
   const [index, setIndex] = useState(initialIndex)
   const [zoomed, setZoomed] = useState(false)
@@ -227,6 +229,8 @@ export default function ImageViewer({ images, initialIndex, onClose }) {
     [width, height, dismissY, onClose],
   )
 
+  const barBottom = Math.max(insets.bottom, 16) + 8
+
   const contentStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: dismissY.value }],
   }))
@@ -261,7 +265,10 @@ export default function ImageViewer({ images, initialIndex, onClose }) {
         />
       </Animated.View>
 
-      <View style={styles.topBar} pointerEvents="box-none">
+      <View
+        style={[styles.bottomBar, { bottom: barBottom }]}
+        pointerEvents="box-none"
+      >
         <Text style={styles.counter}>
           {images.length > 1 ? `${index + 1} / ${images.length}` : ''}
           {current?.no ? `  >>${current.no}` : ''}
@@ -294,7 +301,10 @@ export default function ImageViewer({ images, initialIndex, onClose }) {
       </View>
 
       {message ? (
-        <View style={styles.message} pointerEvents="none">
+        <View
+          style={[styles.message, { bottom: barBottom + BAR_HEIGHT + 12 }]}
+          pointerEvents="none"
+        >
           <Text style={styles.messageText}>{message}</Text>
         </View>
       ) : null}
@@ -302,12 +312,13 @@ export default function ImageViewer({ images, initialIndex, onClose }) {
   )
 }
 
+const BAR_HEIGHT = 44
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: '#000' },
-  topBar: {
+  bottomBar: {
     position: 'absolute',
-    top: 56,
     left: 16,
     right: 16,
     flexDirection: 'row',
@@ -317,16 +328,15 @@ const styles = StyleSheet.create({
   counter: { color: '#fff', fontSize: 14, fontWeight: '600' },
   buttons: { flexDirection: 'row', gap: 12 },
   button: {
-    width: 40,
-    height: 40,
+    width: BAR_HEIGHT,
+    height: BAR_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 20,
+    borderRadius: BAR_HEIGHT / 2,
   },
   message: {
     position: 'absolute',
-    bottom: 80,
     alignSelf: 'center',
     backgroundColor: 'rgba(0,0,0,0.75)',
     borderRadius: 8,

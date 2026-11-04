@@ -28,6 +28,7 @@ import { idColor, idIcon } from 'lib/idcolor'
 import { shouldHideImages } from 'lib/ng'
 import ResponseBody from './ResponseBody'
 import ResponseMedia from './ResponseMedia'
+import useSheetAnimation from './useSheetAnimation'
 
 const SNAP_POINTS = ['55%', '92%']
 
@@ -57,6 +58,7 @@ function SheetLayer({
   onJump,
   onImage,
 }) {
+  const animationConfigs = useSheetAnimation()
   const ref = useRef(null)
 
   useEffect(() => {
@@ -128,6 +130,7 @@ function SheetLayer({
           </View>
           <ResponseBody
             parsed={item.parsed}
+            hideImages={shouldHideImages(item)}
             theme={theme}
             fontSize={fontSize}
             onAnchor={(t) => onAnchor && onAnchor(t, item.no)}
@@ -150,6 +153,7 @@ function SheetLayer({
 
   return (
     <BottomSheetModal
+      animationConfigs={animationConfigs}
       accessible={false}
       ref={ref}
       name={`response-sheet-${index}`}

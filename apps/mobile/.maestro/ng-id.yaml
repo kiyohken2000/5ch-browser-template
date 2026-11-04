@@ -7,11 +7,16 @@ onFlowComplete:
       optional: true
   - tapOn: "設定, tab, 4 of 4"
   - scrollUntilVisible:
+      element: "NG 管理.*"
+      direction: DOWN
+  - tapOn: "NG 管理.*"
+  - scrollUntilVisible:
       element: "${NG_ID}"
       direction: DOWN
   - tapOn:
       text: "削除"
       rightOf: "${NG_ID}"
+  - tapOn: "戻る"
 ---
 - runFlow: open-thread.yaml
 - tapOn:

@@ -14,16 +14,41 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
 import { boardRef, pushRecentBoard } from 'lib/boards'
 import { KEYS, load, save } from 'lib/storage'
+import {
+  pushMyPost,
+  pushRecentThread,
+  removePosts,
+  removeThread,
+  toggleThread,
+} from 'lib/threadLists'
 
 export const loadWatch = createAsyncThunk('watch/load', async () => {
-  const [watchList, readMarkers, boardFavorites, recentBoards] =
-    await Promise.all([
-      load(KEYS.watchList, []),
-      load(KEYS.readMarkers, {}),
-      load(KEYS.boardFavorites, []),
-      load(KEYS.recentBoards, []),
-    ])
-  return { watchList, readMarkers, boardFavorites, recentBoards }
+  const [
+    watchList,
+    readMarkers,
+    boardFavorites,
+    recentBoards,
+    favorites,
+    recentOpened,
+    myPosts,
+  ] = await Promise.all([
+    load(KEYS.watchList, []),
+    load(KEYS.readMarkers, {}),
+    load(KEYS.boardFavorites, []),
+    load(KEYS.recentBoards, []),
+    load(KEYS.favorites, []),
+    load(KEYS.recentOpened, []),
+    load(KEYS.myPosts, []),
+  ])
+  return {
+    watchList,
+    readMarkers,
+    boardFavorites,
+    recentBoards,
+    favorites,
+    recentOpened,
+    myPosts,
+  }
 })
 
 function persistWatch(state) {
@@ -50,6 +75,36 @@ function persistRecentBoards(state) {
   })
 }
 
+function persistFavorites(state) {
+  save(KEYS.favorites, state.favorites).then((ok) => {
+    if (!ok) console.warn('[watch] お気に入りスレの保存に失敗した')
+  })
+}
+
+function persistRecentOpened(state) {
+  save(KEYS.recentOpened, state.recentOpened).then((ok) => {
+    if (!ok) console.warn('[watch] 最近開いたスレの保存に失敗した')
+  })
+}
+
+function persistMyPosts(state) {
+  save(KEYS.myPosts, state.myPosts).then((ok) => {
+    if (!ok) console.warn('[watch] 書き込み履歴の保存に失敗した')
+  })
+}
+
+/** 一覧に控えたスレの情報を新しくする。並び順は変えない。 */
+function refreshEntry(list, threadId, fields) {
+  let changed = false
+  for (const entry of list) {
+    if (entry.threadId === threadId) {
+      Object.assign(entry, fields)
+      changed = true
+    }
+  }
+  return changed
+}
+
 const initialState = {
   /** [{ threadId, threadUrl, boardUrl, boardName, title, totalCount, lastSeenCount, lastFetchedAt }] */
   watchList: [],
@@ -59,6 +114,12 @@ const initialState = {
   boardFavorites: [],
   /** 新しい順。[{ name, url, board, host }] */
   recentBoards: [],
+  /** お気に入りスレ。新しい順。[lib/threadLists の threadRef] */
+  favorites: [],
+  /** 最近開いたスレ。新しい順 */
+  recentOpened: [],
+  /** 自分の書き込み。新しい順。[threadRef + { message, at }] */
+  myPosts: [],
   loaded: false,
 }
 
@@ -94,6 +155,15 @@ const watchSlice = createSlice({
         })
       }
       persistWatch(state)
+
+      const fields = { totalCount: totalCount ?? 0 }
+      if (title) fields.title = title
+      if (refreshEntry(state.favorites, threadId, fields)) {
+        persistFavorites(state)
+      }
+      if (refreshEntry(state.recentOpened, threadId, fields)) {
+        persistRecentOpened(state)
+      }
     },
 
     /** 新着バッジを消す（画面で見たことにする）。既読線とは別の概念。 */
@@ -110,10 +180,47 @@ const watchSlice = createSlice({
     updateCount: (state, { payload }) => {
       const { threadId, totalCount } = payload
       const at = state.watchList.findIndex((t) => t.threadId === threadId)
-      if (at < 0) return
-      state.watchList[at].totalCount = totalCount
-      state.watchList[at].lastFetchedAt = Date.now()
-      persistWatch(state)
+      if (at >= 0) {
+        state.watchList[at].totalCount = totalCount
+        state.watchList[at].lastFetchedAt = Date.now()
+        persistWatch(state)
+      }
+      if (refreshEntry(state.favorites, threadId, { totalCount })) {
+        persistFavorites(state)
+      }
+      if (refreshEntry(state.recentOpened, threadId, { totalCount })) {
+        persistRecentOpened(state)
+      }
+      if (refreshEntry(state.myPosts, threadId, { totalCount })) {
+        persistMyPosts(state)
+      }
+    },
+
+    /** スレを開いたら「最近開いた」の先頭へ。 */
+    touchRecentThread: (state, { payload }) => {
+      state.recentOpened = pushRecentThread(state.recentOpened, payload)
+      persistRecentOpened(state)
+    },
+
+    removeRecentThread: (state, { payload }) => {
+      state.recentOpened = removeThread(state.recentOpened, payload)
+      persistRecentOpened(state)
+    },
+
+    toggleFavorite: (state, { payload }) => {
+      state.favorites = toggleThread(state.favorites, payload)
+      persistFavorites(state)
+    },
+
+    /** 書き込みが成功したときに記録する。 */
+    recordMyPost: (state, { payload }) => {
+      state.myPosts = pushMyPost(state.myPosts, payload)
+      persistMyPosts(state)
+    },
+
+    removePostedThread: (state, { payload }) => {
+      state.myPosts = removePosts(state.myPosts, payload)
+      persistMyPosts(state)
     },
 
     removeFromWatch: (state, { payload }) => {
@@ -167,6 +274,13 @@ const watchSlice = createSlice({
       state.recentBoards = Array.isArray(payload.recentBoards)
         ? payload.recentBoards
         : []
+      state.favorites = Array.isArray(payload.favorites)
+        ? payload.favorites
+        : []
+      state.recentOpened = Array.isArray(payload.recentOpened)
+        ? payload.recentOpened
+        : []
+      state.myPosts = Array.isArray(payload.myPosts) ? payload.myPosts : []
       state.loaded = true
     })
     builder.addCase(loadWatch.rejected, (state, action) => {
@@ -187,11 +301,16 @@ export const {
   toggleBoardFavorite,
   touchBoard,
   clearRecentBoards,
+  touchRecentThread,
+  removeRecentThread,
+  toggleFavorite,
+  recordMyPost,
+  removePostedThread,
 } = watchSlice.actions
 
-/** 新着レス数。0 以下なら新着なし。 */
+/** 新着レス数。0 以下なら新着なし。読んだ数を覚えていないスレは数えない。 */
 export function newCount(entry) {
-  if (!entry) return 0
+  if (!entry || entry.lastSeenCount === undefined) return 0
   return Math.max(0, (entry.totalCount || 0) - (entry.lastSeenCount || 0))
 }
 

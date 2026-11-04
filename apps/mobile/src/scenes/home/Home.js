@@ -6,9 +6,14 @@
  * （デスクトップの「全タブ更新」相当）。
  */
 
-import React, { useCallback, useState } from 'react'
 import {
-  Alert,
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+} from '@gorhom/bottom-sheet'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  BackHandler,
   FlatList,
   Pressable,
   RefreshControl,
@@ -19,15 +24,80 @@ import {
 import { useDispatch, useSelector } from 'react-redux'
 
 import { fetchSubject } from 'lib/api'
-import { newCount, removeFromWatch, updateCount } from 'slices/watch.slice'
+import { postedThreads, withWatchInfo } from 'lib/threadLists'
+import {
+  newCount,
+  removeFromWatch,
+  removePostedThread,
+  removeRecentThread,
+  toggleFavorite,
+  updateCount,
+} from 'slices/watch.slice'
+import useSheetAnimation from 'components/useSheetAnimation'
 import { useEmberTheme } from 'theme/ember'
 
+const SEGMENTS = [
+  { key: 'watch', label: '監視' },
+  { key: 'favorites', label: 'お気に入り' },
+  { key: 'recent', label: '最近' },
+  { key: 'posted', label: '書き込み' },
+]
+
+const EMPTY_TEXT = {
+  watch:
+    '「板」タブから板を選んでスレを開くと、ここに並びます。\n下に引くと全部の新着をまとめて確認します。',
+  favorites: 'スレの ★ をタップすると、ここに並びます。',
+  recent: '開いたスレが新しい順に並びます。',
+  posted: '書き込んだスレが新しい順に並びます。',
+}
+
+function renderMenuBackdrop(props) {
+  return (
+    <BottomSheetBackdrop
+      {...props}
+      appearsOnIndex={0}
+      disappearsOnIndex={-1}
+      pressBehavior="close"
+    />
+  )
+}
+
 export default function Home({ navigation }) {
+  const animationConfigs = useSheetAnimation()
   const theme = useEmberTheme()
   const dispatch = useDispatch()
   const watchList = useSelector((state) => state.watch.watchList)
   const readMarkers = useSelector((state) => state.watch.readMarkers)
   const [refreshing, setRefreshing] = useState(false)
+  const [menuItem, setMenuItem] = useState(null)
+  const [segment, setSegment] = useState('watch')
+  const favorites = useSelector((state) => state.watch.favorites)
+  const recentOpened = useSelector((state) => state.watch.recentOpened)
+  const myPosts = useSelector((state) => state.watch.myPosts)
+
+  const favoriteIds = useMemo(
+    () => new Set(favorites.map((t) => t.threadId)),
+    [favorites],
+  )
+
+  const rows = useMemo(() => {
+    if (segment === 'watch') return watchList
+    const watch = new Map(watchList.map((t) => [t.threadId, t]))
+    let list = favorites
+    if (segment === 'recent') list = recentOpened
+    if (segment === 'posted') list = postedThreads(myPosts)
+    return list.map((t) => withWatchInfo(t, watch.get(t.threadId)))
+  }, [segment, watchList, favorites, recentOpened, myPosts])
+
+  const removeFromSegment = useCallback(
+    (from, threadId) => {
+      if (from === 'watch') dispatch(removeFromWatch(threadId))
+      if (from === 'recent') dispatch(removeRecentThread(threadId))
+      if (from === 'posted') dispatch(removePostedThread(threadId))
+    },
+    [dispatch],
+  )
+  const menuRef = useRef(null)
 
   /**
    * 全件の新着チェック。板ごとに subject.txt を 1 回だけ取り、
@@ -37,7 +107,11 @@ export default function Home({ navigation }) {
   const checkAll = useCallback(async () => {
     setRefreshing(true)
     const byBoard = new Map()
-    for (const t of watchList) {
+    const targets = new Map()
+    for (const t of [...watchList, ...favorites, ...recentOpened, ...myPosts]) {
+      if (!targets.has(t.threadId)) targets.set(t.threadId, t)
+    }
+    for (const t of targets.values()) {
       if (!t.boardUrl) continue
       const list = byBoard.get(t.boardUrl)
       if (list) list.push(t)
@@ -63,27 +137,62 @@ export default function Home({ navigation }) {
       }
     }
     setRefreshing(false)
-  }, [watchList, dispatch])
+  }, [watchList, favorites, recentOpened, myPosts, dispatch])
 
-  /** 長押しの誤操作で消えないように、確かめてから外す。 */
-  const confirmRemove = useCallback(
-    (item) => {
-      Alert.alert('監視リストから外しますか？', item.title || '(無題)', [
-        { text: 'キャンセル', style: 'cancel' },
-        {
-          text: '外す',
-          style: 'destructive',
-          onPress: () => dispatch(removeFromWatch(item.threadId)),
-        },
-      ])
-    },
-    [dispatch],
-  )
+  const closeMenu = useCallback(() => {
+    if (menuRef.current) menuRef.current.dismiss()
+  }, [])
+
+  useEffect(() => {
+    if (menuItem && menuRef.current) menuRef.current.present()
+  }, [menuItem])
+
+  // Android の戻るボタンでメニューを閉じる
+  useEffect(() => {
+    if (!menuItem) return undefined
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeMenu()
+      return true
+    })
+    return () => sub.remove()
+  }, [menuItem, closeMenu])
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.bg }]}>
+      <View
+        accessibilityRole="tablist"
+        style={[
+          styles.segments,
+          { backgroundColor: theme.surface, borderColor: theme.border },
+        ]}
+      >
+        {SEGMENTS.map(({ key, label }) => (
+          <Pressable
+            key={key}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: segment === key }}
+            onPress={() => setSegment(key)}
+            style={[
+              styles.segment,
+              segment === key
+                ? { borderBottomColor: theme.accent }
+                : styles.segmentOff,
+            ]}
+          >
+            <Text
+              style={[
+                styles.segmentText,
+                { color: segment === key ? theme.accent : theme.textDim },
+              ]}
+            >
+              {label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
       <FlatList
-        data={watchList}
+        data={rows}
         keyExtractor={(t) => t.threadId}
         refreshControl={
           <RefreshControl
@@ -106,7 +215,8 @@ export default function Home({ navigation }) {
                   totalCount: item.totalCount,
                 })
               }
-              onLongPress={() => confirmRemove(item)}
+              onLongPress={() => setMenuItem(item)}
+              delayLongPress={350}
               style={({ pressed }) => [
                 styles.row,
                 {
@@ -152,16 +262,64 @@ export default function Home({ navigation }) {
         }}
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={[styles.emptyTitle, { color: theme.text }]}>
-              まだ何も開いていません
-            </Text>
             <Text style={[styles.emptyBody, { color: theme.textDim }]}>
-              「板」タブから板を選んでスレを開くと、ここに並びます。{'\n'}
-              下に引くと全部の新着をまとめて確認します。
+              {EMPTY_TEXT[segment]}
             </Text>
           </View>
         }
       />
+
+      {menuItem ? (
+        <BottomSheetModal
+          animationConfigs={animationConfigs}
+          accessible={false}
+          ref={menuRef}
+          name="watch-menu"
+          enablePanDownToClose
+          enableDynamicSizing
+          backdropComponent={renderMenuBackdrop}
+          backgroundStyle={{ backgroundColor: theme.surface }}
+          handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
+          onDismiss={() => setMenuItem(null)}
+        >
+          <BottomSheetView style={styles.menu}>
+            <Text
+              numberOfLines={2}
+              style={[styles.menuTitle, { color: theme.textDim }]}
+            >
+              {menuItem.title || '(無題)'}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              style={styles.menuItem}
+              onPress={() => {
+                dispatch(toggleFavorite(menuItem))
+                closeMenu()
+              }}
+            >
+              <Text style={[styles.menuText, { color: theme.text }]}>
+                {favoriteIds.has(menuItem.threadId)
+                  ? 'お気に入りから外す'
+                  : 'お気に入りに追加'}
+              </Text>
+            </Pressable>
+            {segment === 'favorites' ? null : (
+              <Pressable
+                accessibilityRole="button"
+                style={styles.menuItem}
+                onPress={() => {
+                  removeFromSegment(segment, menuItem.threadId)
+                  closeMenu()
+                }}
+              >
+                <Text style={[styles.menuText, { color: theme.danger }]}>
+                  削除
+                </Text>
+              </Pressable>
+            )}
+          </BottomSheetView>
+        </BottomSheetModal>
+      ) : null}
     </View>
   )
 }
@@ -186,7 +344,28 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: '700' },
   meta: { flexDirection: 'row', gap: 12 },
   metaText: { fontSize: 11 },
+  menu: { paddingBottom: 32 },
+  menuTitle: {
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 6,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  menuItem: { paddingHorizontal: 18, paddingVertical: 12 },
+  menuText: { fontSize: 15 },
   empty: { padding: 32, gap: 10, alignItems: 'center' },
-  emptyTitle: { fontSize: 16, fontWeight: '600' },
+  segments: {
+    flexDirection: 'row',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  segment: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 11,
+    borderBottomWidth: 2,
+  },
+  segmentOff: { borderBottomColor: 'transparent' },
+  segmentText: { fontSize: 13, fontWeight: '600' },
   emptyBody: { fontSize: 13, lineHeight: 20, textAlign: 'center' },
 })

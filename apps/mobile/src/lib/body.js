@@ -37,6 +37,27 @@ const ID_RE = /\bID:([0-9A-Za-z+/]{6,12}(?:●|＠|@)?)/
 /** URL。末尾の句読点・閉じ括弧は URL に含めない。 */
 const URL_RE = /https?:\/\/[^\s<>"'（）()「」【】、。]+/
 
+/**
+ * BE アイコンを文字のトークンから分ける。アイコンの行に残る改行も落とすので、
+ * 本文の上に空行ができない。
+ *
+ * @returns {{icons: object[], tokens: object[]}}
+ */
+export function splitBeIcons(tokens) {
+  const icons = tokens.filter((t) => t.type === 'beicon')
+  if (icons.length === 0) return { icons, tokens }
+  const rest = tokens.filter((t) => t.type !== 'beicon')
+  const first = rest[0]
+  if (first?.type === 'text') {
+    const text = first.text.replace(/^\s+/, '')
+    return {
+      icons,
+      tokens: text ? [{ ...first, text }, ...rest.slice(1)] : rest.slice(1),
+    }
+  }
+  return { icons, tokens: rest }
+}
+
 /** BE のアイコン。`sssp://img.5ch.io/ico/nida.gif` の形で本文の先頭に入る。 */
 const BEICON_RE =
   /sssp:\/\/(img\.5ch\.(?:io|net)\/ico\/[A-Za-z0-9_-]+\.(?:gif|png))/

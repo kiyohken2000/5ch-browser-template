@@ -97,7 +97,38 @@
         {
           "userTrackingPermission": "この許可は使いません。広告も計測も行いません。"
         }
-      ]
+      ],
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
+      "expo-background-task",
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "画像を投稿するときに写真を選ぶため、写真へのアクセスを求めます。",
+          "cameraPermission": "投稿する写真をその場で撮影するため、カメラへのアクセスを求めます。",
+          "microphonePermission": false
+        }
+      ],
+      "llama.rn",
+      "@kesha-antonov/react-native-background-downloader",
+      "expo-video",
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1
+          },
+          "androidIntentFilters": [
+            "text/*"
+          ]
+        }
+      ],
+      "expo-image"
     ],
     "extra": {
       "eas": {

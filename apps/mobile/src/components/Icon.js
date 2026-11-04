@@ -25,8 +25,13 @@ const SHAPES = {
     </>
   ),
   share: <Path d="M12 15V4M8 7.5 12 4l4 3.5M6 11H5v9h14v-9h-1" />,
+  compose: <Path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17zM14.5 7.5l3 3" />,
+  hash: <Path d="M9.5 4 7.5 20M16.5 4l-2 16M4.5 9h16M3.5 15h16" />,
+  toTop: <Path d="M5 4.5h14M12 20V9M7.5 13.5 12 9l4.5 4.5" />,
+  toBottom: <Path d="M5 19.5h14M12 4v11M7.5 10.5 12 15l4.5-4.5" />,
   chevronUp: <Path d="m6 15 6-6 6 6" />,
   chevronDown: <Path d="m6 9 6 6 6-6" />,
+  chevronRight: <Path d="m9 6 6 6-6 6" />,
   close: <Path d="M6 6l12 12M18 6 6 18" />,
   download: <Path d="M12 4v11M8 11.5l4 3.5 4-3.5M5 19.5h14" />,
   play: <Path d="M8 5.5v13l10.5-6.5z" />,

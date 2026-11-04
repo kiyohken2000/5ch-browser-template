@@ -192,6 +192,23 @@ pin だが、`@react-navigation/{core,elements,native}` はいずれも `^0.2.4`
 | **`expo-image-manipulator`** | `~58.0.16` | 投稿前の画像の縮小・回転 | M4 |
 | **`expo-tracking-transparency`** | `~58.0.2` | ATT。**下の注意を読むこと** | 未定 |
 | **`react-native-purchases`** | **`10.16.0`（固定）** | RevenueCat。**下の注意を読むこと。** 11.0.0 が要求する `PurchasesHybridCommon 20.1.0` は 2026-11-04 時点で CocoaPods に未公開（最新 19.17.0）で、`pod install` が失敗する。外すときは先に trunk を確認する | 未定 |
+| **`expo-secure-store`** | `~58.0.2` | Ronin / BE / どんぐりの認証情報。Face ID の文言は入れていない | M2 |
+| **`expo-network`** | `~58.0.4` | セルラー時に画像を読まない設定（§9-6） | M1 |
+| **`expo-image-picker`** | `~58.0.10` | 画像投稿（カメラロールと撮影）。**`expo-media-library` は保存に残し、選択はこちらに分ける** | M4 |
+| **`expo-background-task`** + **`expo-task-manager`** | `~58.0.12` / `~58.0.13` | バックグラウンドでの新着巡回（§9-8） | M4 |
+| **`expo-notifications`** | `~58.1.8` | ローカル通知 | M4 |
+| **`expo-device`** | `~58.0.5` | 端末 RAM 判定 | M3 |
+| **`react-native-executorch`** | `0.11.0`（固定） | ローカル LLM（汎用）。`react-native-blob-util` が必須の peer。インストール時にネイティブ部品をダウンロードする | M3 |
+| **`llama.rn`** | **`0.13.0-rc.9`（固定）** | ローカル LLM（GGUF 専用）。npm の `latest` がこのプレリリースなので、勝手に動かないよう固定した | M3 |
+| **`@kesha-antonov/react-native-background-downloader`** | `4.7.0`（固定） | モデルの背景ダウンロード。executorch の peer でもある | M3 |
+| **`expo-video`** | `~58.0.13` | X 動画と `video.twimg.com` のインライン再生 | M4 |
+| **`expo-share-intent`** | `9.0.0`（固定） | 共有シートからの受け取り（§6-3）。iOS は Share Extension を足すので、本番ビルドではバンドル ID と署名の設定が増える。README の `xcode` パッチは Expo 55 以降では不要 | M1 |
+| **`react-native-draggable-flatlist`** | `4.0.3`（固定） | お気に入りのドラッグ並べ替え。ネイティブコードなし | M4 |
+| **`expo-image`** | `~58.0.18` | サムネイルとビューアの画像。ディスクキャッシュを明示でき、設定から消去できる | M1 |
+| **`expo-system-ui`** | `~58.0.7` | Android のダーク表示とルートの背景色（`userInterfaceStyle` に必要） | M1 |
+| **`expo-document-picker`** | `~58.0.4` | 設定の JSON インポート（§9-7） | M1〜M3 |
+| **`expo-keep-awake`** | `~58.0.3` | オートスクロール中に画面を消さない | M4 |
+| **`@expo/ui`** | `~58.0.27` | SwiftUI / Jetpack Compose の部品。**使うかは未定。** 再ビルドを減らすために先に入れた。スレ本文には使わない（性能の資料が無い。不変条件 4） | 未定 |
 
 **注意 1: Expo Go はもう使えない。** `react-native-purchases` などネイティブモジュールを含む依存が入ったので、**開発ビルド（`expo-dev-client`）が必要**になった。
 
@@ -209,17 +226,7 @@ eas build --profile development --platform ios   # iOS は EAS（Mac が無い�
 - 課金を実際に入れるなら、**先に §2 の不変条件 1 を書き換えること。** 条件を残したまま課金を実装すると、この文書が嘘になる
 - 収益化が必要な場合の第一候補は依然として寄付（Ember は既に `BUY_ME_A_COFFEE_URL` を持つ）
 
-#### まだ入れていない（使う段階で入れる）
-
-| 依存 | 用途 | 段階 |
-|---|---|---|
-| `expo-image-picker` | 画像投稿（`expo-media-library` と役割が重なるので、どちらを使うかは M4 で決める） | M4 |
-| `@kesha-antonov/react-native-background-downloader` | **モデルの背景ダウンロード。** 1GB 級の DL がアプリを閉じると死ぬのを防ぐ。FeedOwn が採用している | M3 |
-| `expo-device` | 端末 RAM 判定（FeedOwn が使用） | M3 |
-| `expo-notifications` | ネイティブのローカル通知 | M4 |
-| **`expo-background-task`** + **`expo-task-manager`** | **バックグラウンドでの新着巡回**（§9-8）。WorkManager (Android) / BGTaskScheduler (iOS) | M4 |
-| `expo-network` | 自宅 Wi-Fi 検出による同期 | M4（入れるか未決、§14-11） |
-| `llama.rn` / `react-native-executorch` | ローカル LLM（FeedOwn から移植） | M3 |
+**今後必要なネイティブ依存はすべて導入済み（2026-11-04）。** 再ビルドの回数を減らすため、使う段階を待たずに入れた。`expo-network` は §14-11 の同期とは別に、セルラー判定（§9-6）で使う。
 
 **HTTP クライアント（決定、2026-11-04）: 素の `fetch` + 薄いラッパで行く。axios は入れない。**
 
@@ -1296,7 +1303,7 @@ Ronin（浪人）/ BE / どんぐり / UPLIFT。デスクトップ版は `core-a
 
 投稿 + Ronin / BE / どんぐり認証。**書き込み確認の中間ページまで通ること。**
 
-**進捗（2026-11-04）:** 書き込みの判定と送信（`src/lib/post.js`）、書き込み画面（`src/scenes/post/Post.js`）、下部の「書く」とレスメニューの「このレスに返信」を実装した。本文はスレごとに保存し、成功したときだけ消す。**二重投稿を防ぐため、自動で送り直すのは確認ページへの 1 回だけ。** 届いたか分からないときは送り直さず、スレで確かめるよう案内する。Cookie は OS の保管に任せる。**実際の 5ch への書き込みはまだ試していない**（公開されるので、ユーザーと時機を決めて確認する）。
+**進捗（2026-11-04）:** 書き込みの判定と送信（`src/lib/post.js`）、書き込み画面（`src/scenes/post/Post.js`）、下部の「書く」とレスメニューの「このレスに返信」を実装した。本文はスレごとに保存し、成功したときだけ消す。**二重投稿を防ぐため、自動で送り直すのは確認ページへの 1 回だけ。** 届いたか分からないときは送り直さず、スレで確かめるよう案内する。Cookie は OS の保管に任せる。**2026-11-04 に iOS シミュレーターからソフトウェア板の書き込みテストスレへ実投稿して成功した**（`egg.5ch.io` の `1792988326`、211 番。日本語と sage が反映され、確認ページへの送り返しも通った）。実際のスレのページのフォームは `action="//egg.5ch.io/test/bbs.cgi"` の形で、確認ページは `../test/bbs.cgi?guid=ON` を返す。**書き込みのテストは必ずこの板のテストスレで行う。`ngt` は NGT48 のアイドル板でテスト板ではない。** bbsmenu にテスト板は載っていない。
 
 まだ無いもの: Ronin / BE / どんぐりのログイン（`expo-secure-store` がビルドに無く、再ビルドが要る）、名前履歴、書き込みログ（§8-13）、書き込み画面の設定（§8-9）。
 

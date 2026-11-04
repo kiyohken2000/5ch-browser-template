@@ -148,6 +148,10 @@ function assertPostable(url) {
 export function resolveAction(action, postUrl) {
   if (!action) return postUrl
   if (/^https?:\/\//i.test(action)) return action
+  // 実際のスレのページは `//egg.5ch.io/test/bbs.cgi` の形で書いている
+  if (action.startsWith('//')) {
+    return `${postUrl.match(/^https?:/i)?.[0] ?? 'https:'}${action}`
+  }
   const base = postUrl.match(/^(https?:\/\/[^/]+)(\/.*?)[^/]*$/i)
   if (!base) return postUrl
   if (action.startsWith('/')) return `${base[1]}${action}`
@@ -214,6 +218,24 @@ async function readTokens(send, location, threadUrl) {
   }
 }
 
+/**
+ * 4xx は受け付けられなかったと確定できる。429 の連投制限もここに入る。
+ * 5xx は処理の途中で落ちた可能性があるので、届いたか分からない扱いのまま。
+ */
+function rejected(status) {
+  return status >= 400 && status < 500
+}
+
+function rejectedResult(response) {
+  return {
+    kind: 'error',
+    message:
+      serverMessage(response.html) ||
+      `サーバーが受け付けませんでした（${response.status}）`,
+    authUrl: authUrlOf(response.html),
+  }
+}
+
 function outcome(kind, html) {
   return {
     kind,
@@ -266,6 +288,7 @@ export async function submitPost(
 
   try {
     const first = await sendForm(send, tokens.postUrl, fields, threadUrl)
+    if (rejected(first.status)) return rejectedResult(first)
     const firstKind = classifyResponse(first.html)
     if (firstKind === 'unknown') return outcome('uncertain', first.html)
     if (firstKind !== 'confirm') return outcome(firstKind, first.html)
@@ -274,6 +297,7 @@ export async function submitPost(
     const form = findPostForm(first.html)
     const action = resolveAction(form.action, tokens.postUrl)
     const second = await sendForm(send, action, form.fields, tokens.postUrl)
+    if (rejected(second.status)) return rejectedResult(second)
     const secondKind = classifyResponse(second.html)
     if (secondKind === 'success' || secondKind === 'error') {
       return outcome(secondKind, second.html)

@@ -1,9 +1,5 @@
 /**
- * 設定（§8-14）と NG 管理（§8-12）。M1 の範囲に絞った最小構成。
- *
- * NG をここで足すと、本文リスト・参照ポップアップ・ID シート・被参照一覧・
- * スレ一覧の**すべてに即座に効く**（不変条件 2）。判定は lib/ng.js に 1 本化して
- * あり、画面側は Redux の値を読むだけなので、経路ごとの適用漏れが起きない。
+ * 設定（§8-14）。NG 管理は下位画面に分けた（scenes/settings/NgSettings.js）。
  */
 
 import Constants from 'expo-constants'
@@ -16,11 +12,12 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   View,
 } from 'react-native'
 import { useDispatch, useSelector } from 'react-redux'
 
+import Icon from 'components/Icon'
+import SettingsSection from 'components/SettingsSection'
 import {
   GESTURE_ACTIONS,
   GESTURE_PATTERNS,
@@ -28,12 +25,7 @@ import {
   normalizeGestures,
 } from 'lib/gestures'
 import { clearThreadCache, threadCacheStats } from 'lib/threadCache'
-import {
-  addNg,
-  removeNg,
-  selectNgFilters,
-  toggleNgDisabled,
-} from 'slices/ng.slice'
+import { selectNgFilters } from 'slices/ng.slice'
 import { setSetting } from 'slices/settings.slice'
 import { useEmberTheme } from 'theme/ember'
 import { images } from 'theme/images'
@@ -44,35 +36,6 @@ const APP_VERSION = Constants?.expoConfig?.version || '不明'
 function openLanding() {
   Linking.openURL(LANDING_PAGE_URL).catch((e) =>
     console.warn(`[settings] 公式サイトを開けない: ${e?.message || e}`),
-  )
-}
-
-const NG_LISTS = [
-  { key: 'words', label: 'NG ワード（本文）', hint: '/正規表現/ も使えます' },
-  { key: 'ids', label: 'NG ID', hint: '完全一致' },
-  { key: 'names', label: 'NG 名前', hint: '/正規表現/ も使えます' },
-  {
-    key: 'threadWords',
-    label: 'スレ一覧の NG ワード',
-    hint: 'スレタイに対して',
-  },
-]
-
-function Section({ title, theme, children }) {
-  return (
-    <View style={styles.section}>
-      <Text style={[styles.sectionTitle, { color: theme.textDim }]}>
-        {title}
-      </Text>
-      <View
-        style={[
-          styles.card,
-          { backgroundColor: theme.surface, borderColor: theme.border },
-        ]}
-      >
-        {children}
-      </View>
-    </View>
   )
 }
 
@@ -90,14 +53,15 @@ function Row({ theme, label, hint, children }) {
   )
 }
 
-export default function Settings() {
+export default function Settings({ navigation }) {
   const theme = useEmberTheme()
   const dispatch = useDispatch()
   const settings = useSelector((state) => state.settings)
   const ng = useSelector(selectNgFilters)
-  const [drafts, setDrafts] = useState({})
   const [gesturePicker, setGesturePicker] = useState(null)
   const gestures = normalizeGestures(settings.gestures)
+  const ngCount =
+    ng.words.length + ng.ids.length + ng.names.length + ng.threadWords.length
 
   const [cache, setCache] = useState({ count: 0, bytes: 0 })
 
@@ -126,7 +90,7 @@ export default function Settings() {
       style={[styles.flex, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
     >
-      <Section title="表示" theme={theme}>
+      <SettingsSection title="表示" theme={theme}>
         <Row theme={theme} label="テーマ">
           <View style={styles.chips}>
             {[
@@ -201,13 +165,13 @@ export default function Settings() {
             trackColor={{ true: theme.accent }}
           />
         </Row>
-      </Section>
+      </SettingsSection>
 
-      <Section title="ガラス効果" theme={theme}>
+      <SettingsSection title="ガラス効果" theme={theme}>
         {toggle('glass', 'バーをすりガラスにする', 'レス本文には掛けません')}
-      </Section>
+      </SettingsSection>
 
-      <Section title="画像とリンク" theme={theme}>
+      <SettingsSection title="画像とリンク" theme={theme}>
         {toggle('thumbnails', '画像のサムネイルを出す')}
         {toggle('thumbMask', 'サムネイルをぼかす', '公共の場で開くとき')}
         {toggle('youtubeThumbs', 'YouTube のサムネイルを出す')}
@@ -216,17 +180,17 @@ export default function Settings() {
           'リンクのカードを出す',
           'リンク先へ自動で接続します',
         )}
-      </Section>
+      </SettingsSection>
 
-      <Section title="操作" theme={theme}>
+      <SettingsSection title="操作" theme={theme}>
         {toggle(
           'tapScroll',
           'タップでスクロール',
           'レスの空き部分で、画面の上下 3 割をタップ',
         )}
-      </Section>
+      </SettingsSection>
 
-      <Section title="スレを読むときのジェスチャ" theme={theme}>
+      <SettingsSection title="スレを読むときのジェスチャ" theme={theme}>
         {GESTURE_PATTERNS.map(({ key, label }) => (
           <View key={key}>
             <Pressable
@@ -279,17 +243,34 @@ export default function Settings() {
               : null}
           </View>
         ))}
-      </Section>
+      </SettingsSection>
 
-      <Section title="書き込み" theme={theme}>
+      <SettingsSection title="書き込み" theme={theme}>
         {toggle(
           'composeSageDefault',
           'sage を最初からオンにする',
           '書き込み画面を開いたときの初期状態',
         )}
-      </Section>
+      </SettingsSection>
 
-      <Section title="キャッシュ" theme={theme}>
+      <SettingsSection title="NG" theme={theme}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`NG 管理 ${ngCount} 件`}
+          onPress={() => navigation.navigate('NgSettings')}
+          style={[styles.row, { borderColor: theme.border }]}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>NG 管理</Text>
+          <View style={styles.rowValue}>
+            <Text style={{ color: theme.textDim, fontSize: 13 }}>
+              {ngCount} 件
+            </Text>
+            <Icon name="chevronRight" size={16} color={theme.textFaint} />
+          </View>
+        </Pressable>
+      </SettingsSection>
+
+      <SettingsSection title="キャッシュ" theme={theme}>
         <Row
           theme={theme}
           label="保存したスレ"
@@ -305,91 +286,9 @@ export default function Settings() {
             <Text style={{ color: theme.danger }}>消去</Text>
           </Pressable>
         </Row>
-      </Section>
+      </SettingsSection>
 
-      {NG_LISTS.map(({ key, label, hint }) => (
-        <Section
-          key={key}
-          title={`${label}（${ng[key].length}）`}
-          theme={theme}
-        >
-          <View style={[styles.addRow, { borderColor: theme.border }]}>
-            <TextInput
-              value={drafts[key] || ''}
-              onChangeText={(v) => setDrafts((d) => ({ ...d, [key]: v }))}
-              placeholder={hint}
-              placeholderTextColor={theme.textFaint}
-              style={[styles.input, { color: theme.text }]}
-              autoCorrect={false}
-              autoCapitalize="none"
-              onSubmitEditing={() => {
-                dispatch(addNg({ list: key, value: drafts[key] }))
-                setDrafts((d) => ({ ...d, [key]: '' }))
-              }}
-            />
-            <Pressable
-              onPress={() => {
-                dispatch(addNg({ list: key, value: drafts[key] }))
-                setDrafts((d) => ({ ...d, [key]: '' }))
-              }}
-              hitSlop={8}
-            >
-              <Text style={{ color: theme.accent, fontWeight: '600' }}>
-                追加
-              </Text>
-            </Pressable>
-          </View>
-
-          {ng[key].length === 0 ? (
-            <View style={styles.row}>
-              <Text style={{ color: theme.textFaint, fontSize: 13 }}>
-                まだありません
-              </Text>
-            </View>
-          ) : (
-            ng[key].map((raw) => {
-              const entry = typeof raw === 'string' ? { value: raw } : raw
-              return (
-                <View
-                  key={entry.value}
-                  style={[styles.row, { borderColor: theme.border }]}
-                >
-                  <Pressable
-                    style={styles.rowLabel}
-                    onPress={() =>
-                      dispatch(
-                        toggleNgDisabled({ list: key, value: entry.value }),
-                      )
-                    }
-                  >
-                    <Text
-                      style={{
-                        color: entry.disabled ? theme.textFaint : theme.text,
-                        textDecorationLine: entry.disabled
-                          ? 'line-through'
-                          : 'none',
-                        fontSize: 14,
-                      }}
-                    >
-                      {entry.value}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() =>
-                      dispatch(removeNg({ list: key, value: entry.value }))
-                    }
-                    hitSlop={8}
-                  >
-                    <Text style={{ color: theme.danger }}>削除</Text>
-                  </Pressable>
-                </View>
-              )
-            })
-          )}
-        </Section>
-      ))}
-
-      <Section title="このアプリについて" theme={theme}>
+      <SettingsSection title="このアプリについて" theme={theme}>
         <View style={[styles.about, { borderColor: theme.border }]}>
           <Image
             source={images.icon}
@@ -413,7 +312,7 @@ export default function Settings() {
             ember-5ch.pages.dev
           </Text>
         </Pressable>
-      </Section>
+      </SettingsSection>
     </ScrollView>
   )
 }
@@ -421,12 +320,6 @@ export default function Settings() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { paddingVertical: 16, gap: 20 },
-  section: { gap: 6 },
-  sectionTitle: { fontSize: 12, fontWeight: '600', paddingHorizontal: 20 },
-  card: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -437,6 +330,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   pickerRow: { paddingLeft: 32 },
+  rowValue: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   rowLabel: { flex: 1, gap: 2 },
   about: {
     flexDirection: 'row',
@@ -465,13 +359,4 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  addRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: 12,
-  },
-  input: { flex: 1, fontSize: 14, paddingVertical: 6 },
 })

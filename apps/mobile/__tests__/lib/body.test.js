@@ -6,6 +6,7 @@ import {
   buildBacklinks,
   hasAaBlock,
   parseBody,
+  splitBeIcons,
   tokenizeText,
 } from 'lib/body'
 import { parseDatBytes } from 'lib/parse'
@@ -183,6 +184,21 @@ describe('実データ', () => {
       .filter((t) => t.type === 'beicon')
     expect(icons.length).toBe(1)
     expect(icons[0].url).toBe('https://img.5ch.io/ico/nida.gif')
+  })
+
+  it('BE アイコンを本文から分け、アイコンの行の改行も落とす', () => {
+    const { tokens } = parseBody(' sssp://img.5ch.io/ico/001.gif <br> 本文 ')
+      .blocks[0]
+    const got = splitBeIcons(tokens)
+    expect(got.icons.map((t) => t.url)).toEqual([
+      'https://img.5ch.io/ico/001.gif',
+    ])
+    expect(got.tokens.map((t) => t.text).join('')).toMatch(/^本文/)
+  })
+
+  it('BE アイコンが無ければトークンをそのまま返す', () => {
+    const tokens = [{ type: 'text', text: ' 本文' }]
+    expect(splitBeIcons(tokens)).toEqual({ icons: [], tokens })
   })
 
   it('ニュース板でアンカーが実際に拾える', () => {

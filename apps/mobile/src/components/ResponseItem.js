@@ -149,6 +149,7 @@ function ResponseItem({
         <View style={collapsed ? styles.collapsed : null}>
           <ResponseBody
             parsed={row.parsed}
+            hideImages={shouldHideImages(row)}
             theme={theme}
             fontSize={fontSize}
             onAnchor={(t) => onAnchor && onAnchor(t, row.no)}

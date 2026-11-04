@@ -12,15 +12,43 @@
  *   - **折りたたみの対象から外す**（呼ぶ側が `hasAa` を見て決める）
  */
 
+import { Image } from 'expo-image'
 import React from 'react'
 import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 
+import { splitBeIcons } from 'lib/body'
 import { idColor } from 'lib/idcolor'
 import { MONO_FONT } from 'theme/ember'
 
 const mono = Platform.select(MONO_FONT)
 
+/** 画像は文字の行に混ぜず、本文の上に置く。5ch の本文でも先頭の 1 行を占めている。 */
+function BeIcons({ icons, size }) {
+  return (
+    <View style={styles.beIcons}>
+      {icons.map((icon) => (
+        <Image
+          key={icon.url}
+          source={{ uri: icon.url }}
+          style={{ width: size, height: size }}
+          contentFit="contain"
+          cachePolicy="disk"
+          accessibilityLabel="BE アイコン"
+          onError={(e) =>
+            console.warn(
+              `[media] BE アイコンを読めない: ${icon.url}: ${
+                e?.error || '不明なエラー'
+              }`,
+            )
+          }
+        />
+      ))}
+    </View>
+  )
+}
+
 function InlineTokens({ tokens, theme, fontSize, onAnchor, onId, onUrl }) {
+  if (tokens.length === 0) return null
   return (
     <Text
       style={[
@@ -33,7 +61,7 @@ function InlineTokens({ tokens, theme, fontSize, onAnchor, onId, onUrl }) {
           return (
             <Text
               key={i}
-              style={[styles.anchor, { color: theme.accent }]}
+              style={{ color: theme.accent }}
               onPress={() => onAnchor && onAnchor(t)}
               suppressHighlighting={false}
             >
@@ -63,14 +91,6 @@ function InlineTokens({ tokens, theme, fontSize, onAnchor, onId, onUrl }) {
               onPress={() => onUrl && onUrl(t.url)}
             >
               {t.text}
-            </Text>
-          )
-        }
-        if (t.type === 'beicon') {
-          // BE のアイコン画像そのものは M1 では出さない。URL を隠して記号だけ置く
-          return (
-            <Text key={i} style={{ color: theme.textFaint }}>
-              ◇{' '}
             </Text>
           )
         }
@@ -112,27 +132,36 @@ export default function ResponseBody({
   parsed,
   theme,
   fontSize = 15,
+  hideImages = false,
   onAnchor,
   onId,
   onUrl,
 }) {
   return (
     <View style={styles.container}>
-      {parsed.blocks.map((block, i) =>
-        block.kind === 'aa' ? (
-          <AaBlock key={i} block={block} theme={theme} fontSize={fontSize} />
-        ) : (
-          <InlineTokens
-            key={i}
-            tokens={block.tokens}
-            theme={theme}
-            fontSize={fontSize}
-            onAnchor={onAnchor}
-            onId={onId}
-            onUrl={onUrl}
-          />
-        ),
-      )}
+      {parsed.blocks.map((block, i) => {
+        if (block.kind === 'aa') {
+          return (
+            <AaBlock key={i} block={block} theme={theme} fontSize={fontSize} />
+          )
+        }
+        const { icons, tokens } = splitBeIcons(block.tokens)
+        return (
+          <React.Fragment key={i}>
+            {icons.length > 0 && !hideImages ? (
+              <BeIcons icons={icons} size={Math.round(fontSize * 1.6)} />
+            ) : null}
+            <InlineTokens
+              tokens={tokens}
+              theme={theme}
+              fontSize={fontSize}
+              onAnchor={onAnchor}
+              onId={onId}
+              onUrl={onUrl}
+            />
+          </React.Fragment>
+        )
+      })}
     </View>
   )
 }
@@ -140,9 +169,9 @@ export default function ResponseBody({
 const styles = StyleSheet.create({
   container: { gap: 4 },
   body: {},
-  anchor: { textDecorationLine: 'underline' },
   bodyId: { fontWeight: '600' },
   link: { textDecorationLine: 'underline' },
+  beIcons: { flexDirection: 'row', gap: 4 },
   aaWrap: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 4,
