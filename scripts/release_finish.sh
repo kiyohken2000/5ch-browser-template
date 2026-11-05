@@ -104,7 +104,8 @@ git add \
   "$LANDING_DIR/src/assets/images/ai-translate.png"
 git commit -m "release: update latest.json for ${TAG}
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>${CLAUDE_SESSION_URL:+
+Claude-Session: ${CLAUDE_SESSION_URL}}"
 git push
 
 # --------------------------------------------------
