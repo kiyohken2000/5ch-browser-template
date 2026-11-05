@@ -35,6 +35,7 @@ import {
   toggleFavorite,
   updateCount,
 } from 'slices/watch.slice'
+import GlassSheetBackground from 'components/GlassSheetBackground'
 import useSheetAnimation from 'components/useSheetAnimation'
 import { useEmberTheme } from 'theme/ember'
 
@@ -60,6 +61,7 @@ function renderMenuBackdrop(props) {
   return (
     <BottomSheetBackdrop
       {...props}
+      opacity={0.2}
       appearsOnIndex={0}
       disappearsOnIndex={-1}
       pressBehavior="close"
@@ -318,7 +320,7 @@ export default function Home({ navigation }) {
           enablePanDownToClose
           enableDynamicSizing
           backdropComponent={renderMenuBackdrop}
-          backgroundStyle={{ backgroundColor: theme.surface }}
+          backgroundComponent={GlassSheetBackground}
           handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
           onDismiss={() => setMenuItem(null)}
         >

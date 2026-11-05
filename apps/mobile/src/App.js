@@ -1,4 +1,5 @@
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
+import { PortalHost } from '@gorhom/portal'
 import React, { useEffect, useState } from 'react'
 import { View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -21,6 +22,7 @@ import { restoreAccount } from 'slices/account.slice'
 import { loadSettings } from 'slices/settings.slice'
 import { loadWatch } from 'slices/watch.slice'
 import { startUsageStats } from 'lib/usageStats'
+import { POPUP_HOST } from 'components/ResponsePopup'
 import Router from './routes'
 
 export default function App() {
@@ -79,6 +81,7 @@ export default function App() {
           <BottomSheetModalProvider>
             <Router />
             <ComboOverlay />
+            <PortalHost name={POPUP_HOST} />
           </BottomSheetModalProvider>
         </Provider>
       </SafeAreaProvider>

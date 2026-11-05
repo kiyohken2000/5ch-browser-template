@@ -33,6 +33,7 @@ const SHAPES = {
   chevronUp: <Path d="m6 15 6-6 6 6" />,
   chevronDown: <Path d="m6 9 6 6 6-6" />,
   chevronRight: <Path d="m9 6 6 6-6 6" />,
+  check: <Path d="m5 12.5 4.5 4.5L19 7" />,
   close: <Path d="M6 6l12 12M18 6 6 18" />,
   download: <Path d="M12 4v11M8 11.5l4 3.5 4-3.5M5 19.5h14" />,
   play: <Path d="M8 5.5v13l10.5-6.5z" />,

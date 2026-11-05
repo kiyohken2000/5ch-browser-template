@@ -72,6 +72,16 @@ export const AI_MODELS = [
     minRam: RAM_TIER.GB8,
     uses: ['general', 'ng'],
   },
+  {
+    id: 'gemma4-e2b-it-q4km',
+    name: 'Gemma 4 E2B',
+    note: 'Gemma 3 1B より賢い。8GB 以上の端末向け',
+    sizeBytes: 3106738272,
+    url: `${HF}/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf`,
+    sha256: '740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8',
+    minRam: RAM_TIER.GB8,
+    uses: ['general', 'ng'],
+  },
 ]
 
 export function findModel(id) {

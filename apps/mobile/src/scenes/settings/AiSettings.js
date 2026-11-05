@@ -314,26 +314,6 @@ export default function AiSettings({ navigation }) {
               </View>
             ))
           : null}
-
-        {ai.enabled ? (
-          <View style={styles.useGroup}>
-            <Text style={{ color: theme.text, fontSize: 13 }}>
-              処理に使う装置
-            </Text>
-            <Chips
-              label="処理に使う装置"
-              value={ai.backend}
-              theme={theme}
-              options={[
-                { value: 'auto', label: 'GPU（速い）' },
-                { value: 'cpu', label: 'CPU（熱くなりにくい）' },
-              ]}
-              onChange={(value) =>
-                dispatch(setAiOption({ key: 'backend', value }))
-              }
-            />
-          </View>
-        ) : null}
       </View>
 
       {ai.enabled ? (

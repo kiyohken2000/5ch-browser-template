@@ -10,7 +10,7 @@ import { generate, stopAi } from './engine'
 
 const IDLE = null
 
-export default function useAiTask(backend) {
+export default function useAiTask() {
   const [task, setTask] = useState(IDLE)
   const alive = useRef(true)
 
@@ -24,9 +24,9 @@ export default function useAiTask(backend) {
   }, [])
 
   const run = useCallback(
-    async ({ title, modelId, messages, maxTokens, sampling }) => {
+    async ({ title, modelId, messages, maxTokens, sampling, markdown }) => {
       const model = findModel(modelId)
-      setTask({ title, text: '', running: true, error: null })
+      setTask({ title, text: '', running: true, error: null, markdown })
       const finish = (changes) => {
         if (alive.current) setTask((t) => t && { ...t, ...changes })
       }
@@ -40,7 +40,7 @@ export default function useAiTask(backend) {
           })
           return
         }
-        const text = await generate(modelId, backend, {
+        const text = await generate(modelId, {
           messages,
           maxTokens,
           sampling,
@@ -52,7 +52,7 @@ export default function useAiTask(backend) {
         finish({ running: false, error: 'AI を実行できませんでした' })
       }
     },
-    [backend],
+    [],
   )
 
   const close = useCallback(() => setTask(IDLE), [])

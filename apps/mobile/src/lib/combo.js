@@ -29,7 +29,14 @@ export const BANNER_MARKS = {
   jackpot: ['7️⃣', '💰', '✨', '🎰'],
 }
 
-export const BANNER_FIREWORKS = { fire: 3, mega: 4, shipped: 5, jackpot: 7 }
+export const BANNER_FIREWORKS = { fire: 4, mega: 6, shipped: 7, jackpot: 9 }
+/** 祝いのバナーで画面の上から降らせる紙吹雪の数 */
+export const BANNER_CONFETTI = {
+  fire: 60,
+  mega: 90,
+  shipped: 110,
+  jackpot: 140,
+}
 
 const KEYWORDS = [
   {

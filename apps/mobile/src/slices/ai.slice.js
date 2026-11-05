@@ -11,8 +11,6 @@ import { KEYS, load, save } from 'lib/storage'
 const DEFAULTS = {
   /** AI を使うか。切ると AI の項目を画面に出さない */
   enabled: false,
-  /** 'auto' | 'cpu'。auto は GPU を使う */
-  backend: 'auto',
   /** 要約と投稿前チェックに使うモデル */
   generalModel: 'gemma3-1b-it-q4km',
   /** 曖昧 NG に使うモデル */
@@ -29,7 +27,6 @@ export const loadAi = createAsyncThunk('ai/load', async () =>
 function persist(state) {
   save(KEYS.aiSettings, {
     enabled: state.enabled,
-    backend: state.backend,
     generalModel: state.generalModel,
     ngModel: state.ngModel,
     translationModel: state.translationModel,
@@ -46,13 +43,9 @@ const aiSlice = createSlice({
     setAiOption: (state, { payload }) => {
       const { key, value } = payload
       if (
-        ![
-          'enabled',
-          'backend',
-          'generalModel',
-          'ngModel',
-          'translationModel',
-        ].includes(key)
+        !['enabled', 'generalModel', 'ngModel', 'translationModel'].includes(
+          key,
+        )
       ) {
         return
       }

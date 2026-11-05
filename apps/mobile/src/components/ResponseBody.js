@@ -14,14 +14,12 @@
 
 import { Image } from 'expo-image'
 import React from 'react'
-import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { splitBeIcons } from 'lib/body'
+import { resolveFontFamily } from 'lib/fonts'
 import { idColor } from 'lib/idcolor'
 import { highlightStyle, splitHighlights } from 'lib/highlights'
-import { MONO_FONT } from 'theme/ember'
-
-const mono = Platform.select(MONO_FONT)
 
 /** 画像は文字の行に混ぜず、本文の上に置く。5ch の本文でも先頭の 1 行を占めている。 */
 function BeIcons({ icons, size }) {
@@ -49,15 +47,6 @@ function BeIcons({ icons, size }) {
 }
 
 const WEIGHTS = { normal: '400', medium: '500', bold: '600' }
-const SERIF = Platform.select({ ios: 'HiraMinProN-W3', default: 'serif' })
-
-/** 本文のフォント。'system' は OS の既定に任せる。 */
-function bodyFontFamily(font) {
-  if (font === 'serif') return SERIF
-  if (font === 'mono') return mono
-  return undefined
-}
-
 function InlineTokens({
   tokens,
   theme,
@@ -78,7 +67,7 @@ function InlineTokens({
           fontSize,
           lineHeight: fontSize * 1.55,
           fontWeight: WEIGHTS[textOptions?.weight] || WEIGHTS.normal,
-          fontFamily: bodyFontFamily(textOptions?.font),
+          fontFamily: resolveFontFamily(textOptions?.font),
         },
       ]}
     >
@@ -154,7 +143,7 @@ function AaBlock({ block, theme, fontSize, font }) {
           styles.aa,
           {
             color: theme.text,
-            fontFamily: font === 'system' ? undefined : mono,
+            fontFamily: resolveFontFamily(font ?? 'mono'),
             fontSize: fontSize - 2,
             lineHeight: (fontSize - 2) * 1.2,
           },

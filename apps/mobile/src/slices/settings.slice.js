@@ -35,9 +35,9 @@ export const DEFAULTS = {
   collapsePreviewLines: 10,
   /** 本文の末尾に 1 行ぶんの余白を足す（タップしやすくする） */
   trailingBlankLine: false,
-  /** 本文のフォント。'system' | 'serif' | 'mono' */
+  /** 本文のフォント。'system' | 'serif' | 'mono' | 端末のフォントのファミリー名 */
   bodyFont: 'system',
-  /** AA のフォント。'mono' | 'system' */
+  /** AA のフォント。本文と同じ形式 */
   aaFont: 'mono',
   /** AA を横スクロールで出す（既定。縮小はしない — §9-2） */
   aaHorizontalScroll: true,

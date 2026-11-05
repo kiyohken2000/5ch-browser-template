@@ -195,7 +195,7 @@ export default function Post({ route, navigation }) {
     messageRef.current = message
   }, [message])
   const ai = useSelector((state) => state.ai)
-  const aiTask = useAiTask(ai.backend)
+  const aiTask = useAiTask()
 
   const checkWithAi = useCallback(() => {
     if (message.trim().length < POST_CHECK_MIN_CHARS) {
@@ -207,6 +207,7 @@ export default function Post({ route, navigation }) {
     }
     aiTask.run({
       title: 'AI: 投稿前チェック',
+      markdown: true,
       modelId: ai.generalModel,
       messages: postCheckMessages(message),
       maxTokens: 200,
@@ -712,6 +713,7 @@ export default function Post({ route, navigation }) {
           <AiResultPanel
             title={aiTask.task.title}
             text={aiTask.task.text}
+            markdown={aiTask.task.markdown}
             running={aiTask.task.running}
             error={aiTask.task.error}
             theme={theme}

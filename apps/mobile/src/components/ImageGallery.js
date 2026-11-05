@@ -3,6 +3,7 @@
  * タップでビューア、長押しでそのレスへ移動する。
  */
 
+import * as Haptics from 'expo-haptics'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BackHandler,
@@ -17,7 +18,6 @@ import {
 import { cachedImageHash, isHashBlocked } from 'lib/imageHash'
 import { saveAllImages } from 'lib/saveAllImages'
 import { saveImageToLibrary } from 'lib/saveImage'
-import { showToast } from 'utils/showToast'
 import Icon from './Icon'
 import { Thumb } from './ResponseMedia'
 
@@ -42,6 +42,7 @@ export default function ImageGallery({
   const size = Math.floor((width - GAP * (COLUMNS - 1)) / COLUMNS)
   const [confirming, setConfirming] = useState(false)
   const [progress, setProgress] = useState(null)
+  const [saveResult, setSaveResult] = useState(null)
   const cancelRef = useRef(false)
 
   // 閉じたら一括保存も止める
@@ -66,6 +67,7 @@ export default function ImageGallery({
       return
     }
     setConfirming(false)
+    setSaveResult(null)
     cancelRef.current = false
     setProgress(0)
     // 一覧で隠している画像は保存しない
@@ -85,7 +87,13 @@ export default function ImageGallery({
       isCancelled: () => cancelRef.current,
     })
     setProgress(null)
-    showToast({ title: resultMessage(result) })
+    const ok = !result.permissionDenied && result.failed === 0
+    setSaveResult({ ok, message: resultMessage(result) })
+    Haptics.notificationAsync(
+      ok
+        ? Haptics.NotificationFeedbackType.Success
+        : Haptics.NotificationFeedbackType.Warning,
+    ).catch((e) => console.warn(`[gallery] 振動できない: ${e?.message || e}`))
   }, [confirming, images, mediaOptions.imageNg])
 
   let saveLabel = 'すべて保存'
@@ -124,6 +132,24 @@ export default function ImageGallery({
           <Icon name="close" size={22} color={theme.textDim} />
         </Pressable>
       </View>
+
+      {saveResult ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${saveResult.message}。閉じる`}
+          onPress={() => setSaveResult(null)}
+          style={[
+            styles.result,
+            {
+              backgroundColor: saveResult.ok ? theme.accent : theme.danger,
+            },
+          ]}
+        >
+          <Text style={[styles.resultText, { color: theme.badgeText }]}>
+            {saveResult.message}
+          </Text>
+        </Pressable>
+      ) : null}
 
       <FlatList
         data={images}
@@ -173,6 +199,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   title: { flex: 1, fontSize: 14, fontWeight: '600' },
+  result: { paddingHorizontal: 14, paddingVertical: 12 },
+  resultText: { fontSize: 15, fontWeight: '700', textAlign: 'center' },
   column: { gap: GAP },
   grid: { gap: GAP, paddingBottom: 60 },
   no: {

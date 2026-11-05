@@ -62,7 +62,8 @@ import Icon from 'components/Icon'
 import ImageGallery from 'components/ImageGallery'
 import ImageViewer from 'components/ImageViewer'
 import ResponseItem from 'components/ResponseItem'
-import ResponseSheet from 'components/ResponseSheet'
+import GlassSheetBackground from 'components/GlassSheetBackground'
+import ResponsePopup from 'components/ResponsePopup'
 import { fetchDat, fetchDatDelta } from 'lib/api'
 import { buildBacklinks, parseBody } from 'lib/body'
 import {
@@ -186,6 +187,7 @@ function renderMenuBackdrop(props) {
   return (
     <BottomSheetBackdrop
       {...props}
+      opacity={0.2}
       appearsOnIndex={0}
       disappearsOnIndex={-1}
       pressBehavior="close"
@@ -225,7 +227,7 @@ export default function Thread({ route, navigation }) {
   const favorites = useSelector((state) => state.watch.favorites)
   const myPosts = useSelector((state) => state.watch.myPosts)
 
-  const { dismissAll } = useBottomSheetModal()
+  const { dismissAll: dismissSheets } = useBottomSheetModal()
   const menuRef = useRef(null)
   const listRef = useRef(null)
   const listBoxRef = useRef(null)
@@ -240,8 +242,15 @@ export default function Thread({ route, navigation }) {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
   const [sheetStack, setSheetStack] = useState([])
+  /** メニューのシートとレスのポップアップをまとめて閉じる */
+  const dismissAll = useCallback(() => {
+    dismissSheets()
+    setSheetStack([])
+  }, [dismissSheets])
   const [menuRow, setMenuRow] = useState(null)
   const [ngDraft, setNgDraft] = useState('')
+  // 入力中は項目を畳む。シートが低くなり、キーボードの上に入力欄が出る
+  const [ngInputFocused, setNgInputFocused] = useState(false)
   const [viewerUrl, setViewerUrl] = useState(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -254,7 +263,7 @@ export default function Thread({ route, navigation }) {
   const [listTop, setListTop] = useState(0)
   const [galleryOpen, setGalleryOpen] = useState(false)
   const ai = useSelector((state) => state.ai)
-  const aiTask = useAiTask(ai.backend)
+  const aiTask = useAiTask()
   const [aiHits, setAiHits] = useState(null)
   const [aiNgProgress, setAiNgProgress] = useState(null)
   const [beMenu, setBeMenu] = useState(null)
@@ -875,13 +884,11 @@ export default function Thread({ route, navigation }) {
     [filterKey, shown, scrollToRow],
   )
 
-  /** アンカーの流れをツリーにしたシートの中身。 */
+  /** アンカーの流れをツリーにしたポップアップの中身。 */
   const treeSheet = useCallback(
     (nos, label) => {
       const { rows, truncated } = buildReplyTree(nos, byNo, backlinks)
       return {
-        tree: true,
-        treeKey: nos.join(','),
         title: `${label}（${rows.length}${truncated ? ' 件まで' : ' 件'}）`,
         rows,
         emptyText: 'まだ書かれていないか、NG で隠れています',
@@ -895,19 +902,6 @@ export default function Thread({ route, navigation }) {
       pushSheet(treeSheet(token.nums, `${token.text} の流れ`))
     },
     [treeSheet, pushSheet],
-  )
-
-  /** シートの中のアンカー。ツリーの中なら重ねず、そのレスを起点に描き直す。 */
-  const retargetAnchor = useCallback(
-    (token) => {
-      const next = treeSheet(token.nums, `${token.text} の流れ`)
-      setSheetStack((stack) =>
-        stack[stack.length - 1]?.tree
-          ? [...stack.slice(0, -1), next]
-          : [...stack, next],
-      )
-    },
-    [treeSheet],
   )
 
   const copy = useCallback((text, label) => {
@@ -1287,6 +1281,7 @@ export default function Thread({ route, navigation }) {
     const rows = pickSummaryRows(shown, markerIndex)
     aiTask.run({
       title: 'AI: 新しい書き込みの要約',
+      markdown: true,
       modelId: ai.generalModel,
       messages: summaryMessages(threadText(rows)),
       maxTokens: 300,
@@ -1323,7 +1318,7 @@ export default function Thread({ route, navigation }) {
     const targets = shown.filter((r) => r.no !== 1 && !judged.has(r.no))
     setAiNgProgress({ done: 0, total: targets.length })
     try {
-      await runExclusive(ai.ngModel, ai.backend, async (ctx) => {
+      await runExclusive(ai.ngModel, async (ctx) => {
         for (let i = 0; i < targets.length; i += 1) {
           if (isStopRequested()) break
           const row = targets[i]
@@ -1359,7 +1354,7 @@ export default function Thread({ route, navigation }) {
     // 読んでいる最中に列が動かないよう、隠すのは最後にまとめて行う
     setAiHits(found)
     showToast({ title: `曖昧 NG: ${found.size} 件を隠しました` })
-  }, [ai.rules, ai.ngModel, ai.backend, aiRulesKey, threadId, shown])
+  }, [ai.rules, ai.ngModel, aiRulesKey, threadId, shown])
 
   // 再訪時に読んでいた位置へ戻す（スクロール量ではなくレス番号で復元する — §10-1）
   const restoredRef = useRef(false)
@@ -1870,7 +1865,7 @@ export default function Thread({ route, navigation }) {
             if (box) {
               box.measureInWindow((x, y) => {
                 scrollRef.current.top = y
-                // ボトムシートをヘッダーの下までに収めるのに使う
+                // ポップアップをヘッダーの下から始めるのに使う
                 setListTop(y)
               })
             }
@@ -1980,15 +1975,17 @@ export default function Thread({ route, navigation }) {
         )}
       </View>
 
-      <ResponseSheet
+      <ResponsePopup
         stack={sheetStack}
+        glass={useBlur}
+        topInset={listTop}
         theme={theme}
         fontSize={settings.fontSize}
         mediaOptions={mediaOptions}
         onImage={setViewerUrl}
         onDismissAt={(index) => setSheetStack((st) => st.slice(0, index))}
-        onCloseAll={() => dismissAll()}
-        onAnchor={retargetAnchor}
+        onCloseAll={() => setSheetStack([])}
+        onAnchor={openAnchor}
         onId={openId}
         onUrl={openUrl}
         onJump={jumpToNo}
@@ -1997,7 +1994,6 @@ export default function Thread({ route, navigation }) {
           setBeMenu(be)
         }}
         textOptions={textOptions}
-        topInset={listTop}
         idSeqs={idSeqs}
         onReply={
           datDropped
@@ -2019,7 +2015,7 @@ export default function Thread({ route, navigation }) {
           enablePanDownToClose
           enableDynamicSizing
           backdropComponent={renderMenuBackdrop}
-          backgroundStyle={{ backgroundColor: theme.surface }}
+          backgroundComponent={GlassSheetBackground}
           handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
           onDismiss={() => setBeMenu(null)}
         >
@@ -2056,7 +2052,7 @@ export default function Thread({ route, navigation }) {
           enablePanDownToClose
           enableDynamicSizing
           backdropComponent={renderMenuBackdrop}
-          backgroundStyle={{ backgroundColor: theme.surface }}
+          backgroundComponent={GlassSheetBackground}
           handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
           onDismiss={() => setExtractOpen(false)}
         >
@@ -2175,7 +2171,7 @@ export default function Thread({ route, navigation }) {
           keyboardBehavior="interactive"
           keyboardBlurBehavior="restore"
           backdropComponent={renderMenuBackdrop}
-          backgroundStyle={{ backgroundColor: theme.surface }}
+          backgroundComponent={GlassSheetBackground}
           handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
           onDismiss={() => {
             setGotoOpen(false)
@@ -2230,18 +2226,19 @@ export default function Thread({ route, navigation }) {
           keyboardBehavior="interactive"
           keyboardBlurBehavior="restore"
           backdropComponent={renderMenuBackdrop}
-          backgroundStyle={{ backgroundColor: theme.surface }}
+          backgroundComponent={GlassSheetBackground}
           handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
           onDismiss={() => {
             setMenuRow(null)
             setNgDraft('')
+            setNgInputFocused(false)
           }}
         >
           <BottomSheetView style={styles.menu}>
             <Text style={[styles.menuTitle, { color: theme.textDim }]}>
               {`>>${menuRow.no}`}
             </Text>
-            {menuActions.map((a) => (
+            {(ngInputFocused ? [] : menuActions).map((a) => (
               <Pressable
                 key={a.label}
                 style={styles.menuItem}
@@ -2265,6 +2262,8 @@ export default function Thread({ route, navigation }) {
                 autoCapitalize="none"
                 returnKeyType="done"
                 onSubmitEditing={addDraftNg}
+                onFocus={() => setNgInputFocused(true)}
+                onBlur={() => setNgInputFocused(false)}
                 style={[styles.menuInput, { color: theme.text }]}
               />
               <Pressable
@@ -2290,6 +2289,7 @@ export default function Thread({ route, navigation }) {
         <AiResultPanel
           title={aiTask.task.title}
           text={aiTask.task.text}
+          markdown={aiTask.task.markdown}
           running={aiTask.task.running}
           error={aiTask.task.error}
           bottom={AI_PANEL_BOTTOM}

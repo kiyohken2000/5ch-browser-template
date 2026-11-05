@@ -24,9 +24,8 @@ import {
   gestureActionLabel,
   normalizeGestures,
 } from 'lib/gestures'
+import { fontLabel } from 'lib/fonts'
 import { clearImageCache } from 'lib/imageCache'
-import { openInAppBrowser } from 'lib/inAppBrowser'
-import { CONTACT_URL } from 'lib/terms'
 import { clearThreadCache, threadCacheStats } from 'lib/threadCache'
 import { selectNgFilters } from 'slices/ng.slice'
 import { clearRecentThreads } from 'slices/watch.slice'
@@ -239,20 +238,28 @@ export default function Settings({ navigation }) {
           </>
         ) : null}
 
-        <Row theme={theme} label="本文のフォント">
-          {choiceChips('bodyFont', [
-            ['system', '標準'],
-            ['serif', '明朝'],
-            ['mono', '等幅'],
-          ])}
-        </Row>
-
-        <Row theme={theme} label="AA のフォント">
-          {choiceChips('aaFont', [
-            ['mono', '等幅'],
-            ['system', '標準'],
-          ])}
-        </Row>
+        {[
+          ['bodyFont', '本文のフォント'],
+          ['aaFont', 'AA のフォント'],
+        ].map(([settingKey, label]) => (
+          <Pressable
+            key={settingKey}
+            accessibilityRole="button"
+            accessibilityLabel={`${label} ${fontLabel(settings[settingKey])}`}
+            onPress={() =>
+              navigation.navigate('FontSettings', { settingKey, title: label })
+            }
+            style={[styles.row, { borderColor: theme.border }]}
+          >
+            <Text style={[styles.label, { color: theme.text }]}>{label}</Text>
+            <View style={styles.rowValue}>
+              <Text style={{ color: theme.textDim, fontSize: 13 }}>
+                {fontLabel(settings[settingKey])}
+              </Text>
+              <Icon name="chevronRight" size={16} color={theme.textFaint} />
+            </View>
+          </Pressable>
+        ))}
 
         {toggle(
           'trailingBlankLine',
@@ -586,16 +593,6 @@ export default function Settings({ navigation }) {
             書き込みの利用条件
           </Text>
           <Icon name="chevronRight" size={16} color={theme.textFaint} />
-        </Pressable>
-        <Pressable
-          accessibilityRole="link"
-          onPress={() => openInAppBrowser(CONTACT_URL)}
-          style={[styles.row, { borderColor: theme.border }]}
-        >
-          <Text style={[styles.label, { color: theme.text }]}>問い合わせ</Text>
-          <Text style={{ color: theme.accent, fontSize: 13 }}>
-            GitHub Issues
-          </Text>
         </Pressable>
         <View style={[styles.about, { borderColor: theme.border }]}>
           <Image

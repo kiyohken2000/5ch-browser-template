@@ -8,7 +8,6 @@ import * as Clipboard from 'expo-clipboard'
 import * as Device from 'expo-device'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { useSelector } from 'react-redux'
 
 import { runBenchmark, stopBenchmark } from 'ai/benchmark'
 import { AI_MODELS, findModel, formatModelSize } from 'ai/catalog'
@@ -18,7 +17,7 @@ import { useEmberTheme } from 'theme/ember'
 import { showToast } from 'utils/showToast'
 
 function resultLines(r) {
-  const lines = [`読み込み ${(r.loadMs / 1000).toFixed(1)} 秒（${r.backend}）`]
+  const lines = [`読み込み ${(r.loadMs / 1000).toFixed(1)} 秒`]
   if (r.summary) {
     lines.push(
       `要約 ${(r.summary.totalMs / 1000).toFixed(1)} 秒: 入力 ${
@@ -58,7 +57,6 @@ function Info({ label, value, theme }) {
 
 export default function AiBenchmark() {
   const theme = useEmberTheme()
-  const backend = useSelector((state) => state.ai.backend)
   const [installed, setInstalled] = useState([])
   const [checked, setChecked] = useState(new Set())
   const [results, setResults] = useState({})
@@ -117,7 +115,7 @@ export default function AiBenchmark() {
       try {
         // 順に測る。同時に載せるとメモリが足りない
         // eslint-disable-next-line no-await-in-loop
-        const result = await runBenchmark(model, backend, (text) =>
+        const result = await runBenchmark(model, (text) =>
           setPhase(`${model.name}: ${text}`),
         )
         setResults((prev) => {
@@ -133,7 +131,7 @@ export default function AiBenchmark() {
     }
     setRunning(null)
     setPhase('')
-  }, [installed, checked, backend])
+  }, [installed, checked])
 
   const stop = () => {
     cancelled.current = true

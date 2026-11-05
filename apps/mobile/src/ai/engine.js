@@ -12,9 +12,10 @@ import { findModel } from './catalog'
 import { modelPath, nativePath } from './download'
 
 const CONTEXT_SIZE = 4096
+/** 常に GPU へ載せる。使えない端末では llama.cpp が CPU で動かす */
 const GPU_LAYERS = 99
 
-let current = null // { modelId, backend, ctx }
+let current = null // { modelId, ctx }
 let tail = Promise.resolve()
 let stopRequested = false
 
@@ -35,27 +36,25 @@ async function releaseCurrent() {
   }
 }
 
-async function contextFor(modelId, backend) {
-  if (current?.modelId === modelId && current?.backend === backend) {
-    return current.ctx
-  }
+async function contextFor(modelId) {
+  if (current?.modelId === modelId) return current.ctx
   await releaseCurrent()
   const model = findModel(modelId)
   if (!model) throw new Error('モデルが見つかりません')
   const ctx = await loadLlama().initLlama({
     model: nativePath(modelPath(model)),
     n_ctx: CONTEXT_SIZE,
-    n_gpu_layers: backend === 'cpu' ? 0 : GPU_LAYERS,
+    n_gpu_layers: GPU_LAYERS,
   })
-  current = { modelId, backend, ctx }
+  current = { modelId, ctx }
   return ctx
 }
 
 /** 処理を順番に 1 つずつ動かす。前の処理が失敗しても次へ進む。 */
-export function runExclusive(modelId, backend, task) {
+export function runExclusive(modelId, task) {
   const run = tail.then(async () => {
     stopRequested = false
-    const ctx = await contextFor(modelId, backend)
+    const ctx = await contextFor(modelId)
     return task(ctx)
   })
   tail = run.then(
@@ -94,10 +93,9 @@ export async function stopAi() {
 /** 文章を生成する。 */
 export function generate(
   modelId,
-  backend,
   { messages, maxTokens = 300, sampling = {}, onText },
 ) {
-  return runExclusive(modelId, backend, async (ctx) => {
+  return runExclusive(modelId, async (ctx) => {
     let text = ''
     const res = await ctx.completion(
       {

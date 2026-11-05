@@ -71,15 +71,13 @@ export function average(values) {
 /**
  * 1 本を測る。
  * @param {object} model カタログの項目
- * @param {'auto'|'cpu'} backend
  * @param {(text: string) => void} onPhase 進み具合
  */
-export async function runBenchmark(model, backend, onPhase = () => {}) {
+export async function runBenchmark(model, onPhase = () => {}) {
   await unloadAi()
   const loadStart = Date.now()
   const result = {
     modelId: model.id,
-    backend,
     at: Date.now(),
     loadMs: null,
     summary: null,
@@ -88,7 +86,7 @@ export async function runBenchmark(model, backend, onPhase = () => {}) {
     stopped: false,
   }
 
-  await runExclusive(model.id, backend, async (ctx) => {
+  await runExclusive(model.id, async (ctx) => {
     result.loadMs = Date.now() - loadStart
 
     if (model.uses.includes('general')) {

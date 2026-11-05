@@ -45,6 +45,7 @@ import Post from 'scenes/post/Post'
 import Search from 'scenes/search/Search'
 import AccountSettings from 'scenes/settings/AccountSettings'
 import FavoritesOrder from 'scenes/home/FavoritesOrder'
+import FontSettings from 'scenes/settings/FontSettings'
 import HighlightSettings from 'scenes/settings/HighlightSettings'
 import AiBenchmark from 'scenes/settings/AiBenchmark'
 import AiSettings from 'scenes/settings/AiSettings'
@@ -252,6 +253,14 @@ function SettingsStack() {
           title: 'アップロード履歴',
           headerBackAccessibilityLabel: '戻る',
         }}
+      />
+      <Stack.Screen
+        name="FontSettings"
+        component={FontSettings}
+        options={({ route }) => ({
+          title: route.params.title,
+          headerBackAccessibilityLabel: '戻る',
+        })}
       />
       <Stack.Screen
         name="HighlightSettings"
