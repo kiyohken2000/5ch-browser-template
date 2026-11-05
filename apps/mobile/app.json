@@ -30,7 +30,12 @@
         "CFBundleDevelopmentRegion": "ja_JP",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
-        }
+        },
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.developer.kernel.extended-virtual-addressing": true,
+        "com.apple.developer.kernel.increased-memory-limit": true
       },
       "userInterfaceStyle": "automatic"
     },
@@ -43,7 +48,7 @@
         "backgroundColor": "#0b0d12"
       },
       "permissions": [
-        "VIBRATE",
+        "android.permission.VIBRATE",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
@@ -133,7 +138,24 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "53f5eb87-33cf-4eee-835a-77cce26f4151"
+        "projectId": "53f5eb87-33cf-4eee-835a-77cce26f4151",
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "ShareExtension",
+                  "bundleIdentifier": "net.votepurchase.ember.share-extension",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.net.votepurchase.ember"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
     }
   }
