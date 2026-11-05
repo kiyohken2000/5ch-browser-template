@@ -332,6 +332,7 @@ export default function App() {
             <a href="#install">インストール</a>
             <a href="#sync">データ共有</a>
             <a href="/ai-ng.html">曖昧NG</a>
+            <a href="/mobile.html">モバイル版</a>
             <a href="#download">ダウンロード</a>
             <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
             <button
@@ -1132,6 +1133,7 @@ export default function App() {
             </div>
           </div>
           <div className="footer-links">
+            <a href="/mobile.html">モバイル版</a>
             <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
             <a href={X_URL} target="_blank" rel="noreferrer">X</a>
             <a href={BLOG_URL} target="_blank" rel="noreferrer">Blog</a>

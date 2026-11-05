@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/x-icon" href="./src/assets/images/favicon.ico" />
+    <title>利用規約 | Ember</title>
+    <meta
+      name="description"
+      content="Ember モバイルアプリの利用規約。書き込みの禁止事項、不適切なコンテンツへの対処、免責事項を定めます。"
+    />
+    <link rel="canonical" href="https://ember-5ch.pages.dev/terms.html" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Ember" />
+    <meta property="og:title" content="利用規約 | Ember" />
+    <meta
+      property="og:description"
+      content="Ember モバイルアプリの利用規約。書き込みの禁止事項、不適切なコンテンツへの対処、免責事項を定めます。"
+    />
+    <meta property="og:url" content="https://ember-5ch.pages.dev/terms.html" />
+    <meta property="og:image" content="https://ember-5ch.pages.dev/og-image.jpg" />
+    <meta property="og:image:width" content="1468" />
+    <meta property="og:image:height" content="932" />
+    <meta property="og:locale" content="ja_JP" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="利用規約 | Ember" />
+    <meta
+      name="twitter:description"
+      content="Ember モバイルアプリの利用規約。書き込みの禁止事項、不適切なコンテンツへの対処、免責事項を定めます。"
+    />
+    <meta name="twitter:image" content="https://ember-5ch.pages.dev/og-image.jpg" />
+    <meta name="twitter:site" content="@votepurchase" />
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("ember.landing.theme");
+          var initial = stored === "light" || stored === "dark"
+            ? stored
+            : (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+          document.documentElement.dataset.theme = initial;
+        } catch (e) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
+  </head>
+  <body data-page="terms">
+    <div id="root"></div>
+    <script type="module" src="/src/mobileMain.tsx"></script>
+  </body>
+</html>
