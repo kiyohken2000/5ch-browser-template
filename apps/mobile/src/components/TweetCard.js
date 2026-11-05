@@ -11,6 +11,20 @@ import { fetchTweetCard, formatTweetCount, formatTweetDate } from 'lib/tweet'
 import InlineVideo from './InlineVideo'
 
 const MASK_BLUR = 30
+const PHOTOS_PER_ROW = 2
+
+/**
+ * 写真を行に分ける。flexWrap の行にパーセント幅と aspectRatio で並べると、行の高さは
+ * 取れるのに画像の幅が 0 になる。expo-image は空のビューでは読み込みを始めないので、
+ * エラーも出ないまま空白になる。行ごとに flex で等分する。
+ */
+function photoRows(photos) {
+  const rows = []
+  for (let i = 0; i < photos.length; i += PHOTOS_PER_ROW) {
+    rows.push(photos.slice(i, i + PHOTOS_PER_ROW))
+  }
+  return rows
+}
 
 function metaText(card) {
   const parts = []
@@ -111,25 +125,26 @@ export default function TweetCard({
 
         {card.photos.length > 0 && !hideImages ? (
           <View style={styles.photos}>
-            {card.photos.map((p) => (
-              <Image
-                key={p.url}
-                source={{ uri: p.url }}
-                style={[
-                  styles.photo,
-                  card.photos.length > 1 ? styles.photoHalf : null,
-                ]}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-                blurRadius={masked ? MASK_BLUR : 0}
-                onError={(e) =>
-                  console.warn(
-                    `[tweet] 画像を読めない: ${p.url}: ${
-                      e?.error || '不明なエラー'
-                    }`,
-                  )
-                }
-              />
+            {photoRows(card.photos).map((row) => (
+              <View key={row[0].url} style={styles.photoRow}>
+                {row.map((p) => (
+                  <Image
+                    key={p.url}
+                    source={{ uri: p.url }}
+                    style={styles.photo}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    blurRadius={masked ? MASK_BLUR : 0}
+                    onError={(e) =>
+                      console.warn(
+                        `[tweet] 画像を読めない: ${p.url}: ${
+                          e?.error || '不明なエラー'
+                        }`,
+                      )
+                    }
+                  />
+                ))}
+              </View>
             ))}
           </View>
         ) : null}
@@ -180,7 +195,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   quoteText: { fontSize: 13, lineHeight: 18 },
-  photos: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
-  photo: { width: '100%', aspectRatio: 16 / 9, borderRadius: 6 },
-  photoHalf: { width: '49%' },
+  photos: { gap: 4 },
+  photoRow: { flexDirection: 'row', gap: 4 },
+  photo: { flex: 1, aspectRatio: 16 / 9, borderRadius: 6 },
 })
