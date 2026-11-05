@@ -388,6 +388,11 @@ export default function Settings({ navigation }) {
           '続けて書くとき',
         )}
         {toggle(
+          'typingCombo',
+          '入力コンボ演出',
+          '書き込み画面で、連続して打つとコンボと花火が出ます',
+        )}
+        {toggle(
           'keepPostHistory',
           '書き込み履歴を残す',
           '切ると新しい書き込みに「自分」の印が付きません',
@@ -501,7 +506,7 @@ export default function Settings({ navigation }) {
           style={[styles.row, { borderColor: theme.border }]}
         >
           <Text style={[styles.label, { color: theme.text }]}>
-            モデルと曖昧 NG
+            オンデバイス AI
           </Text>
           <View style={styles.rowValue}>
             <Icon name="chevronRight" size={16} color={theme.textFaint} />

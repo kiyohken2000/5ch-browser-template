@@ -41,6 +41,8 @@ import useSheetAnimation from './useSheetAnimation'
 const SNAP_POINTS = ['55%', '92%']
 /** シートの動きが止まるまでの時間（useSheetAnimation の 150ms より少し長く）。 */
 const SHEET_SETTLE_MS = 200
+/** ツリーの 1 段の字下げ */
+const TREE_INDENT = 12
 
 function renderBackdrop(props) {
   return (
@@ -124,7 +126,18 @@ function SheetLayer({
         <Pressable
           accessible={false}
           onPress={() => onJump && onJump(item.no)}
-          style={[styles.row, { borderColor: theme.border }]}
+          style={[
+            styles.row,
+            { borderColor: theme.border },
+            item.treeDepth > 0
+              ? {
+                  marginLeft: item.treeDepth * TREE_INDENT,
+                  borderLeftWidth: StyleSheet.hairlineWidth,
+                  borderLeftColor: theme.border,
+                }
+              : null,
+            item.treeFocus ? { backgroundColor: theme.surfaceAlt } : null,
+          ]}
         >
           <ResponseHeader
             row={item}
@@ -253,6 +266,8 @@ function SheetLayer({
 
       <View ref={listBoxRef} style={styles.listBox} onLayout={measureList}>
         <BottomSheetFlatList
+          // ツリーを描き直したら先頭から読めるようにする
+          key={sheet.treeKey || 'list'}
           data={sheet.rows}
           keyExtractor={(r) => String(r.no)}
           contentContainerStyle={{ paddingBottom: listPad }}

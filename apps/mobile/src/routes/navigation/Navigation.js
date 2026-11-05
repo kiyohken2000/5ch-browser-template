@@ -46,6 +46,7 @@ import Search from 'scenes/search/Search'
 import AccountSettings from 'scenes/settings/AccountSettings'
 import FavoritesOrder from 'scenes/home/FavoritesOrder'
 import HighlightSettings from 'scenes/settings/HighlightSettings'
+import AiBenchmark from 'scenes/settings/AiBenchmark'
 import AiSettings from 'scenes/settings/AiSettings'
 import ImageNgSettings from 'scenes/settings/ImageNgSettings'
 import NgSettings from 'scenes/settings/NgSettings'
@@ -225,6 +226,14 @@ function SettingsStack() {
         component={AiSettings}
         options={{
           title: 'AI',
+          headerBackAccessibilityLabel: '戻る',
+        }}
+      />
+      <Stack.Screen
+        name="AiBenchmark"
+        component={AiBenchmark}
+        options={{
+          title: 'AI ベンチマーク',
           headerBackAccessibilityLabel: '戻る',
         }}
       />

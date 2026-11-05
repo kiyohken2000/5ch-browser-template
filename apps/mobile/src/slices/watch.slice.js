@@ -261,13 +261,17 @@ const watchSlice = createSlice({
 
     /** 「ここまで読んだ」。レス番号で覚える。 */
     setReadMarker: (state, { payload }) => {
-      const { threadId, lastReadNo, totalCount } = payload
+      const { threadId, lastReadNo, totalCount, auto } = payload
       const prev = state.readMarkers[threadId]
-      // 戻す操作も許すが、取得のたびに勝手に進めることはしない
+      // 読み進めた分は自動で進める（auto）。戻すのは手で指定したときだけ。
+      // 取得しただけでは進めない
+      if (auto && lastReadNo <= (prev?.lastReadNo ?? 0)) return
+      const now = Date.now()
       state.readMarkers[threadId] = {
         lastReadNo,
         totalCount: totalCount ?? prev?.totalCount ?? lastReadNo,
-        updatedAt: Date.now(),
+        updatedAt: now,
+        manualAt: auto ? prev?.manualAt : now,
       }
       persistMarkers(state)
     },

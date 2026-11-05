@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 
+import { scoreJudge } from 'ai/benchmark'
 import { AI_MODELS, canRunOnDevice, findModel, RAM_TIER } from 'ai/catalog'
 import {
   activeRules,
@@ -12,6 +13,9 @@ import {
 } from 'ai/judge'
 import { MAX_INPUT_CHARS, pickSummaryRows, threadText } from 'ai/prompts'
 import { applyNg } from 'lib/ng'
+
+jest.mock('expo-file-system/legacy', () => ({}), { virtual: true })
+jest.mock('react-native-blob-util', () => ({}))
 
 describe('モデルのカタログ', () => {
   const desktop = JSON.parse(
@@ -191,5 +195,37 @@ describe('applyNg と曖昧 NG', () => {
     expect(got[0].ngMode).toBeNull()
     expect(got[1].ngMode).toBe('hide')
     expect(got[1].ngBy).toContain('曖昧 NG')
+  })
+})
+
+describe('scoreJudge', () => {
+  it('正解数と確率の幅を集計する', () => {
+    const got = scoreJudge([
+      { expected: 'A', p: 0.9 },
+      { expected: 'A', p: 0.3 },
+      { expected: 'B', p: 0.2 },
+    ])
+    expect(got).toMatchObject({ total: 3, judged: 3, correct: 2, usable: true })
+    expect(got.meanA).toBeCloseTo(0.6)
+    expect(got.spread).toBeCloseTo(0.7)
+  })
+
+  it('全件ほぼ同じ確率なら、正解数が多くても見分けられていないと判定する', () => {
+    const got = scoreJudge([
+      { expected: 'A', p: 0.81 },
+      { expected: 'A', p: 0.8 },
+      { expected: 'B', p: 0.8 },
+    ])
+    expect(got.correct).toBe(2)
+    expect(got.usable).toBe(false)
+  })
+
+  it('判定できなかった件があれば使えないと判定する', () => {
+    const got = scoreJudge([
+      { expected: 'A', p: 0.9 },
+      { expected: 'B', p: NaN },
+    ])
+    expect(got.judged).toBe(1)
+    expect(got.usable).toBe(false)
   })
 })

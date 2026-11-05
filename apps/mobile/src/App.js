@@ -10,6 +10,8 @@ import store from 'utils/store'
 import { fontAssets } from 'theme/fonts'
 import { imageAssets } from 'theme/images'
 import { watchAppStateForAi } from 'ai/engine'
+import ComboOverlay from 'components/ComboOverlay'
+import { watchAppStateForPositions } from 'lib/readPosition'
 import { loadAi } from 'slices/ai.slice'
 import { loadHighlights } from 'slices/highlight.slice'
 import { loadImageNg } from 'slices/imageNg.slice'
@@ -25,8 +27,12 @@ export default function App() {
   const [didLoad, setDidLoad] = useState(false)
 
   useEffect(() => {
-    const sub = watchAppStateForAi()
-    return () => sub.remove()
+    const ai = watchAppStateForAi()
+    const positions = watchAppStateForPositions()
+    return () => {
+      ai.remove()
+      positions.remove()
+    }
   }, [])
 
   useEffect(() => {
@@ -72,6 +78,7 @@ export default function App() {
         <Provider store={store}>
           <BottomSheetModalProvider>
             <Router />
+            <ComboOverlay />
           </BottomSheetModalProvider>
         </Provider>
       </SafeAreaProvider>

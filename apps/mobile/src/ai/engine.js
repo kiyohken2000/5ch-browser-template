@@ -65,6 +65,16 @@ export function runExclusive(modelId, backend, task) {
   return run
 }
 
+/** 読み込みの時間を測るときなどに、載っているモデルを外す。 */
+export function unloadAi() {
+  const run = tail.then(releaseCurrent)
+  tail = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  return run
+}
+
 /** 止める指示が出ているか。長い処理はこれを見て途中で抜ける。 */
 export function isStopRequested() {
   return stopRequested

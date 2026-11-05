@@ -66,6 +66,12 @@ import ResponseSheet from 'components/ResponseSheet'
 import { fetchDat, fetchDatDelta } from 'lib/api'
 import { buildBacklinks, parseBody } from 'lib/body'
 import {
+  getReadPosition,
+  rowIndexForNo,
+  setReadPosition,
+} from 'lib/readPosition'
+import { buildReplyTree } from 'lib/replyTree'
+import {
   isAtBottom,
   isPullAtBottom,
   nextPageOffset,
@@ -133,9 +139,12 @@ import { showToast } from 'utils/showToast'
 const FOOTER_HEIGHT = 44
 const TOP_SETTLE_INTERVAL_MS = 250
 const AUTO_SCROLL_INTERVAL_MS = 33
+const REMEMBER_DELAY_MS = 400
+const BARELY_VISIBLE_PT = 12
+const RESTORE_FIRST_MS = 120
+const RESTORE_SECOND_MS = 500
 /** 下部の操作バーの高さ。結果のパネルはその上に出す */
 const AI_PANEL_BOTTOM = 78
-const TRANSLATION_MODEL_ID = 'hy-mt2-1.8b-q4km'
 /** スレごとの曖昧 NG の判定結果。アプリを閉じるまで持つ */
 const aiNgCache = new Map()
 
@@ -268,6 +277,13 @@ export default function Thread({ route, navigation }) {
   }, [threadUrl])
 
   const marker = readMarkers[threadId]
+  // 未読の線はスレを開いたときの位置に固定する。読み進めても線は動かさない。
+  // 「ここまで読んだ」を押したときだけ動かす
+  const openedAtRef = useRef(Date.now())
+  const [lineNo, setLineNo] = useState(marker?.lastReadNo ?? 0)
+  useEffect(() => {
+    if (marker?.manualAt > openedAtRef.current) setLineNo(marker.lastReadNo)
+  }, [marker?.manualAt, marker?.lastReadNo])
   const isFavorite = favorites.some((t) => t.threadId === threadId)
 
   // 開いたスレを「最近開いた」へ。取得に失敗しても開いたことは残す
@@ -568,6 +584,13 @@ export default function Thread({ route, navigation }) {
     return shown.filter((r) => nos.has(r.no))
   }, [shown, activeFilter])
 
+  const visibleEnvRef = useRef({})
+  visibleEnvRef.current = {
+    rows: listRows,
+    filtered: !!filterKey,
+    lastReadNo: marker?.lastReadNo ?? 0,
+  }
+
   const isCellular = useIsCellular()
   const saveData = settings.cellularSaveData && isCellular
   const imageNg = useSelector((state) => state.imageNg)
@@ -599,18 +622,21 @@ export default function Thread({ route, navigation }) {
   // ---- スクロール ----------------------------------------------------------
 
   /** 行へ移動する。行の高さが未確定でも FlashList が測りながら合わせてくれる。 */
-  const scrollToRow = useCallback((index, animated = false) => {
-    const list = listRef.current
-    if (!list || index < 0) return
-    const done = list.scrollToIndex({ index, animated, viewPosition: 0.1 })
-    if (done && done.catch) {
-      done.catch((e) =>
-        console.warn(
-          `[thread] ${index} 行目へ移動できない: ${e?.message || e}`,
-        ),
-      )
-    }
-  }, [])
+  const scrollToRow = useCallback(
+    (index, animated = false, viewPosition = 0.1) => {
+      const list = listRef.current
+      if (!list || index < 0) return
+      const done = list.scrollToIndex({ index, animated, viewPosition })
+      if (done && done.catch) {
+        done.catch((e) =>
+          console.warn(
+            `[thread] ${index} 行目へ移動できない: ${e?.message || e}`,
+          ),
+        )
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     if (gotoOpen && gotoRef.current) gotoRef.current.present()
@@ -849,15 +875,39 @@ export default function Thread({ route, navigation }) {
     [filterKey, shown, scrollToRow],
   )
 
-  const openAnchor = useCallback(
-    (token, fromNo) => {
-      pushSheet({
-        title: `${token.text}（>>${fromNo} から）`,
-        rows: pickRows(token.nums),
+  /** アンカーの流れをツリーにしたシートの中身。 */
+  const treeSheet = useCallback(
+    (nos, label) => {
+      const { rows, truncated } = buildReplyTree(nos, byNo, backlinks)
+      return {
+        tree: true,
+        treeKey: nos.join(','),
+        title: `${label}（${rows.length}${truncated ? ' 件まで' : ' 件'}）`,
+        rows,
         emptyText: 'まだ書かれていないか、NG で隠れています',
-      })
+      }
     },
-    [pickRows, pushSheet],
+    [byNo, backlinks],
+  )
+
+  const openAnchor = useCallback(
+    (token) => {
+      pushSheet(treeSheet(token.nums, `${token.text} の流れ`))
+    },
+    [treeSheet, pushSheet],
+  )
+
+  /** シートの中のアンカー。ツリーの中なら重ねず、そのレスを起点に描き直す。 */
+  const retargetAnchor = useCallback(
+    (token) => {
+      const next = treeSheet(token.nums, `${token.text} の流れ`)
+      setSheetStack((stack) =>
+        stack[stack.length - 1]?.tree
+          ? [...stack.slice(0, -1), next]
+          : [...stack, next],
+      )
+    },
+    [treeSheet],
   )
 
   const copy = useCallback((text, label) => {
@@ -899,14 +949,9 @@ export default function Thread({ route, navigation }) {
 
   const openBacklinks = useCallback(
     (no) => {
-      const nos = backlinks.get(no) || []
-      pushSheet({
-        title: `>>${no} への返信（${nos.length} 件）`,
-        rows: pickRows(nos),
-        emptyText: 'NG で隠れています',
-      })
+      pushSheet(treeSheet([no], `>>${no} の流れ`))
     },
-    [backlinks, pickRows, pushSheet],
+    [treeSheet, pushSheet],
   )
 
   const openUrl = useCallback((url) => {
@@ -1159,19 +1204,21 @@ export default function Thread({ route, navigation }) {
         run: () => addHighlightAndClose('names', name, name),
       })
     }
-    items.push({
-      label: 'AI: このレスを翻訳',
-      run: () => {
-        closeMenu()
-        aiTask.run({
-          title: `AI: >>${no} の翻訳`,
-          modelId: TRANSLATION_MODEL_ID,
-          messages: translationMessages(plainBody),
-          maxTokens: 400,
-          sampling: TRANSLATION_SAMPLING,
-        })
-      },
-    })
+    if (ai.enabled) {
+      items.push({
+        label: 'AI: このレスを翻訳',
+        run: () => {
+          closeMenu()
+          aiTask.run({
+            title: `AI: >>${no} の翻訳`,
+            modelId: ai.translationModel,
+            messages: translationMessages(plainBody),
+            maxTokens: 400,
+            sampling: TRANSLATION_SAMPLING,
+          })
+        },
+      })
+    }
     const { watchoi } = splitNameWatchoi(name)
     if (watchoi) {
       items.push({
@@ -1231,10 +1278,10 @@ export default function Thread({ route, navigation }) {
   // ---- 既読位置 ------------------------------------------------------------
 
   const markerIndex = useMemo(() => {
-    if (!marker?.lastReadNo) return -1
+    if (!lineNo) return -1
     // 既読番号の「次」のレスの上に線を引く
-    return shown.findIndex((r) => r.no > marker.lastReadNo)
-  }, [shown, marker])
+    return shown.findIndex((r) => r.no > lineNo)
+  }, [shown, lineNo])
 
   const summarizeUnread = useCallback(() => {
     const rows = pickSummaryRows(shown, markerIndex)
@@ -1314,22 +1361,106 @@ export default function Thread({ route, navigation }) {
     showToast({ title: `曖昧 NG: ${found.size} 件を隠しました` })
   }, [ai.rules, ai.ngModel, ai.backend, aiRulesKey, threadId, shown])
 
-  // 再訪時に既読位置へ戻す（スクロール位置ではなくレス番号で復元する — §10-1）
+  // 再訪時に読んでいた位置へ戻す（スクロール量ではなくレス番号で復元する — §10-1）
   const restoredRef = useRef(false)
+  const [savedNo, setSavedNo] = useState(undefined)
+  useEffect(() => {
+    let alive = true
+    getReadPosition(threadId).then((no) => {
+      if (alive) setSavedNo(no)
+    })
+    return () => {
+      alive = false
+    }
+  }, [threadId])
+
+  // 復元の途中で新着が届いて列が変わっても取り消さないよう、予約は effect の外で持つ。
+  // 番号は動かす瞬間の列で引き直す
+  const restoreEnvRef = useRef({})
+  restoreEnvRef.current = { shown, savedNo, markerIndex }
+  /** 復元が終わるまでは位置を記録しない。先頭のまま上書きしてしまうため */
+  const positionReadyRef = useRef(false)
+  const restoreTimersRef = useRef([])
+  useEffect(() => () => restoreTimersRef.current.forEach(clearTimeout), [])
+
   useEffect(() => {
     if (
       restoredRef.current ||
       loading ||
-      markerIndex < 0 ||
-      filterKey ||
+      savedNo === undefined ||
       shown.length === 0
     ) {
-      return undefined
+      return
     }
     restoredRef.current = true
-    const id = setTimeout(() => scrollToRow(markerIndex), 120)
-    return () => clearTimeout(id)
-  }, [loading, markerIndex, shown.length, scrollToRow])
+    const moveToSaved = () => {
+      const env = restoreEnvRef.current
+      const saved = rowIndexForNo(env.shown, env.savedNo)
+      const target = saved >= 0 ? saved : env.markerIndex
+      if (target >= 0) scrollToRow(target, false, 0)
+    }
+    const hasTarget = rowIndexForNo(shown, savedNo) >= 0 || markerIndex >= 0
+    // 絞り込みで開いたときは、そちらを優先する
+    if (filterKey || !hasTarget) {
+      positionReadyRef.current = true
+      return
+    }
+    // 行の高さは描くまで分からないので、測り終えたころにもう一度合わせる
+    restoreTimersRef.current = [
+      setTimeout(moveToSaved, RESTORE_FIRST_MS),
+      setTimeout(() => {
+        moveToSaved()
+        positionReadyRef.current = true
+      }, RESTORE_SECOND_MS),
+    ]
+  }, [loading, savedNo, markerIndex, shown, scrollToRow, filterKey])
+
+  /** 画面に見えている範囲を記録する。既読は進むだけで、勝手に戻さない。 */
+  const rememberVisible = useCallback(() => {
+    const list = listRef.current
+    const { rows, filtered, lastReadNo } = visibleEnvRef.current
+    if (!list || !positionReadyRef.current || filtered) return
+    const range = list.computeVisibleIndices?.()
+    if (!range || range.startIndex < 0) return
+    // 先頭の行がわずかに残っているだけなら次の行を読んでいる。これを数えると、開き直す
+    // たびに位置が 1 つずつ戻っていく
+    const first = list.getLayout?.(range.startIndex)
+    const barelyVisible =
+      first &&
+      first.y + first.height - scrollRef.current.offset < BARELY_VISIBLE_PT
+    const top = rows[range.startIndex + (barelyVisible ? 1 : 0)]
+    const bottom = rows[range.endIndex]
+    if (top) setReadPosition(threadId, top.no)
+    if (bottom && bottom.no > lastReadNo) {
+      dispatch(
+        setReadMarker({
+          threadId,
+          lastReadNo: bottom.no,
+          totalCount: rows.length,
+          auto: true,
+        }),
+      )
+    }
+  }, [dispatch, threadId])
+
+  const rememberTimerRef = useRef(null)
+  const scheduleRemember = useCallback(() => {
+    if (rememberTimerRef.current) return
+    rememberTimerRef.current = setTimeout(() => {
+      rememberTimerRef.current = null
+      rememberVisible()
+    }, REMEMBER_DELAY_MS)
+  }, [rememberVisible])
+
+  // 画面を離れるときは待たずに記録する
+  useEffect(
+    () => () => {
+      if (rememberTimerRef.current) clearTimeout(rememberTimerRef.current)
+      rememberTimerRef.current = null
+      rememberVisible()
+    },
+    [rememberVisible],
+  )
 
   // ---- ジェスチャ（§9-1） --------------------------------------------------
 
@@ -1761,6 +1892,7 @@ export default function Thread({ route, navigation }) {
               const { contentOffset, layoutMeasurement, contentSize } =
                 e.nativeEvent
               scrollRef.current.offset = contentOffset.y
+              scheduleRemember()
               scrollRef.current.atBottom = isAtBottom({
                 offset: contentOffset.y,
                 viewport: layoutMeasurement.height,
@@ -1856,7 +1988,7 @@ export default function Thread({ route, navigation }) {
         onImage={setViewerUrl}
         onDismissAt={(index) => setSheetStack((st) => st.slice(0, index))}
         onCloseAll={() => dismissAll()}
-        onAnchor={openAnchor}
+        onAnchor={retargetAnchor}
         onId={openId}
         onUrl={openUrl}
         onJump={jumpToNo}
@@ -1964,31 +2096,35 @@ export default function Thread({ route, navigation }) {
                 </Text>
               </Pressable>
             ))}
-            <Pressable
-              accessibilityRole="button"
-              style={styles.extractItem}
-              onPress={() => {
-                if (extractRef.current) extractRef.current.dismiss()
-                summarizeUnread()
-              }}
-            >
-              <Text style={[styles.menuText, { color: theme.text }]}>
-                AI: 新しい書き込みを要約
-              </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={aiNgProgress !== null}
-              style={styles.extractItem}
-              onPress={() => {
-                if (extractRef.current) extractRef.current.dismiss()
-                runAiNg()
-              }}
-            >
-              <Text style={[styles.menuText, { color: theme.text }]}>
-                AI: 曖昧 NG を判定
-              </Text>
-            </Pressable>
+            {ai.enabled ? (
+              <>
+                <Pressable
+                  accessibilityRole="button"
+                  style={styles.extractItem}
+                  onPress={() => {
+                    if (extractRef.current) extractRef.current.dismiss()
+                    summarizeUnread()
+                  }}
+                >
+                  <Text style={[styles.menuText, { color: theme.text }]}>
+                    AI: 新しい書き込みを要約
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={aiNgProgress !== null}
+                  style={styles.extractItem}
+                  onPress={() => {
+                    if (extractRef.current) extractRef.current.dismiss()
+                    runAiNg()
+                  }}
+                >
+                  <Text style={[styles.menuText, { color: theme.text }]}>
+                    AI: 曖昧 NG を判定
+                  </Text>
+                </Pressable>
+              </>
+            ) : null}
             <Pressable
               accessibilityRole="button"
               style={styles.extractItem}

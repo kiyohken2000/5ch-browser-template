@@ -43,6 +43,11 @@ export const DEFAULTS = {
   aaHorizontalScroll: true,
   /** 本文中の ID をタップできるようにする（§8-4） */
   bodyIdTappable: true,
+  /** 書き込みに BE / UPLIFT を使うか。ログインは保ったまま切り替える */
+  postWithBe: true,
+  postWithUplift: true,
+  /** 書き込み画面の入力コンボ演出 */
+  typingCombo: false,
   /** オートスクロールの速さ（pt/秒） */
   autoScrollSpeed: 40,
   /** 本文の太さ。'normal' | 'medium' | 'bold' */

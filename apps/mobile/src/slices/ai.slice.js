@@ -9,12 +9,16 @@ import { NG_AI_DEFAULT_THRESHOLD, NG_AI_MAX_PREDICATES } from 'ai/judge'
 import { KEYS, load, save } from 'lib/storage'
 
 const DEFAULTS = {
+  /** AI を使うか。切ると AI の項目を画面に出さない */
+  enabled: false,
   /** 'auto' | 'cpu'。auto は GPU を使う */
   backend: 'auto',
   /** 要約と投稿前チェックに使うモデル */
   generalModel: 'gemma3-1b-it-q4km',
   /** 曖昧 NG に使うモデル */
   ngModel: 'qwen35-2b-q4km',
+  /** 翻訳に使うモデル */
+  translationModel: 'hy-mt2-1.8b-q4km',
   rules: [],
 }
 
@@ -24,9 +28,11 @@ export const loadAi = createAsyncThunk('ai/load', async () =>
 
 function persist(state) {
   save(KEYS.aiSettings, {
+    enabled: state.enabled,
     backend: state.backend,
     generalModel: state.generalModel,
     ngModel: state.ngModel,
+    translationModel: state.translationModel,
     rules: state.rules,
   }).then((ok) => {
     if (!ok) console.warn('[ai] AI の設定の保存に失敗した')
@@ -39,7 +45,17 @@ const aiSlice = createSlice({
   reducers: {
     setAiOption: (state, { payload }) => {
       const { key, value } = payload
-      if (!['backend', 'generalModel', 'ngModel'].includes(key)) return
+      if (
+        ![
+          'enabled',
+          'backend',
+          'generalModel',
+          'ngModel',
+          'translationModel',
+        ].includes(key)
+      ) {
+        return
+      }
       state[key] = value
       persist(state)
     },

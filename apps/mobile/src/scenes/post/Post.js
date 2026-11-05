@@ -19,8 +19,10 @@ import React, {
 } from 'react'
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,7 +31,8 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { useDispatch, useSelector } from 'react-redux'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { shallowEqual, useDispatch, useSelector } from 'react-redux'
 import Toast from 'react-native-toast-message'
 
 import { POST_CHECK_MIN_CHARS, postCheckMessages } from 'ai/prompts'
@@ -49,7 +52,18 @@ import {
   withoutDraft,
   withDraft,
 } from 'lib/postDrafts'
+import {
+  advanceCombo,
+  COMBO_RESET_MS,
+  createCombo,
+  emitComboEvents,
+  heatLevel,
+} from 'lib/combo'
+import { clearCookies, loadAccount } from 'lib/accountStore'
+import { ACCOUNTS } from 'lib/auth'
 import { resultText, submitPost } from 'lib/post'
+import { withPostAccounts } from 'lib/postAccounts'
+import { setSetting } from 'slices/settings.slice'
 import {
   appendUploadUrl,
   loadUploadHistory,
@@ -69,6 +83,27 @@ const SAVE_DELAY_MS = 500
 function warnIfFailed(ok, what) {
   if (!ok) console.warn(`[post] ${what}の保存に失敗した`)
 }
+
+const COUNTER_PADDING = 10
+const POST_ACCOUNTS = [
+  { key: 'be', label: 'BE', setting: 'postWithBe' },
+  { key: 'uplift', label: 'UPLIFT', setting: 'postWithUplift' },
+]
+
+/** 保管した情報でログインし直す。 */
+async function reloginAccount(provider) {
+  const saved = await loadAccount(provider)
+  return saved ? ACCOUNTS[provider].login(saved) : { ok: false }
+}
+
+/** 入力欄の赤熱。コンボの段階ごとの色 */
+const HEAT_COLORS = [
+  null,
+  'rgba(255,152,0,0.06)',
+  'rgba(255,112,67,0.10)',
+  'rgba(244,67,54,0.14)',
+  'rgba(244,67,54,0.22)',
+]
 
 export default function Post({ route, navigation }) {
   const {
@@ -104,6 +139,61 @@ export default function Post({ route, navigation }) {
   /** 選んだがまだ公開していない画像。公開は確認のあとにする（取り消せないため） */
   const [pickedImages, setPickedImages] = useState([])
   const [uploading, setUploading] = useState(false)
+  const loggedIn = { be: beLoggedIn, uplift: upliftLoggedIn }
+  const postSettings = useSelector(
+    (state) => ({
+      be: state.settings.postWithBe,
+      uplift: state.settings.postWithUplift,
+    }),
+    shallowEqual,
+  )
+  const insets = useSafeAreaInsets()
+  const [keyboardShown, setKeyboardShown] = useState(false)
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
+    const hideEvent =
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
+    const show = Keyboard.addListener(showEvent, () => setKeyboardShown(true))
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardShown(false))
+    return () => {
+      show.remove()
+      hide.remove()
+    }
+  }, [])
+
+  // 入力コンボ（設定でオンのときだけ）
+  const comboEnabled = useSelector((state) => state.settings.typingCombo)
+  const comboRef = useRef(createCombo())
+  const messageRef = useRef('')
+  const [comboHeat, setComboHeat] = useState(0)
+  const heatTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(heatTimerRef.current), [])
+  const onChangeMessage = useCallback(
+    (next) => {
+      if (comboEnabled) {
+        const events = advanceCombo(
+          comboRef.current,
+          messageRef.current,
+          next,
+          Date.now(),
+        )
+        emitComboEvents(events)
+        setComboHeat(heatLevel(comboRef.current.count))
+        // 手が止まったら赤熱を消す。次の入力で数え直しになるのと同じ時間
+        clearTimeout(heatTimerRef.current)
+        heatTimerRef.current = setTimeout(() => setComboHeat(0), COMBO_RESET_MS)
+      }
+      messageRef.current = next
+      setMessage(next)
+    },
+    [comboEnabled],
+  )
+  // 引用やアップロードで本文が変わっても、差分の基準を合わせる
+  useEffect(() => {
+    messageRef.current = message
+  }, [message])
   const ai = useSelector((state) => state.ai)
   const aiTask = useAiTask(ai.backend)
 
@@ -267,12 +357,18 @@ export default function Post({ route, navigation }) {
     sendingRef.current = true
     setSending(true)
     setResult(null)
-    const got = await submitPost({
-      threadUrl,
-      name,
-      mail: mailToSend(mail, sageChecked(mail, sage)),
-      message,
-    })
+    const got = await withPostAccounts(
+      POST_ACCOUNTS.filter(({ key }) => loggedIn[key]).map(({ key }) => key),
+      postSettings,
+      () =>
+        submitPost({
+          threadUrl,
+          name,
+          mail: mailToSend(mail, sageChecked(mail, sage)),
+          message,
+        }),
+      { clear: clearCookies, login: reloginAccount },
+    )
     sendingRef.current = false
     setSending(false)
 
@@ -284,6 +380,14 @@ export default function Post({ route, navigation }) {
       setResult(got)
       return
     }
+    if (comboEnabled) {
+      emitComboEvents([
+        { type: 'banner', text: 'SHIPPED!!', variant: 'shipped' },
+        { type: 'slot' },
+      ])
+    }
+    comboRef.current = createCombo()
+    setComboHeat(0)
     const nextNames = pushName(names, name)
     setNames(nextNames)
     save(KEYS.nameHistory, nextNames).then((ok) => warnIfFailed(ok, '名前履歴'))
@@ -333,6 +437,9 @@ export default function Post({ route, navigation }) {
     navigation,
     keepOpen,
     keepHistory,
+    beLoggedIn,
+    upliftLoggedIn,
+    postSettings,
   ])
 
   const canSend =
@@ -537,19 +644,36 @@ export default function Post({ route, navigation }) {
       ) : null}
 
       <View style={[styles.sageRow, { borderColor: theme.border }]}>
-        <Text style={{ color: theme.text, fontSize: 14 }}>sage</Text>
-        <Text style={[styles.accountHint, { color: theme.textDim }]}>
-          {[beLoggedIn ? 'BE' : null, upliftLoggedIn ? 'UPLIFT' : null]
-            .filter(Boolean)
-            .join(' / ')}
-        </Text>
-        <Switch
-          accessibilityLabel="sage"
-          value={sageOn}
-          onValueChange={toggleSage}
-          disabled={sending}
-          trackColor={{ true: theme.accent }}
-        />
+        <View style={styles.accountToggle}>
+          <Text style={{ color: theme.text, fontSize: 14 }}>sage</Text>
+          <Switch
+            accessibilityLabel="sage"
+            value={sageOn}
+            onValueChange={toggleSage}
+            disabled={sending}
+            trackColor={{ true: theme.accent }}
+          />
+        </View>
+        <View style={styles.accountToggles}>
+          {POST_ACCOUNTS.filter(({ key }) => loggedIn[key]).map(
+            ({ key, label, setting }) => (
+              <View key={key} style={styles.accountToggle}>
+                <Text style={[styles.accountHint, { color: theme.textDim }]}>
+                  {label}
+                </Text>
+                <Switch
+                  accessibilityLabel={`${label} で書き込む`}
+                  value={postSettings[key]}
+                  onValueChange={(value) =>
+                    dispatch(setSetting({ key: setting, value }))
+                  }
+                  disabled={sending}
+                  trackColor={{ true: theme.accent }}
+                />
+              </View>
+            ),
+          )}
+        </View>
       </View>
 
       {previewBody ? (
@@ -568,14 +692,18 @@ export default function Post({ route, navigation }) {
         <TextInput
           accessibilityLabel="本文"
           value={message}
-          onChangeText={setMessage}
+          onChangeText={onChangeMessage}
           placeholder="本文"
           placeholderTextColor={theme.textFaint}
           multiline
           autoFocus
           textAlignVertical="top"
           editable={!sending}
-          style={[styles.body, { color: theme.text, fontSize }]}
+          style={[
+            styles.body,
+            { color: theme.text, fontSize },
+            comboHeat > 0 ? { backgroundColor: HEAT_COLORS[comboHeat] } : null,
+          ]}
         />
       )}
 
@@ -636,24 +764,37 @@ export default function Post({ route, navigation }) {
         </View>
       ) : null}
 
-      <View style={[styles.counterRow, { borderColor: theme.border }]}>
+      <View
+        style={[
+          styles.counterRow,
+          {
+            borderColor: theme.border,
+            // キーボードが無いときは、ホームインジケーターにかからないようにする
+            paddingBottom: keyboardShown
+              ? COUNTER_PADDING
+              : Math.max(COUNTER_PADDING, insets.bottom),
+          },
+        ]}
+      >
         <Text style={{ color: theme.textDim, fontSize: 12 }}>
           {`${stats.chars} 文字 / ${stats.lines} 行`}
         </Text>
         <View style={styles.counterActions}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="AI で投稿前チェック"
-            disabled={aiTask.task?.running || sending}
-            hitSlop={8}
-            onPress={checkWithAi}
-          >
-            <Text
-              style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}
+          {ai.enabled ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="AI で投稿前チェック"
+              disabled={aiTask.task?.running || sending}
+              hitSlop={8}
+              onPress={checkWithAi}
             >
-              AI
-            </Text>
-          </Pressable>
+              <Text
+                style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}
+              >
+                AI
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="写真を選ぶ"
@@ -717,7 +858,7 @@ const styles = StyleSheet.create({
   },
   field: { flex: 1, fontSize: 14, paddingHorizontal: 16, paddingVertical: 10 },
   divider: { width: StyleSheet.hairlineWidth, alignSelf: 'stretch' },
-  accountHint: { flex: 1, fontSize: 12, textAlign: 'right', paddingRight: 12 },
+  accountHint: { fontSize: 12 },
   sageRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -728,6 +869,13 @@ const styles = StyleSheet.create({
   },
   body: { flex: 1, padding: 16, lineHeight: 22 },
   aiPanelSlot: { height: 200 },
+  accountToggles: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  accountToggle: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   counterActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   uploadBar: {
     flexDirection: 'row',

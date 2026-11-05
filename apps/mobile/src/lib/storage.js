@@ -49,6 +49,7 @@ export const KEYS = {
   threadFilterHistory: 'threadFilterHistory.v1',
   knownThreads: 'knownThreads.v1',
   uploadHistory: 'uploadHistory.v1',
+  aiBenchmark: 'aiBenchmark.v1',
   // 端末固有（同期しない — §10-1）
   scrollPositions: 'scrollPositions.v1',
 }
