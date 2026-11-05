@@ -9,9 +9,10 @@ export const TERMS_VERSION = 1
 
 /** 5ch の削除要請板（bbsmenu の「運営」カテゴリ）。 */
 export const DELETION_REQUEST_URL = 'https://ace.5ch.io/saku2ch/index2.html'
-/** Ember の問い合わせ先。公式サイトにも載せている。 */
-export const CONTACT_URL =
-  'https://github.com/kiyohken2000/5ch-browser-template/issues'
+/** ストア掲載用のページ。公式サイトに置いている。 */
+export const CONTACT_URL = 'https://ember-5ch.pages.dev/support.html'
+export const PRIVACY_URL = 'https://ember-5ch.pages.dev/privacy.html'
+export const TERMS_URL = 'https://ember-5ch.pages.dev/terms.html'
 
 export const TERMS_SECTIONS = [
   {

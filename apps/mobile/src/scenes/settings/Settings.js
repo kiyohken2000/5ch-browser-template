@@ -24,8 +24,11 @@ import {
   gestureActionLabel,
   normalizeGestures,
 } from 'lib/gestures'
+import { displayVersion } from 'lib/appVersion'
 import { fontLabel } from 'lib/fonts'
 import { clearImageCache } from 'lib/imageCache'
+import { openInAppBrowser } from 'lib/inAppBrowser'
+import { PRIVACY_URL, TERMS_URL } from 'lib/terms'
 import { clearThreadCache, threadCacheStats } from 'lib/threadCache'
 import { selectNgFilters } from 'slices/ng.slice'
 import { clearRecentThreads } from 'slices/watch.slice'
@@ -34,7 +37,7 @@ import { useEmberTheme } from 'theme/ember'
 import { images } from 'theme/images'
 
 const LANDING_PAGE_URL = 'https://ember-5ch.pages.dev'
-const APP_VERSION = Constants?.expoConfig?.version || '不明'
+const APP_VERSION = displayVersion(Constants?.expoConfig?.version)
 
 function openLanding() {
   Linking.openURL(LANDING_PAGE_URL).catch((e) =>
@@ -594,6 +597,20 @@ export default function Settings({ navigation }) {
           </Text>
           <Icon name="chevronRight" size={16} color={theme.textFaint} />
         </Pressable>
+        {[
+          ['利用規約', TERMS_URL],
+          ['プライバシーポリシー', PRIVACY_URL],
+        ].map(([label, url]) => (
+          <Pressable
+            key={url}
+            accessibilityRole="link"
+            onPress={() => openInAppBrowser(url)}
+            style={[styles.row, { borderColor: theme.border }]}
+          >
+            <Text style={[styles.label, { color: theme.text }]}>{label}</Text>
+            <Icon name="chevronRight" size={16} color={theme.textFaint} />
+          </Pressable>
+        ))}
         <View style={[styles.about, { borderColor: theme.border }]}>
           <Image
             source={images.icon}
