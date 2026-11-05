@@ -28,7 +28,8 @@
     "production": {
       "channel": "production",
       "android": {
-        "resourceClass": "large"
+        "resourceClass": "large",
+        "autoIncrement": true
       }
     }
   },

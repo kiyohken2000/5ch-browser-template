@@ -1566,11 +1566,6 @@
     "@jridgewell/resolve-uri" "^3.1.0"
     "@jridgewell/sourcemap-codec" "^1.4.14"
 
-"@kesha-antonov/react-native-background-downloader@4.7.0":
-  version "4.7.0"
-  resolved "https://registry.yarnpkg.com/@kesha-antonov/react-native-background-downloader/-/react-native-background-downloader-4.7.0.tgz#6d53f91b5ef04a3ffba7adb8f5e221444133c37d"
-  integrity sha512-TK1tFcSap5yfpE+95P7+UIDlJ7flnSlzQT7aQZzH75eVPlto4oIcEzfnyHIL5RaWatJu1N7fOLqEd9uM5uCh1g==
-
 "@noxcturnal/noxcturnal-darwin-arm64@0.1.11":
   version "0.1.11"
   resolved "https://registry.yarnpkg.com/@noxcturnal/noxcturnal-darwin-arm64/-/noxcturnal-darwin-arm64-0.1.11.tgz#caa7207c9afaf635e605627add6777fc35ed3498"

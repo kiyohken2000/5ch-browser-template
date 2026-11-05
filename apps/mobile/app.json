@@ -118,7 +118,6 @@
         }
       ],
       "llama.rn",
-      "@kesha-antonov/react-native-background-downloader",
       "expo-video",
       [
         "expo-share-intent",
