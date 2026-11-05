@@ -593,7 +593,7 @@ export default function Settings({ navigation }) {
           style={[styles.row, { borderColor: theme.border }]}
         >
           <Text style={[styles.label, { color: theme.text }]}>
-            書き込みの利用条件
+            利用条件
           </Text>
           <Icon name="chevronRight" size={16} color={theme.textFaint} />
         </Pressable>

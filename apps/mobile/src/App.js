@@ -1,6 +1,6 @@
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
 import { PortalHost } from '@gorhom/portal'
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -12,6 +12,9 @@ import { fontAssets } from 'theme/fonts'
 import { imageAssets } from 'theme/images'
 import { watchAppStateForAi } from 'ai/engine'
 import ComboOverlay from 'components/ComboOverlay'
+import TermsGate from 'components/TermsGate'
+import { KEYS, load, save } from 'lib/storage'
+import { hasConsented, TERMS_VERSION } from 'lib/terms'
 import { watchAppStateForPositions } from 'lib/readPosition'
 import { loadAi } from 'slices/ai.slice'
 import { loadHighlights } from 'slices/highlight.slice'
@@ -27,6 +30,16 @@ import Router from './routes'
 
 export default function App() {
   const [didLoad, setDidLoad] = useState(false)
+  const [consented, setConsented] = useState(false)
+
+  const acceptTerms = useCallback(() => {
+    setConsented(true)
+    save(KEYS.termsConsent, { version: TERMS_VERSION, at: Date.now() }).then(
+      (ok) => {
+        if (!ok) console.warn('[app] 同意の保存に失敗した')
+      },
+    )
+  }, [])
 
   useEffect(() => {
     const ai = watchAppStateForAi()
@@ -52,6 +65,9 @@ export default function App() {
         store.dispatch(loadImageNg()),
         store.dispatch(loadAi()),
         store.dispatch(loadWatch()),
+        load(KEYS.termsConsent, null).then((stored) => {
+          if (alive) setConsented(hasConsented(stored))
+        }),
       ])
       for (const r of results) {
         if (r.status === 'rejected') {
@@ -78,11 +94,15 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <Provider store={store}>
-          <BottomSheetModalProvider>
-            <Router />
-            <ComboOverlay />
-            <PortalHost name={POPUP_HOST} />
-          </BottomSheetModalProvider>
+          {consented ? (
+            <BottomSheetModalProvider>
+              <Router />
+              <ComboOverlay />
+              <PortalHost name={POPUP_HOST} />
+            </BottomSheetModalProvider>
+          ) : (
+            <TermsGate onAccept={acceptTerms} />
+          )}
         </Provider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

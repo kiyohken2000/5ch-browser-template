@@ -210,7 +210,7 @@ function SettingsStack() {
         name="Terms"
         component={Terms}
         options={{
-          title: '書き込みの利用条件',
+          title: '利用条件',
           headerBackAccessibilityLabel: '戻る',
         }}
       />
