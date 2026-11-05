@@ -31,6 +31,8 @@ export const KEYS = {
   myPosts: 'myPosts.v1',
   ngFilters: 'ngFilters.v1',
   highlights: 'highlights.v1',
+  imageNg: 'imageNg.v1',
+  aiSettings: 'aiSettings.v1',
   // 失っても作り直せるもの
   settings: 'settings.v1',
   boardCache: 'boardCache.v1',
@@ -46,6 +48,7 @@ export const KEYS = {
   searchHistory: 'searchHistory.v1',
   threadFilterHistory: 'threadFilterHistory.v1',
   knownThreads: 'knownThreads.v1',
+  uploadHistory: 'uploadHistory.v1',
   // 端末固有（同期しない — §10-1）
   scrollPositions: 'scrollPositions.v1',
 }
@@ -58,6 +61,8 @@ const CRITICAL = new Set([
   KEYS.myPosts,
   KEYS.ngFilters,
   KEYS.highlights,
+  KEYS.imageNg,
+  KEYS.aiSettings,
 ])
 
 const full = (key) => `${PREFIX}${key}`

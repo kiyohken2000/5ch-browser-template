@@ -12,6 +12,7 @@
  * だけで端末から内部へ通信させられる経路を作らないため。
  */
 
+import { extractTweetId } from './tweet'
 import { isAllowedHost, normalizeExternalUrl, splitUrl } from './urls'
 
 const IMAGE_EXT_RE = /\.(?:jpe?g|png|gif|webp|heic|avif)$/i
@@ -48,7 +49,7 @@ export function isPublicHost(host) {
 
 /**
  * 1 つの URL を分類する。
- * @returns {{kind: 'image'|'youtube'|'video'|'link'|'none', url: string, videoId?: string, thumb?: string}}
+ * @returns {{kind: 'image'|'youtube'|'video'|'tweet'|'link'|'none', url: string, videoId?: string, thumb?: string}}
  */
 export function classifyUrl(raw) {
   const url = normalizeExternalUrl(raw)
@@ -66,6 +67,7 @@ export function classifyUrl(raw) {
     }
   }
   if (IMAGE_EXT_RE.test(parts.path)) return { kind: 'image', url }
+  if (extractTweetId(url)) return { kind: 'tweet', url }
   if (VIDEO_EXT_RE.test(parts.path)) {
     // `.mp4/` と書かれることがある。スラッシュ付きのままでは取得できない
     return {
@@ -89,15 +91,17 @@ export function extractMedia(urls, options = {}) {
   const images = []
   const youtube = []
   const videos = []
+  const tweets = []
   const links = []
   for (const raw of urls || []) {
     const c = classifyUrl(raw)
     if (c.kind === 'image') images.push(c)
     else if (c.kind === 'youtube') youtube.push(c)
     else if (c.kind === 'video') videos.push(c)
+    else if (c.kind === 'tweet' && tweets.length < maxCards) tweets.push(c)
     else if (c.kind === 'link' && links.length < maxCards) links.push(c)
   }
-  return { images, youtube, videos, links }
+  return { images, youtube, videos, tweets, links }
 }
 
 /**

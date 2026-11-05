@@ -149,6 +149,18 @@ export async function clearThreadCache() {
   }
 }
 
+/** キャッシュにあるスレの ID。読めなければ空にする（dat 落ち一覧が空になるだけ）。 */
+export async function listCachedThreadIds() {
+  try {
+    const handle = await db()
+    const rows = await handle.getAllAsync('SELECT thread_id FROM thread_cache')
+    return new Set(rows.map((r) => r.thread_id))
+  } catch (e) {
+    warn('一覧の取得', e)
+    return new Set()
+  }
+}
+
 /** 設定画面の表示用。 */
 export async function threadCacheStats() {
   try {

@@ -44,7 +44,12 @@ import Home from 'scenes/home/Home'
 import Post from 'scenes/post/Post'
 import Search from 'scenes/search/Search'
 import AccountSettings from 'scenes/settings/AccountSettings'
+import FavoritesOrder from 'scenes/home/FavoritesOrder'
+import HighlightSettings from 'scenes/settings/HighlightSettings'
+import AiSettings from 'scenes/settings/AiSettings'
+import ImageNgSettings from 'scenes/settings/ImageNgSettings'
 import NgSettings from 'scenes/settings/NgSettings'
+import UploadHistory from 'scenes/settings/UploadHistory'
 import PostHistory from 'scenes/settings/PostHistory'
 import Terms from 'scenes/settings/Terms'
 import Settings from 'scenes/settings/Settings'
@@ -59,6 +64,8 @@ const RootStack = createStackNavigator()
 const linking = {
   prefixes: ['ember://'],
   config: {
+    // リンクから起動しても、スレの下にタブを置いて戻れるようにする
+    initialRouteName: 'Tabs',
     screens: {
       Tabs: {
         screens: {
@@ -133,6 +140,14 @@ function HomeStack() {
   return (
     <Stack.Navigator screenOptions={stackScreens(theme)}>
       <Stack.Screen name="Watch" component={HomeTop} options={NO_HEADER} />
+      <Stack.Screen
+        name="FavoritesOrder"
+        component={FavoritesOrder}
+        options={{
+          title: 'お気に入りの並べ替え',
+          headerBackAccessibilityLabel: '戻る',
+        }}
+      />
     </Stack.Navigator>
   )
 }
@@ -202,6 +217,38 @@ function SettingsStack() {
         component={NgSettings}
         options={{
           title: 'NG 管理',
+          headerBackAccessibilityLabel: '戻る',
+        }}
+      />
+      <Stack.Screen
+        name="AiSettings"
+        component={AiSettings}
+        options={{
+          title: 'AI',
+          headerBackAccessibilityLabel: '戻る',
+        }}
+      />
+      <Stack.Screen
+        name="ImageNgSettings"
+        component={ImageNgSettings}
+        options={{
+          title: '画像 NG',
+          headerBackAccessibilityLabel: '戻る',
+        }}
+      />
+      <Stack.Screen
+        name="UploadHistory"
+        component={UploadHistory}
+        options={{
+          title: 'アップロード履歴',
+          headerBackAccessibilityLabel: '戻る',
+        }}
+      />
+      <Stack.Screen
+        name="HighlightSettings"
+        component={HighlightSettings}
+        options={{
+          title: '強調表示',
           headerBackAccessibilityLabel: '戻る',
         }}
       />

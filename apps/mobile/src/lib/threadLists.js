@@ -114,6 +114,41 @@ export function removePosts(posts, threadId) {
 }
 
 /**
+ * dat 落ちで、手元のキャッシュから読めるスレ。複数の一覧にあっても 1 つにまとめる。
+ * @param {Array<Array<object>>} lists
+ * @param {Set<string>} cachedIds
+ */
+export function droppedThreads(lists, cachedIds) {
+  const seen = new Set()
+  const out = []
+  for (const list of lists) {
+    for (const t of list || []) {
+      if (t.datDropped && cachedIds.has(t.threadId) && !seen.has(t.threadId)) {
+        seen.add(t.threadId)
+        out.push(t)
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * 指定の順に並べ替える。指定に無いスレは後ろに残す（並べ替えの間に増えても失わない）。
+ */
+export function orderByIds(list, ids) {
+  const byId = new Map(list.map((t) => [t.threadId, t]))
+  const ordered = []
+  for (const id of ids) {
+    const t = byId.get(id)
+    if (t) {
+      ordered.push(t)
+      byId.delete(id)
+    }
+  }
+  return [...ordered, ...byId.values()]
+}
+
+/**
  * 一覧の 1 行に出す値。監視リストにあれば、そちらのレス数と新着数を使う。
  * タイトルは監視リストの値を控えとして使う。
  */

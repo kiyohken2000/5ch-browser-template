@@ -18,6 +18,7 @@ import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { splitBeIcons } from 'lib/body'
 import { idColor } from 'lib/idcolor'
+import { highlightStyle, splitHighlights } from 'lib/highlights'
 import { MONO_FONT } from 'theme/ember'
 
 const mono = Platform.select(MONO_FONT)
@@ -48,17 +49,26 @@ function BeIcons({ icons, size }) {
 }
 
 const WEIGHTS = { normal: '400', medium: '500', bold: '600' }
+const SERIF = Platform.select({ ios: 'HiraMinProN-W3', default: 'serif' })
+
+/** 本文のフォント。'system' は OS の既定に任せる。 */
+function bodyFontFamily(font) {
+  if (font === 'serif') return SERIF
+  if (font === 'mono') return mono
+  return undefined
+}
 
 function InlineTokens({
   tokens,
   theme,
   fontSize,
-  weight,
+  textOptions,
   onAnchor,
   onId,
   onUrl,
 }) {
   if (tokens.length === 0) return null
+  const words = textOptions?.highlights?.words
   return (
     <Text
       style={[
@@ -67,7 +77,8 @@ function InlineTokens({
           color: theme.text,
           fontSize,
           lineHeight: fontSize * 1.55,
-          fontWeight: WEIGHTS[weight] || WEIGHTS.normal,
+          fontWeight: WEIGHTS[textOptions?.weight] || WEIGHTS.normal,
+          fontFamily: bodyFontFamily(textOptions?.font),
         },
       ]}
     >
@@ -109,13 +120,25 @@ function InlineTokens({
             </Text>
           )
         }
-        return <Text key={i}>{t.text}</Text>
+        return (
+          <Text key={i}>
+            {splitHighlights(t.text, words).map((part, j) =>
+              part.color ? (
+                <Text key={j} style={highlightStyle(part.color)}>
+                  {part.text}
+                </Text>
+              ) : (
+                part.text
+              ),
+            )}
+          </Text>
+        )
       })}
     </Text>
   )
 }
 
-function AaBlock({ block, theme, fontSize }) {
+function AaBlock({ block, theme, fontSize, font }) {
   return (
     <ScrollView
       horizontal
@@ -131,7 +154,7 @@ function AaBlock({ block, theme, fontSize }) {
           styles.aa,
           {
             color: theme.text,
-            fontFamily: mono,
+            fontFamily: font === 'system' ? undefined : mono,
             fontSize: fontSize - 2,
             lineHeight: (fontSize - 2) * 1.2,
           },
@@ -147,7 +170,7 @@ export default function ResponseBody({
   parsed,
   theme,
   fontSize = 15,
-  weight = 'normal',
+  textOptions,
   hideImages = false,
   onAnchor,
   onId,
@@ -158,7 +181,13 @@ export default function ResponseBody({
       {parsed.blocks.map((block, i) => {
         if (block.kind === 'aa') {
           return (
-            <AaBlock key={i} block={block} theme={theme} fontSize={fontSize} />
+            <AaBlock
+              key={i}
+              block={block}
+              theme={theme}
+              fontSize={fontSize}
+              font={textOptions?.aaFont}
+            />
           )
         }
         const { icons, tokens } = splitBeIcons(block.tokens)
@@ -171,7 +200,7 @@ export default function ResponseBody({
               tokens={tokens}
               theme={theme}
               fontSize={fontSize}
-              weight={weight}
+              textOptions={textOptions}
               onAnchor={onAnchor}
               onId={onId}
               onUrl={onUrl}

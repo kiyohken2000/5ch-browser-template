@@ -39,6 +39,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { scheduleOnRN } from 'react-native-worklets'
 
 import { PhotoPermissionError, saveImageToLibrary } from 'lib/saveImage'
+import useImageNg from 'lib/useImageNg'
 import Icon from './Icon'
 
 const MAX_SCALE = 5
@@ -47,10 +48,19 @@ const DISMISS_DISTANCE = 120
 const DISMISS_VELOCITY = 800
 const SPRING = { damping: 20, stiffness: 220 }
 
-function ImagePage({ url, width, height, dismissY, onClose, onZoomChange }) {
+function ImagePage({
+  url,
+  imageNg,
+  width,
+  height,
+  dismissY,
+  onClose,
+  onZoomChange,
+}) {
   const [zoomed, setZoomed] = useState(false)
   /** 'loading' | 'done' | 'failed'。大きい画像は表示まで数秒かかる */
   const [status, setStatus] = useState('loading')
+  const ngState = useImageNg(url, imageNg)
   const scale = useSharedValue(1)
   const savedScale = useSharedValue(1)
   const x = useSharedValue(0)
@@ -160,19 +170,28 @@ function ImagePage({ url, width, height, dismissY, onClose, onZoomChange }) {
     <GestureDetector gesture={gesture}>
       <View style={{ width, height }}>
         <Animated.View style={[StyleSheet.absoluteFill, imageStyle]}>
-          <Image
-            source={{ uri: url }}
-            style={{ width, height }}
-            contentFit="contain"
-            cachePolicy="memory-disk"
-            onDisplay={() => setStatus('done')}
-            onError={(e) => {
-              console.warn(
-                `[media] 画像を読めない: ${url}: ${e?.error || '不明なエラー'}`,
-              )
-              setStatus('failed')
-            }}
-          />
+          {ngState === 'blocked' ? (
+            <View style={[styles.pageStatus, { width, height }]}>
+              <Text style={styles.pageStatusText}>NG 画像</Text>
+            </View>
+          ) : null}
+          {ngState === 'ok' ? (
+            <Image
+              source={{ uri: url }}
+              style={{ width, height }}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+              onDisplay={() => setStatus('done')}
+              onError={(e) => {
+                console.warn(
+                  `[media] 画像を読めない: ${url}: ${
+                    e?.error || '不明なエラー'
+                  }`,
+                )
+                setStatus('failed')
+              }}
+            />
+          ) : null}
         </Animated.View>
         {status === 'done' ? null : (
           <View style={styles.pageStatus} pointerEvents="none">
@@ -190,7 +209,13 @@ function ImagePage({ url, width, height, dismissY, onClose, onZoomChange }) {
   )
 }
 
-export default function ImageViewer({ images, initialIndex, onClose }) {
+export default function ImageViewer({
+  images,
+  initialIndex,
+  onClose,
+  imageNg,
+  onAddNg,
+}) {
   const { width, height } = useWindowDimensions()
   const insets = useSafeAreaInsets()
   const dismissY = useSharedValue(0)
@@ -232,6 +257,7 @@ export default function ImageViewer({ images, initialIndex, onClose }) {
   const renderItem = useCallback(
     ({ item }) => (
       <ImagePage
+        imageNg={imageNg}
         url={item.url}
         width={width}
         height={height}
@@ -288,6 +314,17 @@ export default function ImageViewer({ images, initialIndex, onClose }) {
           {current?.no ? `  >>${current.no}` : ''}
         </Text>
         <View style={styles.buttons}>
+          {onAddNg ? (
+            <Pressable
+              accessibilityLabel="この画像を NG に追加"
+              accessibilityRole="button"
+              onPress={() => current && onAddNg(current.url)}
+              hitSlop={8}
+              style={styles.button}
+            >
+              <Text style={styles.ngButton}>NG</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityLabel="画像を保存"
             accessibilityRole="button"
@@ -337,6 +374,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pageStatusText: { color: '#fff', fontSize: 14 },
+  ngButton: { color: '#fff', fontSize: 14, fontWeight: '700' },
   bottomBar: {
     position: 'absolute',
     left: 16,

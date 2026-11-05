@@ -9,6 +9,10 @@ import 'utils/ignore'
 import store from 'utils/store'
 import { fontAssets } from 'theme/fonts'
 import { imageAssets } from 'theme/images'
+import { watchAppStateForAi } from 'ai/engine'
+import { loadAi } from 'slices/ai.slice'
+import { loadHighlights } from 'slices/highlight.slice'
+import { loadImageNg } from 'slices/imageNg.slice'
 import { loadNgFilters } from 'slices/ng.slice'
 import { ACCOUNTS } from 'lib/auth'
 import { restoreAccount } from 'slices/account.slice'
@@ -21,6 +25,11 @@ export default function App() {
   const [didLoad, setDidLoad] = useState(false)
 
   useEffect(() => {
+    const sub = watchAppStateForAi()
+    return () => sub.remove()
+  }, [])
+
+  useEffect(() => {
     let alive = true
     startUsageStats()
     const boot = async () => {
@@ -31,6 +40,9 @@ export default function App() {
         ...fontAssets,
         store.dispatch(loadSettings()),
         store.dispatch(loadNgFilters()),
+        store.dispatch(loadHighlights()),
+        store.dispatch(loadImageNg()),
+        store.dispatch(loadAi()),
         store.dispatch(loadWatch()),
       ])
       for (const r of results) {

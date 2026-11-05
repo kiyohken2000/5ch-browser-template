@@ -17,6 +17,10 @@
 import Constants from 'expo-constants'
 
 export const DEFAULT_TIMEOUT_MS = 30000
+/**
+ * 5ch 以外へ接続するときの UA。Monazilla は 5ch への自己申告なので、第三者には名乗らない。
+ */
+export const EXTERNAL_USER_AGENT = 'Mozilla/5.0 (compatible; Ember/0.1)'
 
 /** ログに出してはいけない Cookie / ヘッダ名（小文字で比較する）。 */
 const SECRET_HEADERS = ['cookie', 'set-cookie', 'authorization']

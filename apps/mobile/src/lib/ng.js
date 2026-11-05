@@ -142,11 +142,13 @@ export function evalNg(resp, filters) {
  * @param {Array} responses `{no, name, id, plainBody, parsed?}` を持つレス
  * @param {object} filters
  * @param {{autoIdCount?: number, autoIdMode?: string,
- *          chainReplies?: boolean, chainRepliesMode?: string}} [options]
+ *          chainReplies?: boolean, chainRepliesMode?: string,
+ *          aiHits?: Map<number, string>}} [options]
  */
 export function applyNg(responses, filters, options = {}) {
   const { autoIdCount = 0, autoIdMode = 'hide' } = options
   const { chainReplies = false, chainRepliesMode = 'abone' } = options
+  const { aiHits = null } = options
   const first = responses.map((r) => ({ resp: r, ...evalNg(r, filters) }))
   const watchoiOf = (r) => splitNameWatchoi(r.name).watchoi
 
@@ -185,6 +187,8 @@ export function applyNg(responses, filters, options = {}) {
       if (autoIdCount > 0 && id && counts.get(id) >= autoIdCount) {
         raise(autoIdMode, `連投 ID: ${id}`)
       }
+      const aiHit = aiHits ? aiHits.get(row.resp.no) : null
+      if (aiHit) raise('hide', `曖昧 NG: ${aiHit}`)
     }
     return { ...row.resp, ngMode: mode || null, ngBy: by || null }
   })

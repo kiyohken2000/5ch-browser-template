@@ -5,7 +5,7 @@
  * サーバーもあるので、分からないものは制限しない（表示できない画像を増やさない）。
  */
 
-import { request } from './http'
+import { EXTERNAL_USER_AGENT, request } from './http'
 
 const cache = new Map()
 
@@ -23,7 +23,11 @@ export async function fetchImageBytes(url, { send = request } = {}) {
   if (cache.has(url)) return cache.get(url)
   let bytes = null
   try {
-    const res = await send(url, { method: 'HEAD' })
+    const res = await send(url, {
+      method: 'HEAD',
+      timeoutMs: 10000,
+      headers: { 'User-Agent': EXTERNAL_USER_AGENT },
+    })
     const length = Number(res.headers?.get?.('content-length'))
     if (res.ok !== false && Number.isFinite(length) && length > 0) {
       bytes = length

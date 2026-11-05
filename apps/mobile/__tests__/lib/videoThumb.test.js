@@ -1,4 +1,5 @@
-import { createLimiter, generateVideoThumbnail } from 'lib/videoThumb'
+import { createLimiter } from 'lib/limiter'
+import { generateVideoThumbnail } from 'lib/videoThumb'
 
 jest.mock('expo-video', () => ({ createVideoPlayer: jest.fn() }))
 

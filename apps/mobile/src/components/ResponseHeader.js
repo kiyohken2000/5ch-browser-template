@@ -5,6 +5,7 @@
  * 画面が狭いので、名前は折り返し、ID は 2 行目の右に寄せる。
  */
 
+import { highlightStyle, matchColor, splitHighlights } from 'lib/highlights'
 import React from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
@@ -23,8 +24,10 @@ export default function ResponseHeader({
   onId,
   onBacklinks,
   onBe,
+  highlights,
 }) {
   const { name, watchoi } = splitNameWatchoi(row.name)
+  const idHighlight = matchColor(row.id, highlights?.ids)
   const small = fontSize - 4
   const color = idColor(row.id, theme.dark)
 
@@ -52,7 +55,15 @@ export default function ResponseHeader({
             { color: theme.resName, fontSize: fontSize - 3 },
           ]}
         >
-          {name || '名無し'}
+          {splitHighlights(name || '名無し', highlights?.names).map((part, i) =>
+            part.color ? (
+              <Text key={i} style={highlightStyle(part.color)}>
+                {part.text}
+              </Text>
+            ) : (
+              part.text
+            ),
+          )}
         </Text>
         {watchoi ? (
           <Text style={{ color: theme.textDim, fontSize: small }}>
@@ -105,6 +116,7 @@ export default function ResponseHeader({
                 style={[
                   styles.id,
                   { color: color || theme.textDim, fontSize: small },
+                  idHighlight ? highlightStyle(idHighlight) : null,
                 ]}
               >
                 {idIcon(row.id)} ID:{row.id}

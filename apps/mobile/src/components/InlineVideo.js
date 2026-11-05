@@ -16,8 +16,10 @@ import Icon from './Icon'
 
 const BOX_RATIO = 16 / 9
 
-function Player({ url }) {
+function Player({ url, loop }) {
   const player = useVideoPlayer(url, (p) => {
+    // eslint-disable-next-line no-param-reassign
+    p.loop = !!loop
     p.play()
   })
   return (
@@ -38,21 +40,31 @@ function thumbStyle({ width, height }) {
     : { width: '100%', aspectRatio }
 }
 
-export default function InlineVideo({ url, theme, autoThumb, masked }) {
+export default function InlineVideo({
+  url,
+  poster,
+  loop,
+  theme,
+  autoThumb,
+  masked,
+}) {
   const [playing, setPlaying] = useState(false)
   const [thumb, setThumb] = useState(null)
   const [revealed, setRevealed] = useState(false)
 
   useEffect(() => {
-    if (!autoThumb || playing || thumb) return undefined
+    // 配信側のポスターがあれば、動画へは接続しない
+    if (!autoThumb || poster || playing || thumb) return undefined
     return requestVideoThumbnail(url, setThumb)
-  }, [url, autoThumb, playing, thumb])
+  }, [url, poster, autoThumb, playing, thumb])
 
-  if (playing) return <Player url={url} />
+  if (playing) return <Player url={url} loop={loop} />
+  const posterUri = autoThumb ? poster : null
+  const hasPicture = !!thumb || !!posterUri
 
   // 切り出した画像には blurRadius が効かないので、隠している間は描画しない。
   // 絵が無ければ隠すものも無いので、すぐ再生する
-  const hidden = !!thumb && masked && !revealed
+  const hidden = hasPicture && masked && !revealed
 
   return (
     <Pressable
@@ -61,9 +73,17 @@ export default function InlineVideo({ url, theme, autoThumb, masked }) {
       onPress={() => (hidden ? setRevealed(true) : setPlaying(true))}
       style={[
         styles.poster,
-        { backgroundColor: thumb && !hidden ? '#000' : theme.surfaceAlt },
+        { backgroundColor: hasPicture && !hidden ? '#000' : theme.surfaceAlt },
       ]}
     >
+      {posterUri && !hidden ? (
+        <Image
+          source={{ uri: posterUri }}
+          style={StyleSheet.absoluteFill}
+          contentFit="contain"
+          cachePolicy="memory-disk"
+        />
+      ) : null}
       {thumb && !hidden ? (
         <View style={styles.thumbBox}>
           {/* 縦長の動画を contentFit="contain" にすると切り取られるので、実寸から大きさを決める */}
@@ -79,7 +99,7 @@ export default function InlineVideo({ url, theme, autoThumb, masked }) {
           <Icon name="play" size={24} color="#fff" />
         </View>
       )}
-      {thumb && !hidden ? null : (
+      {hasPicture && !hidden ? null : (
         <Text numberOfLines={1} style={{ color: theme.textDim, fontSize: 11 }}>
           {splitUrl(url)?.host || '動画'}
         </Text>

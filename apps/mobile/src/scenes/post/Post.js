@@ -8,6 +8,7 @@
  */
 
 import { CommonActions } from '@react-navigation/native'
+import * as ImagePicker from 'expo-image-picker'
 import React, {
   useCallback,
   useEffect,
@@ -31,6 +32,9 @@ import {
 import { useDispatch, useSelector } from 'react-redux'
 import Toast from 'react-native-toast-message'
 
+import { POST_CHECK_MIN_CHARS, postCheckMessages } from 'ai/prompts'
+import useAiTask from 'ai/useAiTask'
+import AiResultPanel from 'components/AiResultPanel'
 import ResponseBody from 'components/ResponseBody'
 import TermsBody from 'components/TermsBody'
 import { parseBody } from 'lib/body'
@@ -46,6 +50,14 @@ import {
   withDraft,
 } from 'lib/postDrafts'
 import { resultText, submitPost } from 'lib/post'
+import {
+  appendUploadUrl,
+  loadUploadHistory,
+  MAX_UPLOAD_FILES,
+  pushUploadHistory,
+  saveUploadHistory,
+  uploadImage,
+} from 'lib/upload'
 import { KEYS, load, save } from 'lib/storage'
 import { hasConsented, TERMS_VERSION } from 'lib/terms'
 import { normalizeExternalUrl } from 'lib/urls'
@@ -89,6 +101,92 @@ export default function Post({ route, navigation }) {
   const [message, setMessage] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [sending, setSending] = useState(false)
+  /** 選んだがまだ公開していない画像。公開は確認のあとにする（取り消せないため） */
+  const [pickedImages, setPickedImages] = useState([])
+  const [uploading, setUploading] = useState(false)
+  const ai = useSelector((state) => state.ai)
+  const aiTask = useAiTask(ai.backend)
+
+  const checkWithAi = useCallback(() => {
+    if (message.trim().length < POST_CHECK_MIN_CHARS) {
+      Toast.show({
+        type: 'info',
+        text1: `AI チェックは ${POST_CHECK_MIN_CHARS} 文字から使えます`,
+      })
+      return
+    }
+    aiTask.run({
+      title: 'AI: 投稿前チェック',
+      modelId: ai.generalModel,
+      messages: postCheckMessages(message),
+      maxTokens: 200,
+    })
+  }, [message, ai.generalModel, aiTask])
+
+  const pickFromLibrary = useCallback(async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        selectionLimit: MAX_UPLOAD_FILES,
+        exif: false,
+      })
+      if (!result.canceled) {
+        setPickedImages(result.assets.slice(0, MAX_UPLOAD_FILES))
+      }
+    } catch (e) {
+      console.warn(`[post] 写真を選べない: ${e?.message || e}`)
+      Toast.show({ type: 'error', text1: '写真を開けませんでした' })
+    }
+  }, [])
+
+  const pickFromCamera = useCallback(async () => {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync()
+      if (!permission.granted) {
+        Toast.show({ type: 'error', text1: 'カメラを設定から許可してください' })
+        return
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        exif: false,
+      })
+      if (!result.canceled) setPickedImages(result.assets.slice(0, 1))
+    } catch (e) {
+      console.warn(`[post] カメラを開けない: ${e?.message || e}`)
+      Toast.show({ type: 'error', text1: 'カメラを開けませんでした' })
+    }
+  }, [])
+
+  const uploadPicked = useCallback(async () => {
+    setUploading(true)
+    let history = await loadUploadHistory()
+    let failed = 0
+    for (const asset of pickedImages) {
+      try {
+        // 順に送る。相手のサーバーに同時に負担を掛けない
+        // eslint-disable-next-line no-await-in-loop
+        const done = await uploadImage(asset)
+        history = pushUploadHistory(history, {
+          ...done,
+          uploadedAt: new Date().toISOString(),
+        })
+        setMessage((prev) => appendUploadUrl(prev, done.sourceUrl))
+      } catch (e) {
+        console.warn(`[post] アップロードに失敗: ${e?.message || e}`)
+        failed += 1
+      }
+    }
+    await saveUploadHistory(history)
+    setUploading(false)
+    setPickedImages([])
+    if (failed > 0) {
+      Toast.show({
+        type: 'error',
+        text1: `${failed} 枚をアップロードできませんでした`,
+      })
+    }
+  }, [pickedImages])
   const [result, setResult] = useState(null)
   /** null は確認中。同意するまで入力欄を出さない */
   const [consented, setConsented] = useState(null)
@@ -481,22 +579,120 @@ export default function Post({ route, navigation }) {
         />
       )}
 
+      {aiTask.task ? (
+        <View style={styles.aiPanelSlot}>
+          <AiResultPanel
+            title={aiTask.task.title}
+            text={aiTask.task.text}
+            running={aiTask.task.running}
+            error={aiTask.task.error}
+            theme={theme}
+            onStop={aiTask.stop}
+            onClose={aiTask.close}
+          />
+        </View>
+      ) : null}
+
+      {pickedImages.length > 0 ? (
+        <View
+          style={[
+            styles.uploadBar,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <Text style={[styles.uploadNote, { color: theme.textDim }]}>
+            {uploading
+              ? 'アップロード中…'
+              : `${pickedImages.length} 枚を tadaup.jp に公開します。誰でも見られて、消せません。`}
+          </Text>
+          {uploading ? null : (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => setPickedImages([])}
+              >
+                <Text style={{ color: theme.textDim, fontSize: 13 }}>
+                  やめる
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={uploadPicked}
+              >
+                <Text
+                  style={{
+                    color: theme.accent,
+                    fontSize: 13,
+                    fontWeight: '600',
+                  }}
+                >
+                  公開する
+                </Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+      ) : null}
+
       <View style={[styles.counterRow, { borderColor: theme.border }]}>
         <Text style={{ color: theme.textDim, fontSize: 12 }}>
           {`${stats.chars} 文字 / ${stats.lines} 行`}
         </Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ selected: preview }}
-          hitSlop={8}
-          onPress={() => setPreview((v) => !v)}
-        >
-          <Text
-            style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}
+        <View style={styles.counterActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="AI で投稿前チェック"
+            disabled={aiTask.task?.running || sending}
+            hitSlop={8}
+            onPress={checkWithAi}
           >
-            {preview ? '編集に戻る' : 'プレビュー'}
-          </Text>
-        </Pressable>
+            <Text
+              style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}
+            >
+              AI
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="写真を選ぶ"
+            disabled={uploading || sending}
+            hitSlop={8}
+            onPress={pickFromLibrary}
+          >
+            <Text
+              style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}
+            >
+              写真
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="写真を撮る"
+            disabled={uploading || sending}
+            hitSlop={8}
+            onPress={pickFromCamera}
+          >
+            <Text
+              style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}
+            >
+              カメラ
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: preview }}
+            hitSlop={8}
+            onPress={() => setPreview((v) => !v)}
+          >
+            <Text
+              style={{ color: theme.accent, fontSize: 13, fontWeight: '600' }}
+            >
+              {preview ? '編集に戻る' : 'プレビュー'}
+            </Text>
+          </Pressable>
+        </View>
       </View>
     </KeyboardAvoidingView>
   )
@@ -531,6 +727,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   body: { flex: 1, padding: 16, lineHeight: 22 },
+  aiPanelSlot: { height: 200 },
+  counterActions: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  uploadBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  uploadNote: { flex: 1, fontSize: 12 },
   previewBody: { padding: 16 },
   termsBody: { padding: 20, gap: 18 },
   termsLead: { fontSize: 15, lineHeight: 22 },

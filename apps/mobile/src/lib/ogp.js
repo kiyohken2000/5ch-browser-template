@@ -11,13 +11,12 @@
 import Encoding from 'encoding-japanese'
 
 import { decodeEntities } from './entities'
-import { getBytes } from './http'
+import { EXTERNAL_USER_AGENT, getBytes } from './http'
 import { classifyUrl } from './media'
 import { splitUrl } from './urls'
 
 /** og タグは `<head>` にあるので先頭だけ読めば足りる（デスクトップ版と同じ上限）。 */
 export const OGP_MAX_BYTES = 512 * 1024
-const OGP_USER_AGENT = 'Mozilla/5.0 (compatible; Ember/0.1)'
 const OGP_TIMEOUT_MS = 10000
 /** 1 度に取りに行く本数。スクロールで大量に飛ばさないため。 */
 const MAX_CONCURRENT = 3
@@ -142,7 +141,7 @@ async function fetchOnce(url) {
   const { bytes, headers } = await getBytes(url, {
     timeoutMs: OGP_TIMEOUT_MS,
     headers: {
-      'User-Agent': OGP_USER_AGENT,
+      'User-Agent': EXTERNAL_USER_AGENT,
       Accept: 'text/html,application/xhtml+xml',
       Range: `bytes=0-${OGP_MAX_BYTES - 1}`,
     },

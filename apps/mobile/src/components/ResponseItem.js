@@ -20,7 +20,7 @@ function ResponseItem({
   row,
   theme,
   fontSize,
-  bodyWeight,
+  textOptions,
   backlinks,
   collapseLines,
   showReadLine,
@@ -104,12 +104,25 @@ function ResponseItem({
           onId={onId}
           onBacklinks={onBacklinks}
           onBe={onBe}
+          highlights={textOptions?.highlights}
         />
 
-        <View style={collapsed ? styles.collapsed : null}>
+        <View
+          style={
+            collapsed
+              ? [
+                  styles.collapsed,
+                  {
+                    maxHeight:
+                      (textOptions?.collapsedLines || 10) * fontSize * 1.55,
+                  },
+                ]
+              : null
+          }
+        >
           <ResponseBody
             parsed={row.parsed}
-            weight={bodyWeight}
+            textOptions={textOptions}
             hideImages={shouldHideImages(row)}
             theme={theme}
             fontSize={fontSize}
@@ -118,6 +131,9 @@ function ResponseItem({
             onUrl={onUrl}
           />
         </View>
+        {textOptions?.trailingBlank ? (
+          <View style={{ height: fontSize * 1.55 }} />
+        ) : null}
 
         <ResponseMedia
           media={row.media}
@@ -155,7 +171,7 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   ownBar: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
-  collapsed: { maxHeight: 220, overflow: 'hidden' },
+  collapsed: { overflow: 'hidden' },
   more: { marginTop: 4 },
   abone: {
     paddingHorizontal: 14,

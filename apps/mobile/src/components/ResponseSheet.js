@@ -71,7 +71,7 @@ function SheetLayer({
   onImage,
   idSeqs,
   topInset,
-  bodyWeight,
+  textOptions,
 }) {
   const animationConfigs = useSheetAnimation()
   const ref = useRef(null)
@@ -133,10 +133,11 @@ function SheetLayer({
             idSeq={idSeqs?.get(item.no)}
             onId={onId}
             onBe={onBe}
+            highlights={textOptions?.highlights}
           />
           <ResponseBody
             parsed={item.parsed}
-            weight={bodyWeight}
+            textOptions={textOptions}
             hideImages={shouldHideImages(item)}
             theme={theme}
             fontSize={fontSize}
@@ -176,7 +177,7 @@ function SheetLayer({
       onReply,
       onBe,
       idSeqs,
-      bodyWeight,
+      textOptions,
       onAnchor,
       onId,
       onUrl,

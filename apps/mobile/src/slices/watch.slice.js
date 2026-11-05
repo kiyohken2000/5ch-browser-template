@@ -15,6 +15,7 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 import { boardRef, pushRecentBoard } from 'lib/boards'
 import { KEYS, load, save } from 'lib/storage'
 import {
+  orderByIds,
   pushMyPost,
   pushRecentThread,
   removePosts,
@@ -221,6 +222,17 @@ const watchSlice = createSlice({
       persistRecentOpened(state)
     },
 
+    clearRecentThreads: (state) => {
+      state.recentOpened = []
+      persistRecentOpened(state)
+    },
+
+    /** お気に入りの順番を変える。payload は threadId の配列。 */
+    setFavoriteOrder: (state, { payload }) => {
+      state.favorites = orderByIds(state.favorites, payload)
+      persistFavorites(state)
+    },
+
     toggleFavorite: (state, { payload }) => {
       state.favorites = toggleThread(state.favorites, payload)
       persistFavorites(state)
@@ -323,6 +335,8 @@ export const {
   setDatDropped,
   touchRecentThread,
   removeRecentThread,
+  clearRecentThreads,
+  setFavoriteOrder,
   toggleFavorite,
   recordMyPost,
   clearMyPosts,

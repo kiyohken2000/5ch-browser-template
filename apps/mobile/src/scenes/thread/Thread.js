@@ -83,7 +83,22 @@ import {
 } from 'lib/extract'
 import { HttpError } from 'lib/http'
 import { parseDatBytes, splitNameWatchoi, watchoiParts } from 'lib/parse'
+import { findModel } from 'ai/catalog'
+import { isModelInstalled } from 'ai/download'
+import { isStopRequested, runExclusive, stopAi } from 'ai/engine'
+import { activeRules, looksSaturated, matchRules, rulesKey } from 'ai/judge'
+import {
+  pickSummaryRows,
+  summaryMessages,
+  threadText,
+  TRANSLATION_SAMPLING,
+  translationMessages,
+} from 'ai/prompts'
+import useAiTask from 'ai/useAiTask'
+import AiResultPanel from 'components/AiResultPanel'
 import { beProfileUrl, beThreadHistoryUrl } from 'lib/be'
+import { wordHits } from 'lib/highlights'
+import { computeImageHash } from 'lib/imageHash'
 import { openInAppBrowser } from 'lib/inAppBrowser'
 import { collectImages, extractMedia } from 'lib/media'
 import { quoteReply } from 'lib/postDrafts'
@@ -97,6 +112,8 @@ import {
   putCachedThread,
 } from 'lib/threadCache'
 import { normalizeExternalUrl, parseBoardLocation } from 'lib/urls'
+import { addHighlight, selectActiveHighlights } from 'slices/highlight.slice'
+import { addImageNg } from 'slices/imageNg.slice'
 import { addNg, selectNgFilters } from 'slices/ng.slice'
 import { setSetting } from 'slices/settings.slice'
 import {
@@ -116,6 +133,19 @@ import { showToast } from 'utils/showToast'
 const FOOTER_HEIGHT = 44
 const TOP_SETTLE_INTERVAL_MS = 250
 const AUTO_SCROLL_INTERVAL_MS = 33
+/** 下部の操作バーの高さ。結果のパネルはその上に出す */
+const AI_PANEL_BOTTOM = 78
+const TRANSLATION_MODEL_ID = 'hy-mt2-1.8b-q4km'
+/** スレごとの曖昧 NG の判定結果。アプリを閉じるまで持つ */
+const aiNgCache = new Map()
+
+function hitsFrom(judged) {
+  const hits = new Map()
+  for (const [no, label] of judged) {
+    if (label) hits.set(no, label)
+  }
+  return hits
+}
 const TOP_SETTLE_MAX_TICKS = 12
 /** スレタイのタップで出す先頭のレス数。 */
 const HEAD_RES_COUNT = 20
@@ -214,6 +244,10 @@ export default function Thread({ route, navigation }) {
   const [extractOpen, setExtractOpen] = useState(false)
   const [listTop, setListTop] = useState(0)
   const [galleryOpen, setGalleryOpen] = useState(false)
+  const ai = useSelector((state) => state.ai)
+  const aiTask = useAiTask(ai.backend)
+  const [aiHits, setAiHits] = useState(null)
+  const [aiNgProgress, setAiNgProgress] = useState(null)
   const [beMenu, setBeMenu] = useState(null)
   const beMenuRef = useRef(null)
   const [autoScrolling, setAutoScrolling] = useState(false)
@@ -425,6 +459,7 @@ export default function Thread({ route, navigation }) {
         autoIdMode: settings.ngAutoIdMode,
         chainReplies: settings.ngChainReplies,
         chainRepliesMode: settings.ngChainRepliesMode,
+        aiHits,
       }),
     [
       parsedRows,
@@ -433,6 +468,7 @@ export default function Thread({ route, navigation }) {
       settings.ngAutoIdMode,
       settings.ngChainReplies,
       settings.ngChainRepliesMode,
+      aiHits,
     ],
   )
   const shown = useMemo(() => visibleResponses(ngRows), [ngRows])
@@ -449,6 +485,19 @@ export default function Thread({ route, navigation }) {
   )
 
   const closeViewer = useCallback(() => setViewerUrl(null), [])
+  const addImageToNg = useCallback(
+    async (url) => {
+      const hash = await computeImageHash(url)
+      if (!hash) {
+        showToast({ title: '画像を判定できませんでした' })
+        return
+      }
+      dispatch(addImageNg({ hash, sourceUrl: url }))
+      setViewerUrl(null)
+      showToast({ title: '画像を NG に追加しました' })
+    },
+    [dispatch],
+  )
   const galleryImages = useMemo(
     () => (galleryOpen ? collectImages(shown) : []),
     [galleryOpen, shown],
@@ -475,6 +524,25 @@ export default function Thread({ route, navigation }) {
     () => findRepliesToMe(backlinks, mineNos),
     [backlinks, mineNos],
   )
+  const highlights = useSelector(selectActiveHighlights)
+  const textOptions = useMemo(
+    () => ({
+      weight: settings.bodyWeight,
+      font: settings.bodyFont,
+      aaFont: settings.aaFont,
+      collapsedLines: settings.collapsePreviewLines,
+      trailingBlank: settings.trailingBlankLine,
+      highlights,
+    }),
+    [
+      settings.bodyWeight,
+      settings.bodyFont,
+      settings.aaFont,
+      settings.collapsePreviewLines,
+      settings.trailingBlankLine,
+      highlights,
+    ],
+  )
   const extractItems = useMemo(() => {
     if (!extractOpen && !filterKey) return []
     const groups = extractGroups(shown, backlinks, mineNos)
@@ -484,8 +552,13 @@ export default function Thread({ route, navigation }) {
       { key: 'mine', label: '自分のレス', nos: groups.mine },
       { key: 'links', label: '外部リンク', nos: groups.links },
       { key: 'popular', label: '人気レス', nos: groups.popular },
+      ...wordHits(shown, highlights.words).map(({ entry, nos }) => ({
+        key: `hl:${entry.value}`,
+        label: `強調: ${entry.value}`,
+        nos,
+      })),
     ]
-  }, [extractOpen, filterKey, shown, backlinks, mineNos])
+  }, [extractOpen, filterKey, shown, backlinks, mineNos, highlights.words])
 
   // 本文に並べる行。新着が来ても絞り込みはそのまま効く
   const activeFilter = extractItems.find((item) => item.key === filterKey)
@@ -497,6 +570,7 @@ export default function Thread({ route, navigation }) {
 
   const isCellular = useIsCellular()
   const saveData = settings.cellularSaveData && isCellular
+  const imageNg = useSelector((state) => state.imageNg)
   const mediaOptions = useMemo(
     () => ({
       saveData,
@@ -506,6 +580,8 @@ export default function Thread({ route, navigation }) {
       thumbMask: settings.thumbMask,
       youtubeThumbs: settings.youtubeThumbs,
       ogpCards: settings.ogpCards,
+      tweetCards: settings.tweetCards,
+      imageNg,
     }),
     [
       saveData,
@@ -515,6 +591,8 @@ export default function Thread({ route, navigation }) {
       settings.thumbMask,
       settings.youtubeThumbs,
       settings.ogpCards,
+      settings.tweetCards,
+      imageNg,
     ],
   )
 
@@ -804,6 +882,14 @@ export default function Thread({ route, navigation }) {
               showToast({ title: 'NG に追加しました', body: `ID:${id}` })
             },
           },
+          {
+            label: '強調表示',
+            onPress: () => {
+              dispatch(addHighlight({ list: 'ids', value: id }))
+              dismissAll()
+              showToast({ title: '強調表示に追加しました', body: `ID:${id}` })
+            },
+          },
           { label: 'ID をコピー', onPress: () => copy(id, `ID:${id}`) },
         ],
       })
@@ -977,6 +1063,15 @@ export default function Thread({ route, navigation }) {
     [dispatch, closeMenu],
   )
 
+  const addHighlightAndClose = useCallback(
+    (list, value, label) => {
+      dispatch(addHighlight({ list, value }))
+      closeMenu()
+      showToast({ title: '強調表示に追加しました', body: label })
+    },
+    [dispatch, closeMenu],
+  )
+
   const addDraftNg = useCallback(() => {
     const word = ngDraft.trim()
     if (word) addNgAndClose({ list: 'words', value: word }, word)
@@ -1049,13 +1144,34 @@ export default function Thread({ route, navigation }) {
         label: 'この ID を NG に追加',
         run: () => addNgAndClose({ list: 'ids', value: id }, `ID:${id}`),
       })
+      items.push({
+        label: 'この ID を強調表示',
+        run: () => addHighlightAndClose('ids', id, `ID:${id}`),
+      })
     }
     if (name) {
       items.push({
         label: 'この名前を NG に追加',
         run: () => addNgAndClose({ list: 'names', value: name }, name),
       })
+      items.push({
+        label: 'この名前を強調表示',
+        run: () => addHighlightAndClose('names', name, name),
+      })
     }
+    items.push({
+      label: 'AI: このレスを翻訳',
+      run: () => {
+        closeMenu()
+        aiTask.run({
+          title: `AI: >>${no} の翻訳`,
+          modelId: TRANSLATION_MODEL_ID,
+          messages: translationMessages(plainBody),
+          maxTokens: 400,
+          sampling: TRANSLATION_SAMPLING,
+        })
+      },
+    })
     const { watchoi } = splitNameWatchoi(name)
     if (watchoi) {
       items.push({
@@ -1119,6 +1235,84 @@ export default function Thread({ route, navigation }) {
     // 既読番号の「次」のレスの上に線を引く
     return shown.findIndex((r) => r.no > marker.lastReadNo)
   }, [shown, marker])
+
+  const summarizeUnread = useCallback(() => {
+    const rows = pickSummaryRows(shown, markerIndex)
+    aiTask.run({
+      title: 'AI: 新しい書き込みの要約',
+      modelId: ai.generalModel,
+      messages: summaryMessages(threadText(rows)),
+      maxTokens: 300,
+    })
+  }, [aiTask, ai.generalModel, shown, markerIndex])
+
+  // ルールが変わったら判定し直す。古い結果で隠し続けない
+  const aiRulesKey = `${ai.ngModel}:${rulesKey(ai.rules)}`
+  useEffect(() => {
+    const cached = aiNgCache.get(threadId)
+    setAiHits(cached?.key === aiRulesKey ? hitsFrom(cached.judged) : null)
+  }, [threadId, aiRulesKey])
+
+  const runAiNg = useCallback(async () => {
+    const rules = activeRules(ai.rules)
+    if (rules.length === 0) {
+      showToast({ title: '設定の「AI」で曖昧 NG のルールを作ってください' })
+      return
+    }
+    const model = findModel(ai.ngModel)
+    if (!model || !(await isModelInstalled(model))) {
+      showToast({
+        title: `設定の「AI」から ${model?.name || 'モデル'} を入手してください`,
+      })
+      return
+    }
+    let cached = aiNgCache.get(threadId)
+    if (cached?.key !== aiRulesKey) {
+      cached = { key: aiRulesKey, judged: new Map() }
+      aiNgCache.set(threadId, cached)
+    }
+    const { judged } = cached
+    // >>1 はスレの説明なので判定しない（NG の全パスと同じ）
+    const targets = shown.filter((r) => r.no !== 1 && !judged.has(r.no))
+    setAiNgProgress({ done: 0, total: targets.length })
+    try {
+      await runExclusive(ai.ngModel, ai.backend, async (ctx) => {
+        for (let i = 0; i < targets.length; i += 1) {
+          if (isStopRequested()) break
+          const row = targets[i]
+          // eslint-disable-next-line no-await-in-loop
+          const hit = await matchRules(
+            ctx,
+            rules,
+            row.parsed?.plain || '',
+            isStopRequested,
+          )
+          // 止めた途中の結果は、判定済みにしない
+          if (isStopRequested()) break
+          judged.set(row.no, hit ? hit.predicates[0] : null)
+          setAiNgProgress({ done: i + 1, total: targets.length })
+        }
+      })
+    } catch (e) {
+      console.warn(`[thread] 曖昧 NG の判定に失敗: ${e?.message || e}`)
+      showToast({ title: '曖昧 NG を判定できませんでした' })
+    }
+    setAiNgProgress(null)
+    const found = hitsFrom(judged)
+    if (looksSaturated(judged.size, found.size)) {
+      // 判定結果を残すと次に開いたときに隠れてしまうので捨てる
+      aiNgCache.delete(threadId)
+      setAiHits(null)
+      showToast({
+        title: `曖昧 NG: ${judged.size} 件中 ${found.size} 件が該当したので隠しませんでした`,
+        body: 'ルールかモデルが合っていない可能性があります',
+      })
+      return
+    }
+    // 読んでいる最中に列が動かないよう、隠すのは最後にまとめて行う
+    setAiHits(found)
+    showToast({ title: `曖昧 NG: ${found.size} 件を隠しました` })
+  }, [ai.rules, ai.ngModel, ai.backend, aiRulesKey, threadId, shown])
 
   // 再訪時に既読位置へ戻す（スクロール位置ではなくレス番号で復元する — §10-1）
   const restoredRef = useRef(false)
@@ -1288,7 +1482,7 @@ export default function Thread({ route, navigation }) {
         row={item}
         theme={theme}
         fontSize={settings.fontSize}
-        bodyWeight={settings.bodyWeight}
+        textOptions={textOptions}
         backlinks={backlinks.get(item.no)}
         collapseLines={
           settings.collapseLongPosts ? settings.collapseLineThreshold : 0
@@ -1312,7 +1506,7 @@ export default function Thread({ route, navigation }) {
     [
       theme,
       settings.fontSize,
-      settings.bodyWeight,
+      textOptions,
       settings.collapseLongPosts,
       settings.collapseLineThreshold,
       backlinks,
@@ -1361,6 +1555,29 @@ export default function Thread({ route, navigation }) {
             onPress={() => chooseFilter(null)}
           >
             <Text style={{ color: theme.accent, fontWeight: '600' }}>解除</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {aiNgProgress ? (
+        <View
+          style={[
+            styles.filterBar,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <Text style={[styles.filterText, { color: theme.text }]}>
+            {`曖昧 NG を判定中 ${aiNgProgress.done}/${aiNgProgress.total}`}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="曖昧 NG の判定を止める"
+            hitSlop={8}
+            onPress={stopAi}
+          >
+            <Text style={{ color: theme.danger, fontWeight: '600' }}>
+              止める
+            </Text>
           </Pressable>
         </View>
       ) : null}
@@ -1647,7 +1864,7 @@ export default function Thread({ route, navigation }) {
           dismissAll()
           setBeMenu(be)
         }}
-        bodyWeight={settings.bodyWeight}
+        textOptions={textOptions}
         topInset={listTop}
         idSeqs={idSeqs}
         onReply={
@@ -1747,6 +1964,31 @@ export default function Thread({ route, navigation }) {
                 </Text>
               </Pressable>
             ))}
+            <Pressable
+              accessibilityRole="button"
+              style={styles.extractItem}
+              onPress={() => {
+                if (extractRef.current) extractRef.current.dismiss()
+                summarizeUnread()
+              }}
+            >
+              <Text style={[styles.menuText, { color: theme.text }]}>
+                AI: 新しい書き込みを要約
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={aiNgProgress !== null}
+              style={styles.extractItem}
+              onPress={() => {
+                if (extractRef.current) extractRef.current.dismiss()
+                runAiNg()
+              }}
+            >
+              <Text style={[styles.menuText, { color: theme.text }]}>
+                AI: 曖昧 NG を判定
+              </Text>
+            </Pressable>
             <Pressable
               accessibilityRole="button"
               style={styles.extractItem}
@@ -1908,6 +2150,19 @@ export default function Thread({ route, navigation }) {
         </BottomSheetModal>
       ) : null}
 
+      {aiTask.task ? (
+        <AiResultPanel
+          title={aiTask.task.title}
+          text={aiTask.task.text}
+          running={aiTask.task.running}
+          error={aiTask.task.error}
+          bottom={AI_PANEL_BOTTOM}
+          theme={theme}
+          onStop={aiTask.stop}
+          onClose={aiTask.close}
+        />
+      ) : null}
+
       {galleryOpen ? (
         <ImageGallery
           images={galleryImages}
@@ -1934,6 +2189,8 @@ export default function Thread({ route, navigation }) {
             images={viewerImages.list}
             initialIndex={viewerImages.index}
             onClose={closeViewer}
+            imageNg={imageNg}
+            onAddNg={addImageToNg}
           />
         ) : null}
       </Modal>

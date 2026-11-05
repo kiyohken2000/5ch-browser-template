@@ -19,6 +19,9 @@ import {
 } from 'react-native'
 import { useDispatch, useSelector } from 'react-redux'
 
+import { highlightStyle, splitHighlights } from 'lib/highlights'
+import { selectActiveHighlights } from 'slices/highlight.slice'
+
 import Icon from 'components/Icon'
 import { fetchSubject } from 'lib/api'
 import { visibleThreads } from 'lib/ng'
@@ -48,6 +51,7 @@ export default function Threads({ route, navigation }) {
   const dispatch = useDispatch()
   const boardFavorites = useSelector((state) => state.watch.boardFavorites)
   const ngFilters = useSelector(selectNgFilters)
+  const { titleWords } = useSelector(selectActiveHighlights)
   const watchList = useSelector((state) => state.watch.watchList)
 
   const [threads, setThreads] = useState([])
@@ -372,7 +376,15 @@ export default function Threads({ route, navigation }) {
                     {'[新着] '}
                   </Text>
                 ) : null}
-                {item.title}
+                {splitHighlights(item.title, titleWords).map((part, i) =>
+                  part.color ? (
+                    <Text key={i} style={highlightStyle(part.color)}>
+                      {part.text}
+                    </Text>
+                  ) : (
+                    part.text
+                  ),
+                )}
               </Text>
               <View style={styles.meta}>
                 <Text style={[styles.metaText, { color: theme.textFaint }]}>

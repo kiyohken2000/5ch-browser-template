@@ -7,48 +7,13 @@
 
 import { createVideoPlayer } from 'expo-video'
 
+import { createLimiter } from './limiter'
+
 /** 真っ黒になりやすい 0 秒ちょうどを避ける。デスクトップ版の `#t=0.1` と同じ */
 const THUMB_TIME_SEC = 0.1
 const THUMB_MAX_WIDTH = 720
 const THUMB_TIMEOUT_MS = 15000
 const MAX_CONCURRENT = 2
-
-/**
- * @param {number} max 同時に動かす数
- * @returns {(task: () => Promise<any>) => () => void} 登録して、取り消す関数を返す。
- *   動き出したものは取り消せない
- */
-export function createLimiter(max) {
-  const queue = []
-  let running = 0
-
-  let pump
-
-  const start = (task) => {
-    running += 1
-    task()
-      .catch((e) => {
-        console.warn(`[videoThumb] 処理に失敗: ${e?.message || e}`)
-      })
-      .finally(() => {
-        running -= 1
-        pump()
-      })
-  }
-
-  pump = () => {
-    while (running < max && queue.length > 0) start(queue.shift())
-  }
-
-  return (task) => {
-    queue.push(task)
-    pump()
-    return () => {
-      const at = queue.indexOf(task)
-      if (at >= 0) queue.splice(at, 1)
-    }
-  }
-}
 
 /**
  * 読み込みが済むのを待つ。iOS は読み込み前に切り出すと、例外を出さず空の結果を返す。

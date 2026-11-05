@@ -39,6 +39,8 @@ describe('fetchImageBytes', () => {
     expect(await fetchImageBytes('u', { send })).toBe(2048)
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0][1].method).toBe('HEAD')
+    // 第三者のサーバーに 5ch 専ブラの UA を名乗らない
+    expect(send.mock.calls[0][1].headers['User-Agent']).not.toMatch(/Monazilla/)
   })
 
   it('大きさが分からなければ null', async () => {

@@ -33,9 +33,10 @@ function hasVideo(row) {
 }
 
 function hasExternalLink(row) {
-  return (row.parsed?.urls || []).some(
-    (u) => classifyUrl(u).kind === 'link' && !VIDEO_URL_RE.test(u),
-  )
+  return (row.parsed?.urls || []).some((u) => {
+    const { kind } = classifyUrl(u)
+    return (kind === 'link' || kind === 'tweet') && !VIDEO_URL_RE.test(u)
+  })
 }
 
 /**

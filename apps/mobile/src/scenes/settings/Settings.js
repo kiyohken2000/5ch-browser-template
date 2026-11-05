@@ -29,6 +29,7 @@ import { openInAppBrowser } from 'lib/inAppBrowser'
 import { CONTACT_URL } from 'lib/terms'
 import { clearThreadCache, threadCacheStats } from 'lib/threadCache'
 import { selectNgFilters } from 'slices/ng.slice'
+import { clearRecentThreads } from 'slices/watch.slice'
 import { setSetting } from 'slices/settings.slice'
 import { useEmberTheme } from 'theme/ember'
 import { images } from 'theme/images'
@@ -73,6 +74,15 @@ export default function Settings({ navigation }) {
   const ngCount =
     ng.words.length + ng.ids.length + ng.names.length + ng.threadWords.length
 
+  const highlightCount = useSelector(
+    (state) =>
+      state.highlight.words.length +
+      state.highlight.ids.length +
+      state.highlight.names.length,
+  )
+  const recentCount = useSelector((state) => state.watch.recentOpened.length)
+  const imageNgCount = useSelector((state) => state.imageNg.entries.length)
+  const [confirmClearRecent, setConfirmClearRecent] = useState(false)
   const [cache, setCache] = useState({ count: 0, bytes: 0 })
   const [imageCacheCleared, setImageCacheCleared] = useState(false)
 
@@ -210,6 +220,46 @@ export default function Settings({ navigation }) {
           />
         </Row>
 
+        {settings.collapseLongPosts ? (
+          <>
+            <Row theme={theme} label="折りたたむ長さ">
+              {choiceChips('collapseLineThreshold', [
+                [10, '10行'],
+                [15, '15行'],
+                [30, '30行'],
+              ])}
+            </Row>
+            <Row theme={theme} label="折りたたみ後に見せる行数">
+              {choiceChips('collapsePreviewLines', [
+                [3, '3行'],
+                [6, '6行'],
+                [10, '10行'],
+              ])}
+            </Row>
+          </>
+        ) : null}
+
+        <Row theme={theme} label="本文のフォント">
+          {choiceChips('bodyFont', [
+            ['system', '標準'],
+            ['serif', '明朝'],
+            ['mono', '等幅'],
+          ])}
+        </Row>
+
+        <Row theme={theme} label="AA のフォント">
+          {choiceChips('aaFont', [
+            ['mono', '等幅'],
+            ['system', '標準'],
+          ])}
+        </Row>
+
+        {toggle(
+          'trailingBlankLine',
+          '本文の末尾に空行を足す',
+          'レスの下側をタップしやすくします',
+        )}
+
         <Row theme={theme} label="本文中の ID をタップできる">
           <Switch
             value={settings.bodyIdTappable}
@@ -255,6 +305,11 @@ export default function Settings({ navigation }) {
           'ogpCards',
           'リンクのカードを出す',
           'リンク先へ自動で接続します',
+        )}
+        {toggle(
+          'tweetCards',
+          'X のポストをカードにする',
+          'X のサーバーへ自動で接続します',
         )}
       </SettingsSection>
 
@@ -372,6 +427,55 @@ export default function Settings({ navigation }) {
         </Pressable>
       </SettingsSection>
 
+      <SettingsSection title="強調表示" theme={theme}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`強調表示 ${highlightCount} 件`}
+          onPress={() => navigation.navigate('HighlightSettings')}
+          style={[styles.row, { borderColor: theme.border }]}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>強調表示</Text>
+          <View style={styles.rowValue}>
+            <Text style={{ color: theme.textDim, fontSize: 13 }}>
+              {highlightCount} 件
+            </Text>
+            <Icon name="chevronRight" size={16} color={theme.textFaint} />
+          </View>
+        </Pressable>
+      </SettingsSection>
+
+      <SettingsSection title="履歴" theme={theme}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={recentCount === 0}
+          onPress={() => {
+            if (!confirmClearRecent) {
+              setConfirmClearRecent(true)
+              return
+            }
+            dispatch(clearRecentThreads())
+            setConfirmClearRecent(false)
+          }}
+          style={[styles.row, { borderColor: theme.border }]}
+        >
+          <Text
+            style={[
+              styles.label,
+              {
+                color: confirmClearRecent ? theme.danger : theme.text,
+              },
+            ]}
+          >
+            {confirmClearRecent
+              ? 'もう一度押すと消します'
+              : '最近開いたスレの履歴を消す'}
+          </Text>
+          <Text style={{ color: theme.textDim, fontSize: 13 }}>
+            {recentCount} 件
+          </Text>
+        </Pressable>
+      </SettingsSection>
+
       <SettingsSection title="NG" theme={theme}>
         <Pressable
           accessibilityRole="button"
@@ -384,6 +488,52 @@ export default function Settings({ navigation }) {
             <Text style={{ color: theme.textDim, fontSize: 13 }}>
               {ngCount} 件
             </Text>
+            <Icon name="chevronRight" size={16} color={theme.textFaint} />
+          </View>
+        </Pressable>
+      </SettingsSection>
+
+      <SettingsSection title="AI" theme={theme}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="AI の設定"
+          onPress={() => navigation.navigate('AiSettings')}
+          style={[styles.row, { borderColor: theme.border }]}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>
+            モデルと曖昧 NG
+          </Text>
+          <View style={styles.rowValue}>
+            <Icon name="chevronRight" size={16} color={theme.textFaint} />
+          </View>
+        </Pressable>
+      </SettingsSection>
+
+      <SettingsSection title="画像" theme={theme}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`画像 NG ${imageNgCount} 件`}
+          onPress={() => navigation.navigate('ImageNgSettings')}
+          style={[styles.row, { borderColor: theme.border }]}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>画像 NG</Text>
+          <View style={styles.rowValue}>
+            <Text style={{ color: theme.textDim, fontSize: 13 }}>
+              {imageNgCount} 件
+            </Text>
+            <Icon name="chevronRight" size={16} color={theme.textFaint} />
+          </View>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="アップロード履歴"
+          onPress={() => navigation.navigate('UploadHistory')}
+          style={[styles.row, { borderColor: theme.border }]}
+        >
+          <Text style={[styles.label, { color: theme.text }]}>
+            アップロード履歴
+          </Text>
+          <View style={styles.rowValue}>
             <Icon name="chevronRight" size={16} color={theme.textFaint} />
           </View>
         </Pressable>

@@ -14,9 +14,10 @@ import {
   View,
 } from 'react-native'
 
+import { cachedImageHash, isHashBlocked } from 'lib/imageHash'
 import { saveAllImages } from 'lib/saveAllImages'
 import { saveImageToLibrary } from 'lib/saveImage'
-import showToast from 'utils/showToast'
+import { showToast } from 'utils/showToast'
 import Icon from './Icon'
 import { Thumb } from './ResponseMedia'
 
@@ -67,17 +68,25 @@ export default function ImageGallery({
     setConfirming(false)
     cancelRef.current = false
     setProgress(0)
-    const result = await saveAllImages(
-      images.map((image) => image.url),
-      {
-        save: saveImageToLibrary,
-        onProgress: setProgress,
-        isCancelled: () => cancelRef.current,
-      },
-    )
+    // 一覧で隠している画像は保存しない
+    const targets = images
+      .map((image) => image.url)
+      .filter(
+        (url) =>
+          !isHashBlocked(
+            cachedImageHash(url),
+            mediaOptions.imageNg?.entries,
+            mediaOptions.imageNg?.threshold,
+          ),
+      )
+    const result = await saveAllImages(targets, {
+      save: saveImageToLibrary,
+      onProgress: setProgress,
+      isCancelled: () => cancelRef.current,
+    })
     setProgress(null)
     showToast({ title: resultMessage(result) })
-  }, [confirming, images])
+  }, [confirming, images, mediaOptions.imageNg])
 
   let saveLabel = 'すべて保存'
   if (confirming) saveLabel = `${images.length} 枚を保存する`
@@ -132,6 +141,7 @@ export default function ImageGallery({
               masked={mediaOptions.thumbMask}
               deferred={mediaOptions.saveData}
               maxKb={mediaOptions.imageMaxKb}
+              imageNg={mediaOptions.imageNg}
               size={size}
               square
               theme={theme}

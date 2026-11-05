@@ -26,9 +26,19 @@ export const DEFAULTS = {
   youtubeThumbs: true,
   /** 外部リンクの OGP カード（§8-4） */
   ogpCards: true,
+  /** X のポストをカードにする */
+  tweetCards: true,
   /** 長文の折りたたみ。AA ブロックは対象外（§9-2） */
   collapseLongPosts: true,
   collapseLineThreshold: 15,
+  /** 折りたたんだときに見せる行数 */
+  collapsePreviewLines: 10,
+  /** 本文の末尾に 1 行ぶんの余白を足す（タップしやすくする） */
+  trailingBlankLine: false,
+  /** 本文のフォント。'system' | 'serif' | 'mono' */
+  bodyFont: 'system',
+  /** AA のフォント。'mono' | 'system' */
+  aaFont: 'mono',
   /** AA を横スクロールで出す（既定。縮小はしない — §9-2） */
   aaHorizontalScroll: true,
   /** 本文中の ID をタップできるようにする（§8-4） */

@@ -14,9 +14,11 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { fetchImageBytes, formatBytes, isOverLimit } from 'lib/imageSize'
 import { fetchOgp, isUsableCard } from 'lib/ogp'
+import useImageNg from 'lib/useImageNg'
 import { splitUrl } from 'lib/urls'
 import Icon from './Icon'
 import InlineVideo from './InlineVideo'
+import TweetCard from './TweetCard'
 
 const THUMB = 96
 const MASK_BLUR = 30
@@ -33,6 +35,7 @@ export function Thumb({
   onLongPress,
   video,
   label,
+  imageNg,
 }) {
   const [revealed, setRevealed] = useState(false)
   const [loadRequested, setLoadRequested] = useState(false)
@@ -57,6 +60,13 @@ export function Thumb({
     }
   }, [uri, maxKb, video, deferred])
 
+  const waitingForTap = (deferred || overBytes !== null) && !loadRequested
+  const ngState = useImageNg(
+    uri,
+    video ? undefined : imageNg,
+    sizeChecked && !waitingForTap,
+  )
+
   const boxStyle = [
     styles.thumb,
     { width: size, height: size, backgroundColor: theme.surfaceAlt },
@@ -79,7 +89,7 @@ export function Thumb({
   if (!sizeChecked) return <View style={boxStyle} />
 
   // セルラーと、大きすぎる画像は、タップされるまで画像に接続しない（§9-6）
-  if ((deferred || overBytes !== null) && !loadRequested) {
+  if (waitingForTap) {
     return (
       <Pressable
         accessibilityLabel={`${label}を読み込む`}
@@ -98,6 +108,22 @@ export function Thumb({
             タップで読み込む
           </Text>
         </View>
+      </Pressable>
+    )
+  }
+
+  // NG 画像は判定が終わるまで描かない。見えてから消えるのを防ぐ
+  if (ngState === 'pending') return <View style={boxStyle} />
+  if (ngState === 'blocked') {
+    return (
+      <Pressable
+        accessibilityLabel="NG 画像"
+        onLongPress={onLongPress}
+        style={boxStyle}
+      >
+        <Text style={[styles.deferredText, { color: theme.textFaint }]}>
+          NG 画像
+        </Text>
       </Pressable>
     )
   }
@@ -213,7 +239,16 @@ function ResponseMedia({ media, options, hideImages, theme, onImage, onUrl }) {
   // カードはリンク先へ自動で接続するので、セルラーでは出さない。リンク自体は本文にある
   const links = options.ogpCards && !options.saveData ? media.links : []
   const files = !hideImages ? media.videos || [] : []
-  if (images.length + videos.length + links.length + files.length === 0) {
+  const tweets =
+    options.tweetCards && !options.saveData ? media.tweets || [] : []
+  if (
+    images.length +
+      videos.length +
+      links.length +
+      files.length +
+      tweets.length ===
+    0
+  ) {
     return null
   }
 
@@ -230,6 +265,7 @@ function ResponseMedia({ media, options, hideImages, theme, onImage, onUrl }) {
               deferred={options.saveData}
               maxKb={options.imageMaxKb}
               size={options.thumbSize}
+              imageNg={options.imageNg}
               theme={theme}
               onOpen={() => onImage && onImage(m.url)}
             />
@@ -256,6 +292,17 @@ function ResponseMedia({ media, options, hideImages, theme, onImage, onUrl }) {
           theme={theme}
           autoThumb={options.thumbnails && !options.saveData}
           masked={options.thumbMask}
+        />
+      ))}
+      {tweets.map((m) => (
+        <TweetCard
+          key={m.url}
+          url={m.url}
+          theme={theme}
+          masked={options.thumbMask}
+          hideImages={hideImages}
+          autoThumb={options.thumbnails && !options.saveData}
+          onUrl={onUrl}
         />
       ))}
       {links.map((m) => (

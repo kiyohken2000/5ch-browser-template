@@ -11,11 +11,17 @@ import { combineReducers, configureStore } from '@reduxjs/toolkit'
 
 import accountReducer from 'slices/account.slice'
 import ngReducer from 'slices/ng.slice'
+import aiReducer from 'slices/ai.slice'
+import highlightReducer from 'slices/highlight.slice'
+import imageNgReducer from 'slices/imageNg.slice'
 import settingsReducer from 'slices/settings.slice'
 import watchReducer from 'slices/watch.slice'
 
 const rootReducer = combineReducers({
   account: accountReducer,
+  ai: aiReducer,
+  highlight: highlightReducer,
+  imageNg: imageNgReducer,
   ng: ngReducer,
   settings: settingsReducer,
   watch: watchReducer,

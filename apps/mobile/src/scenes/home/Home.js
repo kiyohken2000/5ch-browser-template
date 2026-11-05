@@ -24,7 +24,8 @@ import {
 import { useDispatch, useSelector } from 'react-redux'
 
 import { fetchSubject } from 'lib/api'
-import { postedThreads, withWatchInfo } from 'lib/threadLists'
+import { listCachedThreadIds } from 'lib/threadCache'
+import { droppedThreads, postedThreads, withWatchInfo } from 'lib/threadLists'
 import {
   newCount,
   removeFromWatch,
@@ -42,6 +43,7 @@ const SEGMENTS = [
   { key: 'favorites', label: 'お気に入り' },
   { key: 'recent', label: '最近' },
   { key: 'posted', label: '書き込み' },
+  { key: 'dropped', label: 'dat落ち' },
 ]
 
 const EMPTY_TEXT = {
@@ -50,6 +52,8 @@ const EMPTY_TEXT = {
   favorites: 'スレの ★ をタップすると、ここに並びます。',
   recent: '開いたスレが新しい順に並びます。',
   posted: '書き込んだスレが新しい順に並びます。',
+  dropped:
+    'dat 落ちしたスレのうち、手元に保存があるものが並びます。\n下に引くと全部の新着と一緒に確認します。',
 }
 
 function renderMenuBackdrop(props) {
@@ -76,6 +80,18 @@ export default function Home({ navigation }) {
   const recentOpened = useSelector((state) => state.watch.recentOpened)
   const myPosts = useSelector((state) => state.watch.myPosts)
 
+  const [cachedIds, setCachedIds] = useState(() => new Set())
+  useEffect(() => {
+    if (segment !== 'dropped') return undefined
+    let alive = true
+    listCachedThreadIds().then((ids) => {
+      if (alive) setCachedIds(ids)
+    })
+    return () => {
+      alive = false
+    }
+  }, [segment])
+
   const favoriteIds = useMemo(
     () => new Set(favorites.map((t) => t.threadId)),
     [favorites],
@@ -87,8 +103,16 @@ export default function Home({ navigation }) {
     let list = favorites
     if (segment === 'recent') list = recentOpened
     if (segment === 'posted') list = postedThreads(myPosts)
+    if (segment === 'dropped') {
+      return droppedThreads(
+        [watchList, favorites, recentOpened, postedThreads(myPosts)].map((l) =>
+          l.map((t) => withWatchInfo(t, watch.get(t.threadId))),
+        ),
+        cachedIds,
+      )
+    }
     return list.map((t) => withWatchInfo(t, watch.get(t.threadId)))
-  }, [segment, watchList, favorites, recentOpened, myPosts])
+  }, [segment, watchList, favorites, recentOpened, myPosts, cachedIds])
 
   const removeFromSegment = useCallback(
     (from, threadId) => {
@@ -319,7 +343,21 @@ export default function Home({ navigation }) {
                   : 'お気に入りに追加'}
               </Text>
             </Pressable>
-            {segment === 'favorites' ? null : (
+            {segment === 'favorites' ? (
+              <Pressable
+                accessibilityRole="button"
+                style={styles.menuItem}
+                onPress={() => {
+                  closeMenu()
+                  navigation.navigate('FavoritesOrder')
+                }}
+              >
+                <Text style={[styles.menuText, { color: theme.text }]}>
+                  お気に入りを並べ替える
+                </Text>
+              </Pressable>
+            ) : null}
+            {segment === 'favorites' || segment === 'dropped' ? null : (
               <Pressable
                 accessibilityRole="button"
                 style={styles.menuItem}
