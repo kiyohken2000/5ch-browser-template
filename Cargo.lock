@@ -1007,7 +1007,7 @@ checksum = "4ef6b89e5b37196644d8796de5268852ff179b44e96276cf4290264843743bb7"
 
 [[package]]
 name = "ember"
-version = "0.0.319"
+version = "0.0.320"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -1028,7 +1028,7 @@ dependencies = [
 
 [[package]]
 name = "ember-updater"
-version = "0.0.319"
+version = "0.0.320"
 dependencies = [
  "reqwest 0.12.28",
  "serde",

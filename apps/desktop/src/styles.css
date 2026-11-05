@@ -1059,6 +1059,12 @@ li.fav-drag-over {
 
 .thread-title-text {
   flex: 1;
+  /* nowrap だと min-content 幅がスレタイ全幅になる。overflow: hidden が外すのは
+     「縮める下限」だけで、親 (グリッドの .shell) の最小幅には全幅が効いてしまう。
+     そのためスレタイが長いとウィンドウを狭めたときにアプリ全体へ横スクロールバーが
+     出て、スレを切り替えるたびに出たり消えたりしていた。幅を 0 起点にして flex-grow
+     で伸ばすと最小幅に効かなくなる。伸びた後の見た目は変わらない。 */
+  width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

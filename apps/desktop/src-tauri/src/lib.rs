@@ -1582,13 +1582,19 @@ fn save_layout_prefs(prefs: String) -> Result<(), String> {
     core_store::save_json("layout_prefs.json", &value).map_err(|e| e.to_string())
 }
 
+/// レイアウト設定を読む。`load_ui_json` と同じ流儀で、ファイルが無いときだけ
+/// 空文字を返し、それ以外の失敗はエラーにする。取り違えると、読めなかっただけで
+/// 呼び出し側が「ユーザーが消した」と誤認して localStorage の副本まで落としてしまう。
 #[tauri::command]
 fn load_layout_prefs() -> Result<String, String> {
     match core_store::load_json::<serde_json::Value>("layout_prefs.json") {
         // 旧形式。JSON 文字列がそのまま値として入っている。
         Ok(serde_json::Value::String(data)) => Ok(data),
         Ok(value) => Ok(value.to_string()),
-        Err(_) => Ok(String::new()),
+        Err(core_store::StoreError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(String::new())
+        }
+        Err(e) => Err(e.to_string()),
     }
 }
 

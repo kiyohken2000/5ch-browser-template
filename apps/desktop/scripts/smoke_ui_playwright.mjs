@@ -1990,6 +1990,19 @@ try {
   assert(legends.some((l) => l.includes("Ronin")), `settings should have Ronin/BE section, got ${legends}`);
   assert(legends.includes("データフォルダ"), `settings should have データフォルダ section, got ${legends}`);
   assert(legends.includes("情報"), `settings should have 情報 section, got ${legends}`);
+  assert(legends.includes("設定の初期化"), `settings should have 設定の初期化 section, got ${legends}`);
+  // 設定の初期化は 1 発で走らせない (押し間違いで全部飛ぶ)。確認を挟むことと、
+  // キャンセルで元に戻ることを見る。実行はリロードを伴うのでここでは押さない。
+  await showSetting(page, ".settings-reset-btn");
+  await page.click(".settings-reset-btn");
+  await new Promise((r) => setTimeout(r, 80));
+  assert(await page.$(".settings-reset-confirm-btn"), "the settings reset should ask for confirmation first");
+  assert(!(await page.$(".settings-reset-btn")), "the first reset button should be replaced by the confirmation");
+  await page.click(".settings-reset-cancel-btn");
+  await new Promise((r) => setTimeout(r, 80));
+  assert(!(await page.$(".settings-reset-confirm-btn")), "cancel should take back the reset confirmation");
+  assert(await page.$(".settings-reset-btn"), "cancel should bring the reset button back");
+  console.log("smoke-ui: the settings reset asks for confirmation ok");
   // 「情報」に出しているスモークの件数。手で書いた数字なので実物とずれても
   // 誰も気づけない。検査の数をここで数えて突き合わせる (増やしたら表示も直す)。
   const smokeSource = await readFile(fileURLToPath(import.meta.url), "utf8");
@@ -4604,7 +4617,11 @@ try {
           }
           return Promise.resolve(null);
         }
-        if (cmd === "load_layout_prefs") return Promise.resolve("");
+        // 実機では data/layout_prefs.json が正で、localStorage には同じ値の副本が
+        // ある。空文字はファイルが無いことを表し、本体はそれを「ユーザーが data
+        // フォルダを消した」とみなして副本も落とすので、ここで "" を返すと
+        // seed した設定が消えてしまう。localStorage と同じ値を返して実機に合わせる。
+        if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
         return Promise.reject(new Error("smoke stub: " + cmd));
       },
     };
@@ -4719,7 +4736,7 @@ try {
         window.__TAURI_INTERNALS__ = {
           transformCallback: (cb) => cb,
           invoke: (cmd, args) => {
-            if (cmd === "load_layout_prefs") return Promise.resolve("");
+            if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
             if (cmd === "save_layout_prefs") return Promise.resolve(null);
             if (cmd === "save_thread_cache") return Promise.resolve(null);
             if (cmd === "load_read_status") return Promise.resolve({});
@@ -4819,7 +4836,7 @@ try {
         window.__TAURI_INTERNALS__ = {
           transformCallback: (cb) => cb,
           invoke: (cmd, args) => {
-            if (cmd === "load_layout_prefs") return Promise.resolve("");
+            if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
             if (cmd === "save_layout_prefs") return Promise.resolve(null);
             if (cmd === "save_thread_cache") return Promise.resolve(null);
             if (cmd === "load_read_status") return Promise.resolve({});
@@ -5046,7 +5063,7 @@ try {
       window.__TAURI_INTERNALS__ = {
         transformCallback: (cb) => cb,
         invoke: (cmd, args) => {
-          if (cmd === "load_layout_prefs") return Promise.resolve("");
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
           if (cmd === "save_layout_prefs") return Promise.resolve(null);
           if (cmd === "load_thread_cache") return Promise.resolve(null);
           if (cmd === "fetch_thread_list") return Promise.resolve(rowsByBoard[args.threadUrl] ?? []);
@@ -5138,7 +5155,7 @@ try {
         window.__TAURI_INTERNALS__ = {
           transformCallback: (cb) => cb,
           invoke: (cmd, args) => {
-            if (cmd === "load_layout_prefs") return Promise.resolve("");
+            if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
             if (cmd === "save_layout_prefs") return Promise.resolve(null);
             if (cmd === "load_thread_cache") return Promise.resolve(null);
             if (cmd === "save_thread_cache") return Promise.resolve(null);
@@ -5338,7 +5355,7 @@ try {
       window.__TAURI_INTERNALS__ = {
         transformCallback: (cb) => cb,
         invoke: (cmd) => {
-          if (cmd === "load_layout_prefs") return Promise.resolve("");
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
           if (cmd === "save_layout_prefs") return Promise.resolve(null);
           if (cmd === "load_thread_cache") return Promise.resolve(null);
           if (cmd === "save_thread_cache") return Promise.resolve(null);
@@ -5605,7 +5622,7 @@ try {
           if (cmd === "fetch_thread_list") {
             return Promise.resolve(listFor((args && args.threadUrl) === arg.boardB ? "B" : "A"));
           }
-          if (cmd === "load_layout_prefs") return Promise.resolve("");
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
           if (cmd === "save_layout_prefs") return Promise.resolve(null);
           if (cmd === "load_ui_json") {
             // settings.json 側にも入れておく。移行済みフラグが立っている状態で
@@ -6106,7 +6123,7 @@ try {
       window.__TAURI_INTERNALS__ = {
         transformCallback: (cb) => cb,
         invoke: (cmd, args) => {
-          if (cmd === "load_layout_prefs") return Promise.resolve("");
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
           if (cmd === "save_layout_prefs") return Promise.resolve(null);
           if (cmd === "save_thread_cache") return Promise.resolve(null);
           if (cmd === "load_read_status") return Promise.resolve({});
@@ -6300,7 +6317,7 @@ try {
             if (args && args.name === "settings") savedSettingsJson = args.json;
             return Promise.resolve(null);
           }
-          if (cmd === "load_layout_prefs") return Promise.resolve("");
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
           if (cmd === "save_layout_prefs") return Promise.resolve(null);
           if (cmd === "load_ui_json") return Promise.resolve("");
           if (cmd === "load_thread_cache") return Promise.resolve(null);
@@ -6492,6 +6509,38 @@ try {
     }
     console.log("smoke-ui: the post-auth button stays readable in every theme ok");
   }
+
+  // スレタイが長いとアプリ全体に横スクロールバーが出ていた。.thread-title-text の
+  // min-content 幅がスレタイ全幅になり、グリッドの .shell の最小幅に効いてしまうため。
+  // スレを切り替えるたびに出たり消えたりするので、長短どちらでも出ないことを見る。
+  for (const [kind, title] of [
+    ["long", "長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長い長いスレタイだなあこれは Part42"],
+    ["short", "短いスレタイ"],
+  ]) {
+    const narrowPage = await context.newPage();
+    await narrowPage.setViewportSize({ width: 700, height: 800 });
+    await narrowPage.addInitScript((t) => {
+      localStorage.setItem(
+        "desktop.threadTabs.v1",
+        JSON.stringify({
+          tabs: [{ threadUrl: "https://mi.5ch.io/test/read.cgi/news4vip/1700000000/", title: t, locked: true }],
+          activeIndex: 0,
+        }),
+      );
+    }, title);
+    await narrowPage.goto(targetUrl, { waitUntil: "load" });
+    await narrowPage.waitForSelector(".thread-title-bar");
+    const room = await narrowPage.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    assert(
+      room.scrollWidth <= room.clientWidth,
+      `a ${kind} thread title should not widen the window: scrollWidth ${room.scrollWidth} > clientWidth ${room.clientWidth}`,
+    );
+    await narrowPage.close();
+  }
+  console.log("smoke-ui: a long thread title adds no horizontal scrollbar ok");
 
   console.log("smoke-ui: ok");
 } finally {

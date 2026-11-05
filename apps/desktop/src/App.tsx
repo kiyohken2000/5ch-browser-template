@@ -878,6 +878,10 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
 // settings.json は core-store が空の {} を作るので、UI_JSON_MIGRATED_KEY とは
 // 別の印が要る。これが無い間はファイルにフィールドが無くても localStorage を消さない。
 const UI_JSON_SETTINGS_MIGRATED_KEY = "desktop.uiJsonSettingsMigrated.v1";
+// layout_prefs.json へ書き出し終えたかどうか。これが立っている状態でファイルが
+// 無ければ「ユーザーが data フォルダごと消した」とみなし、localStorage の副本も
+// 落とす (消したのにツールバーの表示状態が戻らない、という報告があった)。
+const LAYOUT_PREFS_MIGRATED_KEY = "desktop.layoutPrefsMigrated.v1";
 // NG ID 自動削除の選択肢 (日数)。0 = 無効 (既定)。5ch の ID は日替わりなので
 // NG ID だけが際限なく溜まる。ワード / 名前は恒久的なものなので対象外。
 const NG_ID_EXPIRE_DAY_OPTIONS = [0, 1, 3, 7, 30];
@@ -1048,7 +1052,17 @@ const flushUiJson = (file?: string) => {
   }
 };
 
+// 設定の初期化で localStorage と data/*.json を消したあと、リロードまでの間に
+// 保留中の書き込みが走ると設定が書き戻ってしまう。初期化を始めたら以降は捨てる。
+let uiJsonSuspended = false;
+const suspendUiJsonWrites = () => {
+  uiJsonSuspended = true;
+  for (const file of [...uiJsonTimers.keys()]) cancelUiJsonWrite(file);
+  uiJsonPending.clear();
+};
+
 const scheduleUiJsonWrite = (file: string, payload: string) => {
+  if (uiJsonSuspended) return;
   cancelUiJsonWrite(file);
   uiJsonPending.set(file, payload);
   uiJsonTimers.set(file, window.setTimeout(() => flushUiJson(file), UI_JSON_WRITE_DELAY_MS));
@@ -1153,8 +1167,24 @@ export async function bootstrapUiJson(): Promise<void> {
   // だけ失われた環境で restoreSession などが既定値に戻ってしまうので、ここで先に
   // 流し込む。書き込み経路は従来どおりなので、ファイル側が正となる。
   try {
+    // 空文字はファイルが無いことを表す (読み取りの失敗は例外で来る)。
     const raw = await invoke<string>("load_layout_prefs");
-    if (raw) localStorage.setItem(LAYOUT_PREFS_KEY, raw);
+    if (raw) {
+      localStorage.setItem(LAYOUT_PREFS_KEY, raw);
+      localStorage.setItem(LAYOUT_PREFS_MIGRATED_KEY, "1");
+    } else if (localStorage.getItem(LAYOUT_PREFS_MIGRATED_KEY) === "1") {
+      // 書き出し済みなのにファイルが無い = ユーザーが消した。副本も落とす。
+      localStorage.removeItem(LAYOUT_PREFS_KEY);
+    } else {
+      // 旧バージョンからの初回起動。localStorage 側をファイルへ書き出す。印は
+      // 書けたときだけ立てる。書けない環境 (権限・容量) で先に立ててしまうと、
+      // ファイルが無いのを「消された」と誤認して毎回設定が初期化されてしまう。
+      const legacy = localStorage.getItem(LAYOUT_PREFS_KEY);
+      if (legacy) {
+        await invoke("save_layout_prefs", { prefs: legacy });
+        localStorage.setItem(LAYOUT_PREFS_MIGRATED_KEY, "1");
+      }
+    }
   } catch (e) {
     console.warn("bootstrapUiJson layout_prefs failed", e);
   }
@@ -2972,6 +3002,8 @@ export default function App() {
   const [composeKeepOpenAfterPost, setComposeKeepOpenAfterPost] = useState(false);
   // 「記憶した名前を削除」の確認待ち状態 (2段階クリックで誤操作を防ぐ)
   const [nameClearArmed, setNameClearArmed] = useState(false);
+  // 「設定を初期状態に戻す」の確認待ち状態 (同じ 2 段階クリック)
+  const [settingsResetArmed, setSettingsResetArmed] = useState(false);
   // 削除完了メッセージ。数秒で自動的に消す
   const [nameClearMsg, setNameClearMsg] = useState("");
   const [composeMail, setComposeMail] = useState("");
@@ -4059,6 +4091,8 @@ export default function App() {
   // 何回目の書き込みか。打ち切った後に遅れて返ってきた応答で、
   // 次の書き込みの状態を触ってしまわないようにする。
   const layoutPrefsWriteIdRef = useRef(0);
+  // 設定の初期化を始めたら true。リロードまでの間にレイアウト設定を書き戻さない。
+  const layoutPrefsResetRef = useRef(false);
   const threadScrollPositions = useRef<Record<string, number>>({});
   const boardTreeRef = useRef<HTMLDivElement | null>(null);
   const boardTreeScrollRestoreRef = useRef<number | null>(null);
@@ -6692,6 +6726,37 @@ export default function App() {
     boardNamesRef.current = next;
     saveUiJson(BOARD_NAMES_KEY, JSON.stringify(next));
   };
+  // 設定をインストール直後の状態へ戻す。表示・操作の設定は WebView の localStorage が
+  // 実体で、data フォルダを消しても残る (「消したのにツールバーが非表示のまま」という
+  // 報告があった)。確実に戻せる経路をここに用意する。お気に入り・NG・既読・保存ログ・
+  // ログイン情報・板一覧キャッシュには触らない。
+  const resetAllSettings = async () => {
+    // 消してからリロードするまでの間に保留中の書き込みが走ると設定が書き戻る。
+    suspendUiJsonWrites();
+    layoutPrefsResetRef.current = true;
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("desktop.")) keys.push(key);
+      }
+      for (const key of keys) localStorage.removeItem(key);
+    } catch (e) {
+      console.warn("failed to clear the ui settings", e);
+    }
+    if (isTauriRuntime()) {
+      // 設定の実体だけ消す。お気に入りなどの data/*.json は残す。
+      for (const name of [UI_JSON_SETTINGS_FILE, "layout_prefs"]) {
+        try {
+          await invoke("delete_ui_json", { name });
+        } catch (e) {
+          console.warn(`delete_ui_json ${name} failed`, e);
+        }
+      }
+    }
+    window.location.reload();
+  };
+
   // 記憶した名前 (板ごとの名前・入力履歴・前回の名前) をまとめて消す
   const clearRememberedNames = () => {
     boardNamesRef.current = {};
@@ -10769,6 +10834,7 @@ export default function App() {
 
   // 書き込み中は積んでおいて、終わってから最新の 1 件だけ書く。
   const flushLayoutPrefs = () => {
+    if (layoutPrefsResetRef.current) return;
     if (layoutPrefsSavingRef.current) return;
     const payload = layoutPrefsPendingRef.current;
     if (payload === null) return;
@@ -10797,7 +10863,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!layoutPrefsLoaded) return;
+    if (!layoutPrefsLoaded || layoutPrefsResetRef.current) return;
     const payload = JSON.stringify({
       boardPanePx,
       threadPanePx,
@@ -11053,9 +11119,12 @@ export default function App() {
     setNewThreadName(saved);
   }, [showNewThreadDialog, newThreadTargetBoardUrl, newThreadName, composeForgetName]);
 
-  // 設定を閉じたら「記憶した名前を削除」の確認待ちは取り消す
+  // 設定を閉じたら「記憶した名前を削除」「設定を初期状態に戻す」の確認待ちは取り消す
   useEffect(() => {
-    if (!settingsOpen) setNameClearArmed(false);
+    if (!settingsOpen) {
+      setNameClearArmed(false);
+      setSettingsResetArmed(false);
+    }
   }, [settingsOpen]);
 
   useEffect(() => {
@@ -17067,9 +17136,28 @@ export default function App() {
                   )}
                 </fieldset>
               <fieldset>
+                <legend>設定の初期化</legend>
+                <div className="settings-row">
+                  {settingsResetArmed ? (
+                    <>
+                      <button type="button" className="settings-reset-confirm-btn" onClick={() => { setSettingsResetArmed(false); void resetAllSettings(); }}>本当に戻す</button>
+                      <button type="button" className="settings-reset-cancel-btn" onClick={() => setSettingsResetArmed(false)}>キャンセル</button>
+                    </>
+                  ) : (
+                    <button type="button" className="settings-reset-btn" onClick={() => setSettingsResetArmed(true)}>設定を初期状態に戻す</button>
+                  )}
+                </div>
+                <div className="settings-row" style={{ alignItems: "flex-start" }}>
+                  <span className="settings-hint" style={{ lineHeight: 1.5 }}>
+                    表示・操作の設定だけを既定値へ戻し、画面を読み込み直します。お気に入り・NG・既読・保存ログ・ログイン情報・板一覧キャッシュは残ります。<br />
+                    これらの設定は上の WebView の保存先にあるので、データフォルダを消しても戻りません。
+                  </span>
+                </div>
+              </fieldset>
+              <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>188項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>190項目</span></div>
               </fieldset>
               </>)}
             </div>
