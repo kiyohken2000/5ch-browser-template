@@ -1346,6 +1346,13 @@ li.fav-drag-over {
   cursor: pointer;
 }
 
+/* ID の色分けをオフにしたとき (設定 > 外観 > 文字)。ヘッダの .response-id-cell と
+   同じ灰色に揃える。色を一切付けないと本文の文字と見分けが付かず、ホバーで ID
+   ポップアップが出ることに気付けなくなる。 */
+.body-id-ref-plain {
+  color: #555;
+}
+
 .anchor-popup {
   position: fixed;
   z-index: 60;
@@ -5407,6 +5414,9 @@ a.body-link-image:hover::after {
   background: rgba(77, 166, 255, 0.15);
 }
 .dark .response-id-cell {
+  color: #888;
+}
+.dark .body-id-ref-plain {
   color: #888;
 }
 .dark .response-id-cell:hover {

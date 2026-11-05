@@ -2463,7 +2463,7 @@ const ogpDomainAllowed = (url: string, allow: string[], block: string[]): boolea
   return true;
 };
 
-const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[]; knownIds?: { has: (id: string) => boolean }; darkMode?: boolean }): { __html: string } => {
+const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[]; knownIds?: { has: (id: string) => boolean }; idColor?: boolean; darkMode?: boolean }): { __html: string } => {
   let safe = html
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<a\s[^>]*>(.*?)<\/a>/gi, "$1")
@@ -2588,7 +2588,11 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
           // この範囲に限っているので、引用符が混ざって属性が壊れることはない。
           : part.replace(/(?<![A-Za-z0-9])ID:([A-Za-z0-9+\/]{4,24})/g, (m, id: string) =>
               known.has(id)
-                ? `<span class="body-id-ref popup-id-trigger" data-popup-id="${id}" style="color:${getIdColor(id, opts?.darkMode)}">${m}</span>`
+                ? opts?.idColor === false
+                  // 色分けオフ。色を一切付けないと本文と見分けが付かず、ポップアップが
+                  // 出ることに気付けないので、ヘッダの ID セルと同じ灰色に揃える。
+                  ? `<span class="body-id-ref body-id-ref-plain popup-id-trigger" data-popup-id="${id}">${m}</span>`
+                  : `<span class="body-id-ref popup-id-trigger" data-popup-id="${id}" style="color:${getIdColor(id, opts?.darkMode)}">${m}</span>`
                 : m,
             ),
       )
@@ -2654,7 +2658,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   }
   return { __html: safe };
 };
-const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[]; knownIds?: { has: (id: string) => boolean }; darkMode?: boolean }): { __html: string } => {
+const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[]; knownIds?: { has: (id: string) => boolean }; idColor?: boolean; darkMode?: boolean }): { __html: string } => {
   let out = renderResponseBody(html, opts).__html;
   out = highlightEntriesPreservingTags(out, highlightWords);
   out = highlightHtmlPreservingTags(out, query);
@@ -3388,6 +3392,9 @@ export default function App() {
   const [hoverPreviewEnabled, setHoverPreviewEnabled] = useState(false);
   // ID のマウスオーバーで同一 ID のレスをポップアップするか。既定は表示する
   const [idPopupEnabled, setIdPopupEnabled] = useState(true);
+  // ID を 20 色のパレットで色分けするか。既定は色分けする (従来どおり)。オフにすると
+  // インライン style を付けず、styles.css の控えめな灰色 (#555 / ダークは #888) になる。
+  const [idColorEnabled, setIdColorEnabled] = useState(true);
   const [hoverPreviewDelay, setHoverPreviewDelay] = useState(0);
   // ホバープレビューの画像をウィンドウ内に収めるか。既定は原寸 (縦長はスクロール、Ctrl+ホイールで縮小)
   const [hoverPreviewFitEnabled, setHoverPreviewFitEnabled] = useState(false);
@@ -8650,7 +8657,7 @@ export default function App() {
           <span
             className="response-id-cell popup-id-trigger"
             data-popup-id={id}
-            style={{ color: getIdColor(id, darkMode), marginLeft: 6 }}
+            style={idColorEnabled ? { color: getIdColor(id, darkMode), marginLeft: 6 } : { marginLeft: 6 }}
           >
             ID:{id}
           </span>
@@ -8677,7 +8684,7 @@ export default function App() {
   const renderPopupBody = (resp: typeof responseItems[number]) =>
     ngResultMap.get(resp.id) === "abone"
       ? <div className="anchor-popup-body abone-body">{ABONE_TEXT}</div>
-      : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, darkMode })} />;
+      : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, idColor: idColorEnabled, darkMode })} />;
 
   const goFromLocationInput = () => {
     const next = rewrite5chNet(locationInput.trim());
@@ -9706,6 +9713,7 @@ export default function App() {
           imageSizeLimit?: number;
           hoverPreviewEnabled?: boolean;
           idPopupEnabled?: boolean;
+          idColorEnabled?: boolean;
           lastBoard?: { boardName: string; url: string };
           hoverPreviewDelay?: number;
           hoverPreviewFitEnabled?: boolean;
@@ -9802,6 +9810,7 @@ export default function App() {
         if (typeof parsed.imageSizeLimit === "number") setImageSizeLimit(parsed.imageSizeLimit);
         if (typeof parsed.hoverPreviewEnabled === "boolean") setHoverPreviewEnabled(parsed.hoverPreviewEnabled);
         if (typeof parsed.idPopupEnabled === "boolean") setIdPopupEnabled(parsed.idPopupEnabled);
+        if (typeof parsed.idColorEnabled === "boolean") setIdColorEnabled(parsed.idColorEnabled);
         if (parsed.lastBoard && typeof parsed.lastBoard.boardName === "string" && typeof parsed.lastBoard.url === "string") {
           pendingLastBoardRef.current = parsed.lastBoard;
         }
@@ -10825,6 +10834,7 @@ export default function App() {
       imageSizeLimit,
       hoverPreviewEnabled,
       idPopupEnabled,
+      idColorEnabled,
       lastBoard: lastBoardUrlRef.current ? { boardName: selectedBoard, url: lastBoardUrlRef.current } : undefined,
       hoverPreviewDelay,
       hoverPreviewFitEnabled,
@@ -10872,7 +10882,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, responsePaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, textThicken, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, responsePaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, textThicken, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, idColorEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled && !typingComboEnabled) return;
@@ -14131,7 +14141,7 @@ export default function App() {
                         {id && (
                           <span
                             className={`response-id-cell${idHlColor ? ` highlight-word hl-c-${idHlColor}` : ""}`}
-                            style={idHlColor ? undefined : { color: getIdColor(id, darkMode) }}
+                            style={idHlColor || !idColorEnabled ? undefined : { color: getIdColor(id, darkMode) }}
                             onClick={(e) => {
                               e.stopPropagation();
                               if (idPopupCloseTimer.current) { clearTimeout(idPopupCloseTimer.current); idPopupCloseTimer.current = null; }
@@ -14178,7 +14188,7 @@ export default function App() {
                       </span>
                     </div>
                     <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}${longCollapsed ? " collapsed" : ""}`} style={longCollapsed ? ({ "--collapse-lines": collapsePreviewLines } as CSSProperties) : undefined} dangerouslySetInnerHTML={{ __html: (() => {
-                      const full = threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block, knownIds: idCountMap, darkMode }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block, knownIds: idCountMap, darkMode }).__html;
+                      const full = threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block, knownIds: idCountMap, idColor: idColorEnabled, darkMode }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block, knownIds: idCountMap, idColor: idColorEnabled, darkMode }).__html;
                       // 折りたたみ中だけ表示文字数で切る。切り詰めは常にサニタイズ後の HTML に対して行う
                       const shown = longCollapsed && collapsePreviewChars > 0 ? truncateResponseHtml(full, collapsePreviewChars) : full;
                       return shown + (responseBodyBottomPad ? "<br><br>" : "");
@@ -16231,7 +16241,7 @@ export default function App() {
                   )}
                   {ngResultMap.get(r.id) === "abone"
                     ? <span className="id-popup-text abone-body">{ABONE_TEXT}</span>
-                    : <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, darkMode })} />}
+                    : <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, idColor: idColorEnabled, darkMode })} />}
                 </div>
                 );
               })}
@@ -16552,6 +16562,11 @@ export default function App() {
                   <span>文字サイズ (タブ)</span>
                   <input type="number" className="tab-font-size-input" value={tabFontSize} min={8} max={20} onChange={(e) => setTabFontSize(clamp(Math.round(Number(e.target.value) || 11), 8, 20))} />
                   <span className="settings-hint">スレタブだけの文字サイズ。タブの高さと多段の段の高さも一緒に伸びます</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={idColorEnabled} onChange={(e) => setIdColorEnabled(e.target.checked)} />
+                  <span title="オフにすると ID を色分けせず、控えめな灰色で表示します">ID を色分けして表示する</span>
+                  <span className="settings-hint">オフにすると ID が灰色になります。自分でハイライトした ID の色は残ります</span>
                 </label>
               </fieldset>
               </>)}
@@ -17054,7 +17069,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>187項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>188項目</span></div>
               </fieldset>
               </>)}
             </div>

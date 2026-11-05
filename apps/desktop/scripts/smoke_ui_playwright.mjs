@@ -2549,6 +2549,80 @@ try {
   assert(idPopupPrefOn === true, `ID hover popup on should persist, got ${idPopupPrefOn}`);
   console.log("smoke-ui: id hover popup setting ok");
 
+  // ID の色分けを切る設定 (既定 ON = 従来どおり色分けする)。OFF にするとレスヘッダの
+  // ID セルからインライン style の color が消え、styles.css の控えめな灰色 (#555 /
+  // ダークは #888) に落ちる。本文中の ID は .body-id-ref-plain が付いて同じ灰色になる
+  // — 色を一切付けないと本文の文字と見分けが付かず、ホバーで ID ポップアップが出る
+  // ことに気付けなくなるため。手動ハイライトした ID の色は設定に関係なく残る。
+  {
+    const inlineIdColors = () =>
+      page.$$eval(".response-scroll .response-id-cell", (els) => els.map((el) => el.style.color));
+    // ハイライト済みの ID はクラス側で色が付くので、灰色に揃う検査からは外す
+    const computedIdColors = () =>
+      page.$$eval(".response-scroll .response-id-cell:not(.highlight-word)", (els) =>
+        els.map((el) => window.getComputedStyle(el).color));
+
+    const onInlineBefore = await inlineIdColors();
+    assert(onInlineBefore.length > 0, "the response pane should show ID cells for the ID color setting");
+    assert(
+      onInlineBefore.every((c) => c !== ""),
+      `every ID should carry an inline color while the setting is on, got ${JSON.stringify(onInlineBefore)}`,
+    );
+
+    await showSetting(page, '.settings-body label:has-text("ID を色分けして表示する")');
+    const idColorToggle = await page.$('.settings-body label:has-text("ID を色分けして表示する") input[type="checkbox"]');
+    assert(idColorToggle, "settings should have the ID color toggle");
+    assert(await idColorToggle.isChecked(), "ID coloring should default to on");
+
+    await idColorToggle.uncheck();
+    await new Promise((r) => setTimeout(r, 150));
+    const offInline = await inlineIdColors();
+    assert(
+      offInline.length === onInlineBefore.length && offInline.every((c) => c === ""),
+      `no ID should carry an inline color once the setting is off, got ${JSON.stringify(offInline)}`,
+    );
+    const offComputed = await computedIdColors();
+    assert(
+      offComputed.length > 0 && new Set(offComputed).size === 1,
+      `every ID should fall back to one muted color, got ${JSON.stringify(offComputed)}`,
+    );
+    // 本文中の ID は、そのスレに実在する ID が本文に書かれていたときだけ出る
+    const plainBodyIds = await page.$$eval(".response-scroll .body-id-ref", (els) =>
+      els.map((el) => ({ plain: el.classList.contains("body-id-ref-plain"), inline: el.style.color })));
+    assert(
+      plainBodyIds.every((b) => b.plain && b.inline === ""),
+      `body IDs should switch to the plain class with no inline color, got ${JSON.stringify(plainBodyIds)}`,
+    );
+    const idColorPrefOff = await page.evaluate(() => {
+      try {
+        return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").idColorEnabled;
+      } catch {
+        return undefined;
+      }
+    });
+    assert(idColorPrefOff === false, `ID coloring off should persist, got ${idColorPrefOff}`);
+
+    await idColorToggle.check();
+    await new Promise((r) => setTimeout(r, 150));
+    const onInlineAfter = await inlineIdColors();
+    assert(
+      onInlineAfter.every((c) => c !== ""),
+      `turning the setting back on should restore the inline colors, got ${JSON.stringify(onInlineAfter)}`,
+    );
+    const plainGone = await page.$$eval(".response-scroll .body-id-ref", (els) =>
+      els.every((el) => !el.classList.contains("body-id-ref-plain")));
+    assert(plainGone, "the plain class should come off the body IDs when coloring is back on");
+    const idColorPrefOn = await page.evaluate(() => {
+      try {
+        return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").idColorEnabled;
+      } catch {
+        return undefined;
+      }
+    });
+    assert(idColorPrefOn === true, `ID coloring on should persist, got ${idColorPrefOn}`);
+  }
+  console.log("smoke-ui: id color setting ok");
+
   // サムネイルの自動読み込み設定 (既定 ON = 従来どおり)。OFF にすると本文も画像一覧も
   // <img> を作らず、プレースホルダをクリックしたときだけ画像ホストへ通信する。
   await showSetting(page, '.settings-body label:has-text("サムネイルを自動で読み込む")');
