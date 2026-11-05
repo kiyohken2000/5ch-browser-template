@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import appIcon from "./assets/images/icon.png";
 import badgeAppStore from "./assets/images/mobile/appstore.png";
@@ -98,6 +98,60 @@ function StoreBadge({ href, src, label }: { href: string; src: string; label: st
       <img src={src} alt="" />
       <span className="store-badge-note">{label}: 準備中</span>
     </span>
+  );
+}
+
+function PhoneShot({ src, alt, eager }: { src: string; alt: string; eager?: boolean }) {
+  const [zoomed, setZoomed] = useState(false);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!zoomed) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setZoomed(false);
+    };
+    document.body.classList.add("zoom-open");
+    window.addEventListener("keydown", onKeyDown);
+    closeRef.current?.focus();
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.classList.remove("zoom-open");
+      previousFocus?.focus();
+    };
+  }, [zoomed]);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="phone phone-button"
+        onClick={() => setZoomed(true)}
+        aria-label={`${alt}を拡大表示`}
+      >
+        <img src={src} alt={alt} loading={eager ? undefined : "lazy"} />
+      </button>
+      {zoomed ? (
+        <div
+          className="image-zoom-overlay"
+          onClick={() => setZoomed(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={alt}
+        >
+          <button
+            type="button"
+            ref={closeRef}
+            className="image-zoom-close"
+            onClick={() => setZoomed(false)}
+            aria-label="拡大表示を閉じる"
+          >
+            ×
+          </button>
+          <img className="image-zoom-content image-zoom-phone" src={src} alt={alt} />
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -203,8 +257,8 @@ function MobileLanding() {
           </div>
         </div>
         <div className="phone-row mobile-hero-shots">
-          <img className="phone" src={shotPopup} alt="アンカーのカードを重ねて表示した画面" />
-          <img className="phone" src={shotThread} alt="スレッドの画面" />
+          <PhoneShot src={shotPopup} alt="アンカーのカードを重ねて表示した画面" eager />
+          <PhoneShot src={shotThread} alt="スレッドの画面" eager />
         </div>
       </section>
 
@@ -222,7 +276,7 @@ function MobileLanding() {
           </div>
           <div className="phone-row">
             {feature.shots.map((shot) => (
-              <img className="phone" key={shot.alt} src={shot.src} alt={shot.alt} loading="lazy" />
+              <PhoneShot key={shot.alt} src={shot.src} alt={shot.alt} />
             ))}
           </div>
         </section>

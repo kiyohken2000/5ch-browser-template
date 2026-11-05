@@ -1512,6 +1512,28 @@ h1 {
   border: 1px solid var(--line-strong);
   box-shadow: var(--shadow-md);
 }
+.phone-button {
+  padding: 0;
+  background: none;
+  overflow: hidden;
+  cursor: zoom-in;
+  -webkit-tap-highlight-color: transparent;
+}
+.phone-button img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: inherit;
+}
+.phone-button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+.image-zoom-content.image-zoom-phone {
+  max-width: min(94vw, 420px);
+  border-radius: 22px;
+}
+
 .store-badges {
   display: flex;
   flex-wrap: wrap;
