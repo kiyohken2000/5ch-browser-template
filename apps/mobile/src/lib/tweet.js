@@ -11,6 +11,7 @@ import { splitUrl } from './urls'
 const TIMEOUT_MS = 10000
 const MAX_CONCURRENT = 3
 const MAX_PHOTOS = 4
+const RETRY_AFTER_MS = 60000
 
 const HTTP_URL_RE = /^https?:\/\//i
 
@@ -134,6 +135,7 @@ export function formatTweetDate(iso) {
 }
 
 const memory = new Map()
+const failedAt = new Map()
 const inflight = new Map()
 const queue = []
 let running = 0
@@ -165,22 +167,31 @@ async function fetchOnce(url, id) {
 /**
  * ポストを取る。結果はメモリに持つ。**失敗は null で返す。**
  * カードは飾りなので、失敗してもリンクは本文に残っている。
+ *
+ * 通信の失敗はずっとは覚えない。一度のタイムアウトで再起動までカードが出なくなるため。
+ * ただ削除済みや非公開も同じ失敗に見えるので、スクロールのたびに取り直さないよう
+ * 少しの間は取りに行かない。
  */
 export function fetchTweetCard(url) {
   const id = extractTweetId(url)
   if (!id) return Promise.resolve(null)
   if (memory.has(id)) return Promise.resolve(memory.get(id))
   if (inflight.has(id)) return inflight.get(id)
+  if (Date.now() - (failedAt.get(id) ?? -Infinity) < RETRY_AFTER_MS) {
+    return Promise.resolve(null)
+  }
   const promise = new Promise((resolve) => {
     queue.push(async () => {
       let card = null
       try {
         card = await fetchOnce(url, id)
+        memory.set(id, card)
+        failedAt.delete(id)
       } catch (e) {
         // 削除済みや非公開は JSON でない応答になる。カードを出さないだけ
         console.warn(`[tweet] 取得できない: ${url}: ${e?.message || e}`)
+        failedAt.set(id, Date.now())
       }
-      memory.set(id, card)
       inflight.delete(id)
       resolve(card)
     })

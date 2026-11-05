@@ -37,6 +37,29 @@ describe('fetchTweetCard', () => {
     warn.mockRestore()
   })
 
+  it('失敗したポストは少し間を置けば取り直せる', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const now = jest.spyOn(Date, 'now')
+    const url = 'https://x.com/a/status/104'
+    getJson.mockClear()
+    now.mockReturnValue(1000000)
+    getJson.mockRejectedValueOnce(new Error('timeout'))
+    expect(await fetchTweetCard(url)).toBeNull()
+
+    // 直後は取りに行かない（削除済みをスクロールのたびに取り直さないため）
+    now.mockReturnValue(1000000 + 59999)
+    expect(await fetchTweetCard(url)).toBeNull()
+    expect(getJson).toHaveBeenCalledTimes(1)
+
+    now.mockReturnValue(1000000 + 60000)
+    getJson.mockResolvedValueOnce({ __typename: 'Tweet', text: '復帰' })
+    expect(await fetchTweetCard(url)).toMatchObject({ text: '復帰' })
+    expect(getJson).toHaveBeenCalledTimes(2)
+
+    now.mockRestore()
+    warn.mockRestore()
+  })
+
   it('同じポストは取り直さない', async () => {
     getJson.mockClear()
     getJson.mockResolvedValueOnce({ __typename: 'Tweet', text: 'a' })
