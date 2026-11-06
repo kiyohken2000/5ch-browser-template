@@ -166,7 +166,7 @@ Ember is an unofficial native client for 5ch.io, a large Japanese bulletin board
 ## Network Requirement (Please Read First)
 All boards and threads come directly from 5ch.io, which is operated by a third party. 5ch.io can refuse connections from some networks or regions with HTTP 403, and the developer does not control this. When that happens, the app shows the message "掲示板サーバーがこの回線からの接続を拒否しました（HTTP 403）" (the board server refused the connection from this network).
 
-The same build loads boards normally from a network in Japan. If you see this message, please review from a network in Japan. If that is not possible, please contact the developer, and a demo video recorded on a real device in Japan can be provided.
+The same build loads boards normally from a network in Japan. If you see this message and are using a VPN, please turn it off and try again. If the message remains, please review from a network in Japan. If that is not possible, please contact the developer, and a demo video recorded on a real device in Japan can be provided.
 
 ## No Account Required
 No login is needed. Launch and browse immediately. BE / UPLIFT logins are optional 5ch.io services and are not needed to review the app.
@@ -376,14 +376,14 @@ Play Console で理由を求められる可能性がある権限。
 
 ### 再審査の依頼文（App Store Connect の返信欄）
 
-2026-11-06 に「板を絞り込む画面でエラーが出て板を選べない」として却下された。添付画像のエラーは `403 forbidden`。日本からは同じ URL を取得できるので、審査端末の接続元が 5ch.io に拒否されたと見ている（国外からの実測はまだ）。
+2026-11-06 に「板を絞り込む画面でエラーが出て板を選べない」として却下された。添付画像のエラーは `403 forbidden`。日本からは同じ URL を取得できるので、審査端末の接続元（国外の回線、または審査側の VPN）が 5ch.io に拒否されたと見ている（国外や VPN からの実測はまだ）。
 
 ```
 Thank you for the report. The "403 forbidden" message in your screenshot was returned by 5ch.io, the third-party bulletin board that the app reads from. It was not caused by a crash or a failure inside the app. 5ch.io can refuse connections from some networks or regions, and the developer does not control this. The same requests succeed from a network in Japan.
 
 This build now explains the refusal in the app instead of showing only "403 forbidden".
 
-Please review from a network in Japan if possible. If that is not possible, please let me know, and I will provide a demo video recorded on a real device in Japan.
+If the review device uses a VPN, please turn it off and try again. If the message remains, please review from a network in Japan if possible. If that is not possible, please let me know, and I will provide a demo video recorded on a real device in Japan.
 ```
 
 **デモ動画:** 最初は付けない。審査側から求められたら、日本の回線の実機で撮って送る。映すものは、初回の同意画面、板一覧、板の絞り込み、スレ一覧、スレ本文、長押しメニュー（NG、報告）、投稿画面。
