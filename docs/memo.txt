@@ -5,3 +5,7 @@
 ・AIベンチマークスコア機能、他の人とスコアを比べられるように
 ・レス本文の全部、一部をコピーしやすく
 ・LFM3の搭載検討 https://huggingface.co/collections/LiquidAI/lfm3
+・翻訳用モデル「PLaMo 3 Translate」搭載検討、Hy-MT2との選択制に https://huggingface.co/pfnet/plamo-3-translate-0.8b
+
+デスクトップ版
+・タブを複数段にした時、タブの幅のサイズがまばら。フォントによって横幅が揃わなくなる。等幅フォントのMSゴシックでは横幅が統一だがMS Pゴシックだとまばら。幅のサイズを統一するか検討
