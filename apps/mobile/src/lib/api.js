@@ -18,6 +18,30 @@ import { parseBoardLocation } from './urls'
 export const BBSMENU_URL = 'https://menu.5ch.io/bbsmenu.json'
 
 /**
+ * 接続元によっては 5ch が 403 を返す（App Store の審査端末で起きた）。
+ * 「403 forbidden」だけだとアプリの故障に見えるので、何が起きたかを書く。
+ * 第三者への通信にも使う `http.js` ではなく、5ch の取得経路のここで言い換える。
+ */
+export const FORBIDDEN_MESSAGE =
+  '掲示板サーバーがこの回線からの接続を拒否しました（HTTP 403）。別の回線に切り替えると読めることがあります'
+
+async function explainForbidden(read) {
+  try {
+    return await read()
+  } catch (e) {
+    if (e instanceof HttpError && e.status === 403) {
+      throw new HttpError('status', FORBIDDEN_MESSAGE, 403)
+    }
+    throw e
+  }
+}
+
+const read5chJson = (url, options) =>
+  explainForbidden(() => getJson(url, options))
+const read5chBytes = (url, options) =>
+  explainForbidden(() => getBytes(url, options))
+
+/**
  * 板一覧。`bbsmenu.json` は **UTF-8 の JSON** で Shift_JIS ではない
  * （M0 で実測。183KB / 49 カテゴリ）。
  *
@@ -26,7 +50,7 @@ export const BBSMENU_URL = 'https://menu.5ch.io/bbsmenu.json'
  * @returns {Promise<{lastModified: string, categories: Array<{name: string, boards: Array}>}>}
  */
 export async function fetchBbsmenu(options = {}) {
-  const json = await getJson(BBSMENU_URL, options)
+  const json = await read5chJson(BBSMENU_URL, options)
   const categories = []
   for (const group of json?.menu_list || []) {
     const content = group?.category_content || []
@@ -68,7 +92,7 @@ export async function fetchBbsmenu(options = {}) {
  */
 export async function fetchSubject(boardUrl, options = {}) {
   const location = parseBoardLocation(boardUrl)
-  const { bytes } = await getBytes(location.subjectUrl(), options)
+  const { bytes } = await read5chBytes(location.subjectUrl(), options)
   return {
     location,
     threads: parseSubjectBytes(bytes).map((t) => ({
@@ -87,7 +111,7 @@ export async function fetchSubject(boardUrl, options = {}) {
 export async function fetchDat(threadUrl, options = {}) {
   const location = parseBoardLocation(threadUrl)
   if (!location.threadKey) throw new Error(`スレ URL ではない: ${threadUrl}`)
-  const { bytes, headers } = await getBytes(location.datUrl(), options)
+  const { bytes, headers } = await read5chBytes(location.datUrl(), options)
   const { entries, title } = parseDatBytes(bytes, 1)
   return {
     location,
@@ -139,7 +163,7 @@ export async function fetchDatDelta(threadUrl, prev, options = {}) {
   const from = have - 1
   let result
   try {
-    result = await getBytes(location.datUrl(), {
+    result = await read5chBytes(location.datUrl(), {
       ...options,
       headers: {
         ...(options.headers || {}),

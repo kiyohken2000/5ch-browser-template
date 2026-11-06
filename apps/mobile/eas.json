@@ -27,6 +27,9 @@
     },
     "production": {
       "channel": "production",
+      "ios": {
+        "autoIncrement": true
+      },
       "android": {
         "resourceClass": "large",
         "autoIncrement": true

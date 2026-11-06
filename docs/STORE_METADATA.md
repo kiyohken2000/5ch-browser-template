@@ -163,6 +163,11 @@ NG は語句、ID、名前に対応。似た画像を隠す画像 NG もあり�
 ## Overview
 Ember is an unofficial native client for 5ch.io, a large Japanese bulletin board. The app reads public thread data directly from 5ch.io and lets users post to it. There is no backend run by the developer.
 
+## Network Requirement (Please Read First)
+All boards and threads come directly from 5ch.io, which is operated by a third party. 5ch.io can refuse connections from some networks or regions with HTTP 403, and the developer does not control this. When that happens, the app shows the message "掲示板サーバーがこの回線からの接続を拒否しました（HTTP 403）" (the board server refused the connection from this network).
+
+The same build loads boards normally from a network in Japan. If you see this message, please review from a network in Japan. If that is not possible, please contact the developer, and a demo video recorded on a real device in Japan can be provided.
+
 ## No Account Required
 No login is needed. Launch and browse immediately. BE / UPLIFT logins are optional 5ch.io services and are not needed to review the app.
 
@@ -368,6 +373,20 @@ Play Console で理由を求められる可能性がある権限。
 
 - **通報への対応:** 開発者への報告は 24 時間以内に確認し、必要に応じて 5ch.io へ削除を申請すると、規約とサポートページと審査メモに書いた。`retwpay@gmail.com` を 24 時間以内に確認できる状態にしておく
 - **アプリ内の問い合わせ導線:** 設定の項目は外したので、今は報告画面からだけ。審査で指摘されたら設定に戻す
+
+### 再審査の依頼文（App Store Connect の返信欄）
+
+2026-11-06 に「板を絞り込む画面でエラーが出て板を選べない」として却下された。添付画像のエラーは `403 forbidden`。日本からは同じ URL を取得できるので、審査端末の接続元が 5ch.io に拒否されたと見ている（国外からの実測はまだ）。
+
+```
+Thank you for the report. The "403 forbidden" message in your screenshot was returned by 5ch.io, the third-party bulletin board that the app reads from. It was not caused by a crash or a failure inside the app. 5ch.io can refuse connections from some networks or regions, and the developer does not control this. The same requests succeed from a network in Japan.
+
+This build now explains the refusal in the app instead of showing only "403 forbidden".
+
+Please review from a network in Japan if possible. If that is not possible, please let me know, and I will provide a demo video recorded on a real device in Japan.
+```
+
+**デモ動画:** 最初は付けない。審査側から求められたら、日本の回線の実機で撮って送る。映すものは、初回の同意画面、板一覧、板の絞り込み、スレ一覧、スレ本文、長押しメニュー（NG、報告）、投稿画面。
 
 ## 提出前チェックリスト
 

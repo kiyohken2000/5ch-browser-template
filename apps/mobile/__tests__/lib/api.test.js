@@ -1,4 +1,10 @@
-import { fetchDat, fetchDatDelta } from 'lib/api'
+import {
+  fetchBbsmenu,
+  fetchDat,
+  fetchDatDelta,
+  fetchSubject,
+  FORBIDDEN_MESSAGE,
+} from 'lib/api'
 import { encodeSjis } from 'lib/sjis'
 
 const URL = 'https://mao.5ch.io/test/read.cgi/ngt/1000/'
@@ -110,5 +116,38 @@ describe('dat の取得', () => {
     const got = await fetchDatDelta(URL, { byteLength: 5, entryCount: 1 })
     expect(got.mode).toBe('full')
     expect(Array.from(got.raw)).toEqual(Array.from(raw))
+  })
+})
+
+describe('接続を拒否されたとき', () => {
+  const BOARD = 'https://mao.5ch.io/ngt/'
+  const reads = [
+    ['板一覧', () => fetchBbsmenu()],
+    ['スレ一覧', () => fetchSubject(BOARD)],
+    ['スレ本文', () => fetchDat(URL)],
+    [
+      'スレ本文の差分',
+      () => fetchDatDelta(URL, { byteLength: 10, entryCount: 1 }),
+    ],
+  ]
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it.each(reads)('%s は 403 を説明つきで伝える', async (_name, read) => {
+    jest.spyOn(global, 'fetch').mockResolvedValue(respond(403))
+    await expect(read()).rejects.toMatchObject({
+      message: FORBIDDEN_MESSAGE,
+      status: 403,
+    })
+  })
+
+  it('403 以外の失敗はそのまま伝える', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValue(respond(500))
+    await expect(fetchBbsmenu()).rejects.toMatchObject({ status: 500 })
+    await expect(fetchBbsmenu()).rejects.not.toMatchObject({
+      message: FORBIDDEN_MESSAGE,
+    })
   })
 })
