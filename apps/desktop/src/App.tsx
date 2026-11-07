@@ -1444,6 +1444,18 @@ const normalizeThreadUrl = (url: string): string => {
     return rewrite5chNet(url);
   }
 };
+// 板 URL の表記ゆれ (5ch.net 表記・末尾スラッシュ無し・ホストの大文字) を吸収して
+// 突き合わせる。bbsmenu 由来の板 URL と、スレ URL から組み直した板 URL は形が揃って
+// いないので、素のキーで引くと板名が出ない。
+const normalizeBoardUrlKey = (url: string): string => {
+  try {
+    const u = new URL(rewrite5chNet(url));
+    const path = u.pathname.endsWith("/") ? u.pathname : `${u.pathname}/`;
+    return `${u.origin.toLowerCase()}${path}`;
+  } catch {
+    return url.trim().toLowerCase();
+  }
+};
 const getThreadKeyFromThreadUrl = (url: string): string => {
   const parsed = parseThreadPath(url);
   if (parsed) return parsed.key;
@@ -3784,6 +3796,8 @@ export default function App() {
   // .pane.responses の overflow でタブが多いときに下が切れる。他のメニューと同じく
   // シェル直下の fixed にして、座標を実測から出す。
   const [tabList, setTabList] = useState<{ x: number; y: number } | null>(null);
+  // タブ一覧の絞り込み語。開くたびに空へ戻すので永続化しない
+  const [tabListQuery, setTabListQuery] = useState("");
   const tabListRef = useRef<HTMLDivElement | null>(null);
   const tabMenuRef = useRef<HTMLDivElement>(null);
   // 板ボタンバー「★お気に入り」の右クリックメニュー
@@ -11202,6 +11216,69 @@ export default function App() {
     [threadUrl],
   );
 
+  // 板名の引き当て表。bbsmenu のキャッシュとお気に入りから作る。表示用の板名を
+  // 持っているのはこの 2 つだけで、getBoardName() が返すのは投稿時の名前欄なので
+  // ここでは使えない。
+  const boardTitleByUrl = useMemo(() => {
+    const map = new Map<string, string>();
+    const put = (url: string, name: string) => {
+      const key = normalizeBoardUrlKey(url);
+      const label = name.trim();
+      if (!key || !label || map.has(key)) return;
+      map.set(key, label);
+    };
+    boardCategories.forEach((cat) => cat.boards.forEach((b) => put(b.url, b.boardName)));
+    favorites.boards.forEach((b) => put(b.url, b.boardName));
+    return map;
+  }, [boardCategories, favorites.boards]);
+
+  // タブ一覧を板ごとにまとめ、絞り込み語で間引く。板をまたいで 30〜50 スレ開く
+  // 使い方だと平らな一覧では探せないため。並びはタブバーと同じ (板の初出順 ->
+  // タブ順) にして、一覧とバーで見え方が食い違わないようにする。絞り込みは板名にも
+  // 掛けるので、板名を打てばその板のタブだけ残る。板が 1 つしか無いときの見出しは
+  // 情報にならないので showHeads で落とす。
+  const tabListGroups = useMemo(() => {
+    type TabListGroup = {
+      boardUrl: string;
+      label: string;
+      items: { tab: ThreadTab; index: number }[];
+      newCount: number;
+    };
+    const query = tabListQuery.trim().toLowerCase();
+    const order: string[] = [];
+    const byUrl = new Map<string, TabListGroup>();
+    threadTabs.forEach((tab, index) => {
+      const boardUrl = getBoardUrlFromThreadUrl(tab.threadUrl);
+      let group = byUrl.get(boardUrl);
+      if (!group) {
+        const label = boardTitleByUrl.get(normalizeBoardUrlKey(boardUrl))
+          || parseThreadPath(tab.threadUrl)?.board
+          || boardUrl;
+        group = { boardUrl, label, items: [], newCount: 0 };
+        byUrl.set(boardUrl, group);
+        order.push(boardUrl);
+      }
+      const title = tab.title || tab.threadUrl;
+      if (query && !title.toLowerCase().includes(query) && !group.label.toLowerCase().includes(query)) return;
+      group.items.push({ tab, index });
+      group.newCount += tabNewCounts.get(tab.threadUrl) ?? 0;
+    });
+    const all = order.map((url) => byUrl.get(url) as TabListGroup);
+    return { groups: all.filter((g) => g.items.length > 0), showHeads: all.length > 1 };
+  }, [threadTabs, tabListQuery, boardTitleByUrl, tabNewCounts]);
+
+  // タブ一覧から飛んだら一覧を閉じ、絞り込み語も捨ててレス欄へフォーカスを返す。
+  // 語を残すと次に開いたときに前回の絞り込みが掛かったままになり、タブが消えた
+  // ように見える。
+  const jumpToTabFromList = (index: number) => {
+    setTabList(null);
+    setTabListQuery("");
+    onTabClick(index);
+    setTimeout(() => {
+      responseScrollRef.current?.focus({ preventScroll: true });
+    }, 60);
+  };
+
   // 板が変わったら名前欄もその板の名前に差し替える。ただし手入力した名前は消さない
   useEffect(() => {
     if (!showNewThreadDialog || !newThreadTargetBoardUrl) return;
@@ -13824,8 +13901,10 @@ export default function App() {
                 e.stopPropagation();
                 if (tabList) { setTabList(null); return; }
                 // ボタンの下に右端を揃えて開く。実寸でのクランプは useMenuReclamp が行う。
+                // 高さの見積もりには絞り込み欄 (28px) ぶんを足す。
                 const r = e.currentTarget.getBoundingClientRect();
-                setTabList(clampMenuPosition(r.right - TAB_LIST_WIDTH, r.bottom, TAB_LIST_WIDTH, Math.min(320, 8 + threadTabs.length * 24)));
+                setTabListQuery("");
+                setTabList(clampMenuPosition(r.right - TAB_LIST_WIDTH, r.bottom, TAB_LIST_WIDTH, Math.min(320, 36 + threadTabs.length * 24)));
               }}
               title="開いているタブの一覧"
               aria-expanded={tabList !== null}
@@ -16008,28 +16087,59 @@ export default function App() {
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.preventDefault()}
         >
+          {/* 親で mousedown を止めているのはレス欄のフォーカスを奪わないためだが、
+              それが効いたままだと絞り込み欄にキャレットが入らない。入力欄の手前で
+              伝播を止めて、親の preventDefault を届かせない。 */}
+          <div className="tab-list-filter" onMouseDown={(e) => e.stopPropagation()}>
+            <input
+              className="tab-list-filter-input"
+              type="text"
+              autoFocus
+              value={tabListQuery}
+              placeholder="スレタイ / 板名で絞り込み"
+              onChange={(e) => setTabListQuery(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter は絞り込んだ先頭へ飛ぶ。Escape は画面全体の keydown が
+                // 拾って閉じるので、ここでは扱わない。
+                if (e.key !== "Enter") return;
+                const first = tabListGroups.groups[0]?.items[0];
+                if (!first) return;
+                e.preventDefault();
+                jumpToTabFromList(first.index);
+              }}
+            />
+          </div>
           <div className="tab-list-scroll">
-            {threadTabs.map((tab, i) => (
-              <div
-                key={tab.threadUrl}
-                className={`tab-list-item${i === activeTabIndex ? " active" : ""}`}
-                title={tab.title || tab.threadUrl}
-                onClick={() => {
-                  setTabList(null);
-                  onTabClick(i);
-                  setTimeout(() => {
-                    responseScrollRef.current?.focus({ preventScroll: true });
-                  }, 60);
-                }}
-              >
-                {tab.locked && <Lock className="tab-list-item-lock" size={10} />}
-                <span className={`tab-list-item-title${(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 ? " has-new" : ""}`}>{tab.title || tab.threadUrl}</span>
-                {tabCacheRef.current.has(tab.threadUrl) && (
-                  <span className="tab-list-item-count">({tabCacheRef.current.get(tab.threadUrl)!.responses.length})</span>
+            {tabListGroups.groups.length === 0 ? (
+              <div className="tab-list-empty">該当するタブはありません</div>
+            ) : tabListGroups.groups.map((group) => (
+              <div key={group.boardUrl} className="tab-list-group">
+                {tabListGroups.showHeads && (
+                  <div className="tab-list-group-head" title={group.boardUrl}>
+                    <span className="tab-list-group-name">{group.label}</span>
+                    <span className="tab-list-group-count">{group.items.length}</span>
+                    {group.newCount > 0 && (
+                      <span className="tab-list-group-new">+{group.newCount}</span>
+                    )}
+                  </div>
                 )}
-                {(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 && (
-                  <span className="tab-list-item-new">+{tabNewCounts.get(tab.threadUrl)}</span>
-                )}
+                {group.items.map(({ tab, index }) => (
+                  <div
+                    key={tab.threadUrl}
+                    className={`tab-list-item${index === activeTabIndex ? " active" : ""}`}
+                    title={tab.title || tab.threadUrl}
+                    onClick={() => jumpToTabFromList(index)}
+                  >
+                    {tab.locked && <Lock className="tab-list-item-lock" size={10} />}
+                    <span className={`tab-list-item-title${(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 ? " has-new" : ""}`}>{tab.title || tab.threadUrl}</span>
+                    {tabCacheRef.current.has(tab.threadUrl) && (
+                      <span className="tab-list-item-count">({tabCacheRef.current.get(tab.threadUrl)!.responses.length})</span>
+                    )}
+                    {(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 && (
+                      <span className="tab-list-item-new">+{tabNewCounts.get(tab.threadUrl)}</span>
+                    )}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -17264,7 +17374,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>193項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>196項目</span></div>
               </fieldset>
               </>)}
             </div>

@@ -3667,6 +3667,70 @@ button.search-history-btn:hover {
   min-height: 0;
 }
 
+/* === タブ一覧の絞り込みと板ごとの見出し ===
+   板をまたいで 30〜50 スレ開く使い方だと平らな一覧では探せないので、板ごとに
+   まとめて見出しを付け、スレタイと板名で絞り込めるようにする。見出しはその板を
+   スクロールしている間だけ上に残す (sticky)。 */
+.tab-list-filter {
+  flex: 0 0 auto;
+  padding: 4px;
+  border-bottom: 1px solid #d0d0d0;
+}
+
+.tab-list-filter-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 2px 5px;
+  font-size: 12px;
+  border: 1px solid #a0a0a0;
+  background: #ffffff;
+  color: inherit;
+}
+
+.tab-list-group-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--sub);
+  background: #f0f0f0;
+  border-top: 1px solid #e0e0e0;
+}
+
+.tab-list-group:first-child .tab-list-group-head {
+  border-top: 0;
+}
+
+.tab-list-group-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-list-group-count {
+  flex: 0 0 auto;
+  font-weight: 400;
+}
+
+.tab-list-group-new {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: #cc3300;
+}
+
+.tab-list-empty {
+  padding: 10px 8px;
+  font-size: 11px;
+  color: var(--sub);
+  text-align: center;
+}
+
 .tab-list-item {
   display: flex;
   align-items: center;
@@ -4895,6 +4959,21 @@ a.body-link-image:hover::after {
   background: #2d2d30;
   border-color: #555;
   --panel-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+.dark .tab-list-filter {
+  border-bottom-color: #3f3f46;
+}
+.dark .tab-list-filter-input {
+  background: #1e1e1e;
+  border-color: #555;
+  color: #e0e0e0;
+}
+.dark .tab-list-group-head {
+  background: #27272b;
+  border-top-color: #3f3f46;
+}
+.dark .tab-list-group-new {
+  color: #ff6644;
 }
 .dark .tab-list-item:hover {
   background: #3c3c3c;
@@ -7471,6 +7550,30 @@ a.body-link-image:hover::after {
   box-shadow:
     0 8px 30px rgba(0, 0, 0, 0.15),
     inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.shell.glass .tab-list-filter {
+  border-bottom-color: rgba(0, 0, 0, 0.12);
+}
+
+.shell.glass .tab-list-group-head {
+  background: rgba(255, 255, 255, 0.45);
+  border-top-color: rgba(0, 0, 0, 0.08);
+}
+
+.shell.glass.dark .tab-list-filter {
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+.shell.glass.dark .tab-list-filter-input {
+  background: rgba(0, 0, 0, 0.35);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #e8e8e8;
+}
+
+.shell.glass.dark .tab-list-group-head {
+  background: rgba(0, 0, 0, 0.3);
+  border-top-color: rgba(255, 255, 255, 0.08);
 }
 
 .shell.glass .tab-list-item:hover {

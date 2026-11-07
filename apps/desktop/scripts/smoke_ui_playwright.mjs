@@ -5959,6 +5959,104 @@ try {
   await densityPage.close();
   console.log("smoke-ui: tab density and nav bar reveal ok");
 
+  // タブ一覧の板ごとの見出しと絞り込み。板をまたいで何十スレも開く使い方だと
+  // 平らな一覧では探せないので、板ごとにまとめた見出しが出て、スレタイと板名の
+  // どちらでも絞り込めること。
+  {
+    const GROUPED_TABS = [
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/3001/", title: "ソフト板の雑談" },
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/newsplus/3002/", title: "ニュースの速いスレ" },
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/3003/", title: "ソフト板の質問" },
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/newsplus/3004/", title: "ニュースの遅いスレ" },
+    ];
+    const BOARD_CATS = [{
+      categoryName: "テスト",
+      boards: [
+        { boardName: "ソフトウェア", url: "https://mao.5ch.io/ngt/" },
+        { boardName: "ニュース速報+", url: "https://mao.5ch.io/newsplus/" },
+      ],
+    }];
+    const groupPage = await context.newPage();
+    await groupPage.addInitScript((arg) => {
+      localStorage.setItem("desktop.threadTabs.v1", arg.tabs);
+      localStorage.setItem("desktop.boardCategories.v1", arg.boards);
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+    }, {
+      tabs: JSON.stringify({ tabs: GROUPED_TABS, activeIndex: 0 }),
+      boards: JSON.stringify(BOARD_CATS),
+      prefs: JSON.stringify({ restoreSession: true }),
+    });
+    await groupPage.goto(targetUrl, { waitUntil: "load" });
+    await groupPage.waitForSelector(".row-splitter");
+    await new Promise((r) => setTimeout(r, 800));
+    await groupPage.click(".tab-list-btn");
+    await groupPage.waitForSelector(".tab-list-dropdown");
+
+    // 見出しは板名 (bbsmenu のキャッシュ由来) とその板で開いている本数。並びは
+    // タブバーと同じ「板の初出順」で、一覧とバーで見え方が食い違わないこと。
+    const heads = await groupPage.$$eval(".tab-list-group-head", (els) => els.map((el) => ({
+      name: el.querySelector(".tab-list-group-name").textContent,
+      count: el.querySelector(".tab-list-group-count").textContent,
+    })));
+    assert(
+      JSON.stringify(heads) === JSON.stringify([
+        { name: "ソフトウェア", count: "2" },
+        { name: "ニュース速報+", count: "2" },
+      ]),
+      `the tab list should group by board in tab-bar order, got ${JSON.stringify(heads)}`,
+    );
+    const grouped = await groupPage.$$eval(".tab-list-group", (els) => els.map((el) =>
+      Array.from(el.querySelectorAll(".tab-list-item-title")).map((t) => t.textContent).join("/")));
+    assert(
+      JSON.stringify(grouped) === JSON.stringify([
+        "ソフト板の雑談/ソフト板の質問",
+        "ニュースの速いスレ/ニュースの遅いスレ",
+      ]),
+      `each group should hold only its own board's tabs, got ${JSON.stringify(grouped)}`,
+    );
+    console.log("smoke-ui: the tab list groups by board ok");
+
+    // 絞り込み。スレタイの一部で 1 本に絞れること、板名を打つとその板のタブが
+    // まとめて残ること、当たらない語では空の案内が出て行が 1 つも残らないこと。
+    const filterSel = ".tab-list-filter-input";
+    await groupPage.fill(filterSel, "遅い");
+    await new Promise((r) => setTimeout(r, 150));
+    let shown = await groupPage.$$eval(".tab-list-item-title", (els) => els.map((el) => el.textContent));
+    assert(
+      JSON.stringify(shown) === JSON.stringify(["ニュースの遅いスレ"]),
+      `the filter should narrow by thread title, got ${JSON.stringify(shown)}`,
+    );
+    await groupPage.fill(filterSel, "ソフトウェア");
+    await new Promise((r) => setTimeout(r, 150));
+    shown = await groupPage.$$eval(".tab-list-item-title", (els) => els.map((el) => el.textContent));
+    assert(
+      JSON.stringify(shown) === JSON.stringify(["ソフト板の雑談", "ソフト板の質問"]),
+      `typing a board name should keep that whole board, got ${JSON.stringify(shown)}`,
+    );
+    await groupPage.fill(filterSel, "どこにも無い語");
+    await new Promise((r) => setTimeout(r, 150));
+    assert(await groupPage.$(".tab-list-empty"), "a filter that matches nothing should say so");
+    assert(!(await groupPage.$(".tab-list-item")), "a filter that matches nothing should leave no rows");
+    console.log("smoke-ui: the tab list filter narrows by title and board ok");
+
+    // Enter は絞り込んだ先頭へ飛ぶ。一覧は閉じ、次に開いたときに前回の絞り込みが
+    // 残っていないこと (残るとタブが消えたように見える)。
+    await groupPage.fill(filterSel, "遅い");
+    await new Promise((r) => setTimeout(r, 150));
+    await groupPage.press(filterSel, "Enter");
+    await new Promise((r) => setTimeout(r, 300));
+    assert(!(await groupPage.$(".tab-list-dropdown")), "Enter should close the tab list");
+    const jumped = await groupPage.$eval(".thread-tab.active .thread-tab-title", (el) => el.textContent);
+    assert(jumped === "ニュースの遅いスレ", `Enter should jump to the first match, got ${jumped}`);
+    await groupPage.click(".tab-list-btn");
+    await groupPage.waitForSelector(".tab-list-dropdown");
+    const reopened = await groupPage.$eval(".tab-list-filter-input", (el) => el.value);
+    assert(reopened === "", `reopening the tab list should clear the filter, got "${reopened}"`);
+    await groupPage.close();
+    console.log("smoke-ui: the tab list jumps on Enter and forgets the filter ok");
+  }
+
   // タブ幅を揃える設定の実測。長さの違うスレタイを 2 本開いて、既定では幅が
   // 違うこと / オンにすると一致することを見る。クラスが付くだけで CSS の
   // min-width・max-width に負けていると意味が無いので、幅そのものを測る。
