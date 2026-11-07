@@ -103,6 +103,8 @@ import {
 } from 'ai/prompts'
 import useAiTask from 'ai/useAiTask'
 import AiResultPanel from 'components/AiResultPanel'
+import AiRuleSuggestSheet from 'components/AiRuleSuggestSheet'
+import { addAiRule } from 'slices/ai.slice'
 import CopySheet from 'components/CopySheet'
 import { beProfileUrl, beThreadHistoryUrl } from 'lib/be'
 import { wordHits } from 'lib/highlights'
@@ -294,6 +296,7 @@ export default function Thread({ route, navigation }) {
   // 最後の更新で届いた最初のレス。新着が無ければ消す（デスクトップ版と同じ）
   const [newFromNo, setNewFromNo] = useState(null)
   const [copyTarget, setCopyTarget] = useState(null)
+  const [ruleSuggestTarget, setRuleSuggestTarget] = useState(null)
 
   // 開いたスレを「最近開いた」へ。取得に失敗しても開いたことは残す
   useEffect(() => {
@@ -1228,6 +1231,13 @@ export default function Thread({ route, navigation }) {
           })
         },
       })
+      items.push({
+        label: 'AI: このレスから曖昧 NG を作る',
+        run: () => {
+          closeMenu()
+          setRuleSuggestTarget({ no })
+        },
+      })
     }
     const { watchoi } = splitNameWatchoi(name)
     if (watchoi) {
@@ -2001,6 +2011,24 @@ export default function Thread({ route, navigation }) {
             </Pressable>
           ) : null}
         </View>
+      ) : null}
+
+      {ruleSuggestTarget ? (
+        <AiRuleSuggestSheet
+          target={ruleSuggestTarget}
+          rows={shown}
+          generalModel={ai.generalModel}
+          theme={theme}
+          onAdd={(predicates) => {
+            dispatch(addAiRule({ predicates }))
+            setRuleSuggestTarget(null)
+            showToast({
+              title: 'ルールを追加しました',
+              body: '抽出メニューの「AI: 曖昧 NG を判定」で判定します',
+            })
+          }}
+          onClose={() => setRuleSuggestTarget(null)}
+        />
       ) : null}
 
       <CopySheet

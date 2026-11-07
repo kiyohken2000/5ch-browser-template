@@ -18,6 +18,16 @@ import {
   rulesKey,
 } from 'ai/judge'
 import { MAX_INPUT_CHARS, pickSummaryRows, threadText } from 'ai/prompts'
+import {
+  measureCandidates,
+  measureText,
+  parseCandidate,
+  parseExampleNos,
+  pickExamples,
+  pickSample,
+  ruleSuggestMessages,
+  slotPrefill,
+} from 'ai/ruleSuggest'
 import { signalStop } from 'ai/stopSignal'
 import { applyNg } from 'lib/ng'
 
@@ -256,5 +266,79 @@ describe('scoreJudge', () => {
     ])
     expect(got.judged).toBe(1)
     expect(got.usable).toBe(false)
+  })
+})
+
+describe('ルールの候補', () => {
+  const row = (no, plain) => ({ no, parsed: { plain } })
+
+  it('レス番号を読む。全角と重複も扱う', () => {
+    expect(parseExampleNos('12 34,５６ 12')).toEqual([12, 34, 56])
+    expect(parseExampleNos('')).toEqual([])
+    expect(parseExampleNos('あ 0')).toEqual([])
+  })
+
+  it('本文の無いレスと無い番号は例にしない', () => {
+    const rows = [row(1, 'a'), row(2, '  '), row(3, 'c')]
+    expect(pickExamples(rows, [3, 2, 9, 1]).map((r) => r.no)).toEqual([3, 1])
+  })
+
+  it('スレから等間隔に選び、>>1 と例と空のレスを除く', () => {
+    const rows = Array.from({ length: 100 }, (_, i) =>
+      row(i + 1, i === 3 ? '' : 'x'),
+    )
+    const got = pickSample(rows, [2], 10).map((r) => r.no)
+    expect(got).toHaveLength(10)
+    expect(got).not.toContain(1)
+    expect(got).not.toContain(2)
+    expect(got).not.toContain(4)
+    expect(pickSample(rows.slice(0, 3), [], 10).map((r) => r.no)).toEqual([
+      2, 3,
+    ])
+  })
+
+  it('例の本文を切って入れる', () => {
+    const [m] = ruleSuggestMessages([row(7, 'あ'.repeat(500))])
+    expect(m.content).toContain('例7: ')
+    expect(m.content).not.toContain('あ'.repeat(201))
+    expect(slotPrefill('話題')).toBe('話題: この書き込みは')
+  })
+
+  it('続きを 1 文のルールにする', () => {
+    expect(parseCandidate('政治の話題である。補足\n次の行')).toBe(
+      'この書き込みは政治の話題である。',
+    )
+    expect(parseCandidate('\n この書き込みは他人を罵倒している')).toBe(
+      'この書き込みは他人を罵倒している。',
+    )
+    expect(parseCandidate('、政治の話題である。')).toBe(
+      'この書き込みは政治の話題である。',
+    )
+    expect(parseCandidate('  \n')).toBeNull()
+    expect(parseCandidate('。')).toBeNull()
+  })
+
+  it('例と全体の当たり具合を数え、複数なら両方に当たるものだけ数える', () => {
+    const a = { exampleScores: [0.9, 0.1], sampleScores: [0.9, 0.9, 0.1, 0.1] }
+    const b = { exampleScores: [0.9, 0.9], sampleScores: [0.9, 0.1, 0.9, 0.1] }
+    expect(measureCandidates([a])).toEqual({
+      exampleHits: 1,
+      exampleTotal: 2,
+      sampleRate: 0.5,
+    })
+    expect(measureCandidates([a, b])).toEqual({
+      exampleHits: 1,
+      exampleTotal: 2,
+      sampleRate: 0.25,
+    })
+    expect(measureText(measureCandidates([a, b]))).toBe(
+      '例 1/2  /  このスレの約 25%',
+    )
+  })
+
+  it('判定できなかった件は当たりに数えない。比べるレスが無ければ割合を出さない', () => {
+    const got = measureCandidates([{ exampleScores: [NaN], sampleScores: [] }])
+    expect(got).toEqual({ exampleHits: 0, exampleTotal: 1, sampleRate: null })
+    expect(measureText(got)).toBe('例 0/1')
   })
 })

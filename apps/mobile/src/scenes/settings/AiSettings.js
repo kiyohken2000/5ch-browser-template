@@ -344,7 +344,8 @@ export default function AiSettings({ navigation }) {
           <View style={[styles.box, { backgroundColor: theme.surface }]}>
             <Text style={{ color: theme.textFaint, fontSize: 12 }}>
               「この書き込みは政治の話題である。」のように書きます。改行で分けると、すべてに当てはまるものを隠します（3
-              行まで）。スレの抽出メニューから判定します。
+              行まで）。スレの抽出メニューから判定します。レスを長押しして「AI:
+              このレスから曖昧 NG を作る」を選ぶと、例から候補を作れます。
             </Text>
             <TextInput
               accessibilityLabel="曖昧 NG のルール"

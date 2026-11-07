@@ -133,6 +133,28 @@ export function generate(
   })
 }
 
+/**
+ * 答えの書き出しを指定して生成する。`prefill_text` は解析用でプロンプトに入らないので、
+ * 整形したプロンプトの末尾に自分で付ける。返すのは書き出しの続きだけ。
+ */
+export function generateWithPrefill(
+  modelId,
+  { messages, prefill, maxTokens = 32 },
+) {
+  return runExclusive(modelId, async (ctx) => {
+    const { prompt } = await ctx.getFormattedChat(messages, null, {
+      jinja: true,
+      enable_thinking: false,
+    })
+    const res = await ctx.completion({
+      prompt: `${prompt}${prefill}`,
+      n_predict: maxTokens,
+      temperature: 0.3,
+    })
+    return res?.text ?? ''
+  })
+}
+
 /** 裏に回ったら止めて解放する。起動時に 1 度だけ呼ぶ。 */
 export function watchAppStateForAi() {
   return AppState.addEventListener('change', (state) => {
