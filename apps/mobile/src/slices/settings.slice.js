@@ -50,6 +50,12 @@ export const DEFAULTS = {
   typingCombo: false,
   /** オートスクロールの速さ（pt/秒） */
   autoScrollSpeed: 40,
+  /** スレ一覧のスレタイの文字サイズ（pt） */
+  threadTitleFontSize: 15,
+  /** NG ID を登録から何日で消すか。0 は消さない */
+  ngIdExpireDays: 0,
+  /** 強調 ID を登録から何日で消すか。0 は消さない */
+  highlightIdExpireDays: 0,
   /** 本文の太さ。'normal' | 'medium' | 'bold' */
   bodyWeight: 'normal',
   /** 画面上部 / 下部のタップで 1 画面分スクロール（twinkle から借用） */

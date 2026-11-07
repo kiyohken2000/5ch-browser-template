@@ -33,12 +33,13 @@ import {
 } from '@react-navigation/native'
 import { createStackNavigator } from '@react-navigation/stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
-import { StatusBar, View } from 'react-native'
+import { Platform, StatusBar, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Toast from 'react-native-toast-message'
 
 import Icon from 'components/Icon'
 import { sharedUrl, shareTarget } from 'lib/shareTarget'
+import useIdExpiry from 'utils/useIdExpiry'
 import Boards from 'scenes/boards/Boards'
 import Home from 'scenes/home/Home'
 import Post from 'scenes/post/Post'
@@ -84,6 +85,9 @@ const linking = {
     },
   },
 }
+
+/** トーストがヘッダーに隠れないよう、ヘッダーの下まで下げる量。 */
+const TOAST_HEADER_CLEARANCE = (Platform.OS === 'ios' ? 44 : 56) + 8
 
 /**
  * ヘッダーを外した画面の上端をステータスバーの下に揃える。
@@ -314,8 +318,10 @@ function Tabs() {
 
 export default function Navigation() {
   const theme = useEmberTheme()
+  const insets = useSafeAreaInsets()
   const navRef = useNavigationContainerRef()
   const [navReady, setNavReady] = useState(false)
+  useIdExpiry()
   const { hasShareIntent, shareIntent, resetShareIntent, error } =
     useShareIntent()
 
@@ -377,7 +383,7 @@ export default function Navigation() {
           />
         </RootStack.Navigator>
       </NavigationContainer>
-      <Toast />
+      <Toast topOffset={insets.top + TOAST_HEADER_CLEARANCE} />
     </>
   )
 }

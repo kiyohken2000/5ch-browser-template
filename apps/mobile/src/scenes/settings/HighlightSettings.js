@@ -16,11 +16,13 @@ import { useDispatch, useSelector } from 'react-redux'
 
 import Icon from 'components/Icon'
 import { HIGHLIGHT_COLORS, highlightStyle } from 'lib/highlights'
+import { formatIdExpiry, ID_EXPIRE_DAY_OPTIONS } from 'lib/idExpiry'
 import {
   addHighlight,
   removeHighlight,
   updateHighlight,
 } from 'slices/highlight.slice'
+import { setSetting } from 'slices/settings.slice'
 import { useEmberTheme } from 'theme/ember'
 
 const TABS = [
@@ -56,7 +58,7 @@ function ColorChoices({ value, onChange, labelPrefix, theme }) {
   )
 }
 
-function Item({ list, entry, theme }) {
+function Item({ list, entry, expireDays, theme }) {
   const dispatch = useDispatch()
   const update = (changes) =>
     dispatch(updateHighlight({ list, value: entry.value, changes }))
@@ -99,6 +101,11 @@ function Item({ list, entry, theme }) {
         onChange={(color) => update({ color })}
         theme={theme}
       />
+      {list === 'ids' && formatIdExpiry(entry, expireDays) ? (
+        <Text style={{ color: theme.textFaint, fontSize: 11 }}>
+          {formatIdExpiry(entry, expireDays)}
+        </Text>
+      ) : null}
       {list === 'words' ? (
         <View style={styles.titleRow}>
           <Text style={{ color: theme.textDim, fontSize: 12 }}>
@@ -124,6 +131,9 @@ export default function HighlightSettings() {
   const [draft, setDraft] = useState('')
   const [color, setColor] = useState('yellow')
   const current = TABS.find((t) => t.key === tab)
+  const expireDays = useSelector(
+    (state) => state.settings.highlightIdExpireDays,
+  )
 
   const add = () => {
     if (!draft.trim()) return
@@ -204,6 +214,53 @@ export default function HighlightSettings() {
         />
       </View>
 
+      {tab === 'ids' ? (
+        <View
+          style={[
+            styles.expireBox,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <Text style={{ color: theme.text, fontSize: 13 }}>自動で消す</Text>
+          <View style={styles.expireChips}>
+            {ID_EXPIRE_DAY_OPTIONS.map((n) => {
+              const on = n === expireDays
+              return (
+                <Pressable
+                  key={n}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`強調 ID の自動削除 ${
+                    n === 0 ? '無効' : `${n} 日`
+                  }`}
+                  accessibilityState={{ checked: on }}
+                  onPress={() =>
+                    dispatch(
+                      setSetting({ key: 'highlightIdExpireDays', value: n }),
+                    )
+                  }
+                  style={[
+                    styles.tab,
+                    {
+                      backgroundColor: on ? theme.accent : 'transparent',
+                      borderColor: on ? theme.accent : theme.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: on ? theme.badgeText : theme.textDim,
+                      fontSize: 12,
+                    }}
+                  >
+                    {n === 0 ? '無効' : `${n} 日`}
+                  </Text>
+                </Pressable>
+              )
+            })}
+          </View>
+        </View>
+      ) : null}
+
       {highlight[tab].length === 0 ? (
         <Text style={[styles.empty, { color: theme.textFaint }]}>
           まだありません
@@ -211,7 +268,13 @@ export default function HighlightSettings() {
       ) : (
         <View style={{ backgroundColor: theme.surface }}>
           {highlight[tab].map((entry) => (
-            <Item key={entry.value} list={tab} entry={entry} theme={theme} />
+            <Item
+              key={entry.value}
+              list={tab}
+              entry={entry}
+              expireDays={expireDays}
+              theme={theme}
+            />
           ))}
         </View>
       )}
@@ -236,6 +299,14 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 12,
   },
+  expireBox: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    padding: 12,
+    gap: 8,
+    marginBottom: 12,
+  },
+  expireChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   addRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   input: { flex: 1, fontSize: 15, paddingVertical: 4 },
   colors: { flexDirection: 'row', gap: 12 },

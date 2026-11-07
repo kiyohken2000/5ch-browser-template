@@ -15,6 +15,9 @@ export const SORT_MODES = [
   { key: 'recent', label: '新着' },
   { key: 'count', label: 'レス数' },
   { key: 'created', label: 'スレ立て順' },
+  { key: 'unread', label: '新着レス' },
+  { key: 'newThread', label: '新スレ' },
+  { key: 'fetched', label: '取得済み' },
 ]
 
 export const DEFAULT_SORT = 'board'
@@ -60,10 +63,30 @@ export function recency(thread, now = Date.now()) {
 }
 
 /**
+ * 前に読んだときから増えたレス数。
+ * @param {{ responseCount?: number }} thread スレ一覧の 1 行
+ * @param {{ totalCount?: number } | undefined} seen 読んだスレの記録。未読なら無し
+ * @returns {number} 読んだことがないスレは 0
+ */
+export function unreadCount(thread, seen) {
+  if (!seen) return 0
+  return Math.max(0, (thread.responseCount || 0) - (seen.totalCount || 0))
+}
+
+/**
  * 並べ替える。**元の配列は変更しない。**
  * 同点は必ず `order`（subject.txt の並び）で割るので、結果は一意に決まる。
+ *
+ * @param {object} [context] 既読の状態で並べるモードに渡す
+ * @param {Map<string, object>} [context.seenById] threadId → 読んだスレの記録
+ * @param {Set<string>} [context.newKeys] 前回の一覧に無かったスレの threadKey
  */
-export function sortThreads(threads, mode = DEFAULT_SORT, now = Date.now()) {
+export function sortThreads(
+  threads,
+  mode = DEFAULT_SORT,
+  now = Date.now(),
+  { seenById = new Map(), newKeys = new Set() } = {},
+) {
   if (mode === 'board' || !mode) return threads.slice()
 
   const key = {
@@ -71,6 +94,9 @@ export function sortThreads(threads, mode = DEFAULT_SORT, now = Date.now()) {
     recent: (t) => recency(t, now),
     count: (t) => t.responseCount || 0,
     created: (t) => createdAtMs(t.threadKey),
+    unread: (t) => unreadCount(t, seenById.get(t.threadId)),
+    newThread: (t) => (newKeys.has(t.threadKey) ? 1 : 0),
+    fetched: (t) => (seenById.has(t.threadId) ? 1 : 0),
   }[mode]
 
   if (!key) return threads.slice()

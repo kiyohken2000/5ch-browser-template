@@ -48,7 +48,13 @@ const ngSlice = createSlice({
         )
       )
         return
-      state[list].push({ value: trimmed, mode, chainId, match })
+      state[list].push({
+        value: trimmed,
+        mode,
+        chainId,
+        match,
+        addedAt: Date.now(),
+      })
       persist(state)
     },
     removeNg: (state, { payload }) => {
@@ -56,6 +62,16 @@ const ngSlice = createSlice({
       if (!LISTS.includes(list)) return
       state[list] = state[list].filter(
         (e) => (typeof e === 'string' ? e : e.value) !== value,
+      )
+      persist(state)
+    },
+    /** まとめて消す（期限切れの ID など）。 */
+    removeNgValues: (state, { payload }) => {
+      const { list, values } = payload
+      if (!LISTS.includes(list)) return
+      const gone = new Set(values)
+      state[list] = state[list].filter(
+        (e) => !gone.has(typeof e === 'string' ? e : e.value),
       )
       persist(state)
     },
@@ -74,6 +90,7 @@ const ngSlice = createSlice({
             mode: 'hide',
             chainId: false,
             match: 'partial',
+            addedAt: Date.now(),
           })
           changed = true
         }
@@ -132,8 +149,14 @@ const ngSlice = createSlice({
   },
 })
 
-export const { addNg, addNgLines, removeNg, toggleNgDisabled, updateNg } =
-  ngSlice.actions
+export const {
+  addNg,
+  addNgLines,
+  removeNg,
+  removeNgValues,
+  toggleNgDisabled,
+  updateNg,
+} = ngSlice.actions
 
 /** 判定に渡す形（`loaded` を含めない）。 */
 export const selectNgFilters = createSelector(

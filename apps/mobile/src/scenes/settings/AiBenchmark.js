@@ -12,6 +12,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { runBenchmark, stopBenchmark } from 'ai/benchmark'
 import { AI_MODELS, findModel, formatModelSize } from 'ai/catalog'
 import { isModelInstalled } from 'ai/download'
+import { benchmarkReportText, benchmarkScore } from 'lib/benchmarkScore'
 import { KEYS, load, save } from 'lib/storage'
 import { useEmberTheme } from 'theme/ember'
 import { showToast } from 'utils/showToast'
@@ -141,14 +142,14 @@ export default function AiBenchmark() {
   const resultIds = Object.keys(results).filter((id) => findModel(id))
 
   const copyAll = useCallback(async () => {
-    const text = [
+    const text = benchmarkReportText(
       `${device.model} / ${device.os} / RAM ${ram}`,
-      ...resultIds.flatMap((id) => [
-        findModel(id).name,
-        ...resultLines(results[id]),
-        '',
-      ]),
-    ].join('\n')
+      resultIds.map((id) => ({
+        name: findModel(id).name,
+        score: benchmarkScore(results[id]),
+        lines: resultLines(results[id]),
+      })),
+    )
     try {
       await Clipboard.setStringAsync(text)
       showToast({ title: '結果をコピーしました' })
@@ -296,6 +297,9 @@ export default function AiBenchmark() {
               <Text style={{ color: theme.danger, fontSize: 12 }}>消去</Text>
             </Pressable>
           </View>
+          <Text style={[styles.scoreHint, { color: theme.textFaint }]}>
+            速さの点数です。軽いモデルほど高く出るので、同じモデル同士で比べてください。
+          </Text>
           {resultIds.map((id) => (
             <View
               key={id}
@@ -305,9 +309,24 @@ export default function AiBenchmark() {
                 { backgroundColor: theme.surface, borderColor: theme.border },
               ]}
             >
-              <Text style={{ color: theme.text, fontSize: 14 }}>
-                {findModel(id).name}
-              </Text>
+              <View style={styles.scoreRow}>
+                <Text
+                  style={[styles.flex, { color: theme.text, fontSize: 14 }]}
+                >
+                  {findModel(id).name}
+                </Text>
+                {benchmarkScore(results[id]) === null ? null : (
+                  <Text
+                    accessibilityLabel={`${benchmarkScore(results[id])} 点`}
+                    style={{ color: theme.accent }}
+                  >
+                    <Text style={styles.scoreValue}>
+                      {benchmarkScore(results[id])}
+                    </Text>
+                    <Text style={styles.scoreUnit}> 点</Text>
+                  </Text>
+                )}
+              </View>
               {resultLines(results[id]).map((line) => (
                 <Text
                   key={line}
@@ -358,6 +377,10 @@ const styles = StyleSheet.create({
   box: { padding: 12, gap: 10 },
   resultBox: { borderBottomWidth: StyleSheet.hairlineWidth, gap: 4 },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  scoreRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  scoreValue: { fontSize: 28, fontWeight: '700' },
+  scoreUnit: { fontSize: 13, fontWeight: '600' },
+  scoreHint: { paddingHorizontal: 12, paddingBottom: 8, fontSize: 12 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   check: {
     width: 20,

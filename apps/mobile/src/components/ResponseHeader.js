@@ -25,6 +25,7 @@ export default function ResponseHeader({
   onBacklinks,
   onBe,
   highlights,
+  isNew,
 }) {
   const { name, watchoi } = splitNameWatchoi(row.name)
   const idHighlight = matchColor(row.id, highlights?.ids)
@@ -39,6 +40,13 @@ export default function ResponseHeader({
         >
           {row.no}
         </Text>
+        {isNew ? (
+          <Text
+            style={[styles.newMark, { color: theme.accent, fontSize: small }]}
+          >
+            New!
+          </Text>
+        ) : null}
         {mine ? (
           <Text style={[styles.tag, { color: theme.mine, fontSize: small }]}>
             [自分]
@@ -146,6 +154,7 @@ export default function ResponseHeader({
 }
 
 const styles = StyleSheet.create({
+  newMark: { fontWeight: '700' },
   wrap: { gap: 1 },
   line: {
     flexDirection: 'row',

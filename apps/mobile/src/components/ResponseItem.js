@@ -24,6 +24,8 @@ function ResponseItem({
   backlinks,
   collapseLines,
   showReadLine,
+  showNewLine,
+  isNew,
   highlighted,
   mine,
   replyToMe,
@@ -72,6 +74,16 @@ function ResponseItem({
         </View>
       ) : null}
 
+      {showNewLine ? (
+        <View style={styles.readLineWrap}>
+          <View style={[styles.readLine, { backgroundColor: theme.accent }]} />
+          <Text style={[styles.readLineText, { color: theme.accent }]}>
+            ここから新着
+          </Text>
+          <View style={[styles.readLine, { backgroundColor: theme.accent }]} />
+        </View>
+      ) : null}
+
       <Pressable
         accessible={false}
         onPress={(e) => onTap && onTap(e)}
@@ -105,6 +117,7 @@ function ResponseItem({
           onBacklinks={onBacklinks}
           onBe={onBe}
           highlights={textOptions?.highlights}
+          isNew={isNew}
         />
 
         <View

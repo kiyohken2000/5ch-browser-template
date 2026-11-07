@@ -5,9 +5,11 @@
  * 並べ替えは lib/sort.js の純粋関数に任せ、同点は subject.txt の元の並びで割る。
  */
 
+import * as Clipboard from 'expo-clipboard'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -31,6 +33,7 @@ import {
   momentum,
   SORT_MODES,
   sortThreads,
+  unreadCount,
 } from 'lib/sort'
 import { pushHistory } from 'lib/search'
 import { KEYS, load, save } from 'lib/storage'
@@ -39,6 +42,7 @@ import { parseBoardLocation } from 'lib/urls'
 import { selectNgFilters } from 'slices/ng.slice'
 import { toggleBoardFavorite, touchBoard } from 'slices/watch.slice'
 import { useEmberTheme } from 'theme/ember'
+import { showToast } from 'utils/showToast'
 
 /** これより下へスクロールしたら「先頭へ」を出す。 */
 const TO_TOP_MIN_OFFSET = 400
@@ -53,6 +57,9 @@ export default function Threads({ route, navigation }) {
   const ngFilters = useSelector(selectNgFilters)
   const { titleWords } = useSelector(selectActiveHighlights)
   const watchList = useSelector((state) => state.watch.watchList)
+  const titleFontSize = useSelector(
+    (state) => state.settings.threadTitleFontSize,
+  )
 
   const [threads, setThreads] = useState([])
   const [loading, setLoading] = useState(true)
@@ -66,7 +73,7 @@ export default function Threads({ route, navigation }) {
   }, [initialFilter])
   const [filterFocused, setFilterFocused] = useState(false)
   const [filterHistory, setFilterHistory] = useState([])
-  // 前回の一覧に無かったスレ。更新しても、この画面を閉じるまでは印を残す
+  // 前回の一覧に無かったスレ。更新すると、その更新で増えた分に置き換わる
   const [newKeys, setNewKeys] = useState(() => new Set())
 
   /** お気に入りと履歴に入れる形。URL が読めない板は入れない。 */
@@ -161,7 +168,7 @@ export default function Threads({ route, navigation }) {
           boardUrl,
           got.threads,
         )
-        setNewKeys((prev) => new Set([...prev, ...diff.newKeys]))
+        setNewKeys(new Set(diff.newKeys))
         save(KEYS.knownThreads, diff.known).then((ok) => {
           if (!ok) console.warn('[threads] スレ一覧の記録に失敗した')
         })
@@ -206,14 +213,42 @@ export default function Threads({ route, navigation }) {
     return m
   }, [watchList])
 
+  // 既読の変化だけでは並べ直さない（不変条件 3）。スレを読んで戻っただけで
+  // 行が動かないよう、一覧の更新かソートの切り替えのときに最新の既読を読む
+  const seenRef = useRef(watchById)
+  seenRef.current = watchById
+  const sorted = useMemo(
+    () =>
+      sortThreads(threads, sortMode, Date.now(), {
+        seenById: seenRef.current,
+        newKeys,
+      }),
+    [threads, sortMode, newKeys],
+  )
+
   const shown = useMemo(() => {
-    const now = Date.now()
-    // NG → 絞り込み → ソート の順。NG はどの画面でも必ず通す（不変条件 2）
-    let rows = visibleThreads(threads, ngFilters)
+    // NG はどの画面でも必ず通す（不変条件 2）
+    const rows = visibleThreads(sorted, ngFilters)
     const q = filter.trim().toLowerCase()
-    if (q) rows = rows.filter((t) => t.title.toLowerCase().includes(q))
-    return sortThreads(rows, sortMode, now)
-  }, [threads, ngFilters, filter, sortMode])
+    if (!q) return rows
+    return rows.filter((t) => t.title.toLowerCase().includes(q))
+  }, [sorted, ngFilters, filter])
+
+  // 一覧は 2 行で切るので、長押しで全文を見られるようにする
+  const showFullTitle = useCallback((title) => {
+    Alert.alert('スレタイ', title, [
+      {
+        text: 'コピー',
+        onPress: () =>
+          Clipboard.setStringAsync(title)
+            .then(() => showToast({ title: 'コピーしました' }))
+            .catch((e) =>
+              console.warn(`[threads] コピーに失敗: ${e?.message || e}`),
+            ),
+      },
+      { text: '閉じる', style: 'cancel' },
+    ])
+  }, [])
 
   if (loading) {
     return (
@@ -339,9 +374,7 @@ export default function Threads({ route, navigation }) {
         }
         renderItem={({ item }) => {
           const seen = watchById.get(item.threadId)
-          const unread = seen
-            ? Math.max(0, item.responseCount - (seen.totalCount || 0))
-            : 0
+          const unread = unreadCount(item, seen)
           return (
             <Pressable
               onPress={() =>
@@ -353,6 +386,7 @@ export default function Threads({ route, navigation }) {
                   totalCount: item.responseCount,
                 })
               }
+              onLongPress={() => showFullTitle(item.title)}
               style={({ pressed }) => [
                 styles.row,
                 {
@@ -363,8 +397,11 @@ export default function Threads({ route, navigation }) {
             >
               <Text
                 style={[
-                  styles.title,
-                  { color: seen ? theme.textDim : theme.text },
+                  {
+                    color: seen ? theme.textDim : theme.text,
+                    fontSize: titleFontSize,
+                    lineHeight: Math.round(titleFontSize * 1.34),
+                  },
                 ]}
                 numberOfLines={2}
               >
@@ -391,9 +428,19 @@ export default function Threads({ route, navigation }) {
                   {item.responseCount}
                 </Text>
                 {unread > 0 ? (
-                  <Text style={[styles.unread, { color: theme.accent }]}>
-                    +{unread}
-                  </Text>
+                  <View
+                    accessibilityLabel={`新着 ${unread} 件`}
+                    style={[
+                      styles.unreadBadge,
+                      { backgroundColor: theme.accent },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.unreadText, { color: theme.badgeText }]}
+                    >
+                      +{unread}
+                    </Text>
+                  </View>
                 ) : null}
                 <Text style={[styles.metaText, { color: theme.textFaint }]}>
                   勢い {Math.round(momentum(item))}
@@ -485,8 +532,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 5,
   },
-  title: { fontSize: 15, lineHeight: 20 },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   metaText: { fontSize: 11 },
-  unread: { fontSize: 11, fontWeight: '700' },
+  unreadBadge: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 9 },
+  unreadText: { fontSize: 12, fontWeight: '700' },
 })

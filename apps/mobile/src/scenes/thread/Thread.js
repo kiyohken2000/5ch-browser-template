@@ -103,6 +103,7 @@ import {
 } from 'ai/prompts'
 import useAiTask from 'ai/useAiTask'
 import AiResultPanel from 'components/AiResultPanel'
+import CopySheet from 'components/CopySheet'
 import { beProfileUrl, beThreadHistoryUrl } from 'lib/be'
 import { wordHits } from 'lib/highlights'
 import { computeImageHash } from 'lib/imageHash'
@@ -138,6 +139,8 @@ import { showToast } from 'utils/showToast'
 
 /** 本文の上に重ねるバーの高さ（ガラスの下をレスが通る — §9-3）。 */
 const FOOTER_HEIGHT = 44
+/** 新着へ飛ぶボタンを出すか、行の配置が落ち着いてから確かめるまでの時間 */
+const JUMP_CHECK_DELAY_MS = 800
 const TOP_SETTLE_INTERVAL_MS = 250
 const AUTO_SCROLL_INTERVAL_MS = 33
 const REMEMBER_DELAY_MS = 400
@@ -294,6 +297,9 @@ export default function Thread({ route, navigation }) {
     if (marker?.manualAt > openedAtRef.current) setLineNo(marker.lastReadNo)
   }, [marker?.manualAt, marker?.lastReadNo])
   const isFavorite = favorites.some((t) => t.threadId === threadId)
+  // 最後の更新で届いた最初のレス。新着が無ければ消す（デスクトップ版と同じ）
+  const [newFromNo, setNewFromNo] = useState(null)
+  const [copyTarget, setCopyTarget] = useState(null)
 
   // 開いたスレを「最近開いた」へ。取得に失敗しても開いたことは残す
   useEffect(() => {
@@ -417,6 +423,12 @@ export default function Thread({ route, navigation }) {
         })
         dispatch(updateCount({ threadId, totalCount: entryCount }))
       }
+      const { entryCount: nowCount } = stateRef.current
+      setNewFromNo(
+        before.entryCount > 0 && nowCount > before.entryCount
+          ? before.entryCount + 1
+          : null,
+      )
       dispatch(markSeen({ threadId, totalCount: stateRef.current.entryCount }))
       noteDatDropped(false)
       return true
@@ -971,6 +983,10 @@ export default function Thread({ route, navigation }) {
         { label: 'スレタイをコピー', onPress: () => copy(name, 'スレタイ') },
         { label: 'URL をコピー', onPress: () => copy(threadUrl, 'URL') },
         {
+          label: 'スレタイと URL をコピー',
+          onPress: () => copy(`${name}\n${threadUrl}`, 'スレタイと URL'),
+        },
+        {
           label: '最後まで読んだ',
           onPress: () => {
             const last = shown[shown.length - 1]
@@ -1168,6 +1184,13 @@ export default function Thread({ route, navigation }) {
         label: 'このレスをコピー',
         run: () => copy(plainBody, `>>${no}`),
       },
+      {
+        label: '本文を選んでコピー',
+        run: () => {
+          closeMenu()
+          setCopyTarget({ no, text: plainBody })
+        },
+      },
       { label: 'レス番号をコピー', run: () => copy(`>>${no}`, `>>${no}`) },
       { label: 'URL をコピー', run: () => copy(resUrl(no), 'URL') },
       {
@@ -1276,6 +1299,37 @@ export default function Thread({ route, navigation }) {
     // 既読番号の「次」のレスの上に線を引く
     return shown.findIndex((r) => r.no > lineNo)
   }, [shown, lineNo])
+
+  const newIndex = useMemo(() => {
+    if (!newFromNo) return -1
+    return shown.findIndex((r) => r.no >= newFromNo)
+  }, [shown, newFromNo])
+
+  // 目的のレスが画面の外にあるときだけ、そこへ飛ぶボタンを出す
+  const [jumps, setJumps] = useState({ toNew: false, toRead: false })
+  const jumpEnvRef = useRef({})
+  jumpEnvRef.current = { newIndex, markerIndex, filtered: !!filterKey }
+  const updateJumps = useCallback(() => {
+    const range = listRef.current?.computeVisibleIndices?.()
+    if (!range || range.startIndex < 0) return
+    const env = jumpEnvRef.current
+    const offscreen = (index) =>
+      !env.filtered &&
+      index >= 0 &&
+      (index < range.startIndex || index > range.endIndex)
+    const toNew = offscreen(env.newIndex)
+    // 同じ行なら「新着へ」だけで足りる
+    const toRead =
+      offscreen(env.markerIndex) && env.markerIndex !== env.newIndex
+    setJumps((prev) =>
+      prev.toNew === toNew && prev.toRead === toRead ? prev : { toNew, toRead },
+    )
+  }, [])
+  useEffect(() => {
+    // 行を測り終えてから見る
+    const timer = setTimeout(updateJumps, JUMP_CHECK_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [newIndex, markerIndex, filterKey, loading, updateJumps])
 
   const summarizeUnread = useCallback(() => {
     const rows = pickSummaryRows(shown, markerIndex)
@@ -1461,22 +1515,27 @@ export default function Thread({ route, navigation }) {
 
   const checkingRef = useRef(false)
 
-  /** 最下部からさらに引いたとき。結果の件数を知らせる。 */
-  const checkNew = useCallback(async () => {
-    if (checkingRef.current) return
-    checkingRef.current = true
-    setCheckingNew(true)
-    haptic()
+  /** 利用者が更新したとき。結果の件数を知らせる。失敗はエラー表示に任せる。 */
+  const readDeltaAndReport = useCallback(async () => {
     const before = stateRef.current.entryCount
-    const failed = !(await readDelta())
-    checkingRef.current = false
-    setCheckingNew(false)
-    if (failed) return
+    const ok = await readDelta()
+    if (!ok) return
     const added = stateRef.current.entryCount - before
     showToast({
       title: added > 0 ? `新着 ${added} 件` : '新着はありません',
     })
   }, [readDelta])
+
+  /** 最下部からさらに引いたとき。 */
+  const checkNew = useCallback(async () => {
+    if (checkingRef.current) return
+    checkingRef.current = true
+    setCheckingNew(true)
+    haptic()
+    await readDeltaAndReport()
+    checkingRef.current = false
+    setCheckingNew(false)
+  }, [readDeltaAndReport])
 
   const listFooter = useMemo(
     () => (
@@ -1614,6 +1673,8 @@ export default function Thread({ route, navigation }) {
           settings.collapseLongPosts ? settings.collapseLineThreshold : 0
         }
         showReadLine={!filterKey && index === markerIndex}
+        showNewLine={!filterKey && index === newIndex}
+        isNew={!!newFromNo && item.no >= newFromNo}
         highlighted={item.no === currentHitNo}
         mine={mineNos.has(item.no)}
         replyToMe={repliesToMe.has(item.no)}
@@ -1637,6 +1698,8 @@ export default function Thread({ route, navigation }) {
       settings.collapseLineThreshold,
       backlinks,
       markerIndex,
+      newIndex,
+      newFromNo,
       filterKey,
       idSeqs,
       setBeMenu,
@@ -1779,7 +1842,7 @@ export default function Thread({ route, navigation }) {
 
       {error ? (
         <Pressable
-          onPress={entries.length > 0 ? readDelta : readFull}
+          onPress={entries.length > 0 ? readDeltaAndReport : readFull}
           style={[styles.errorBar, { backgroundColor: theme.accentDim }]}
         >
           <Text style={{ color: theme.danger }}>{error}（タップで再試行）</Text>
@@ -1888,6 +1951,7 @@ export default function Thread({ route, navigation }) {
                 e.nativeEvent
               scrollRef.current.offset = contentOffset.y
               scheduleRemember()
+              updateJumps()
               scrollRef.current.atBottom = isAtBottom({
                 offset: contentOffset.y,
                 viewport: layoutMeasurement.height,
@@ -1900,7 +1964,7 @@ export default function Thread({ route, navigation }) {
                 refreshing={refreshing}
                 onRefresh={() => {
                   setRefreshing(true)
-                  readDelta()
+                  readDeltaAndReport()
                 }}
                 tintColor={theme.accent}
               />
@@ -1911,6 +1975,52 @@ export default function Thread({ route, navigation }) {
           />
         </View>
       </View>
+
+      {jumps.toNew || jumps.toRead ? (
+        <View style={[styles.jumps, { bottom: footerHeight + 10 }]}>
+          {jumps.toRead ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="ここまで読んだ位置へ移動"
+              onPress={() => scrollToRow(markerIndex, false, 0)}
+              style={[
+                styles.jump,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.jumpText, { color: theme.text }]}>
+                読んだ位置へ
+              </Text>
+            </Pressable>
+          ) : null}
+          {jumps.toNew ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="新着レスへ移動"
+              onPress={() => scrollToRow(newIndex, false, 0)}
+              style={[
+                styles.jump,
+                { backgroundColor: theme.accent, borderColor: theme.accent },
+              ]}
+            >
+              <Text style={[styles.jumpText, { color: theme.badgeText }]}>
+                新着へ
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      <CopySheet
+        target={copyTarget}
+        theme={theme}
+        fontSize={settings.fontSize}
+        onCopy={() => {
+          copy(copyTarget.text, `>>${copyTarget.no}`)
+          setCopyTarget(null)
+        }}
+        onClose={() => setCopyTarget(null)}
+      />
 
       <View
         style={[
@@ -2372,6 +2482,24 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   footerText: { flex: 1, fontSize: 12 },
+  jumps: {
+    position: 'absolute',
+    right: 12,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  jump: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  jumpText: { fontSize: 13, fontWeight: '600' },
   footerBtn: {
     width: 44,
     height: 44,

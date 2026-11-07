@@ -19,6 +19,7 @@ import {
 import { useDispatch, useSelector } from 'react-redux'
 
 import SettingsSection from 'components/SettingsSection'
+import { formatIdExpiry, ID_EXPIRE_DAY_OPTIONS } from 'lib/idExpiry'
 import {
   addNg,
   addNgLines,
@@ -84,7 +85,7 @@ function Chips({ options, value, onChange, theme, label }) {
   )
 }
 
-function NgItem({ list, raw, open, onToggleOpen, theme }) {
+function NgItem({ list, raw, open, onToggleOpen, expireDays, theme }) {
   const dispatch = useDispatch()
   const entry = typeof raw === 'string' ? { value: raw, mode: 'hide' } : raw
   const [draft, setDraft] = useState(entry.value)
@@ -120,7 +121,12 @@ function NgItem({ list, raw, open, onToggleOpen, theme }) {
           {entry.value}
         </Text>
         <Text style={{ color: theme.textFaint, fontSize: 11 }}>
-          {MODES.find((m) => m.key === entry.mode)?.label || '非表示'}
+          {[
+            MODES.find((m) => m.key === entry.mode)?.label || '非表示',
+            list === 'ids' ? formatIdExpiry(raw, expireDays) : '',
+          ]
+            .filter(Boolean)
+            .join(' / ')}
         </Text>
       </Pressable>
 
@@ -225,6 +231,7 @@ export default function NgSettings() {
       style={[styles.flex, { backgroundColor: theme.bg }]}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
     >
       <SettingsSection title="自動で隠す" theme={theme}>
         <View style={[styles.block, { borderColor: theme.border }]}>
@@ -328,6 +335,27 @@ export default function NgSettings() {
             </Text>
           </Pressable>
 
+          {key === 'ids' ? (
+            <View style={[styles.block, { borderColor: theme.border }]}>
+              <Text style={[styles.blockTitle, { color: theme.text }]}>
+                自動で消す
+              </Text>
+              <Text style={[styles.blockHint, { color: theme.textFaint }]}>
+                ID は日替わりなので、登録から指定の日数で消します
+              </Text>
+              <Chips
+                options={ID_EXPIRE_DAY_OPTIONS.map((n) => ({
+                  key: n,
+                  label: n === 0 ? '無効' : `${n} 日`,
+                }))}
+                value={settings.ngIdExpireDays}
+                onChange={(v) => set('ngIdExpireDays', v)}
+                theme={theme}
+                label="NG ID の自動削除"
+              />
+            </View>
+          ) : null}
+
           {ng[key].length === 0 ? (
             <View style={styles.none}>
               <Text style={{ color: theme.textFaint, fontSize: 13 }}>
@@ -347,6 +375,7 @@ export default function NgSettings() {
                   onToggleOpen={() =>
                     setOpenItem((cur) => (cur === id ? null : id))
                   }
+                  expireDays={settings.ngIdExpireDays}
                   theme={theme}
                 />
               )

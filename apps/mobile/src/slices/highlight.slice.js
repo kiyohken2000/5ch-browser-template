@@ -30,13 +30,21 @@ const highlightSlice = createSlice({
       if (!HIGHLIGHT_LISTS.includes(list)) return
       const trimmed = String(value || '').trim()
       if (!trimmed || state[list].some((e) => e.value === trimmed)) return
-      state[list].push({ value: trimmed, color })
+      state[list].push({ value: trimmed, color, addedAt: Date.now() })
       persist(state)
     },
     removeHighlight: (state, { payload }) => {
       const { list, value } = payload
       if (!HIGHLIGHT_LISTS.includes(list)) return
       state[list] = state[list].filter((e) => e.value !== value)
+      persist(state)
+    },
+    /** まとめて消す（期限切れの ID など）。 */
+    removeHighlightValues: (state, { payload }) => {
+      const { list, values } = payload
+      if (!HIGHLIGHT_LISTS.includes(list)) return
+      const gone = new Set(values)
+      state[list] = state[list].filter((e) => !gone.has(e.value))
       persist(state)
     },
     updateHighlight: (state, { payload }) => {
@@ -57,8 +65,12 @@ const highlightSlice = createSlice({
   },
 })
 
-export const { addHighlight, removeHighlight, updateHighlight } =
-  highlightSlice.actions
+export const {
+  addHighlight,
+  removeHighlight,
+  removeHighlightValues,
+  updateHighlight,
+} = highlightSlice.actions
 
 /** 画面で使う、有効な項目だけの形。 */
 export const selectActiveHighlights = createSelector(

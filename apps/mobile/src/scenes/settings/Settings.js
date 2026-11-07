@@ -202,6 +202,41 @@ export default function Settings({ navigation }) {
           </View>
         </Row>
 
+        <Row
+          theme={theme}
+          label="スレ一覧の文字サイズ"
+          hint={`${settings.threadTitleFontSize}pt`}
+        >
+          <View style={styles.chips}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="スレ一覧の文字を小さくする"
+              onPress={() =>
+                set(
+                  'threadTitleFontSize',
+                  Math.max(11, settings.threadTitleFontSize - 1),
+                )
+              }
+              style={[styles.stepper, { borderColor: theme.border }]}
+            >
+              <Text style={{ color: theme.text }}>－</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="スレ一覧の文字を大きくする"
+              onPress={() =>
+                set(
+                  'threadTitleFontSize',
+                  Math.min(24, settings.threadTitleFontSize + 1),
+                )
+              }
+              style={[styles.stepper, { borderColor: theme.border }]}
+            >
+              <Text style={{ color: theme.text }}>＋</Text>
+            </Pressable>
+          </View>
+        </Row>
+
         <Row theme={theme} label="本文の太さ">
           {choiceChips('bodyWeight', [
             ['normal', '標準'],
@@ -592,9 +627,7 @@ export default function Settings({ navigation }) {
           onPress={() => navigation.navigate('Terms')}
           style={[styles.row, { borderColor: theme.border }]}
         >
-          <Text style={[styles.label, { color: theme.text }]}>
-            利用条件
-          </Text>
+          <Text style={[styles.label, { color: theme.text }]}>利用条件</Text>
           <Icon name="chevronRight" size={16} color={theme.textFaint} />
         </Pressable>
         {[

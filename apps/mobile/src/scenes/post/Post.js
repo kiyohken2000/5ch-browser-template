@@ -20,7 +20,7 @@ import React, {
 import {
   ActivityIndicator,
   Keyboard,
-  KeyboardAvoidingView,
+  LayoutAnimation,
   Linking,
   Platform,
   Pressable,
@@ -38,6 +38,7 @@ import Toast from 'react-native-toast-message'
 import { POST_CHECK_MIN_CHARS, postCheckMessages } from 'ai/prompts'
 import useAiTask from 'ai/useAiTask'
 import AiResultPanel from 'components/AiResultPanel'
+import Icon from 'components/Icon'
 import ResponseBody from 'components/ResponseBody'
 import TermsBody from 'components/TermsBody'
 import { parseBody } from 'lib/body'
@@ -125,8 +126,6 @@ export default function Post({ route, navigation }) {
   const sageDefault = useSelector((state) => state.settings.composeSageDefault)
   const keepOpen = useSelector((state) => state.settings.composeKeepOpen)
   const keepHistory = useSelector((state) => state.settings.keepPostHistory)
-  // キーボードの余白の計算に使う、画面の上端の位置（ヘッダーの高さの分）
-  const [topOffset, setTopOffset] = useState(0)
   const rootRef = useRef(null)
 
   const [name, setName] = useState('')
@@ -149,14 +148,36 @@ export default function Post({ route, navigation }) {
   )
   const insets = useSafeAreaInsets()
   const [keyboardShown, setKeyboardShown] = useState(false)
+  // 画面の下端がキーボードに隠れる量。入力欄と操作列をこの分だけ持ち上げる
+  const [keyboardInset, setKeyboardInset] = useState(0)
 
   useEffect(() => {
     const showEvent =
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
     const hideEvent =
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
-    const show = Keyboard.addListener(showEvent, () => setKeyboardShown(true))
-    const hide = Keyboard.addListener(hideEvent, () => setKeyboardShown(false))
+    const onShow = (e) => {
+      setKeyboardShown(true)
+      // iOS のシートは画面の下端まで届く。本文の autoFocus でシートが動いている
+      // 間に開くので、位置を測らずキーボードの高さをそのまま使う
+      if (Platform.OS === 'ios') {
+        LayoutAnimation.easeInEaseOut()
+        setKeyboardInset(e.endCoordinates.height)
+        return
+      }
+      // Android は OS が画面を縮めていることがあるので、実際に重なる分だけ足す
+      const root = rootRef.current
+      if (!root) return
+      root.measureInWindow((x, y, width, height) => {
+        setKeyboardInset(Math.max(0, y + height - e.endCoordinates.screenY))
+      })
+    }
+    const show = Keyboard.addListener(showEvent, onShow)
+    const hide = Keyboard.addListener(hideEvent, () => {
+      setKeyboardShown(false)
+      LayoutAnimation.easeInEaseOut()
+      setKeyboardInset(0)
+    })
     return () => {
       show.remove()
       hide.remove()
@@ -549,14 +570,13 @@ export default function Post({ route, navigation }) {
   }
 
   return (
-    <KeyboardAvoidingView
+    <View
       ref={rootRef}
-      behavior="padding"
-      keyboardVerticalOffset={topOffset}
-      onLayout={() =>
-        rootRef.current?.measureInWindow?.((x, y) => setTopOffset(y))
-      }
-      style={[styles.flex, { backgroundColor: theme.bg }]}
+      collapsable={false}
+      style={[
+        styles.flex,
+        { backgroundColor: theme.bg, paddingBottom: keyboardInset },
+      ]}
     >
       {title ? (
         <Text
@@ -835,9 +855,19 @@ export default function Post({ route, navigation }) {
               {preview ? '編集に戻る' : 'プレビュー'}
             </Text>
           </Pressable>
+          {keyboardShown ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="キーボードを閉じる"
+              hitSlop={8}
+              onPress={Keyboard.dismiss}
+            >
+              <Icon name="chevronDown" size={20} color={theme.accent} />
+            </Pressable>
+          ) : null}
         </View>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 
