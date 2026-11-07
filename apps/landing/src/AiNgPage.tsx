@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import appIcon from "./assets/images/icon.png";
+import SiteNav from "./SiteNav";
 import shotInstall from "./assets/images/ng-ai-install.png";
 import shotEntry from "./assets/images/ng-ai-entry.png";
 import shotPanel from "./assets/images/ng-ai-panel.png";
@@ -59,28 +60,26 @@ export default function AiNgPage() {
 
   return (
     <>
-      <header className="site-nav">
-        <div className="nav-inner">
-          <a className="nav-brand" href="/">
-            <img src={appIcon} alt="" className="nav-logo" />
-            <span>Ember</span>
-          </a>
-          <nav className="nav-links">
-            <a href="/#features">機能</a>
-            <a href="/#install">インストール</a>
-            <a href="/#download">ダウンロード</a>
-            <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
-            <button
-              type="button"
-              className="theme-toggle"
-              onClick={() => setColorScheme(colorScheme === "dark" ? "light" : "dark")}
-              aria-label={colorScheme === "dark" ? "ライトテーマに切り替え" : "ダークテーマに切り替え"}
-            >
-              {colorScheme === "dark" ? "☀" : "☾"}
-            </button>
-          </nav>
-        </div>
-      </header>
+      <SiteNav
+        brandHref="/"
+        links={[
+          { href: "/#features", label: "機能" },
+          { href: "/#install", label: "インストール" },
+          { href: "/#download", label: "ダウンロード" },
+          { href: "/mobile.html", label: "モバイル版" },
+          { href: GITHUB_URL, label: "GitHub", external: true },
+        ]}
+        themeButton={
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={() => setColorScheme(colorScheme === "dark" ? "light" : "dark")}
+            aria-label={colorScheme === "dark" ? "ライトテーマに切り替え" : "ダークテーマに切り替え"}
+          >
+            {colorScheme === "dark" ? "☀" : "☾"}
+          </button>
+        }
+      />
 
       <main className="page doc-page" id="top">
         <section className="section doc-hero">

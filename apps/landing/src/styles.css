@@ -173,6 +173,8 @@ body.zoom-open {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  /* スマホ幅でリンクをこの下にドロワーとして出す土台 */
+  position: relative;
 }
 .nav-brand {
   display: inline-flex;
@@ -203,6 +205,28 @@ body.zoom-open {
   transition: color 150ms ease;
 }
 .nav-links a:hover {
+  color: var(--ink);
+}
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* ハンバーガー。スマホ幅だけで出すので、広い画面では畳んでおく */
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--panel-strong);
+  color: var(--ink-sub);
+  cursor: pointer;
+}
+.nav-toggle:hover {
   color: var(--ink);
 }
 
@@ -1208,7 +1232,31 @@ h1 {
 }
 
 @media (max-width: 560px) {
-  .nav-links a:not(:last-child) { display: none; }
+  /* 以前はここでリンクをまとめて消していたので、スマホからはモバイル版ページへの
+     入口が無くなっていた。バーには収まらないので、ハンバーガーで開くドロワーに
+     積み替える。テーマ切り替えは .nav-actions に残るので常に押せる。 */
+  .nav-toggle { display: inline-flex; }
+  .nav-links {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 6px 0 10px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--line);
+    box-shadow: var(--shadow-md);
+  }
+  .nav-links.nav-links-open { display: flex; }
+  .nav-links a {
+    padding: 12px 24px;
+    font-size: 0.95rem;
+    border-top: 1px solid var(--line);
+  }
+  .nav-links a:first-child { border-top: 0; }
   h1 { font-size: clamp(2rem, 9vw, 2.8rem); }
   .section { padding: 64px 0 0; }
   .feature-big { padding: 22px; }

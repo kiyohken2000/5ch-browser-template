@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import appIcon from "./assets/images/icon.png";
+import SiteNav from "./SiteNav";
 import badgeAppStore from "./assets/images/mobile/appstore.png";
 import badgeGooglePlay from "./assets/images/mobile/googleplay.png";
 import shotAi from "./assets/images/mobile/ai-settings.jpg";
@@ -47,27 +47,24 @@ function PageFrame({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <header className="site-nav">
-        <div className="nav-inner">
-          <a className="nav-brand" href="/">
-            <img src={appIcon} alt="" className="nav-logo" />
-            <span>Ember</span>
-          </a>
-          <nav className="nav-links">
-            <a href="/">デスクトップ版</a>
-            <a href="/mobile.html">モバイル版</a>
-            <a href="/support.html">サポート</a>
-            <button
-              type="button"
-              className="theme-toggle"
-              onClick={() => setColorScheme(colorScheme === "dark" ? "light" : "dark")}
-              aria-label={colorScheme === "dark" ? "ライトテーマに切り替え" : "ダークテーマに切り替え"}
-            >
-              {colorScheme === "dark" ? "☀" : "☾"}
-            </button>
-          </nav>
-        </div>
-      </header>
+      <SiteNav
+        brandHref="/"
+        links={[
+          { href: "/", label: "デスクトップ版" },
+          { href: "/mobile.html", label: "モバイル版" },
+          { href: "/support.html", label: "サポート" },
+        ]}
+        themeButton={
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={() => setColorScheme(colorScheme === "dark" ? "light" : "dark")}
+            aria-label={colorScheme === "dark" ? "ライトテーマに切り替え" : "ダークテーマに切り替え"}
+          >
+            {colorScheme === "dark" ? "☀" : "☾"}
+          </button>
+        }
+      />
       {children}
       <footer className="site-footer mobile-footer">
         <p className="muted small">

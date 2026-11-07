@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import appIcon from "./assets/images/icon.png";
+import SiteNav from "./SiteNav";
 import bmcButton from "./assets/images/bmc-button.png";
 import emberWindowsLight from "./assets/images/ember-windows-light.jpg";
 import emberWindowsDark from "./assets/images/ember-windows-dark.jpg";
@@ -321,32 +322,29 @@ export default function App() {
       <div className="bg-aurora" aria-hidden="true" />
       <div className="bg-texture" aria-hidden="true" />
 
-      <header className="site-nav">
-        <div className="nav-inner">
-          <a className="nav-brand" href="#top">
-            <img src={appIcon} alt="" className="nav-logo" />
-            <span>Ember</span>
-          </a>
-          <nav className="nav-links">
-            <a href="#features">機能</a>
-            <a href="#install">インストール</a>
-            <a href="#sync">データ共有</a>
-            <a href="/ai-ng.html">曖昧NG</a>
-            <a href="/mobile.html">モバイル版</a>
-            <a href="#download">ダウンロード</a>
-            <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
-            <button
-              type="button"
-              className="theme-toggle"
-              onClick={() => setColorScheme(colorScheme === "light" ? "dark" : "light")}
-              aria-label={colorScheme === "light" ? "ダークモードに切り替え" : "ライトモードに切り替え"}
-              title={colorScheme === "light" ? "ダークモードに切り替え" : "ライトモードに切り替え"}
-            >
-              {colorScheme === "light" ? <MoonIcon /> : <SunIcon />}
-            </button>
-          </nav>
-        </div>
-      </header>
+      <SiteNav
+        brandHref="#top"
+        links={[
+          { href: "#features", label: "機能" },
+          { href: "#install", label: "インストール" },
+          { href: "#sync", label: "データ共有" },
+          { href: "/ai-ng.html", label: "曖昧NG" },
+          { href: "/mobile.html", label: "モバイル版" },
+          { href: "#download", label: "ダウンロード" },
+          { href: GITHUB_URL, label: "GitHub", external: true },
+        ]}
+        themeButton={
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={() => setColorScheme(colorScheme === "light" ? "dark" : "light")}
+            aria-label={colorScheme === "light" ? "ダークモードに切り替え" : "ライトモードに切り替え"}
+            title={colorScheme === "light" ? "ダークモードに切り替え" : "ライトモードに切り替え"}
+          >
+            {colorScheme === "light" ? <MoonIcon /> : <SunIcon />}
+          </button>
+        }
+      />
 
       <main className="page" id="top">
         <section className="hero">
