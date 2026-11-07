@@ -1,6 +1,7 @@
 import {
   MAX_KNOWN_BOARDS,
   MAX_MY_POSTS,
+  manualReadMarkers,
   diffKnownThreads,
   MAX_RECENT_OPENED,
   postedThreads,
@@ -144,5 +145,18 @@ describe('diffKnownThreads', () => {
     expect(Object.keys(known)).toHaveLength(MAX_KNOWN_BOARDS)
     expect(known.b0).toBeUndefined()
     expect(known[`b${MAX_KNOWN_BOARDS}`]).toEqual(['1'])
+  })
+})
+
+describe('manualReadMarkers', () => {
+  it('自分で付けた印だけ残す', () => {
+    const manual = { lastReadNo: 10, manualAt: 123 }
+    expect(manualReadMarkers({ a: manual, b: { lastReadNo: 20 } })).toEqual({
+      a: manual,
+    })
+  })
+
+  it('読めない値は空にする', () => {
+    expect(manualReadMarkers(null)).toEqual({})
   })
 })

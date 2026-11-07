@@ -1,6 +1,7 @@
 /**
- * モバイルで使うモデル（§9-9）。デスクトップ版 `ai-models.json` のうち端末に載るものだけ。
- * URL と SHA256 は同じ。5GB 以上のモデルは置かない（§12-5）。
+ * モバイルで使うモデル（§9-9）。デスクトップ版 `ai-models.json` のうち端末に載るものと、
+ * `mobileOnly` の印を付けたもの。共通のモデルは URL と SHA256 も同じ。
+ * 5GB 以上のモデルは置かない（§12-5）。
  *
  * RAM の段階は FeedOwn の実機実測による。iOS の `Device.totalMemory` は物理 RAM の
  * 約 90% を返すので、しきい値は各クラスのやや下に置く。
@@ -30,6 +31,19 @@ export const AI_MODELS = [
     sha256: '23d4d4060cb06463563f6e8644bbbc7d1cb0bfe4cf21d5edf3ccc6f515fd44bb',
     minRam: RAM_TIER.GB4,
     uses: ['general'],
+  },
+  {
+    id: 'lfm3-1.7b-q4km',
+    name: 'LFM3 1.7B',
+    note: 'LFM2.5 の次の世代。要約向け',
+    sizeBytes: 1099627808,
+    url: `${HF}/LiquidAI/LFM3-1.7B-GGUF/resolve/main/LFM3-1.7B-Q4_K_M.gguf`,
+    sha256: '3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4',
+    minRam: RAM_TIER.GB4,
+    // 曖昧 NG には使わない。7/12 正解で、確率も 0.5 を超えにくい（iPhone Air で実測）
+    uses: ['general'],
+    // デスクトップ版の llama-cpp-2 0.1.154 は lfm3 を読めない
+    mobileOnly: true,
   },
   {
     id: 'gemma3-1b-it-q4km',

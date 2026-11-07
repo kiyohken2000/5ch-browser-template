@@ -5,7 +5,7 @@
  *   3. `>>` のタップで参照ポップアップが出て、**連鎖で辿れる**
  *   4. ID のタップで同一 ID のレス一覧が出る
  *   5. 長押しでレスメニューが出て、NG を登録でき、**即座に反映される**
- *   6. ここまで読んだ線が引かれ、再訪時に復元される
+ *   6. 自分で付けた「ここまで読んだ」の線と読んでいた位置が、再訪時に復元される
  *   7. スレ内検索
  *   8. OGP カードとサムネマスク
  *  11. AA が検出され、折り返しで壊れず、折りたたみの対象から外れている
@@ -126,6 +126,7 @@ import { addNg, selectNgFilters } from 'slices/ng.slice'
 import { setSetting } from 'slices/settings.slice'
 import {
   markSeen,
+  clearReadMarker,
   setReadMarker,
   setDatDropped,
   touchRecentThread,
@@ -139,8 +140,6 @@ import { showToast } from 'utils/showToast'
 
 /** 本文の上に重ねるバーの高さ（ガラスの下をレスが通る — §9-3）。 */
 const FOOTER_HEIGHT = 44
-/** 新着へ飛ぶボタンを出すか、行の配置が落ち着いてから確かめるまでの時間 */
-const JUMP_CHECK_DELAY_MS = 800
 const TOP_SETTLE_INTERVAL_MS = 250
 const AUTO_SCROLL_INTERVAL_MS = 33
 const REMEMBER_DELAY_MS = 400
@@ -289,13 +288,8 @@ export default function Thread({ route, navigation }) {
   }, [threadUrl])
 
   const marker = readMarkers[threadId]
-  // 未読の線はスレを開いたときの位置に固定する。読み進めても線は動かさない。
-  // 「ここまで読んだ」を押したときだけ動かす
-  const openedAtRef = useRef(Date.now())
-  const [lineNo, setLineNo] = useState(marker?.lastReadNo ?? 0)
-  useEffect(() => {
-    if (marker?.manualAt > openedAtRef.current) setLineNo(marker.lastReadNo)
-  }, [marker?.manualAt, marker?.lastReadNo])
+  // 「ここまで読んだ」は利用者が付ける印。読み進めても動かさない
+  const lineNo = marker?.lastReadNo ?? 0
   const isFavorite = favorites.some((t) => t.threadId === threadId)
   // 最後の更新で届いた最初のレス。新着が無ければ消す（デスクトップ版と同じ）
   const [newFromNo, setNewFromNo] = useState(null)
@@ -609,7 +603,6 @@ export default function Thread({ route, navigation }) {
   visibleEnvRef.current = {
     rows: listRows,
     filtered: !!filterKey,
-    lastReadNo: marker?.lastReadNo ?? 0,
   }
 
   const isCellular = useIsCellular()
@@ -1278,19 +1271,35 @@ export default function Thread({ route, navigation }) {
         })
       },
     })
-    items.push({
-      label: 'ここまで読んだ',
-      run: () =>
-        dispatch(
-          setReadMarker({
-            threadId,
-            lastReadNo: no,
-            totalCount: ngRows.length,
-          }),
-        ),
-    })
+    items.push(
+      marker?.lastReadNo === no
+        ? {
+            label: '「ここまで読んだ」を解除',
+            run: () => dispatch(clearReadMarker({ threadId })),
+          }
+        : {
+            label: 'ここまで読んだ',
+            run: () =>
+              dispatch(
+                setReadMarker({
+                  threadId,
+                  lastReadNo: no,
+                  totalCount: ngRows.length,
+                }),
+              ),
+          },
+    )
     return items
-  }, [menuRow, copy, resUrl, addNgAndClose, dispatch, threadId, ngRows.length])
+  }, [
+    menuRow,
+    copy,
+    resUrl,
+    addNgAndClose,
+    dispatch,
+    threadId,
+    ngRows.length,
+    marker?.lastReadNo,
+  ])
 
   // ---- 既読位置 ------------------------------------------------------------
 
@@ -1305,34 +1314,16 @@ export default function Thread({ route, navigation }) {
     return shown.findIndex((r) => r.no >= newFromNo)
   }, [shown, newFromNo])
 
-  // 目的のレスが画面の外にあるときだけ、そこへ飛ぶボタンを出す
-  const [jumps, setJumps] = useState({ toNew: false, toRead: false })
-  const jumpEnvRef = useRef({})
-  jumpEnvRef.current = { newIndex, markerIndex, filtered: !!filterKey }
-  const updateJumps = useCallback(() => {
-    const range = listRef.current?.computeVisibleIndices?.()
-    if (!range || range.startIndex < 0) return
-    const env = jumpEnvRef.current
-    const offscreen = (index) =>
-      !env.filtered &&
-      index >= 0 &&
-      (index < range.startIndex || index > range.endIndex)
-    const toNew = offscreen(env.newIndex)
-    // 同じ行なら「新着へ」だけで足りる
-    const toRead =
-      offscreen(env.markerIndex) && env.markerIndex !== env.newIndex
-    setJumps((prev) =>
-      prev.toNew === toNew && prev.toRead === toRead ? prev : { toNew, toRead },
-    )
-  }, [])
-  useEffect(() => {
-    // 行を測り終えてから見る
-    const timer = setTimeout(updateJumps, JUMP_CHECK_DELAY_MS)
-    return () => clearTimeout(timer)
-  }, [newIndex, markerIndex, filterKey, loading, updateJumps])
+  // 「読んだ位置へ」の行き先。印が末尾なら次のレスが無いので、印のレスそのものへ行く
+  const markerRow = useMemo(() => {
+    if (!lineNo) return -1
+    return markerIndex >= 0 ? markerIndex : rowIndexForNo(shown, lineNo)
+  }, [shown, lineNo, markerIndex])
 
   const summarizeUnread = useCallback(() => {
-    const rows = pickSummaryRows(shown, markerIndex)
+    // 最後に届いた新着を優先し、無ければ「ここまで読んだ」の続きを使う
+    const start = newIndex >= 0 ? newIndex : markerIndex
+    const rows = pickSummaryRows(shown, start - 1)
     aiTask.run({
       title: 'AI: 新しい書き込みの要約',
       markdown: true,
@@ -1340,7 +1331,7 @@ export default function Thread({ route, navigation }) {
       messages: summaryMessages(threadText(rows)),
       maxTokens: 300,
     })
-  }, [aiTask, ai.generalModel, shown, markerIndex])
+  }, [aiTask, ai.generalModel, shown, newIndex, markerIndex])
 
   // ルールが変わったら判定し直す。古い結果で隠し続けない
   const aiRulesKey = `${ai.ngModel}:${rulesKey(ai.rules)}`
@@ -1426,7 +1417,8 @@ export default function Thread({ route, navigation }) {
   // 復元の途中で新着が届いて列が変わっても取り消さないよう、予約は effect の外で持つ。
   // 番号は動かす瞬間の列で引き直す
   const restoreEnvRef = useRef({})
-  restoreEnvRef.current = { shown, savedNo, markerIndex }
+  const openMarkerIndex = settings.openAtReadMarker ? markerRow : -1
+  restoreEnvRef.current = { shown, savedNo, markerIndex, openMarkerIndex }
   /** 復元が終わるまでは位置を記録しない。先頭のまま上書きしてしまうため */
   const positionReadyRef = useRef(false)
   const restoreTimersRef = useRef([])
@@ -1445,10 +1437,14 @@ export default function Thread({ route, navigation }) {
     const moveToSaved = () => {
       const env = restoreEnvRef.current
       const saved = rowIndexForNo(env.shown, env.savedNo)
-      const target = saved >= 0 ? saved : env.markerIndex
+      const fallback = saved >= 0 ? saved : env.markerIndex
+      const target = env.openMarkerIndex >= 0 ? env.openMarkerIndex : fallback
       if (target >= 0) scrollToRow(target, false, 0)
     }
-    const hasTarget = rowIndexForNo(shown, savedNo) >= 0 || markerIndex >= 0
+    const hasTarget =
+      rowIndexForNo(shown, savedNo) >= 0 ||
+      markerIndex >= 0 ||
+      openMarkerIndex >= 0
     // 絞り込みで開いたときは、そちらを優先する
     if (filterKey || !hasTarget) {
       positionReadyRef.current = true
@@ -1462,12 +1458,20 @@ export default function Thread({ route, navigation }) {
         positionReadyRef.current = true
       }, RESTORE_SECOND_MS),
     ]
-  }, [loading, savedNo, markerIndex, shown, scrollToRow, filterKey])
+  }, [
+    loading,
+    savedNo,
+    markerIndex,
+    openMarkerIndex,
+    shown,
+    scrollToRow,
+    filterKey,
+  ])
 
-  /** 画面に見えている範囲を記録する。既読は進むだけで、勝手に戻さない。 */
+  /** 読んでいる位置を記録する。次に開くときに、ここから続ける。 */
   const rememberVisible = useCallback(() => {
     const list = listRef.current
-    const { rows, filtered, lastReadNo } = visibleEnvRef.current
+    const { rows, filtered } = visibleEnvRef.current
     if (!list || !positionReadyRef.current || filtered) return
     const range = list.computeVisibleIndices?.()
     if (!range || range.startIndex < 0) return
@@ -1478,19 +1482,8 @@ export default function Thread({ route, navigation }) {
       first &&
       first.y + first.height - scrollRef.current.offset < BARELY_VISIBLE_PT
     const top = rows[range.startIndex + (barelyVisible ? 1 : 0)]
-    const bottom = rows[range.endIndex]
     if (top) setReadPosition(threadId, top.no)
-    if (bottom && bottom.no > lastReadNo) {
-      dispatch(
-        setReadMarker({
-          threadId,
-          lastReadNo: bottom.no,
-          totalCount: rows.length,
-          auto: true,
-        }),
-      )
-    }
-  }, [dispatch, threadId])
+  }, [threadId])
 
   const rememberTimerRef = useRef(null)
   const scheduleRemember = useCallback(() => {
@@ -1951,7 +1944,6 @@ export default function Thread({ route, navigation }) {
                 e.nativeEvent
               scrollRef.current.offset = contentOffset.y
               scheduleRemember()
-              updateJumps()
               scrollRef.current.atBottom = isAtBottom({
                 offset: contentOffset.y,
                 viewport: layoutMeasurement.height,
@@ -1976,13 +1968,13 @@ export default function Thread({ route, navigation }) {
         </View>
       </View>
 
-      {jumps.toNew || jumps.toRead ? (
+      {!filterKey && (newIndex >= 0 || markerRow >= 0) ? (
         <View style={[styles.jumps, { bottom: footerHeight + 10 }]}>
-          {jumps.toRead ? (
+          {markerRow >= 0 ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="ここまで読んだ位置へ移動"
-              onPress={() => scrollToRow(markerIndex, false, 0)}
+              onPress={() => scrollToRow(markerRow, false, 0)}
               style={[
                 styles.jump,
                 { backgroundColor: theme.surface, borderColor: theme.border },
@@ -1993,7 +1985,7 @@ export default function Thread({ route, navigation }) {
               </Text>
             </Pressable>
           ) : null}
-          {jumps.toNew ? (
+          {newIndex >= 0 ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="新着レスへ移動"

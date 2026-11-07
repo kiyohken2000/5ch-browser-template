@@ -25,7 +25,7 @@ describe('モデルのカタログ', () => {
     ),
   ).models
 
-  it.each(AI_MODELS.map((m) => [m.id, m]))(
+  it.each(AI_MODELS.filter((m) => !m.mobileOnly).map((m) => [m.id, m]))(
     '%s はデスクトップ版と URL と SHA256 が同じ',
     (id, model) => {
       const entry = desktop.find((m) => m.id === id)

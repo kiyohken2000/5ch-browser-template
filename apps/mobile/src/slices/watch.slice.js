@@ -15,6 +15,7 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 import { boardRef, pushRecentBoard } from 'lib/boards'
 import { KEYS, load, save } from 'lib/storage'
 import {
+  manualReadMarkers,
   orderByIds,
   pushMyPost,
   pushRecentThread,
@@ -259,20 +260,21 @@ const watchSlice = createSlice({
       persistWatch(state)
     },
 
-    /** 「ここまで読んだ」。レス番号で覚える。 */
+    /** 「ここまで読んだ」。利用者が付ける印で、読み進めても動かさない。 */
     setReadMarker: (state, { payload }) => {
-      const { threadId, lastReadNo, totalCount, auto } = payload
+      const { threadId, lastReadNo, totalCount } = payload
       const prev = state.readMarkers[threadId]
-      // 読み進めた分は自動で進める（auto）。戻すのは手で指定したときだけ。
-      // 取得しただけでは進めない
-      if (auto && lastReadNo <= (prev?.lastReadNo ?? 0)) return
       const now = Date.now()
       state.readMarkers[threadId] = {
         lastReadNo,
         totalCount: totalCount ?? prev?.totalCount ?? lastReadNo,
         updatedAt: now,
-        manualAt: auto ? prev?.manualAt : now,
+        manualAt: now,
       }
+      persistMarkers(state)
+    },
+    clearReadMarker: (state, { payload }) => {
+      delete state.readMarkers[payload.threadId]
       persistMarkers(state)
     },
 
@@ -299,10 +301,7 @@ const watchSlice = createSlice({
       state.watchList = Array.isArray(payload.watchList)
         ? payload.watchList
         : []
-      state.readMarkers =
-        payload.readMarkers && typeof payload.readMarkers === 'object'
-          ? payload.readMarkers
-          : {}
+      state.readMarkers = manualReadMarkers(payload.readMarkers)
       state.boardFavorites = Array.isArray(payload.boardFavorites)
         ? payload.boardFavorites
         : []
@@ -342,6 +341,7 @@ export const {
   clearRecentThreads,
   setFavoriteOrder,
   toggleFavorite,
+  clearReadMarker,
   recordMyPost,
   clearMyPosts,
   removePostedThread,

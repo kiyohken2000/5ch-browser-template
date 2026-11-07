@@ -163,3 +163,14 @@ export function withWatchInfo(entry, watchEntry) {
     datDropped: watchEntry.datDropped ?? entry.datDropped,
   }
 }
+
+/**
+ * 「ここまで読んだ」は利用者が自分で付ける印。スクロールで自動に進めていた頃の
+ * 記録（`manualAt` が無い）は印として扱わない。
+ */
+export function manualReadMarkers(markers) {
+  if (!markers || typeof markers !== 'object') return {}
+  return Object.fromEntries(
+    Object.entries(markers).filter(([, marker]) => marker?.manualAt),
+  )
+}

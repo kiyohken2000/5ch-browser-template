@@ -312,6 +312,12 @@ export default function Settings({ navigation }) {
             trackColor={{ true: theme.accent }}
           />
         </Row>
+
+        {toggle(
+          'openAtReadMarker',
+          '「ここまで読んだ」の位置から開く',
+          '印が無いスレは、読んでいた位置から開きます',
+        )}
       </SettingsSection>
 
       <SettingsSection title="ガラス効果" theme={theme}>

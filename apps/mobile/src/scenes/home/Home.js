@@ -75,6 +75,9 @@ export default function Home({ navigation }) {
   const dispatch = useDispatch()
   const watchList = useSelector((state) => state.watch.watchList)
   const readMarkers = useSelector((state) => state.watch.readMarkers)
+  const titleFontSize = useSelector(
+    (state) => state.settings.threadTitleFontSize,
+  )
   const [refreshing, setRefreshing] = useState(false)
   const [menuItem, setMenuItem] = useState(null)
   const [segment, setSegment] = useState('watch')
@@ -263,7 +266,11 @@ export default function Home({ navigation }) {
                 <Text
                   style={[
                     styles.title,
-                    { color: item.datDropped ? theme.textFaint : theme.text },
+                    {
+                      color: item.datDropped ? theme.textFaint : theme.text,
+                      fontSize: titleFontSize,
+                      lineHeight: Math.round(titleFontSize * 1.34),
+                    },
                   ]}
                   numberOfLines={2}
                 >
@@ -295,7 +302,7 @@ export default function Home({ navigation }) {
                 </Text>
                 {marker?.lastReadNo ? (
                   <Text style={[styles.metaText, { color: theme.textFaint }]}>
-                    既読 {marker.lastReadNo}
+                    ここまで {marker.lastReadNo}
                   </Text>
                 ) : null}
               </View>
@@ -389,7 +396,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   rowTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  title: { flex: 1, fontSize: 15, lineHeight: 20 },
+  title: { flex: 1 },
   badge: {
     minWidth: 24,
     paddingHorizontal: 7,

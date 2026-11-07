@@ -56,6 +56,8 @@ export const DEFAULTS = {
   ngIdExpireDays: 0,
   /** 強調 ID を登録から何日で消すか。0 は消さない */
   highlightIdExpireDays: 0,
+  /** スレを「ここまで読んだ」の位置から開く。印が無いスレは読んでいた位置から */
+  openAtReadMarker: false,
   /** 本文の太さ。'normal' | 'medium' | 'bold' */
   bodyWeight: 'normal',
   /** 画面上部 / 下部のタップで 1 画面分スクロール（twinkle から借用） */
