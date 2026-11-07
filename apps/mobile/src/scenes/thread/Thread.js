@@ -219,6 +219,10 @@ function FooterButton({ icon, label, color, onPress }) {
   )
 }
 
+/** レスの長押しメニューのサブメニュー。 */
+const MENU_GROUP_TITLES = { copy: 'コピー・共有', ng: 'NG・強調', ai: 'AI' }
+const EMPTY_MENU = { top: [], copy: [], ng: [], ai: [] }
+
 export default function Thread({ route, navigation }) {
   const animationConfigs = useSheetAnimation()
   const { threadUrl, boardUrl, boardName, title: initialTitle } = route.params
@@ -255,6 +259,8 @@ export default function Thread({ route, navigation }) {
   const [ngDraft, setNgDraft] = useState('')
   // 入力中は項目を畳む。シートが低くなり、キーボードの上に入力欄が出る
   const [ngInputFocused, setNgInputFocused] = useState(false)
+  // 開いているサブメニュー（copy / ng / ai）。null は最初の画面
+  const [menuGroup, setMenuGroup] = useState(null)
   const [viewerUrl, setViewerUrl] = useState(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -1099,11 +1105,12 @@ export default function Thread({ route, navigation }) {
   useEffect(() => {
     if (!menuRow) return undefined
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      closeMenu()
+      if (menuGroup) setMenuGroup(null)
+      else closeMenu()
       return true
     })
     return () => sub.remove()
-  }, [menuRow, closeMenu])
+  }, [menuRow, menuGroup, closeMenu])
 
   const addNgAndClose = useCallback(
     (payload, label) => {
@@ -1159,23 +1166,9 @@ export default function Thread({ route, navigation }) {
   }, [postedAt, readDelta, scrollToLast])
 
   const menuActions = useMemo(() => {
-    if (!menuRow) return []
+    if (!menuRow) return EMPTY_MENU
     const { no, id, name, plainBody } = menuRow
-    const items = [
-      {
-        label: 'このレスに返信',
-        run: () => {
-          closeMenu()
-          openPost(`>>${no}\n`)
-        },
-      },
-      {
-        label: '引用して返信',
-        run: () => {
-          closeMenu()
-          openPost(quoteReply(no, plainBody))
-        },
-      },
+    const copyItems = [
       {
         label: 'このレスをコピー',
         run: () => copy(plainBody, `>>${no}`),
@@ -1197,28 +1190,50 @@ export default function Thread({ route, navigation }) {
           ),
       },
     ]
+    const ngItems = []
     if (id) {
-      items.push({
+      ngItems.push({
         label: 'この ID を NG に追加',
         run: () => addNgAndClose({ list: 'ids', value: id }, `ID:${id}`),
       })
-      items.push({
+      ngItems.push({
         label: 'この ID を強調表示',
         run: () => addHighlightAndClose('ids', id, `ID:${id}`),
       })
     }
     if (name) {
-      items.push({
+      ngItems.push({
         label: 'この名前を NG に追加',
         run: () => addNgAndClose({ list: 'names', value: name }, name),
       })
-      items.push({
+      ngItems.push({
         label: 'この名前を強調表示',
         run: () => addHighlightAndClose('names', name, name),
       })
     }
+    const { watchoi } = splitNameWatchoi(name)
+    if (watchoi) {
+      ngItems.push({
+        label: `ワッチョイを NG に追加`,
+        run: () => addNgAndClose({ list: 'names', value: watchoi }, watchoi),
+      })
+      const parts = watchoiParts(watchoi)
+      if (parts) {
+        ngItems.push({
+          label: `ワッチョイ前半を NG に追加（${parts.front}）`,
+          run: () =>
+            addNgAndClose({ list: 'names', value: parts.front }, parts.front),
+        })
+        ngItems.push({
+          label: `ワッチョイ後半を NG に追加（${parts.back}）`,
+          run: () =>
+            addNgAndClose({ list: 'names', value: parts.back }, parts.back),
+        })
+      }
+    }
+    const aiItems = []
     if (ai.enabled) {
-      items.push({
+      aiItems.push({
         label: 'AI: このレスを翻訳',
         run: () => {
           closeMenu()
@@ -1231,7 +1246,7 @@ export default function Thread({ route, navigation }) {
           })
         },
       })
-      items.push({
+      aiItems.push({
         label: 'AI: このレスから曖昧 NG を作る',
         run: () => {
           closeMenu()
@@ -1239,27 +1254,7 @@ export default function Thread({ route, navigation }) {
         },
       })
     }
-    const { watchoi } = splitNameWatchoi(name)
-    if (watchoi) {
-      items.push({
-        label: `ワッチョイを NG に追加`,
-        run: () => addNgAndClose({ list: 'names', value: watchoi }, watchoi),
-      })
-      const parts = watchoiParts(watchoi)
-      if (parts) {
-        items.push({
-          label: `ワッチョイ前半を NG に追加（${parts.front}）`,
-          run: () =>
-            addNgAndClose({ list: 'names', value: parts.front }, parts.front),
-        })
-        items.push({
-          label: `ワッチョイ後半を NG に追加（${parts.back}）`,
-          run: () =>
-            addNgAndClose({ list: 'names', value: parts.back }, parts.back),
-        })
-      }
-    }
-    items.push({
+    const report = {
       label: 'このレスを報告',
       run: () => {
         closeMenu()
@@ -1280,8 +1275,8 @@ export default function Thread({ route, navigation }) {
           ],
         })
       },
-    })
-    items.push(
+    }
+    const readMarker =
       marker?.lastReadNo === no
         ? {
             label: '「ここまで読んだ」を解除',
@@ -1297,9 +1292,31 @@ export default function Thread({ route, navigation }) {
                   totalCount: ngRows.length,
                 }),
               ),
-          },
-    )
-    return items
+          }
+    const top = [
+      {
+        label: 'このレスに返信',
+        run: () => {
+          closeMenu()
+          openPost(`>>${no}\n`)
+        },
+      },
+      {
+        label: '引用して返信',
+        run: () => {
+          closeMenu()
+          openPost(quoteReply(no, plainBody))
+        },
+      },
+      readMarker,
+      { label: MENU_GROUP_TITLES.copy, opens: 'copy' },
+      { label: MENU_GROUP_TITLES.ng, opens: 'ng' },
+      ...(aiItems.length > 0
+        ? [{ label: MENU_GROUP_TITLES.ai, opens: 'ai' }]
+        : []),
+      report,
+    ]
+    return { top, copy: copyItems, ng: ngItems, ai: aiItems }
   }, [
     menuRow,
     copy,
@@ -2360,57 +2377,88 @@ export default function Thread({ route, navigation }) {
           handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
           onDismiss={() => {
             setMenuRow(null)
+            setMenuGroup(null)
             setNgDraft('')
             setNgInputFocused(false)
           }}
         >
           <BottomSheetView style={styles.menu}>
             <Text style={[styles.menuTitle, { color: theme.textDim }]}>
-              {`>>${menuRow.no}`}
+              {menuGroup
+                ? `>>${menuRow.no} ・ ${MENU_GROUP_TITLES[menuGroup]}`
+                : `>>${menuRow.no}`}
             </Text>
-            {(ngInputFocused ? [] : menuActions).map((a) => (
+            {menuGroup && !ngInputFocused ? (
               <Pressable
-                key={a.label}
+                accessibilityRole="button"
                 style={styles.menuItem}
-                onPress={() => {
-                  a.run()
-                  closeMenu()
-                }}
+                onPress={() => setMenuGroup(null)}
               >
-                <Text style={[styles.menuText, { color: theme.text }]}>
-                  {a.label}
+                <Text style={[styles.menuText, { color: theme.textDim }]}>
+                  ‹ 戻る
                 </Text>
               </Pressable>
-            ))}
-            <View style={[styles.menuNg, { borderColor: theme.border }]}>
-              <BottomSheetTextInput
-                value={ngDraft}
-                onChangeText={setNgDraft}
-                placeholder="本文の語を NG に追加"
-                placeholderTextColor={theme.textFaint}
-                autoCorrect={false}
-                autoCapitalize="none"
-                returnKeyType="done"
-                onSubmitEditing={addDraftNg}
-                onFocus={() => setNgInputFocused(true)}
-                onBlur={() => setNgInputFocused(false)}
-                style={[styles.menuInput, { color: theme.text }]}
-              />
-              <Pressable
-                hitSlop={8}
-                disabled={!ngDraft.trim()}
-                onPress={addDraftNg}
-              >
-                <Text
-                  style={{
-                    color: ngDraft.trim() ? theme.accent : theme.textFaint,
-                    fontWeight: '600',
+            ) : null}
+            {(ngInputFocused ? [] : menuActions[menuGroup || 'top']).map((a) =>
+              a.opens ? (
+                <Pressable
+                  key={a.label}
+                  accessibilityRole="button"
+                  style={styles.extractItem}
+                  onPress={() => setMenuGroup(a.opens)}
+                >
+                  <Text style={[styles.menuText, { color: theme.text }]}>
+                    {a.label}
+                  </Text>
+                  <Icon name="chevronRight" size={20} color={theme.textDim} />
+                </Pressable>
+              ) : (
+                <Pressable
+                  key={a.label}
+                  accessibilityRole="button"
+                  style={styles.menuItem}
+                  onPress={() => {
+                    a.run()
+                    closeMenu()
                   }}
                 >
-                  追加
-                </Text>
-              </Pressable>
-            </View>
+                  <Text style={[styles.menuText, { color: theme.text }]}>
+                    {a.label}
+                  </Text>
+                </Pressable>
+              ),
+            )}
+            {menuGroup === 'ng' ? (
+              <View style={[styles.menuNg, { borderColor: theme.border }]}>
+                <BottomSheetTextInput
+                  value={ngDraft}
+                  onChangeText={setNgDraft}
+                  placeholder="本文の語を NG に追加"
+                  placeholderTextColor={theme.textFaint}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  returnKeyType="done"
+                  onSubmitEditing={addDraftNg}
+                  onFocus={() => setNgInputFocused(true)}
+                  onBlur={() => setNgInputFocused(false)}
+                  style={[styles.menuInput, { color: theme.text }]}
+                />
+                <Pressable
+                  hitSlop={8}
+                  disabled={!ngDraft.trim()}
+                  onPress={addDraftNg}
+                >
+                  <Text
+                    style={{
+                      color: ngDraft.trim() ? theme.accent : theme.textFaint,
+                      fontWeight: '600',
+                    }}
+                  >
+                    追加
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
           </BottomSheetView>
         </BottomSheetModal>
       ) : null}

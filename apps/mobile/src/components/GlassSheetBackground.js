@@ -11,6 +11,11 @@ import { useSelector } from 'react-redux'
 import { useEmberTheme } from 'theme/ember'
 
 const RADIUS = 15
+/**
+ * ライトではぼかしだけだと、バックドロップで暗くなった本文が透けて灰色になり、
+ * 周りと同じ色に見える。白を重ねてシートを浮かせる。
+ */
+const LIGHT_VEIL = 'rgba(255, 255, 255, 0.78)'
 
 export default function GlassSheetBackground({ style }) {
   const theme = useEmberTheme()
@@ -31,6 +36,11 @@ export default function GlassSheetBackground({ style }) {
         intensity={60}
         style={StyleSheet.absoluteFill}
       />
+      {theme.dark ? null : (
+        <View
+          style={[StyleSheet.absoluteFill, { backgroundColor: LIGHT_VEIL }]}
+        />
+      )}
     </View>
   )
 }
