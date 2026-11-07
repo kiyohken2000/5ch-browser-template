@@ -2,16 +2,23 @@ import fs from 'fs'
 import path from 'path'
 
 import { scoreJudge } from 'ai/benchmark'
-import { AI_MODELS, canRunOnDevice, findModel, RAM_TIER } from 'ai/catalog'
+import {
+  AI_MODELS,
+  canRunOnDevice,
+  findModel,
+  NG_MODEL_ID,
+  RAM_TIER,
+} from 'ai/catalog'
 import {
   activeRules,
-  judgeMessages,
+  judgeOne,
+  logitToProbability,
   looksSaturated,
   matchRules,
-  readProbability,
   rulesKey,
 } from 'ai/judge'
 import { MAX_INPUT_CHARS, pickSummaryRows, threadText } from 'ai/prompts'
+import { signalStop } from 'ai/stopSignal'
 import { applyNg } from 'lib/ng'
 
 jest.mock('expo-file-system/legacy', () => ({}), { virtual: true })
@@ -51,78 +58,100 @@ describe('モデルのカタログ', () => {
   })
 })
 
-describe('readProbability', () => {
-  const entry = (a, b) => ({
-    probs: [
-      { tok_str: 'A', prob: a },
-      { tok_str: 'B', prob: b },
-    ],
-  })
-
-  it('末尾の要素を読む（先頭は古い確率のまま）', () => {
-    expect(
-      readProbability({
-        completion_probabilities: [entry(0.1, 0.9), entry(0.6, 0.2)],
-      }),
-    ).toBeCloseTo(0.75)
-  })
-
-  it('ラベルが無ければ NaN', () => {
-    expect(readProbability({ completion_probabilities: [] })).toBeNaN()
-    expect(readProbability(null)).toBeNaN()
+describe('曖昧 NG のモデル', () => {
+  it('分類器だけを曖昧 NG に使い、分類器は他の用途に使わない', () => {
+    const ng = AI_MODELS.filter((m) => m.uses.includes('ng'))
+    expect(ng.map((m) => m.id)).toEqual([NG_MODEL_ID])
+    expect(ng[0].kind).toBe('classifier')
+    expect(ng[0].uses).toEqual(['ng'])
   })
 })
 
-describe('judgeMessages', () => {
-  it('ルールと本文を入れ、長い本文は切る', () => {
-    const [, user] = judgeMessages('政治の話題である', 'あ'.repeat(5000))
-    expect(user.content).toContain('政治の話題である')
-    expect(user.content.length).toBeLessThan(1000)
+describe('logitToProbability', () => {
+  it('正のロジットは 0.5 を超え、負のロジットは下回る', () => {
+    expect(logitToProbability(0)).toBeCloseTo(0.5)
+    expect(logitToProbability(1.3)).toBeGreaterThan(0.9)
+    expect(logitToProbability(-2)).toBeLessThan(0.05)
+  })
+
+  it('失敗を表す値は確率にしない', () => {
+    expect(logitToProbability(-1e6)).toBeNaN()
+    expect(logitToProbability(undefined)).toBeNaN()
+    expect(logitToProbability(NaN)).toBeNaN()
+  })
+})
+
+describe('judgeOne', () => {
+  const ctxReturning = (score) => ({
+    parallel: {
+      rerank: jest.fn(async () => ({
+        requestId: 1,
+        promise: Promise.resolve([{ score, index: 0 }]),
+      })),
+    },
+  })
+
+  it('本文と仮説の順に渡し、確率を返す', async () => {
+    const ctx = ctxReturning(1)
+    const p = await judgeOne(ctx, '仮説', '本文')
+    expect(ctx.parallel.rerank).toHaveBeenCalledWith('本文', ['仮説'])
+    expect(p).toBeGreaterThan(0.8)
+  })
+
+  it('特殊トークンを消し、長い本文は切る', async () => {
+    const ctx = ctxReturning(1)
+    await judgeOne(ctx, '仮<mask>説', `あ</s><s>い${'う'.repeat(5000)}`)
+    const [body, [rule]] = ctx.parallel.rerank.mock.calls[0]
+    expect(body).not.toMatch(/<\/?s>/)
+    expect(body.length).toBe(500)
+    expect(rule).not.toContain('<mask>')
+  })
+
+  it('解決しないまま止める指示が来ても固まらない', async () => {
+    const ctx = {
+      parallel: {
+        rerank: jest.fn(async () => ({
+          requestId: 1,
+          promise: new Promise(() => {}),
+        })),
+      },
+    }
+    const pending = judgeOne(ctx, '仮説', '本文')
+    await Promise.resolve()
+    signalStop()
+    await expect(pending).resolves.toBeNaN()
   })
 })
 
 describe('matchRules', () => {
-  /** 述語ごとの確率を返す偽のモデル */
+  /** 述語ごとのロジットを返す偽のモデル */
   const ctxWith = (table) => ({
-    completion: jest.fn(async ({ messages }) => {
-      const hit = Object.keys(table).find((k) =>
-        messages[1].content.includes(`ルール:\n${k}`),
-      )
-      const p = table[hit]
-      return {
-        completion_probabilities: [
-          {
-            probs: [
-              { tok_str: 'A', prob: p },
-              { tok_str: 'B', prob: 1 - p },
-            ],
-          },
-        ],
-      }
-    }),
+    parallel: {
+      rerank: jest.fn(async (body, [rule]) => ({
+        requestId: 1,
+        promise: Promise.resolve([{ score: table[rule], index: 0 }]),
+      })),
+    },
   })
 
   it('述語はすべて基準を超えて初めて該当する', async () => {
     const rule = { predicates: ['甲', '乙'], threshold: 0.8 }
-    expect(await matchRules(ctxWith({ 甲: 0.9, 乙: 0.9 }), [rule], 'x')).toBe(
-      rule,
-    )
-    expect(
-      await matchRules(ctxWith({ 甲: 0.9, 乙: 0.5 }), [rule], 'x'),
-    ).toBeNull()
+    expect(await matchRules(ctxWith({ 甲: 2, 乙: 2 }), [rule], 'x')).toBe(rule)
+    expect(await matchRules(ctxWith({ 甲: 2, 乙: -1 }), [rule], 'x')).toBeNull()
   })
 
   it('判定できなかったものは該当にしない', async () => {
-    const ctx = {
-      completion: jest.fn(async () => ({ completion_probabilities: [] })),
-    }
     expect(
-      await matchRules(ctx, [{ predicates: ['甲'], threshold: 0.1 }], 'x'),
+      await matchRules(
+        ctxWith({ 甲: -1e6 }),
+        [{ predicates: ['甲'], threshold: 0.1 }],
+        'x',
+      ),
     ).toBeNull()
   })
 
   it('止める指示で打ち切る', async () => {
-    const ctx = ctxWith({ 甲: 0.9 })
+    const ctx = ctxWith({ 甲: 2 })
     const got = await matchRules(
       ctx,
       [{ predicates: ['甲'], threshold: 0.8 }],
@@ -130,7 +159,7 @@ describe('matchRules', () => {
       () => true,
     )
     expect(got).toBeNull()
-    expect(ctx.completion).not.toHaveBeenCalled()
+    expect(ctx.parallel.rerank).not.toHaveBeenCalled()
   })
 })
 

@@ -40,7 +40,6 @@ export const AI_MODELS = [
     url: `${HF}/LiquidAI/LFM3-1.7B-GGUF/resolve/main/LFM3-1.7B-Q4_K_M.gguf`,
     sha256: '3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4',
     minRam: RAM_TIER.GB4,
-    // 曖昧 NG には使わない。7/12 正解で、確率も 0.5 を超えにくい（iPhone Air で実測）
     uses: ['general'],
     // デスクトップ版の llama-cpp-2 0.1.154 は lfm3 を読めない
     mobileOnly: true,
@@ -53,18 +52,17 @@ export const AI_MODELS = [
     url: `${HF}/unsloth/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf`,
     sha256: '8270790f3ab69fdfe860b7b64008d9a19986d8df7e407bb018184caa08798ebd',
     minRam: RAM_TIER.GB4,
-    // 曖昧 NG には使わない。確率が飽和して、ほとんどのレスを該当にする（実測）
     uses: ['general'],
   },
   {
     id: 'qwen35-2b-q4km',
     name: 'Qwen3.5 2B',
-    note: '少し賢い。要約と曖昧 NG に',
+    note: '少し賢い。要約に',
     sizeBytes: 1280835840,
     url: `${HF}/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf`,
     sha256: 'aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223',
     minRam: RAM_TIER.GB4,
-    uses: ['general', 'ng'],
+    uses: ['general'],
   },
   {
     id: 'hy-mt2-1.8b-q4km',
@@ -84,7 +82,7 @@ export const AI_MODELS = [
     url: `${HF}/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf`,
     sha256: '00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4',
     minRam: RAM_TIER.GB8,
-    uses: ['general', 'ng'],
+    uses: ['general'],
   },
   {
     id: 'gemma4-e2b-it-q4km',
@@ -94,9 +92,24 @@ export const AI_MODELS = [
     url: `${HF}/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf`,
     sha256: '740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8',
     minRam: RAM_TIER.GB8,
-    uses: ['general', 'ng'],
+    uses: ['general'],
+  },
+  {
+    id: 'bge-m3-zeroshot-v2-q4km',
+    name: 'bge-m3',
+    note: '曖昧 NG 専用。文章の生成はしない',
+    // 読み込みの設定が生成モデルと違う（ai/engine.js）
+    kind: 'classifier',
+    sizeBytes: 438373760,
+    url: `${HF}/votepurchase/bge-m3-zeroshot-v2.0-GGUF/resolve/main/bge-m3-zeroshot-v2.0-Q4_K_M.gguf`,
+    sha256: '5d41a1d3c7dd256f688f0338b4e895537880e5f31d1ac832699e6e7a530bad7c',
+    minRam: RAM_TIER.GB4,
+    uses: ['ng'],
   },
 ]
+
+/** 曖昧 NG に使うモデル。デスクトップ版と同じ分類器 */
+export const NG_MODEL_ID = 'bge-m3-zeroshot-v2-q4km'
 
 export function findModel(id) {
   return AI_MODELS.find((m) => m.id === id) || null

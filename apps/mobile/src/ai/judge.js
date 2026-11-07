@@ -1,61 +1,50 @@
 /**
- * 曖昧 NG の判定。FeedOwn `ai/llama/judge.js` の方式（A / B を 1 トークンだけ生成させ、
- * ラベルの確率を読む）。実機で踏んだ地雷の回避を崩さないこと（§9-9）:
+ * 曖昧 NG の判定。デスクトップ版と同じ `bge-m3-zeroshot-v2.0` を使う。
+ * レスを前提、ルールを仮説として、仮説が成り立つ確率を読む。文章は生成しない。
  *
- * - `logit_bias` は使わない。token ID で添字アクセスされ、ネイティブクラッシュする
- * - `completion_probabilities` は**末尾**を読む。先頭は最初の completion の確率のまま変わらない
- * - サンプラの切り捨てを全部切る。既定のままだと弱い側が 0 に落ちて確率が飽和する
- * - temperature は 1 固定。確率はサンプラ適用後の値が返る
+ * - `ctx.rerank()` はネイティブで落ちるので `ctx.parallel.rerank()` を使う
+ * - `parallel.embedding()` は 2 つのロジットを読めるが、要素 2 個のバッファから 1024 個
+ *   読むので使わない。rerank は 1 つ目のロジットしか返さないので、確率は近似する
  *
- * ルールは「政治の話題である」のような平叙文。複数書くと AND（デスクトップ版と同じ）。
+ * ルールは「この書き込みは政治の話題である。」のような平叙文。複数書くと AND。
  */
+
+import { untilStopped } from './stopSignal'
 
 export const NG_AI_MAX_PREDICATES = 3
 export const NG_AI_DEFAULT_THRESHOLD = 0.8
-/** 本文が長いと prefill が重くなる。判定には先頭で足りる */
+/** 長いレスも判定には先頭で足りる。n_ctx に収めるためでもある */
 const MAX_BODY_CHARS = 500
+const MAX_RULE_CHARS = 200
 const MIN_JUDGED_FOR_CHECK = 10
 const MAX_HIT_RATE = 0.5
+/**
+ * 1 つ目のロジットから、デスクトップ版の確率へ近づける倍率。2 つのロジットはほぼ符号が
+ * 逆なので、差は 1 つ目の約 2 倍になる。ベンチマークの 12 件で最小二乗法により求めた。
+ */
+const LOGIT_SCALE = 2.2
+/** llama.rn が失敗を表す値は -1e6。ロジットはここまで小さくならない */
+const MIN_VALID_LOGIT = -1e5
+/** 文字列がトークンとして解釈されるので、書き込みに入っていたら消す */
+const SPECIAL_TOKENS = /<\/?s>|<pad>|<unk>|<mask>/gi
 
-const LABEL_GRAMMAR = 'root ::= "A" | "B"'
-const FULL_DIST = { top_k: 0, top_p: 1.0, min_p: 0.0, typical_p: 1.0 }
-const SYSTEM =
-  'あなたは掲示板の書き込みを分類します。与えられたルールに書き込みが該当するかを判断してください。'
+const cleanText = (text, max) => text.replace(SPECIAL_TOKENS, ' ').slice(0, max)
 
-export function judgeMessages(rule, body) {
-  return [
-    { role: 'system', content: SYSTEM },
-    {
-      role: 'user',
-      content:
-        `ルール:\n${rule}\n\nレス:\n${body.slice(0, MAX_BODY_CHARS)}\n\n` +
-        '選択肢:\nA. ルールに該当する\nB. ルールに該当しない\n\n' +
-        '選択肢の記号を A か B の 1 文字だけで答えてください。',
-    },
-  ]
+export function logitToProbability(logit) {
+  if (!Number.isFinite(logit) || logit <= MIN_VALID_LOGIT) return NaN
+  return 1 / (1 + Math.exp(-LOGIT_SCALE * logit))
 }
 
-/** 応答から P(A) を読む。ラベルが無ければ NaN。末尾の要素を読むこと。 */
-export function readProbability(res) {
-  const all = res?.completion_probabilities ?? []
-  const probs = all.length > 0 ? all[all.length - 1]?.probs ?? [] : []
-  const probOf = (label) => probs.find((p) => p.tok_str === label)?.prob ?? 0
-  const a = probOf('A')
-  const b = probOf('B')
-  return a + b > 0 ? a / (a + b) : NaN
-}
-
+/** ルールに当てはまる確率。止めたときと判定できなかったときは NaN。 */
 export async function judgeOne(ctx, rule, body) {
-  const res = await ctx.completion({
-    messages: judgeMessages(rule, body),
-    n_predict: 1,
-    temperature: 1,
-    n_probs: 20,
-    enable_thinking: false,
-    grammar: LABEL_GRAMMAR,
-    ...FULL_DIST,
-  })
-  return readProbability(res)
+  const results = await untilStopped(
+    ctx.parallel
+      .rerank(cleanText(body, MAX_BODY_CHARS), [
+        cleanText(rule, MAX_RULE_CHARS),
+      ])
+      .then(({ promise }) => promise),
+  )
+  return logitToProbability(results?.[0]?.score)
 }
 
 /**

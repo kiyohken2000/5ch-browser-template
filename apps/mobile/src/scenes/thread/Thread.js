@@ -1392,7 +1392,7 @@ export default function Thread({ route, navigation }) {
       setAiHits(null)
       showToast({
         title: `曖昧 NG: ${judged.size} 件中 ${found.size} 件が該当したので隠しませんでした`,
-        body: 'ルールかモデルが合っていない可能性があります',
+        body: 'ルールが合っていない可能性があります',
       })
       return
     }

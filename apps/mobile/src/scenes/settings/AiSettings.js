@@ -332,7 +332,7 @@ export default function AiSettings({ navigation }) {
                 この端末で測る
               </Text>
               <Text style={{ color: theme.textFaint, fontSize: 12 }}>
-                速度と曖昧 NG の正解率をモデルごとに比べます
+                モデルごとの速度と、曖昧 NG の正解率を測ります
               </Text>
             </View>
             <Icon name="chevronRight" size={16} color={theme.textFaint} />

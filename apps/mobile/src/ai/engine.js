@@ -10,10 +10,13 @@ import { AppState } from 'react-native'
 
 import { findModel } from './catalog'
 import { modelPath, nativePath } from './download'
+import { signalStop } from './stopSignal'
 
 const CONTEXT_SIZE = 4096
 /** 常に GPU へ載せる。使えない端末では llama.cpp が CPU で動かす */
 const GPU_LAYERS = 99
+/** 分類器は 1 組を 1 回で処理するので、n_ubatch も組の長さ以上にする */
+const CLASSIFIER_BATCH = 2048
 
 let current = null // { modelId, ctx }
 let tail = Promise.resolve()
@@ -41,11 +44,24 @@ async function contextFor(modelId) {
   await releaseCurrent()
   const model = findModel(modelId)
   if (!model) throw new Error('モデルが見つかりません')
-  const ctx = await loadLlama().initLlama({
-    model: nativePath(modelPath(model)),
-    n_ctx: CONTEXT_SIZE,
-    n_gpu_layers: GPU_LAYERS,
-  })
+  const path = nativePath(modelPath(model))
+  const ctx = await loadLlama().initLlama(
+    model.kind === 'classifier'
+      ? {
+          model: path,
+          n_ctx: CLASSIFIER_BATCH,
+          n_batch: CLASSIFIER_BATCH,
+          n_ubatch: CLASSIFIER_BATCH,
+          n_gpu_layers: GPU_LAYERS,
+          embedding: true,
+          pooling_type: 'rank',
+        }
+      : { model: path, n_ctx: CONTEXT_SIZE, n_gpu_layers: GPU_LAYERS },
+  )
+  // ctx.rerank() はサンプリングを通ってネイティブで落ちる。parallel の経路は通らない
+  if (model.kind === 'classifier') {
+    await ctx.parallel.enable({ n_parallel: 1, n_batch: CLASSIFIER_BATCH })
+  }
   current = { modelId, ctx }
   return ctx
 }
@@ -82,6 +98,7 @@ export function isStopRequested() {
 /** 今の処理を止める。 */
 export async function stopAi() {
   stopRequested = true
+  signalStop()
   if (!current) return
   try {
     await current.ctx.stopCompletion()

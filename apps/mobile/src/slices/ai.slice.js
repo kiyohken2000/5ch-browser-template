@@ -4,7 +4,7 @@
  */
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
-import { findModel } from 'ai/catalog'
+import { findModel, NG_MODEL_ID } from 'ai/catalog'
 import { NG_AI_DEFAULT_THRESHOLD, NG_AI_MAX_PREDICATES } from 'ai/judge'
 import { KEYS, load, save } from 'lib/storage'
 
@@ -14,7 +14,7 @@ const DEFAULTS = {
   /** 要約と投稿前チェックに使うモデル */
   generalModel: 'gemma3-1b-it-q4km',
   /** 曖昧 NG に使うモデル */
-  ngModel: 'qwen35-2b-q4km',
+  ngModel: NG_MODEL_ID,
   /** 翻訳に使うモデル */
   translationModel: 'hy-mt2-1.8b-q4km',
   rules: [],

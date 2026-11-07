@@ -3,7 +3,7 @@
  * expected: 'A' はルールに該当、'B' は該当しない。
  */
 
-export const JUDGE_RULE = '政治の話題で他人を罵倒している'
+export const JUDGE_RULE = 'この文章は、政治について他人を罵倒する内容である。'
 
 // expected: 'A' = ルールに該当, 'B' = 該当しない
 export const JUDGE_FIXTURES = [
