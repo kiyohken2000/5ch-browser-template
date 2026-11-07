@@ -45,17 +45,23 @@ import Home from 'scenes/home/Home'
 import Post from 'scenes/post/Post'
 import Search from 'scenes/search/Search'
 import AccountSettings from 'scenes/settings/AccountSettings'
+import ComposeSettings from 'scenes/settings/ComposeSettings'
+import DataSettings from 'scenes/settings/DataSettings'
+import DisplaySettings from 'scenes/settings/DisplaySettings'
 import FavoritesOrder from 'scenes/home/FavoritesOrder'
 import FontSettings from 'scenes/settings/FontSettings'
 import HighlightSettings from 'scenes/settings/HighlightSettings'
 import AiBenchmark from 'scenes/settings/AiBenchmark'
 import AiSettings from 'scenes/settings/AiSettings'
 import ImageNgSettings from 'scenes/settings/ImageNgSettings'
+import MediaSettings from 'scenes/settings/MediaSettings'
 import NgSettings from 'scenes/settings/NgSettings'
 import UploadHistory from 'scenes/settings/UploadHistory'
 import PostHistory from 'scenes/settings/PostHistory'
+import ReadingSettings from 'scenes/settings/ReadingSettings'
 import Terms from 'scenes/settings/Terms'
 import Settings from 'scenes/settings/Settings'
+import ThreadListSettings from 'scenes/settings/ThreadListSettings'
 import Thread from 'scenes/thread/Thread'
 import Threads from 'scenes/threads/Threads'
 import { useEmberTheme } from 'theme/ember'
@@ -194,6 +200,21 @@ function SettingsStack() {
         component={SettingsTop}
         options={NO_HEADER}
       />
+      {[
+        ['DisplaySettings', DisplaySettings, '表示'],
+        ['ReadingSettings', ReadingSettings, 'スレを読む'],
+        ['ThreadListSettings', ThreadListSettings, 'スレ一覧の並べ替え'],
+        ['MediaSettings', MediaSettings, '画像とリンク'],
+        ['ComposeSettings', ComposeSettings, '書き込み'],
+        ['DataSettings', DataSettings, '履歴とキャッシュ'],
+      ].map(([name, component, title]) => (
+        <Stack.Screen
+          key={name}
+          name={name}
+          component={component}
+          options={{ title, headerBackAccessibilityLabel: '戻る' }}
+        />
+      ))}
       <Stack.Screen
         name="AccountSettings"
         component={AccountSettings}

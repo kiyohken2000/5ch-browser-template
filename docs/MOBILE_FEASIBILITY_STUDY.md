@@ -1265,7 +1265,7 @@ Ronin（浪人）/ BE / どんぐり / UPLIFT。デスクトップ版は `core-a
 | スレ内検索・レスメニューのコピー / 共有 / NG 語追加 | `src/scenes/thread/Thread.js`、`src/lib/search.js` |
 | 画像サムネ・サムネマスク・YouTube・OGP カード | `src/components/ResponseMedia.js`、`src/lib/{media,ogp}.js` |
 | 画像ビューア（下スワイプで閉じる / 左右で前後 / ピンチ拡大 / 保存） | `src/components/ImageViewer.js`、`src/lib/saveImage.js` |
-| ジェスチャ（タップスクロール / 最下部で引いて新着確認 / ピンチで文字サイズ / 2 本指の上下とタップは設定で割り当て変更） | `src/lib/gestures.js`、`src/scenes/settings/Settings.js` |
+| ジェスチャ（タップスクロール / 最下部で引いて新着確認 / ピンチで文字サイズ / 2 本指の上下とタップは設定で割り当て変更） | `src/lib/gestures.js`、`src/scenes/settings/ReadingSettings.js` |
 | ガラス効果（スレビューの下部バー。Android は半透明） | `src/scenes/thread/Thread.js` |
 | ユニットテスト 270 件 / 16 スイート | `__tests__/lib/` |
 | CI | `.github/workflows/mobile.yml`（lint / test / バンドル。既存のワークフローには触っていない） |
