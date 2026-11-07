@@ -3577,6 +3577,29 @@ button.search-history-btn:hover {
   padding: 0 1px;
 }
 
+/* === タブ幅を揃える ===
+   既定ではタブの幅はスレタイの長さで決まるので、プロポーショナルフォント
+   (MS P ゴシックなど) だと切れ目の位置が段ごとにずれて、多段表示で右端が
+   揃わない。オンにすると幅を固定して縦に揃える。min-width / max-width は
+   width より強いので、どちらも外してから width を効かせる。
+   タブの文字サイズを上げたときにスレタイが極端に短くならないよう、幅も
+   --tab-fs-delta で一緒に伸ばす (max-width と同じ係数)。 */
+.thread-tab-bar-wrap.tabs-uniform .thread-tab {
+  width: calc(160px + var(--tab-fs-delta, 0px) * 8);
+  min-width: 0;
+  max-width: none;
+  flex: 0 0 auto;
+}
+.thread-tab-bar-wrap.tabs-uniform.tabs-narrow .thread-tab {
+  width: calc(110px + var(--tab-fs-delta, 0px) * 8);
+}
+/* タブが 1 つも無いときのプレースホルダは揃える相手がいないので、
+   既定の中身なりの幅に戻す。 */
+.thread-tab-bar-wrap.tabs-uniform .thread-tab.placeholder {
+  width: auto;
+  min-width: 60px;
+}
+
 /* === 多段タブ ===
    タブバーを折り返して複数段に並べる。段数は 3 段で打ち止めにして、それ以上は
    タブバーの中を縦スクロールさせる — 無制限にするとタブが増えたときにタブバー
@@ -4771,11 +4794,44 @@ a.body-link-image:hover::after {
   flex: 1 1 auto;
   min-height: 0;
 }
-/* 縦積みではドラッグ軸が合わない (板/スレは横方向、スレ/レスは縦方向に計算している) ため
-   分割線は引き続き隠す。動かない分割線を見せるより、上の配分に任せる。 */
+/* 縦積みでは分割線も横倒しにして、上下のドラッグで高さを変える。以前はドラッグ軸が
+   合わないので隠していたが、ウィンドウを狭めるとペインの広さを一切調整できなく
+   なっていた。App.tsx 側が .narrow-layout のあいだだけドラッグを縦軸で計算し、
+   ドラッグするまでは上の 30vh / 40vh の配分に任せる (ダブルクリックでそこへ戻す)。 */
 .narrow-layout .pane-splitter,
 .narrow-layout .row-splitter {
-  display: none;
+  display: block;
+  width: auto;
+  height: 6px;
+  flex: 0 0 auto;
+  cursor: row-resize;
+}
+/* 板/スレの分割線は縦線の見た目 (横向きグラデーションと左右の枠線) なので、
+   横倒しにしたぶん .row-splitter と同じ見た目へ差し替える。 */
+.narrow-layout .pane-splitter {
+  background: linear-gradient(#c0c0c0 0, #d0d0d0 50%, #c0c0c0 100%);
+  border-right: 0;
+  border-left: 0;
+  border-top: 1px solid #d8d8d8;
+  border-bottom: 1px solid #a0a0a0;
+}
+/* ダークとガラスの指定はこの下に書かれていて、横向きグラデーションと左右の枠線を
+   そのまま被せてくる。横倒しの帯では端に縦線が覗くので、ここで上書きし直す
+   (セレクタを長くしているのは後ろの指定に勝つためで、他に意図はない)。 */
+.narrow-layout .shell.dark .pane-splitter,
+.narrow-layout .shell.glass .pane-splitter,
+.narrow-layout .shell.glass.dark .pane-splitter {
+  border-right: 0;
+  border-left: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.3);
+}
+.narrow-layout .shell.glass .pane-splitter {
+  background: linear-gradient(rgba(255, 255, 255, 0.25) 0, rgba(255, 255, 255, 0.4) 50%, rgba(255, 255, 255, 0.25) 100%);
+}
+.narrow-layout .pane-splitter:hover,
+.narrow-layout .shell.glass .pane-splitter:hover {
+  background: linear-gradient(#3399ff 0, #0066cc 50%, #3399ff 100%);
 }
 .narrow-layout .response-layout {
   grid-template-rows: 1fr auto;

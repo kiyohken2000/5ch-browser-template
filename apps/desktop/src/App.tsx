@@ -550,6 +550,10 @@ const MIN_THREAD_PANE_PX = 120;
 const MIN_RESPONSE_PANE_PX = 360;
 const MIN_RESPONSE_BODY_PX = 180;
 const SPLITTER_PX = 6;
+// 縦積み (narrow-layout) で分割線をドラッグしたときに、各ペインに残す最低の高さ。
+// 横幅用の MIN_*_PANE_PX は軸が違って使えない。ヘッダ 1 行と項目が 2〜3 行
+// 見える程度にして、残り (レス本文) にも同じだけ残す。
+const MIN_NARROW_PANE_PX = 72;
 // 本文の下に固定した書き込み欄の高さ (px)。最小値はヘッダ・名前欄・本文・ボタン列が
 // 一通り収まる高さ。
 const MIN_COMPOSE_DOCK_PX = 200;
@@ -806,6 +810,11 @@ const TAB_WIDTH_OPTIONS: { value: TabWidthPref; label: string }[] = [
 // タブバーの中を縦スクロールにしている — 無制限にするとタブが増えたときに
 // タブバーだけでレス欄を押し潰してしまう。
 const TAB_MULTI_ROW_KEY = "desktop.tabMultiRow.v1";
+// タブ幅を揃える。既定ではタブの幅はスレタイの長さで決まるので、プロポーショナル
+// フォント (MS P ゴシックなど) では段ごとに切れ目の位置がずれて、多段表示だと
+// 右端が揃わない。オンにすると幅を固定して縦に揃える。等幅フォント (MS ゴシック)
+// でも、スレタイの文字数が違えば幅は揃わないので、フォントに関係なく効かせる。
+const TAB_UNIFORM_WIDTH_KEY = "desktop.tabUniformWidth.v1";
 // 多段タブの段数。タブバーの下端をドラッグして変えられる。1 段を下回ると多段の
 // 意味がなく、増やしすぎるとタブバーだけでレス欄を押し潰すので上下に止めを置く。
 const MIN_TAB_ROWS = 1;
@@ -872,6 +881,7 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   aiPrefs: AI_PREFS_KEY,
   uiZoom: UI_ZOOM_KEY,
   tabWidth: TAB_WIDTH_KEY,
+  tabUniformWidth: TAB_UNIFORM_WIDTH_KEY,
   tabMultiRow: TAB_MULTI_ROW_KEY,
   touchMode: TOUCH_MODE_KEY,
 };
@@ -974,6 +984,10 @@ type ResizeDragState =
   | { mode: "board-thread"; startX: number; startBoardPx: number; startThreadPx: number }
   | { mode: "thread-response"; startX: number; startBoardPx: number; startThreadPx: number }
   | { mode: "response-rows"; startY: number; startThreadPx: number; responseLayoutHeight: number }
+  // 縦積みのときの板一覧 / スレ一覧の高さ。startHeightPx は保存値ではなく実測値
+  // (未調整なら CSS の 30vh / 40vh が出ている) を起点にする。
+  | { mode: "narrow-board"; startY: number; startHeightPx: number; maxHeightPx: number }
+  | { mode: "narrow-thread"; startY: number; startHeightPx: number; maxHeightPx: number }
   | { mode: "compose-dock"; startY: number; startHeightPx: number; maxHeightPx: number }
   | { mode: "tab-rows"; startY: number; startRows: number; rowHeightPx: number }
   | { mode: "col-resize"; colKey: string; startX: number; startWidth: number; reverse: boolean };
@@ -3209,11 +3223,15 @@ export default function App() {
   }, [uiZoom]);
   // 縦積みへの切り替え。倍率を掛け戻して物理的な幅で判定するので、UI サイズを
   // 上げてもレイアウトは変わらない。
+  // 分割線のドラッグ軸 (横 / 縦) もこれで決まるので、CSS クラスだけでなく
+  // state としても持つ。
+  const [narrowLayout, setNarrowLayout] = useState(false);
   useEffect(() => {
     const apply = () => {
       const narrow = window.innerWidth * uiZoom <= NARROW_LAYOUT_MAX_WIDTH;
       document.documentElement.classList.toggle("narrow-layout", narrow);
       document.body.classList.toggle("narrow-layout", narrow);
+      setNarrowLayout(narrow);
     };
     apply();
     window.addEventListener("resize", apply);
@@ -3229,6 +3247,16 @@ export default function App() {
   useEffect(() => {
     saveUiSetting(TAB_WIDTH_KEY, tabWidth);
   }, [tabWidth]);
+  const [tabUniformWidth, setTabUniformWidth] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(TAB_UNIFORM_WIDTH_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    saveUiSetting(TAB_UNIFORM_WIDTH_KEY, String(tabUniformWidth));
+  }, [tabUniformWidth]);
   const [tabMultiRow, setTabMultiRow] = useState<boolean>(() => {
     try {
       return localStorage.getItem(TAB_MULTI_ROW_KEY) === "true";
@@ -4039,6 +4067,18 @@ export default function App() {
   // そのまま持ち続け、収めるのは描画時だけにする。px 自体を切り詰めてしまうと、
   // 最小化中に幅 0 で来る resize で最小幅まで潰れ、その値が保存されて戻せなくなる。
   const [paneMaxPx, setPaneMaxPx] = useState({ board: Number.MAX_SAFE_INTEGER, thread: Number.MAX_SAFE_INTEGER });
+  // 縦積み (narrow-layout) のときの板一覧 / スレ一覧の高さ。横幅用の px とは軸が
+  // 違うので別に持つ。null は「未調整」で、CSS の既定 (30vh / 40vh) に任せる —
+  // 画面の高さによらず妥当な初期配分になるのは vh のほうなので、触るまでは
+  // 固定 px を被せない。分割線のダブルクリックでここへ戻せる。
+  const [narrowBoardPanePx, setNarrowBoardPanePx] = useState<number | null>(null);
+  const [narrowThreadPanePx, setNarrowThreadPanePx] = useState<number | null>(null);
+  // 縦積みで分割線をドラッグしたあとの高さを被せる。横並びのときは幅を grid が
+  // 決めているので何も返さない (高さを指定すると 3 カラムの配分を壊す)。
+  const narrowPaneStyle = (px: number | null): React.CSSProperties =>
+    narrowLayout && px !== null
+      ? { flex: "0 0 auto", height: `${px}px`, maxHeight: `${px}px` }
+      : {};
   const boardPaneShownPx = clamp(boardPanePx, MIN_BOARD_PANE_PX, Math.max(MIN_BOARD_PANE_PX, paneMaxPx.board));
   const threadPaneShownPx = clamp(threadPanePx, MIN_THREAD_PANE_PX, Math.max(MIN_THREAD_PANE_PX, paneMaxPx.thread));
   const [paneLayoutMode, setPaneLayoutMode] = useState<PaneLayoutMode>("classic");
@@ -9347,6 +9387,8 @@ export default function App() {
     setBoardPanePx(DEFAULT_BOARD_PANE_PX);
     setThreadPanePx(DEFAULT_THREAD_PANE_PX);
     setResponseTopRatio(DEFAULT_RESPONSE_TOP_RATIO);
+    setNarrowBoardPanePx(null);
+    setNarrowThreadPanePx(null);
     setPaneLayoutMode("classic");
     setBoardPaneHidden(false);
     setThreadPaneHidden(false);
@@ -9360,6 +9402,33 @@ export default function App() {
     setResponsesFontSize(12);
     localStorage.removeItem(LAYOUT_PREFS_KEY);
     setStatus("layout reset");
+  };
+
+  // 縦積みのときの分割線。板一覧 / スレ一覧の「高さ」を変えるので軸が縦になる。
+  // 起点の高さは、直前の兄弟 (= その分割線の上のペイン) を実測して取る。未調整の
+  // あいだは CSS の 30vh / 40vh が出ているので、そこから続けて動かせる。
+  // 上限は親 (縦積みのコンテナ) の高さから、下に残すぶんと分割線を引いた値。
+  const beginNarrowResize = (
+    mode: "narrow-board" | "narrow-thread",
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const splitter = event.currentTarget;
+    const paneEl = splitter.previousElementSibling as HTMLElement | null;
+    const containerH = splitter.parentElement?.clientHeight || window.innerHeight;
+    const startHeightPx = paneEl ? paneEl.getBoundingClientRect().height : MIN_NARROW_PANE_PX;
+    resizeDragRef.current = {
+      mode,
+      startY: event.clientY,
+      startHeightPx,
+      maxHeightPx: Math.max(
+        MIN_NARROW_PANE_PX,
+        containerH - MIN_NARROW_PANE_PX - SPLITTER_PX,
+      ),
+    };
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
   };
 
   const beginHorizontalResize = (mode: "board-thread" | "thread-response", event: ReactPointerEvent<HTMLDivElement>) => {
@@ -9747,6 +9816,8 @@ export default function App() {
           boardPanePx?: number;
           threadPanePx?: number;
           responseTopRatio?: number;
+          narrowBoardPanePx?: number | null;
+          narrowThreadPanePx?: number | null;
           paneLayoutMode?: PaneLayoutMode;
           boardPaneHidden?: boolean;
           threadPaneHidden?: boolean;
@@ -9831,6 +9902,15 @@ export default function App() {
           // 起動直後はまだ測れず clientHeight が 0 になる。0 から換算するとペインが消える。
           const layoutHeight = responseLayoutRef.current?.clientHeight || Math.max(520, window.innerHeight - 180);
           setThreadPanePx((layoutHeight * parsed.responseTopRatio) / 100);
+        }
+        // 縦積みのときの高さ。未調整 (null / 無し) なら CSS の既定に任せるので
+        // 何も入れない。保存値が壊れていても最低値で下支えして、ペインが
+        // 掴めない高さ 0 にならないようにする。
+        if (typeof parsed.narrowBoardPanePx === "number" && parsed.narrowBoardPanePx > 0) {
+          setNarrowBoardPanePx(Math.max(MIN_NARROW_PANE_PX, Math.round(parsed.narrowBoardPanePx)));
+        }
+        if (typeof parsed.narrowThreadPanePx === "number" && parsed.narrowThreadPanePx > 0) {
+          setNarrowThreadPanePx(Math.max(MIN_NARROW_PANE_PX, Math.round(parsed.narrowThreadPanePx)));
         }
         if (parsed.paneLayoutMode === "classic" || parsed.paneLayoutMode === "river") setPaneLayoutMode(parsed.paneLayoutMode);
         if (typeof parsed.boardPaneHidden === "boolean") setBoardPaneHidden(parsed.boardPaneHidden);
@@ -10516,6 +10596,17 @@ export default function App() {
         return;
       }
 
+      if (drag.mode === "narrow-board" || drag.mode === "narrow-thread") {
+        const next = clamp(
+          drag.startHeightPx + (event.clientY - drag.startY),
+          MIN_NARROW_PANE_PX,
+          drag.maxHeightPx,
+        );
+        if (drag.mode === "narrow-board") setNarrowBoardPanePx(next);
+        else setNarrowThreadPanePx(next);
+        return;
+      }
+
       if (drag.mode === "response-rows") {
         const deltaY = event.clientY - drag.startY;
         const maxThread = Math.max(
@@ -10868,6 +10959,8 @@ export default function App() {
       boardPanePx,
       threadPanePx,
       responseTopRatio,
+      narrowBoardPanePx,
+      narrowThreadPanePx,
       paneLayoutMode,
       boardPaneHidden,
       // 自動開閉中は畳んだ状態を持ち越さない。true のまま保存すると、あとで
@@ -10948,7 +11041,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, paneLayoutMode, boardPaneHidden, threadPaneHidden, responsePaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, textThicken, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, idColorEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, narrowBoardPanePx, narrowThreadPanePx, paneLayoutMode, boardPaneHidden, threadPaneHidden, responsePaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, textThicken, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, idColorEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled && !typingComboEnabled) return;
@@ -13024,7 +13117,7 @@ export default function App() {
           gridTemplateColumns: boardPaneHidden ? "1fr" : `${boardPaneShownPx}px ${SPLITTER_PX}px 1fr`,
         }}
       >
-        <section className="pane boards" onMouseDown={() => setFocusedPane("boards")} style={{ '--fs-delta': `${boardsFontSize - 12}px`, display: boardPaneHidden ? "none" : undefined } as React.CSSProperties}>
+        <section className="pane boards" onMouseDown={() => setFocusedPane("boards")} style={{ '--fs-delta': `${boardsFontSize - 12}px`, display: boardPaneHidden ? "none" : undefined, ...narrowPaneStyle(narrowBoardPanePx) } as React.CSSProperties}>
           <div className="boards-header">
             <div className="board-tabs">
               <button
@@ -13359,9 +13452,11 @@ export default function App() {
         <div
           className="pane-splitter"
           role="separator"
-          aria-orientation="vertical"
+          aria-orientation={narrowLayout ? "horizontal" : "vertical"}
           aria-label="Resize boards pane"
-          onPointerDown={(e) => beginHorizontalResize("board-thread", e)}
+          title={narrowLayout ? "上下にドラッグで板一覧の高さを変更 (ダブルクリックで既定に戻す)" : undefined}
+          onPointerDown={(e) => (narrowLayout ? beginNarrowResize("narrow-board", e) : beginHorizontalResize("board-thread", e))}
+          onDoubleClick={() => { if (narrowLayout) setNarrowBoardPanePx(null); }}
           onClick={(e) => e.stopPropagation()}
         />
         )}
@@ -13372,7 +13467,7 @@ export default function App() {
             ? { gridTemplateColumns: rightPaneTracks }
             : { gridTemplateRows: rightPaneTracks }}
         >
-        <section className="pane threads" onMouseDown={() => setFocusedPane("threads")} style={{ '--fs-delta': `${threadsFontSize - 12}px`, display: threadPaneHidden ? "none" : undefined } as React.CSSProperties}>
+        <section className="pane threads" onMouseDown={() => setFocusedPane("threads")} style={{ '--fs-delta': `${threadsFontSize - 12}px`, display: threadPaneHidden ? "none" : undefined, ...narrowPaneStyle(narrowThreadPanePx) } as React.CSSProperties}>
           {showThreadSearchOnly && threadSearchResult && (
             <div className="thread-search-banner" role="status">
               <Search size={12} />
@@ -13462,11 +13557,13 @@ export default function App() {
         </section>
         {!threadPaneHidden && !responsePaneHidden && (
         <div
-          className={`row-splitter ${paneLayoutMode === "river" ? "row-splitter-river" : ""}`}
+          className={`row-splitter ${paneLayoutMode === "river" && !narrowLayout ? "row-splitter-river" : ""}`}
           role="separator"
-          aria-orientation={paneLayoutMode === "river" ? "vertical" : "horizontal"}
-          aria-label={paneLayoutMode === "river" ? "Resize threads pane" : "Resize threads and responses"}
-          onPointerDown={beginResponseRowResize}
+          aria-orientation={paneLayoutMode === "river" && !narrowLayout ? "vertical" : "horizontal"}
+          aria-label={paneLayoutMode === "river" && !narrowLayout ? "Resize threads pane" : "Resize threads and responses"}
+          title={narrowLayout ? "上下にドラッグでスレ一覧の高さを変更 (ダブルクリックで既定に戻す)" : undefined}
+          onPointerDown={(e) => (narrowLayout ? beginNarrowResize("narrow-thread", e) : beginResponseRowResize(e))}
+          onDoubleClick={() => { if (narrowLayout) setNarrowThreadPanePx(null); }}
           onClick={(e) => e.stopPropagation()}
         />
         )}
@@ -13591,7 +13688,7 @@ export default function App() {
               スレタイトルバーに出たままになる。 */}
           {tabBarVisible && (
           <div
-            className={`thread-tab-bar-wrap${tabWidth === "narrow" ? " tabs-narrow" : ""}${tabMultiRow ? " tabs-multi-row" : ""}`}
+            className={`thread-tab-bar-wrap${tabWidth === "narrow" ? " tabs-narrow" : ""}${tabUniformWidth ? " tabs-uniform" : ""}${tabMultiRow ? " tabs-multi-row" : ""}`}
             style={{ "--tab-rows": tabRows, "--tab-fs-delta": `${tabFontSize - 11}px` } as React.CSSProperties}
           >
           <div className="thread-tab-bar" ref={tabBarRef}>
@@ -16586,6 +16683,16 @@ export default function App() {
                   <span className="settings-hint">「狭い」はタブの文字と枠を詰めて、一度に見えるタブを増やします</span>
                 </label>
                 <label className="settings-row">
+                  <input
+                    className="tab-uniform-width-toggle"
+                    type="checkbox"
+                    checked={tabUniformWidth}
+                    onChange={(e) => setTabUniformWidth(e.target.checked)}
+                  />
+                  <span title="タブの幅をスレタイの長さによらず固定します。プロポーショナルフォント (MS P ゴシックなど) でタブの切れ目がずれるのを防ぎます">タブ幅を揃える</span>
+                  <span className="settings-hint">多段表示でタブの右端が縦に揃います。長いスレタイは途中で切れます</span>
+                </label>
+                <label className="settings-row">
                   <input type="checkbox" checked={tabMultiRow} onChange={(e) => setTabMultiRow(e.target.checked)} />
                   <span title={`オンにするとタブバーを折り返して複数段に並べます。段数はタブバーの下端のドラッグで ${MIN_TAB_ROWS}〜${MAX_TAB_ROWS} 段に変えられます`}>タブを多段で表示する</span>
                   <span className="settings-hint">横スクロールせずに開いているタブを見渡せます。段数は下端のドラッグで変更</span>
@@ -17157,7 +17264,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>190項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>193項目</span></div>
               </fieldset>
               </>)}
             </div>

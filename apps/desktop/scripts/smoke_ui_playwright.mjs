@@ -2066,6 +2066,29 @@ try {
   );
   console.log("smoke-ui: tab width setting ok");
 
+  // タブ幅を揃える。既定は OFF (従来どおりスレタイの長さで幅が決まる)。ON にすると
+  // タブバーに tabs-uniform が付く。実際に幅が揃うかは、長さの違うスレタイを
+  // 開いた状態で別途実測する。
+  await showSetting(page, '.settings-body input.tab-uniform-width-toggle');
+  const uniformToggle = await page.$(".settings-body input.tab-uniform-width-toggle");
+  assert(uniformToggle, "settings should have the uniform tab width toggle");
+  assert(!(await uniformToggle.isChecked()), "uniform tab width should default to off");
+  await uniformToggle.check();
+  await new Promise((r) => setTimeout(r, 200));
+  assert(
+    await page.$(".thread-tab-bar-wrap.tabs-uniform"),
+    "turning on uniform tab width should mark the tab bar",
+  );
+  const uniformStored = await page.evaluate(() => localStorage.getItem("desktop.tabUniformWidth.v1"));
+  assert(uniformStored === "true", `uniform tab width on should persist, got ${uniformStored}`);
+  await uniformToggle.uncheck();
+  await new Promise((r) => setTimeout(r, 200));
+  assert(
+    !(await page.$(".thread-tab-bar-wrap.tabs-uniform")),
+    "turning uniform tab width back off should drop tabs-uniform",
+  );
+  console.log("smoke-ui: uniform tab width setting ok");
+
   // タブの文字サイズ。既定は従来と同じ 11px で、上げるとタブの枠 (バーの最低高さ)
   // と見せられるタイトルの幅も一緒に伸びること — 文字だけ大きくすると枠に収まらず、
   // 最大幅が固定のままだと見えるタイトルが逆に短くなる。
@@ -5935,6 +5958,89 @@ try {
 
   await densityPage.close();
   console.log("smoke-ui: tab density and nav bar reveal ok");
+
+  // タブ幅を揃える設定の実測。長さの違うスレタイを 2 本開いて、既定では幅が
+  // 違うこと / オンにすると一致することを見る。クラスが付くだけで CSS の
+  // min-width・max-width に負けていると意味が無いので、幅そのものを測る。
+  const uniformTabs = JSON.stringify({
+    tabs: [
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/3333333333/", title: "短" },
+      { threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/4444444444/", title: "とても長いスレッドタイトルが並んでいる場合のタブ" },
+    ],
+    activeIndex: 0,
+  });
+  const openUniformPage = async (uniform) => {
+    const p = await context.newPage();
+    await p.addInitScript(([tabs, on]) => {
+      localStorage.setItem("desktop.threadTabs.v1", tabs);
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", JSON.stringify({ restoreSession: true }));
+      if (on) localStorage.setItem("desktop.tabUniformWidth.v1", "true");
+    }, [uniformTabs, uniform]);
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector(".row-splitter");
+    await new Promise((r) => setTimeout(r, 800));
+    const widths = await p.$$eval(".thread-tab:not(.placeholder)", (els) =>
+      els.map((el) => Math.round(el.getBoundingClientRect().width)),
+    );
+    await p.close();
+    return widths;
+  };
+  const raggedTabWidths = await openUniformPage(false);
+  assert(raggedTabWidths.length === 2, `uniform width check needs 2 tabs, got ${raggedTabWidths.length}`);
+  assert(
+    raggedTabWidths[0] !== raggedTabWidths[1],
+    `tab widths should follow the title length by default, got ${raggedTabWidths}`,
+  );
+  const evenTabWidths = await openUniformPage(true);
+  assert(
+    evenTabWidths.length === 2 && evenTabWidths[0] === evenTabWidths[1],
+    `uniform tab width should make every tab the same width, got ${evenTabWidths}`,
+  );
+  console.log("smoke-ui: uniform tab width measured ok");
+
+  // 縦積み (ウィンドウが狭いとき) の分割線。以前はここで display: none にして
+  // いたので、狭めるとペインの広さを一切調整できなくなっていた。分割線が残り、
+  // 上下のドラッグで板一覧 / スレ一覧の高さが変わること、ダブルクリックで
+  // 既定 (CSS の 30vh / 40vh) に戻ることを見る。
+  const narrowPage = await context.newPage();
+  await narrowPage.setViewportSize({ width: 700, height: 900 });
+  await narrowPage.goto(targetUrl, { waitUntil: "load" });
+  await narrowPage.waitForSelector(".row-splitter");
+  await new Promise((r) => setTimeout(r, 600));
+  assert(
+    await narrowPage.$eval("body", (el) => el.classList.contains("narrow-layout")),
+    "a 700px window should switch to the stacked layout",
+  );
+  const paneSplitterBox = await narrowPage.$eval(".pane-splitter", (el) => {
+    const r = el.getBoundingClientRect();
+    return { w: Math.round(r.width), h: Math.round(r.height), cursor: getComputedStyle(el).cursor };
+  });
+  assert(paneSplitterBox.h > 0 && paneSplitterBox.w > 100, `the stacked layout should keep a horizontal pane splitter, got ${JSON.stringify(paneSplitterBox)}`);
+  assert(paneSplitterBox.cursor === "row-resize", `the stacked pane splitter should drag vertically, got ${paneSplitterBox.cursor}`);
+  const boardsHeight = () => narrowPage.$eval(".pane.boards", (el) => Math.round(el.getBoundingClientRect().height));
+  const beforeDrag = await boardsHeight();
+  const splitterHandle = await narrowPage.$(".pane-splitter");
+  const handleBox = await splitterHandle.boundingBox();
+  await narrowPage.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await narrowPage.mouse.down();
+  await narrowPage.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2 + 80, { steps: 8 });
+  await narrowPage.mouse.up();
+  await new Promise((r) => setTimeout(r, 200));
+  const afterDrag = await boardsHeight();
+  assert(
+    afterDrag > beforeDrag + 40,
+    `dragging the stacked splitter down should grow the boards pane, got ${beforeDrag} -> ${afterDrag}`,
+  );
+  await splitterHandle.dblclick();
+  await new Promise((r) => setTimeout(r, 200));
+  const afterReset = await boardsHeight();
+  assert(
+    Math.abs(afterReset - beforeDrag) <= 2,
+    `double-clicking the stacked splitter should restore the default height, got ${beforeDrag} -> ${afterReset}`,
+  );
+  await narrowPage.close();
+  console.log("smoke-ui: stacked layout splitters ok");
 
   // タブ一覧がレス本文の下に潜らないこと。タブバーの中に absolute で置くと、
   // ガラスモードでは backdrop-filter の重ね合わせ文脈に閉じ込められて本文に
