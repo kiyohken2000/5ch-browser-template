@@ -7,9 +7,8 @@
 
 ## 現在の段階
 
-**M1（読めるようにする）の終盤。** 検索・画像・OGP・ジェスチャ・キャッシュまで入っている。
-残りは `docs/MOBILE_FEASIBILITY_STUDY.md` §12-1。
-投稿（M2）・AI（M3）・通知や画像アップロード（M4）は未着手。
+**ストア提出の段階。** 読む、書く、AI まで入っている。通知は初版に入れない。
+残りのタスクは `docs/MOBILE_FEASIBILITY_STUDY.md` の §12 冒頭。
 
 ## コマンド
 
@@ -21,7 +20,7 @@ yarn install            # 依存
 npx expo run:android    # Android の開発ビルドを作って起動（初回のみ時間がかかる）
 eas build --profile development --platform ios   # iOS シミュレーター用の開発ビルド
 yarn start              # 開発サーバー（開発ビルドを入れた後はこれで繋がる）
-yarn test               # ユニットテスト (jest-expo)。270 件 / 16 スイート
+yarn test               # ユニットテスト (jest-expo)。629 件 / 42 スイート
 yarn test:live          # 実際の 5ch に当てる通し確認。**CI では回さない**
 yarn lint               # ESLint (エラーのみ見るなら npx eslint src/ __tests__/ --quiet)
 npx expo export --platform android --output-dir .expo-export   # バンドル確認
@@ -31,7 +30,7 @@ npx expo export --platform android --output-dir .expo-export   # バンドル確
 
 ```
 src/
-├── lib/        プロトコルと純粋ロジック。**ここは全部テストがある**
+├── lib/        プロトコルと純粋ロジック。主なもの:
 │   ├── sjis.js      Shift_JIS のデコード / エンコード
 │   ├── bytes.js     バイト列の分割（文字列にする前に区切る理由はここに書いてある）
 │   ├── parse.js     dat / subject.txt のパーサ（core-parse の移植）
@@ -52,9 +51,9 @@ src/
 │   ├── http.js      fetch の薄いラッパ（UA / タイムアウト / Range）
 │   ├── api.js       5ch の取得経路（差分取得を含む）
 │   └── storage.js   AsyncStorage の薄いラッパ
-├── slices/     Redux Toolkit 2.x（ng / settings / watch）
-├── scenes/     画面（home / boards / threads / thread / search / settings）
-├── components/ 描画部品（ResponseItem / ResponseBody / ResponseSheet / ResponseMedia / ImageViewer）
+├── slices/     Redux Toolkit 2.x（account / ai / highlight / imageNg / ng / settings / watch）
+├── scenes/     画面（home / boards / threads / thread / post / search / settings）
+├── components/ 描画部品（ResponseItem / ResponseBody / ResponsePopup / ResponseMedia / ImageViewer / SettingsRows）
 ├── theme/      配色（ember.js）とアイコン（images.js）
 └── routes/     ナビゲーション
 ```

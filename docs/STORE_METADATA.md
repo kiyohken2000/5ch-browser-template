@@ -188,8 +188,8 @@ No login is needed. Launch and browse immediately. BE / UPLIFT logins are option
 ## UGC Moderation (Guideline 1.2)
 The app is rated 18+. Content comes from 5ch.io users.
 - Terms: On first launch, a full-screen terms screen must be read to the end and accepted before any other part of the app can be used. The terms state the 18+ age requirement and zero tolerance for objectionable content and abusive users. Settings > "利用条件" shows them at any time. Full terms: https://ember-5ch.pages.dev/terms.html
-- Filter: Long-press a post to hide content by ID, name, or word.
-- Block: Long-press a post > "この ID を NG に追加" or "この名前を NG に追加" hides that user's posts immediately.
+- Filter: Long-press a post > "NG・強調" to hide content by ID, name, or word.
+- Block: Long-press a post > "NG・強調" > "この ID を NG に追加" or "この名前を NG に追加" hides that user's posts immediately.
 - Report: Long-press a post > "このレスを報告" opens the 5ch.io deletion request board and a link to contact the developer.
 - Developer response: Reports sent to the developer are reviewed within 24 hours, and a deletion request is filed with 5ch.io when needed.
 - Contact: https://ember-5ch.pages.dev/support.html
@@ -201,8 +201,8 @@ Not affiliated with 5ch.io. The app accesses public content.
 1. Launch the app, scroll the terms to the end, and tap "同意して始める". The Home tab is empty until threads are opened.
 2. Open the "板" tab, choose a category and a board, then open a thread.
 3. In a thread, tap ">>" links to open popup cards. Tap outside a card to close it.
-4. Long-press a post to see the report and block options.
-5. Settings > "オンデバイス AI" turns AI on. Models are 0.7 to 3.1 GB, so Wi-Fi is recommended.
+4. Long-press a post. "このレスを報告" is on the first screen, and the block options are under "NG・強調".
+5. Settings > "AI" turns AI on. Models are 0.7 to 3.1 GB, so Wi-Fi is recommended.
 
 Please do not post real content during review if possible, because posts are public on 5ch.io.
 
@@ -336,6 +336,8 @@ Play Console で理由を求められる可能性がある権限。
 |---|---|---|
 | `CAMERA` | 投稿する写真の撮影 | ユーザーが選んだときだけ、投稿する写真の撮影に使います。 |
 
+`CAMERA` の説明は、QR 同期（保留）が入るまでは写真の撮影だけにする。iOS の権限文言は再ビルドを減らすため、先に QR の読み取りを含めてある（`app.json`）。
+
 フォアグラウンドサービスの権限は使わない。Play Console に申告の欄が出たら、提出した AAB に権限が残っていないか確認する。
 
 ---
@@ -349,7 +351,7 @@ Play Console で理由を求められる可能性がある権限。
 | 3 | スレッド一覧 | 勢いと新着 |
 | 4 | X のカードと動画 | その場で見られる |
 | 5 | AI の要約 | 端末の中で動く AI |
-| 6 | 長押しメニュー | NG と報告（審査にも効く） |
+| 6 | 長押しメニュー | 報告と「NG・強調」の入口（審査にも効く） |
 | 7 | フォント選択 | カスタマイズ |
 | 8 | 入力コンボ | 楽しさ |
 
@@ -390,7 +392,7 @@ If the review device uses a VPN, please turn it off and try again. If the messag
 
 ## 提出前チェックリスト
 
-- [ ] ランディングを公開し、上の URL がすべて開く
+- [x] ランディングを公開し、上の URL がすべて開く（2026-11-08 に確認。`.html` は拡張子なしの URL へ転送される）
 - [ ] `apps/mobile/eas.json` の本番ビルドが通る（iOS、Android とも）
 - [ ] Android の本番ビルドの権限を確認する（開発用の権限が残っていないか）
 - [ ] Android の動作確認を終える
