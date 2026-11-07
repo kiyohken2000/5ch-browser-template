@@ -22,3 +22,15 @@ eas device:list
 // Expo Settings
 eas build:configure
 eas update:configure
+
+// iOS Simulator: 起動中のシミュレータと UDID を確認
+xcrun simctl list devices booted
+// シミュレータを起動
+xcrun simctl boot <UDID>
+// シミュレータ用 .app をインストール (上書き。データは残る)
+xcrun simctl install booted ../../_temp/Ember.app
+// アプリの起動 / 終了
+xcrun simctl launch booted net.votepurchase.ember
+xcrun simctl terminate booted net.votepurchase.ember
+// アプリの削除 (データも消える)
+xcrun simctl uninstall booted net.votepurchase.ember
