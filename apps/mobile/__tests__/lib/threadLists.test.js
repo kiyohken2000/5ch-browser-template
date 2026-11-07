@@ -3,12 +3,14 @@ import {
   MAX_MY_POSTS,
   manualReadMarkers,
   diffKnownThreads,
+  formatPerDay,
   MAX_RECENT_OPENED,
   postedThreads,
   pushMyPost,
   pushRecentThread,
   removePosts,
   removeThread,
+  splitTitleTag,
   toggleThread,
   withWatchInfo,
 } from 'lib/threadLists'
@@ -158,5 +160,38 @@ describe('manualReadMarkers', () => {
 
   it('読めない値は空にする', () => {
     expect(manualReadMarkers(null)).toEqual({})
+  })
+})
+
+describe('splitTitleTag', () => {
+  it('末尾の番号を分ける', () => {
+    expect(splitTitleTag('地震 [931948549]')).toEqual({
+      title: '地震',
+      tag: '931948549',
+    })
+    expect(splitTitleTag('地震[931948549] ')).toEqual({
+      title: '地震',
+      tag: '931948549',
+    })
+  })
+
+  it('末尾でない括弧、短い番号、文字入りの括弧は分けない', () => {
+    for (const title of [
+      '[123456789] 地震',
+      '地震 [12]',
+      '地震 [無断転載禁止]',
+    ]) {
+      expect(splitTitleTag(title)).toEqual({ title, tag: '' })
+    }
+    expect(splitTitleTag(undefined)).toEqual({ title: '', tag: '' })
+  })
+})
+
+describe('formatPerDay', () => {
+  it('四捨五入して 3 桁で区切る', () => {
+    expect(formatPerDay(3861.6)).toBe('3,862/日')
+    expect(formatPerDay(1234567)).toBe('1,234,567/日')
+    expect(formatPerDay(0)).toBe('0/日')
+    expect(formatPerDay(NaN)).toBe('0/日')
   })
 })

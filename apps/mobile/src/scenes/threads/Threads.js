@@ -31,13 +31,14 @@ import {
   DEFAULT_SORT,
   formatAge,
   momentum,
-  SORT_MODES,
+  normalizeSortMode,
   sortThreads,
   unreadCount,
+  visibleSortModes,
 } from 'lib/sort'
 import { pushHistory } from 'lib/search'
 import { KEYS, load, save } from 'lib/storage'
-import { diffKnownThreads } from 'lib/threadLists'
+import { diffKnownThreads, formatPerDay, splitTitleTag } from 'lib/threadLists'
 import { parseBoardLocation } from 'lib/urls'
 import { selectNgFilters } from 'slices/ng.slice'
 import { toggleBoardFavorite, touchBoard } from 'slices/watch.slice'
@@ -60,6 +61,7 @@ export default function Threads({ route, navigation }) {
   const titleFontSize = useSelector(
     (state) => state.settings.threadTitleFontSize,
   )
+  const sortModesShown = useSelector((state) => state.settings.sortModesShown)
 
   const [threads, setThreads] = useState([])
   const [loading, setLoading] = useState(true)
@@ -137,7 +139,9 @@ export default function Threads({ route, navigation }) {
   useEffect(() => {
     let alive = true
     load(KEYS.sortPrefs, {}).then((prefs) => {
-      if (alive && prefs?.[boardUrl]) setSortMode(prefs[boardUrl])
+      if (alive && prefs?.[boardUrl]) {
+        setSortMode(normalizeSortMode(prefs[boardUrl]))
+      }
     })
     return () => {
       alive = false
@@ -317,7 +321,7 @@ export default function Threads({ route, navigation }) {
           </ScrollView>
         ) : null}
         <View style={styles.sortRow}>
-          {SORT_MODES.map((m) => (
+          {visibleSortModes(sortModesShown, sortMode).map((m) => (
             <Pressable
               key={m.key}
               onPress={() => changeSort(m.key)}
@@ -375,6 +379,7 @@ export default function Threads({ route, navigation }) {
         renderItem={({ item }) => {
           const seen = watchById.get(item.threadId)
           const unread = unreadCount(item, seen)
+          const { title, tag } = splitTitleTag(item.title)
           return (
             <Pressable
               onPress={() =>
@@ -395,6 +400,39 @@ export default function Threads({ route, navigation }) {
                 },
               ]}
             >
+              <View style={styles.meta}>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.metaInfo, { color: theme.textFaint }]}
+                >
+                  {[
+                    item.no,
+                    formatAge(item.threadKey),
+                    formatPerDay(momentum(item)),
+                    tag ? `[${tag}]` : '',
+                  ]
+                    .filter(Boolean)
+                    .join('  ')}
+                </Text>
+                {unread > 0 ? (
+                  <View
+                    accessibilityLabel={`新着 ${unread} 件`}
+                    style={[
+                      styles.unreadBadge,
+                      { backgroundColor: theme.accent },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.unreadText, { color: theme.badgeText }]}
+                    >
+                      +{unread}
+                    </Text>
+                  </View>
+                ) : null}
+                <Text style={[styles.count, { color: theme.textDim }]}>
+                  {item.responseCount}
+                </Text>
+              </View>
               <Text
                 style={[
                   {
@@ -413,7 +451,7 @@ export default function Threads({ route, navigation }) {
                     {'[新着] '}
                   </Text>
                 ) : null}
-                {splitHighlights(item.title, titleWords).map((part, i) =>
+                {splitHighlights(title, titleWords).map((part, i) =>
                   part.color ? (
                     <Text key={i} style={highlightStyle(part.color)}>
                       {part.text}
@@ -423,32 +461,6 @@ export default function Threads({ route, navigation }) {
                   ),
                 )}
               </Text>
-              <View style={styles.meta}>
-                <Text style={[styles.metaText, { color: theme.textFaint }]}>
-                  {item.responseCount}
-                </Text>
-                {unread > 0 ? (
-                  <View
-                    accessibilityLabel={`新着 ${unread} 件`}
-                    style={[
-                      styles.unreadBadge,
-                      { backgroundColor: theme.accent },
-                    ]}
-                  >
-                    <Text
-                      style={[styles.unreadText, { color: theme.badgeText }]}
-                    >
-                      +{unread}
-                    </Text>
-                  </View>
-                ) : null}
-                <Text style={[styles.metaText, { color: theme.textFaint }]}>
-                  勢い {Math.round(momentum(item))}
-                </Text>
-                <Text style={[styles.metaText, { color: theme.textFaint }]}>
-                  {formatAge(item.threadKey)}
-                </Text>
-              </View>
             </Pressable>
           )
         }}
@@ -533,7 +545,8 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  metaText: { fontSize: 11 },
+  metaInfo: { flex: 1, fontSize: 12 },
+  count: { fontSize: 12, fontWeight: '600' },
   unreadBadge: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 9 },
   unreadText: { fontSize: 12, fontWeight: '700' },
 })

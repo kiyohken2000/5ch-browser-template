@@ -12,7 +12,6 @@
 export const SORT_MODES = [
   { key: 'board', label: '板の順' },
   { key: 'momentum', label: '勢い' },
-  { key: 'recent', label: '新着' },
   { key: 'count', label: 'レス数' },
   { key: 'created', label: 'スレ立て順' },
   { key: 'unread', label: '新着レス' },
@@ -21,6 +20,29 @@ export const SORT_MODES = [
 ]
 
 export const DEFAULT_SORT = 'board'
+
+/** 並べ替えのボタンに最初から出すモード。板の順は常に出す */
+export const DEFAULT_SORT_SHOWN = ['momentum', 'newThread', 'fetched']
+
+/** 廃止したモードの移し先。「新着」の中身は勢いの順と同じだった */
+const RENAMED_SORT = { recent: 'momentum' }
+
+/** 保存されていたモードを今のモードに読み替える。知らないものは既定に戻す。 */
+export function normalizeSortMode(mode) {
+  const key = RENAMED_SORT[mode] || mode
+  return SORT_MODES.some((m) => m.key === key) ? key : DEFAULT_SORT
+}
+
+/**
+ * ボタンに出すモード。今選んでいるモードは、非表示にしていても出す。
+ * ボタンを隠しただけで、その板の並びを勝手に変えないため（不変条件 3）。
+ */
+export function visibleSortModes(shown, current) {
+  const list = Array.isArray(shown) ? shown : DEFAULT_SORT_SHOWN
+  return SORT_MODES.filter(
+    (m) => m.key === DEFAULT_SORT || m.key === current || list.includes(m.key),
+  )
+}
 
 /**
  * スレッドキーは「スレが立った時刻の UNIX 秒」。
@@ -48,18 +70,6 @@ export function momentum(thread, now = Date.now()) {
   if (age === 0) return 0
   const days = Math.max(age, 60 * 60 * 1000) / (24 * 60 * 60 * 1000)
   return (thread.responseCount || 0) / days
-}
-
-/**
- * 「新着」= 最後に書き込まれたおおよその時刻。
- * dat を取らずに subject.txt だけで出すので、立った時刻 + 経過の推定になる。
- * 正確な最終書き込み時刻は dat を取るまで分からないため、**勢いの代理指標**
- * として使い、画面では「新着」とだけ表示する。
- */
-export function recency(thread, now = Date.now()) {
-  // レス数が増えているスレほど最近書かれている、という近似。
-  // 同じ勢いなら新しいスレを上にする。
-  return momentum(thread, now) * 1000 + createdAtMs(thread.threadKey) / 1e9
 }
 
 /**
@@ -91,7 +101,6 @@ export function sortThreads(
 
   const key = {
     momentum: (t) => momentum(t, now),
-    recent: (t) => recency(t, now),
     count: (t) => t.responseCount || 0,
     created: (t) => createdAtMs(t.threadKey),
     unread: (t) => unreadCount(t, seenById.get(t.threadId)),

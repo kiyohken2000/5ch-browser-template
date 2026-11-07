@@ -174,3 +174,18 @@ export function manualReadMarkers(markers) {
     Object.entries(markers).filter(([, marker]) => marker?.manualAt),
   )
 }
+
+/**
+ * スレタイの末尾の BE 番号 `[123456789]` を分ける。一覧では上の段に出す。
+ * @returns {{title: string, tag: string}} 無ければ tag は空
+ */
+export function splitTitleTag(title) {
+  const m = String(title || '').match(/^(.*\S)\s*\[(\d{6,12})\]\s*$/)
+  return m ? { title: m[1], tag: m[2] } : { title: title || '', tag: '' }
+}
+
+/** 勢いの表示。「3,862/日」。 */
+export function formatPerDay(perDay) {
+  const n = Math.round(Number.isFinite(perDay) ? perDay : 0)
+  return `${String(n).replace(/\B(?=(\d{3})+$)/g, ',')}/日`
+}

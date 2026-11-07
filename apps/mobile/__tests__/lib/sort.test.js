@@ -1,4 +1,11 @@
-import { sortThreads, unreadCount } from 'lib/sort'
+import {
+  DEFAULT_SORT_SHOWN,
+  normalizeSortMode,
+  SORT_MODES,
+  sortThreads,
+  unreadCount,
+  visibleSortModes,
+} from 'lib/sort'
 
 const thread = (threadId, responseCount = 0) => ({
   threadId,
@@ -19,6 +26,43 @@ describe('unreadCount', () => {
 
   it('スレ一覧の値が古くて減って見えても 0 で止める', () => {
     expect(unreadCount(thread('1', 5), { totalCount: 10 })).toBe(0)
+  })
+})
+
+describe('並べ替えのモード', () => {
+  const keys = (modes) => modes.map((m) => m.key)
+
+  it('最初は 4 個を出し、残りは設定で出せる', () => {
+    expect(keys(visibleSortModes(DEFAULT_SORT_SHOWN, 'board'))).toEqual([
+      'board',
+      'momentum',
+      'newThread',
+      'fetched',
+    ])
+    expect(keys(visibleSortModes(['count'], 'board'))).toEqual([
+      'board',
+      'count',
+    ])
+    expect(SORT_MODES).toHaveLength(7)
+  })
+
+  it('板の順は全部切っても出す', () => {
+    expect(keys(visibleSortModes([], 'board'))).toEqual(['board'])
+  })
+
+  it('選んでいるモードは非表示でも出して、並びを勝手に変えない', () => {
+    expect(keys(visibleSortModes([], 'count'))).toEqual(['board', 'count'])
+  })
+
+  it('設定が壊れていたら既定を出す', () => {
+    expect(keys(visibleSortModes(null, 'board'))).toHaveLength(4)
+  })
+
+  it('廃止した「新着」は同じ並びの勢いへ移し、知らないモードは板の順に戻す', () => {
+    expect(normalizeSortMode('recent')).toBe('momentum')
+    expect(normalizeSortMode('created')).toBe('created')
+    expect(normalizeSortMode('nope')).toBe('board')
+    expect(normalizeSortMode(undefined)).toBe('board')
   })
 })
 

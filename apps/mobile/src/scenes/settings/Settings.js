@@ -26,6 +26,7 @@ import {
 } from 'lib/gestures'
 import { displayVersion } from 'lib/appVersion'
 import { fontLabel } from 'lib/fonts'
+import { DEFAULT_SORT, SORT_MODES } from 'lib/sort'
 import { clearImageCache } from 'lib/imageCache'
 import { openInAppBrowser } from 'lib/inAppBrowser'
 import { PRIVACY_URL, TERMS_URL } from 'lib/terms'
@@ -318,6 +319,35 @@ export default function Settings({ navigation }) {
           '「ここまで読んだ」の位置から開く',
           '印が無いスレは、読んでいた位置から開きます',
         )}
+      </SettingsSection>
+
+      <SettingsSection title="スレ一覧の並べ替え" theme={theme}>
+        {SORT_MODES.map((m) => {
+          const fixed = m.key === DEFAULT_SORT
+          return (
+            <Row
+              key={m.key}
+              theme={theme}
+              label={m.label}
+              hint={fixed ? '常に表示します' : undefined}
+            >
+              <Switch
+                accessibilityLabel={`並べ替えに${m.label}を表示`}
+                value={fixed || settings.sortModesShown.includes(m.key)}
+                disabled={fixed}
+                onValueChange={(on) =>
+                  set(
+                    'sortModesShown',
+                    on
+                      ? [...settings.sortModesShown, m.key]
+                      : settings.sortModesShown.filter((k) => k !== m.key),
+                  )
+                }
+                trackColor={{ true: theme.accent }}
+              />
+            </Row>
+          )
+        })}
       </SettingsSection>
 
       <SettingsSection title="ガラス効果" theme={theme}>

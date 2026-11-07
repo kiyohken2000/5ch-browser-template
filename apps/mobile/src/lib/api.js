@@ -95,8 +95,10 @@ export async function fetchSubject(boardUrl, options = {}) {
   const { bytes } = await read5chBytes(location.subjectUrl(), options)
   return {
     location,
-    threads: parseSubjectBytes(bytes).map((t) => ({
+    threads: parseSubjectBytes(bytes).map((t, i) => ({
       ...t,
+      // 板の順の通し番号。並べ替えや絞り込みでは変わらない
+      no: i + 1,
       threadId: location.threadId(t.threadKey),
       threadUrl: location.threadUrl(t.threadKey),
     })),
