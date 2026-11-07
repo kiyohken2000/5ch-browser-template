@@ -113,8 +113,16 @@
         "expo-image-picker",
         {
           "photosPermission": "画像を投稿するときに写真を選ぶため、写真へのアクセスを求めます。",
-          "cameraPermission": "投稿する写真をその場で撮影するため、カメラへのアクセスを求めます。",
+          "cameraPermission": "投稿する写真の撮影と QR コードの読み取りのため、カメラへのアクセスを求めます。",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "投稿する写真の撮影と QR コードの読み取りのため、カメラへのアクセスを求めます。",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ],
       "llama.rn",
