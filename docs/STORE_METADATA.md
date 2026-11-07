@@ -400,3 +400,30 @@ If the review device uses a VPN, please turn it off and try again. If the messag
 - [ ] フィーチャーグラフィックを作る
 - [ ] 同じ内容で App のプライバシーとデータセーフティを入力する
 - [ ] Google Play: 個人アカウントのクローズドテスト要件に該当するか確認する
+
+---
+
+## 公開後にやること（ランディング）
+
+ストアが開いたら、ランディングを「準備中」から「配信中」へ切り替える。
+**いまのトップページは依然として Windows / macOS / Linux のアプリとして自己紹介している**ので、
+ここを直すまで検索結果や SNS のカードの時点で PC 専用アプリとして扱われる。
+該当箇所には同じ趣旨のコードコメントも置いてある。
+
+- [ ] `apps/landing/src/MobilePages.tsx` の `APP_STORE_URL` / `GOOGLE_PLAY_URL` にストアの URL を入れる。空のあいだストアバッジは「準備中」と出る
+- [ ] `apps/landing/src/App.tsx` 対応プラットフォームの帯にある iOS / Android チップから「準備中」バッジ (`.platform-chip-note`) を外す
+- [ ] 同 `.mobile-teaser` の告知カードを、ストアバッジ付きの正式なセクションへ格上げする。「App Store / Google Play 準備中」の pill は外す
+- [ ] 同ヒーローの pill「v0.0.xxx · Windows / macOS / Linux」にモバイルを足す
+- [ ] `apps/landing/index.html` の 6 か所を直す — `<title>` (7 行目)、`meta description` (10)、`og:description` (18)、`twitter:description` (29)、JSON-LD の `operatingSystem` (39) と `description` (40)
+- [ ] `cd apps/landing && npm run deploy` で反映する。**アプリのリリースではないので `scripts/release.sh` / `release_finish.sh` は通さない**（バージョン更新も `latest.json` の差し替えも不要）
+
+### 経緯
+
+2026-11-08、「トップページにモバイル版の言及がまったくないので、モバイル版が存在することに
+気づいてもらえないのでは」という指摘があった。当時トップから `/mobile.html` への導線は
+ナビとフッタの裸のリンク 2 本だけで、他の全箇所 (title / description / OG / JSON-LD /
+ヒーローの pill / 対応プラットフォームの帯 / ダウンロード) はデスクトップ専用だと明記していた。
+
+同日、導線を 6 本へ増やした (iOS / Android チップ 2 本、告知カードの見出し・ボタン・スクショ)。
+ストアがまだ開いていないため、いずれも「準備中」と明記する形に留めてある。上のチェックリストは
+その「準備中」を外す作業。

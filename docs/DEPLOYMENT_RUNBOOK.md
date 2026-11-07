@@ -269,3 +269,5 @@ Windows ZIP と macOS の `.app` に同梱しているアップデータの仕�
 - **Windows ZIP には必ず `VULKAN-LOADER-LICENSE.txt` と `VULKAN-LOADER-ATTRIBUTION.txt` を同梱** (Apache 2.0 セクション 4 の再配布要件。欠けるとライセンス違反)
 - **Windows ZIP には必ず MSVC ランタイム 4 ファイル (`msvcp140.dll` / `vcruntime140.dll` / `vcruntime140_1.dll` / `vcomp140.dll`) と `MSVC-RUNTIME-ATTRIBUTION.txt` を同梱**（欠けると VC++ 再頒布可能パッケージ未導入環境で起動不能。コピー元は VS の `VC\Redist\` 配下のみ、System32 と `debug_nonredist\` は不可）
 - **`ai-models.json` を編集した場合は landing デプロイ必須** — アプリ起動時にランディングから取得しているため、Pages に push しないと新カタログが配布されない
+- **ランディングだけの変更はリリース手順に乗せない** — `cd apps/landing && npm run deploy` (ビルド + Pages デプロイ) で完結する。バージョン更新も `latest.json` の差し替えも不要。デプロイは作業ツリーからビルドするので、未コミットの変更もそのまま本番に出る
+- **モバイル版をストア公開したらランディングのトップを直す** — トップページは今も「Windows / macOS / Linux」のアプリとして自己紹介している。やることの一覧は [docs/STORE_METADATA.md](STORE_METADATA.md) の「公開後にやること（ランディング）」

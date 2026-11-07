@@ -22,6 +22,7 @@ import aiStatus from "./assets/images/ai-status.png";
 import aiResponseAssist from "./assets/images/ai-response-assist.jpg";
 import aiTranslate from "./assets/images/ai-translate.png";
 import searchAllBoards from "./assets/images/search-all-boards.png";
+import mobileAnchorCards from "./assets/images/mobile/popup.jpg";
 
 const REPO_RELEASES_URL = "https://github.com/kiyohken2000/5ch-browser-template/releases";
 const GITHUB_URL = "https://github.com/kiyohken2000/5ch-browser-template";
@@ -426,6 +427,15 @@ export default function App() {
             <span className="platform-chip"><WindowsIcon /> Windows 11</span>
             <span className="platform-chip"><AppleIcon /> macOS (Apple Silicon)</span>
             <span className="platform-chip"><LinuxIcon /> Linux x64 / AArch64</span>
+            {/* 「対応プラットフォーム」と銘打った場所に iOS / Android が無いと、
+                デスクトップ専用のアプリだと読まれてしまう。ストアはまだ開いて
+                いないので、状態を添えた上でモバイル版のページへ送る。 */}
+            <a className="platform-chip" href="/mobile.html">
+              <AppleIcon /> iOS <span className="platform-chip-note">準備中</span>
+            </a>
+            <a className="platform-chip" href="/mobile.html">
+              <AndroidIcon /> Android <span className="platform-chip-note">準備中</span>
+            </a>
           </div>
         </section>
 
@@ -1049,6 +1059,40 @@ export default function App() {
           </div>
         </section>
 
+        {/* モバイル版の告知。トップからの導線がナビとフッタの裸のリンクだけで、
+            何があるのか分からなかった。ストアが開いたらストアバッジ付きの
+            正式なセクションへ格上げし、title / description / OG / JSON-LD の
+            「Windows / macOS / Linux」も書き換える。 */}
+        <section className="section">
+          <article className="card mobile-teaser reveal">
+            <div className="mobile-teaser-text">
+              <p className="kicker">iOS / Android</p>
+              <h3>モバイル版も準備しています</h3>
+              <p className="lead">
+                アンカーをカードで重ねて辿り、画像も動画もその場で。要約や翻訳は端末の中の AI で動きます。
+                デスクトップ版と同じく無料・広告なし・オープンソースです。
+              </p>
+              <p className="pill mobile-teaser-pill">
+                <span className="pill-dot" />
+                App Store / Google Play 準備中
+              </p>
+              <div className="actions">
+                <a className="btn ghost" href="/mobile.html">モバイル版の機能を見る</a>
+              </div>
+            </div>
+            <a className="mobile-teaser-shot" href="/mobile.html" aria-label="モバイル版のページを見る">
+              <img
+                src={mobileAnchorCards}
+                alt="Ember モバイル版でアンカーをカードで重ねて表示した画面"
+                width={760}
+                height={1652}
+                loading="lazy"
+                decoding="async"
+              />
+            </a>
+          </article>
+        </section>
+
         <section className="section">
           <div className="card support-card reveal">
             <div>
@@ -1205,6 +1249,21 @@ function LinuxIcon() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d="M12 2c-2.8 0-4 2.5-4 5 0 1.3.4 2.4 1 3.3-1.5 1.6-3 4.2-3 6.9 0 2 .6 3.7 1.7 4.3.5.3 1.1.3 1.6 0 .4-.3.6-.7.8-1.1.2 1.1 1.1 2 2.9 2 1.7 0 2.5-.8 2.8-1.9.2.4.4.8.8 1 .5.3 1.1.3 1.6 0 1.1-.6 1.7-2.3 1.7-4.3 0-2.8-1.5-5.4-3-7 .7-.9 1.1-2 1.1-3.2 0-2.5-1.2-5-4-5Zm-1.5 5.5c.4 0 .7.4.7.9s-.3.9-.7.9-.8-.4-.8-.9.3-.9.8-.9Zm3 0c.5 0 .8.4.8.9s-.3.9-.8.9-.7-.4-.7-.9.3-.9.7-.9Zm-1.5 2.7c1.5 0 2.5.9 2.5 1.7 0 .7-1 1.1-2.5 1.1s-2.5-.4-2.5-1.1c0-.8 1-1.7 2.5-1.7Z" />
+    </svg>
+  );
+}
+
+function AndroidIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      {/* 目は fillRule="evenodd" で頭から抜く */}
+      <path
+        fillRule="evenodd"
+        d="M12 4.2c-3.1 0-5.6 2.4-5.6 5.4h11.2c0-3-2.5-5.4-5.6-5.4Zm-2.3 2.6a.8.8 0 1 0 0 1.6.8.8 0 1 0 0-1.6Zm4.6 0a.8.8 0 1 0 0 1.6.8.8 0 1 0 0-1.6Z"
+      />
+      <path d="M7.45 2.6a.65.65 0 0 1 .9-.18l1.9 1.27a.65.65 0 0 1-.72 1.08L7.63 3.5a.65.65 0 0 1-.18-.9Zm9.1 0a.65.65 0 0 1-.18.9l-1.9 1.27a.65.65 0 0 1-.72-1.08l1.9-1.27a.65.65 0 0 1 .9.18Z" />
+      <path d="M6.4 10.6h11.2v6.6c0 .88-.72 1.6-1.6 1.6h-.7v2.05a1.25 1.25 0 0 1-2.5 0V18.8h-1.6v2.05a1.25 1.25 0 0 1-2.5 0V18.8H8c-.88 0-1.6-.72-1.6-1.6v-6.6Z" />
+      <path d="M3.95 10.5a1.25 1.25 0 0 1 1.25 1.25v4.4a1.25 1.25 0 0 1-2.5 0v-4.4a1.25 1.25 0 0 1 1.25-1.25Zm16.1 0a1.25 1.25 0 0 1 1.25 1.25v4.4a1.25 1.25 0 0 1-2.5 0v-4.4a1.25 1.25 0 0 1 1.25-1.25Z" />
     </svg>
   );
 }
