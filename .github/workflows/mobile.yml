@@ -32,8 +32,14 @@ jobs:
           cache: yarn
           cache-dependency-path: apps/mobile/yarn.lock
 
+      # executorch と llama.rn は postinstall で GitHub Releases からネイティブの
+      # ライブラリを取る。この CI は JS しか使わない (Lint / jest / expo export) ので
+      # 取らない。2026-11-08 に GitHub Releases の 504 でインストールごと落ちたため
       - name: 依存をインストール
         run: yarn install --frozen-lockfile
+        env:
+          RNET_SKIP_DOWNLOAD: '1'
+          RNLLAMA_SKIP_POSTINSTALL: '1'
 
       - name: Lint (エラーのみで落とす)
         run: npx eslint src/ __tests__/ --quiet
