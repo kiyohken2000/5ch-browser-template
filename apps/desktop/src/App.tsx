@@ -5796,7 +5796,10 @@ export default function App() {
   // スレ一覧フィルタは維持したい」場合に立てる。
   const fetchThreadListFromCurrent = async (targetThreadUrl?: string, opts?: { keepFilter?: boolean }) => {
     if (!opts?.keepFilter) setShowFavoritesOnly(false);
-    const url = (targetThreadUrl ?? threadUrl).trim();
+    // 引数なしは「スレ一覧を更新」(ボタン / Ctrl+Shift+R / メニュー)。threadUrl は
+    // 開いているスレの URL なので、お気に入りなどから別の板のスレを開いていると、
+    // 表示中の一覧ではなくそのスレの板を取り直してしまう。一覧を取ったときの URL を優先する。
+    const url = (targetThreadUrl ?? (fetchedThreadsBoardUrlRef.current || threadUrl)).trim();
     if (!url) return;
     if (!isTauriRuntime()) {
       setThreadListProbe("web preview mode: thread fetch requires tauri runtime");
@@ -5908,7 +5911,8 @@ export default function App() {
   };
 
   const refreshThreadListSilently = async () => {
-    const url = threadUrl.trim();
+    // fetchThreadListFromCurrent と同じく、開いているスレではなく表示中の一覧の板を更新する
+    const url = (fetchedThreadsBoardUrlRef.current || threadUrl).trim();
     if (!url || !isTauriRuntime()) return;
     try {
       const rows = await invoke<ThreadListItem[]>("fetch_thread_list", {
@@ -6209,6 +6213,7 @@ export default function App() {
       // Update tab title if server returned a real title (e.g. from read.cgi HTML)
       if (fetchedTitle) {
         setThreadTabs((prev) => prev.map((t) => t.threadUrl === url ? { ...t, title: fetchedTitle } : t));
+        refreshRecentThreadTitle(url, fetchedTitle);
       }
       const cachedEntry = tabCacheRef.current.get(url);
       const prevCount = cachedEntry ? cachedEntry.responses.length : 0;
@@ -6403,6 +6408,7 @@ export default function App() {
           const fetchedTitle = result.title ? decodeHtmlEntities(result.title) : null;
           if (fetchedTitle) {
             setThreadTabs((prev) => prev.map((t) => (t.threadUrl === url ? { ...t, title: fetchedTitle } : t)));
+            refreshRecentThreadTitle(url, fetchedTitle);
           }
           const added = prevCount > 0 ? Math.max(0, rows.length - prevCount) : 0;
           if (cached) {
@@ -6863,6 +6869,21 @@ export default function App() {
       saveUiJson(RECENT_POSTED_THREADS_KEY, JSON.stringify(next));
       return next;
     });
+  };
+  // スレを取得してタイトルが分かったら、最近読んだ / 書き込んだ の表示名も直す。
+  // スレ内のリンクや過去ログから開くと、開いた時点ではタイトルが無く URL 末尾の
+  // スレ番号で記録されるため。並び順と日時は変えない。
+  const refreshRecentThreadTitle = (url: string, title: string) => {
+    const normalizedUrl = normalizeThreadUrl(url);
+    const nextTitle = normalizeThreadTitle(title, normalizedUrl);
+    const apply = (key: string) => (prev: RecentThread[]) => {
+      if (!prev.some((t) => t.threadUrl === normalizedUrl && t.title !== nextTitle)) return prev;
+      const next = prev.map((t) => (t.threadUrl === normalizedUrl ? { ...t, title: nextTitle } : t));
+      saveUiJson(key, JSON.stringify(next));
+      return next;
+    };
+    setRecentOpenedThreads(apply(RECENT_OPENED_THREADS_KEY));
+    setRecentPostedThreads(apply(RECENT_POSTED_THREADS_KEY));
   };
   const remapSavedThreadCounts = (prev: RecentThread[], next: RecentThread[]) => {
     const newIndexByUrl = new Map<string, number>();
@@ -10340,8 +10361,28 @@ export default function App() {
     try { localStorage.setItem(FAV_RECENT_POSTED_EXPANDED_KEY, favRecentPostedExpanded ? "1" : "0"); } catch { /* ignore */ }
   }, [favRecentPostedExpanded]);
 
+  // 「クリックで表示」(サムネの自動読み込み OFF / サイズ制限) の枠を画像に差し替える。
+  // 本文とポップアップの両方から呼ぶ。ポップアップは本文ペインの外に描くので、
+  // 本文側のクリック委譲では拾えない。
+  const revealGatedThumb = (gateBlocked: HTMLElement) => {
+    const src = gateBlocked.dataset.revealSrc;
+    if (!src) return;
+    const parent = gateBlocked.closest<HTMLElement>(".thumb-size-gate");
+    if (!parent) return;
+    // YouTube のサムネは ▶ の重ね表示ごと作り直す。
+    parent.innerHTML = parent.classList.contains("youtube-thumb")
+      ? `<img class="response-thumb youtube-thumb-img" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="YouTube" /><span class="youtube-play-icon" aria-hidden="true">▶</span>`
+      : `<img class="response-thumb" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="" />`;
+  };
   const handlePopupImageClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
+    const gateBlocked = target.closest<HTMLElement>(".thumb-gate-blocked");
+    if (gateBlocked) {
+      e.preventDefault();
+      e.stopPropagation();
+      revealGatedThumb(gateBlocked);
+      return;
+    }
     const anchor = target.closest<HTMLElement>(".anchor-ref");
     if (anchor) {
       e.preventDefault();
@@ -14051,16 +14092,7 @@ export default function App() {
                 const gateBlocked = target.closest<HTMLElement>(".thumb-gate-blocked");
                 if (gateBlocked) {
                   e.preventDefault();
-                  const src = gateBlocked.dataset.revealSrc;
-                  if (src) {
-                    const parent = gateBlocked.closest<HTMLElement>(".thumb-size-gate");
-                    if (parent) {
-                      // YouTube のサムネは ▶ の重ね表示ごと作り直す。
-                      parent.innerHTML = parent.classList.contains("youtube-thumb")
-                        ? `<img class="response-thumb youtube-thumb-img" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="YouTube" /><span class="youtube-play-icon" aria-hidden="true">▶</span>`
-                        : `<img class="response-thumb" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="" />`;
-                    }
-                  }
+                  revealGatedThumb(gateBlocked);
                   return;
                 }
                 // 本文に書かれた ID のクリック。ヘッダの ID セルと同じ扱いにする:

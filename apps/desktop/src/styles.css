@@ -34,6 +34,10 @@ body {
   height: 100vh;
   display: grid;
   grid-template-rows: 26px 32px 1fr 22px;
+  /* 列を書かないと暗黙の auto 列になり、中身の最大幅まで広がる。縦積み
+     (.narrow-layout) では .layout が flex になって列幅の縛りが消えるので、
+     横に並んだタブの合計幅でアプリ全体が押し広げられ、横スクロールバーが出ていた。 */
+  grid-template-columns: minmax(0, 1fr);
   font-size: 12px;
   /* 文字を太くする設定。輪郭に細い線を足すだけなので字形も行送りも変わらない。
      線の色は -webkit-text-stroke-color の初期値 currentColor なので、
