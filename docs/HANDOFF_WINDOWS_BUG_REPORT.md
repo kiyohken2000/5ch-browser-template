@@ -6,7 +6,7 @@ Windows 11 のユーザーから届いた 6 件の不具合を Mac で直した�
 ## 前提
 
 - commit `e759e6d` (main にプッシュ済み): 1〜5 の修正。`apps/desktop/src/App.tsx` と `apps/desktop/src/styles.css`
-- 6 の修正は、この追記と同じコミットに入っている (同じ 2 ファイル)
+- commit `681fe85` (同じく push 済み): 6 の修正。同じ 2 ファイル
 - `npx tsc --noEmit` と `npm run build` は Mac で通過済み
 - 確認が済んだら、次のリリース (`scripts/release.sh`) に載せる
 
