@@ -17406,7 +17406,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>196項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>199項目</span></div>
               </fieldset>
               </>)}
             </div>

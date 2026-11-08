@@ -6746,6 +6746,253 @@ try {
   }
   console.log("smoke-ui: a long thread title adds no horizontal scrollbar ok");
 
+  // 縦積み (板一覧が上に移る幅) でタブを並べたとき、アプリ全体に横スクロールバーが
+  // 出ないこと。.shell に列の指定が無いと暗黙の auto 列が中身の最大幅まで広がり、
+  // 縦積みでは .layout が flex になって列幅の縛りも消えるので、横に並んだタブの
+  // 合計幅でウィンドウごと押し広げられていた。溢れるのはタブバーの中だけが正しい。
+  {
+    const scrollTabs = JSON.stringify({
+      tabs: Array.from({ length: 16 }, (_, i) => ({
+        threadUrl: `https://mao.5ch.io/test/read.cgi/ngt/${7100 + i}/`,
+        title: `横スクロール確認スレ ${i + 1} そこそこ長いスレタイ`,
+        locked: true,
+      })),
+      activeIndex: 0,
+    });
+    const tabScrollPage = await context.newPage();
+    await tabScrollPage.setViewportSize({ width: 700, height: 800 });
+    await tabScrollPage.addInitScript((t) => {
+      localStorage.setItem("desktop.threadTabs.v1", t);
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", JSON.stringify({ restoreSession: true }));
+    }, scrollTabs);
+    await tabScrollPage.goto(targetUrl, { waitUntil: "load" });
+    await tabScrollPage.waitForSelector(".thread-tab-bar");
+    await new Promise((r) => setTimeout(r, 800));
+    assert(
+      await tabScrollPage.$eval("body", (el) => el.classList.contains("narrow-layout")),
+      "a 700px window should switch to the stacked layout for the tab overflow check",
+    );
+    const tabRoom = await tabScrollPage.evaluate(() => {
+      const bar = document.querySelector(".thread-tab-bar");
+      return {
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+        barScroll: bar ? bar.scrollWidth : 0,
+        barClient: bar ? bar.clientWidth : 0,
+        tabs: document.querySelectorAll(".thread-tab:not(.placeholder)").length,
+      };
+    });
+    // タブが並んでいない / タブバーが溢れていない状態では「広がらない」に意味が無い
+    assert(tabRoom.tabs >= 10, `the tab overflow check needs the tabs restored, got ${tabRoom.tabs}`);
+    assert(
+      tabRoom.barScroll > tabRoom.barClient,
+      `the tab bar must overflow for this check to mean anything, got ${tabRoom.barScroll} <= ${tabRoom.barClient}`,
+    );
+    assert(
+      tabRoom.scrollWidth <= tabRoom.clientWidth,
+      `stacked tabs should not widen the window: scrollWidth ${tabRoom.scrollWidth} > clientWidth ${tabRoom.clientWidth}`,
+    );
+    await tabScrollPage.close();
+    console.log("smoke-ui: stacked tabs add no horizontal scrollbar ok");
+  }
+
+  // 三段表示 (縦積み) でスレッド窓を隠したとき、スレ一覧が下端まで広がること。
+  // 縦積みのスレ一覧には max-height: 40vh の上限と、分割線でドラッグして決めた
+  // インラインの height / max-height があり、スレッド窓を隠しても残っていたので
+  // 下に空白が出ていた。隠している間だけ両方が外れるのが正しい。
+  {
+    const hidePage = await context.newPage();
+    await hidePage.setViewportSize({ width: 700, height: 900 });
+    await hidePage.goto(targetUrl, { waitUntil: "load" });
+    await hidePage.waitForSelector(".row-splitter");
+    await new Promise((r) => setTimeout(r, 600));
+    assert(
+      await hidePage.$eval("body", (el) => el.classList.contains("narrow-layout")),
+      "a 700px window should switch to the stacked layout for the hidden-responses check",
+    );
+    const paneMetrics = () => hidePage.evaluate(() => {
+      const right = document.querySelector(".right-pane");
+      const threads = document.querySelector(".pane.threads");
+      return {
+        hidden: right.classList.contains("responses-hidden"),
+        // スレ一覧の下端と右ペインの下端の差。これがそのまま空白の量になる
+        gap: Math.round(right.getBoundingClientRect().bottom - threads.getBoundingClientRect().bottom),
+        height: Math.round(threads.getBoundingClientRect().height),
+        inlineMaxHeight: threads.style.maxHeight,
+      };
+    });
+    const toggleResponses = async () => {
+      await hidePage.click('button[aria-label="スレッド窓表示切替"]');
+      await new Promise((r) => setTimeout(r, 300));
+    };
+    const shownPane = await paneMetrics();
+    assert(!shownPane.hidden, "the thread window should start out visible");
+    await toggleResponses();
+    const hiddenPane = await paneMetrics();
+    assert(hiddenPane.hidden, "hiding the thread window should mark the right pane responses-hidden");
+    assert(
+      hiddenPane.gap <= 2,
+      `hiding the thread window should stretch the thread list to the bottom, got ${hiddenPane.gap}px of empty space`,
+    );
+    assert(
+      hiddenPane.height > shownPane.height + 40,
+      `the thread list should take the freed height, got ${shownPane.height} -> ${hiddenPane.height}`,
+    );
+    await toggleResponses();
+    const shownAgain = await paneMetrics();
+    assert(
+      !shownAgain.hidden && Math.abs(shownAgain.height - shownPane.height) <= 2,
+      `showing the thread window again should restore the height, got ${shownPane.height} -> ${shownAgain.height}`,
+    );
+
+    // 分割線で高さを決めた状態でも同じこと。こちらは CSS の上限ではなく
+    // インラインの height / max-height が残ると空白になる。
+    const rowSplitter = await hidePage.$(".right-pane > .row-splitter");
+    assert(rowSplitter, "the stacked layout should keep a splitter between the thread list and the thread window");
+    const rowBox = await rowSplitter.boundingBox();
+    await hidePage.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + rowBox.height / 2);
+    await hidePage.mouse.down();
+    await hidePage.mouse.move(rowBox.x + rowBox.width / 2, rowBox.y + rowBox.height / 2 - 80, { steps: 8 });
+    await hidePage.mouse.up();
+    await new Promise((r) => setTimeout(r, 300));
+    const dragged = await paneMetrics();
+    assert(
+      dragged.inlineMaxHeight !== "",
+      "dragging the stacked splitter should pin the thread list height for this check to mean anything",
+    );
+    await toggleResponses();
+    const hiddenAfterDrag = await paneMetrics();
+    assert(
+      hiddenAfterDrag.inlineMaxHeight === "",
+      `the dragged height must come off while the thread window is hidden, got "${hiddenAfterDrag.inlineMaxHeight}"`,
+    );
+    assert(
+      hiddenAfterDrag.gap <= 2,
+      `a dragged thread list should also stretch to the bottom, got ${hiddenAfterDrag.gap}px of empty space`,
+    );
+    await hidePage.close();
+    console.log("smoke-ui: hiding the thread window stretches the stacked thread list ok");
+  }
+
+  // 「スレ一覧を更新」は、開いているスレの板ではなく画面に出ている一覧の板を
+  // 取り直すこと。以前は更新先に threadUrl (= 開いているスレの URL) を使って
+  // いたので、板 A の一覧を見ながら別の板 B のスレを開いていると、押すたびに
+  // 一覧が B に化けていた。タブを全部閉じたあとも最後のスレの URL が残る。
+  {
+    const BOARD_A = "https://mao.5ch.io/ngt/";
+    const THREAD_B1 = "https://mi.5ch.io/test/read.cgi/news4vip/1700000001/";
+    const THREAD_B2 = "https://mi.5ch.io/test/read.cgi/news4vip/1700000002/";
+    const listPage = await context.newPage();
+    await listPage.addInitScript((arg) => {
+      window.__listCalls = [];
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", JSON.stringify({ restoreSession: true }));
+      localStorage.setItem("desktop.threadTabs.v1", JSON.stringify({
+        tabs: [
+          { threadUrl: arg.b1, title: "板Bのスレ1" },
+          { threadUrl: arg.b2, title: "板Bのスレ2" },
+        ],
+        activeIndex: 0,
+      }));
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "fetch_board_categories") {
+            return Promise.resolve([{ categoryName: "更新先テスト", boards: [{ boardName: "板A", url: arg.a }] }]);
+          }
+          if (cmd === "fetch_thread_list") {
+            window.__listCalls.push(args.threadUrl);
+            return Promise.resolve([]);
+          }
+          if (cmd === "fetch_thread_responses_command") {
+            return Promise.resolve({ responses: [], title: null, lastModified: null, notModified: false });
+          }
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+          if (cmd === "load_ui_json") {
+            // "" は「data フォルダが無い」の意味で、本体は localStorage の副本まで
+            // 落としてしまう。seed したタブが消えるので、実機と同じ値を返す。
+            if (args && args.name === "thread_tabs") return Promise.resolve(localStorage.getItem("desktop.threadTabs.v1") || "");
+            return Promise.resolve("");
+          }
+          if (cmd === "load_thread_cache") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({});
+          if (cmd === "save_ui_json" || cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "save_read_status" || cmd === "save_thread_cache") return Promise.resolve(null);
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, { a: BOARD_A, b1: THREAD_B1, b2: THREAD_B2 });
+    await listPage.goto(targetUrl, { waitUntil: "load" });
+    await listPage.waitForSelector(".row-splitter");
+    await new Promise((r) => setTimeout(r, 800));
+    // カテゴリは畳まれていることがあるので、板が出ていなければ開く
+    await listPage.waitForSelector(".board-tree .category-toggle");
+    if (!(await listPage.$(".board-tree .board-item"))) {
+      await listPage.click(".board-tree .category-toggle");
+    }
+    await listPage.waitForSelector(".board-tree .board-item");
+    const listCalls = () => listPage.evaluate(() => window.__listCalls.slice());
+    // 更新ボタンは絞り込みの状態で title が変わる別のボタンと紛れやすい
+    const refreshBtnSelector = 'button[title="スレ一覧を更新"]';
+    assert(
+      (await listPage.$$(refreshBtnSelector)).length === 1,
+      "there should be exactly one 'スレ一覧を更新' button in the toolbar",
+    );
+    await listPage.click(`.board-tree .board-item[title="${BOARD_A}"]`);
+    await new Promise((r) => setTimeout(r, 600));
+    const afterSelect = await listCalls();
+    assert(
+      afterSelect[afterSelect.length - 1] === BOARD_A,
+      `selecting board A should fetch its thread list, got ${JSON.stringify(afterSelect)}`,
+    );
+    // 板 B のスレへ移る。タブを押すと threadUrl がそのスレの URL になる
+    const listTabs = await listPage.$$(".thread-tab:not(.placeholder)");
+    assert(listTabs.length === 2, `the refresh-target check needs 2 restored tabs, got ${listTabs.length}`);
+    await listTabs[1].click();
+    await new Promise((r) => setTimeout(r, 500));
+    // アドレス欄は開いているスレの URL をそのまま映す。ここが板 B のスレのままで
+    // あることが肝で、修正前はこの URL で一覧を取り直していた。
+    const addressShown = await listPage.$eval(".address-input", (el) => el.value);
+    assert(
+      addressShown === THREAD_B2,
+      `the open thread should be the one on board B before refreshing, got ${addressShown}`,
+    );
+    const beforeRefresh = (await listCalls()).length;
+    await listPage.click(refreshBtnSelector);
+    await new Promise((r) => setTimeout(r, 600));
+    const afterRefresh = await listCalls();
+    assert(
+      afterRefresh.length === beforeRefresh + 1,
+      `the refresh button should fetch one thread list, got ${JSON.stringify(afterRefresh.slice(beforeRefresh))}`,
+    );
+    assert(
+      afterRefresh[afterRefresh.length - 1] === BOARD_A,
+      `the refresh button should reload the board on screen, got ${afterRefresh[afterRefresh.length - 1]}`,
+    );
+    // タブを全部閉じると threadUrl には最後のスレの URL が残る。そこでも化けないこと
+    for (let i = 0; i < 2; i++) {
+      const closeBtn = await listPage.$(".thread-tab:not(.placeholder) .thread-tab-close");
+      assert(closeBtn, "the restored tabs should be closable for the no-tab refresh check");
+      await closeBtn.click();
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    assert(
+      (await listPage.$$(".thread-tab:not(.placeholder)")).length === 0,
+      "every tab should be closed before the last refresh check",
+    );
+    const beforeLast = (await listCalls()).length;
+    await listPage.click(refreshBtnSelector);
+    await new Promise((r) => setTimeout(r, 600));
+    const afterLast = await listCalls();
+    assert(
+      afterLast.length === beforeLast + 1 && afterLast[afterLast.length - 1] === BOARD_A,
+      `refreshing with no tab open should still reload the board on screen, got ${JSON.stringify(afterLast.slice(beforeLast))}`,
+    );
+    await listPage.close();
+    console.log("smoke-ui: the thread list refresh targets the board on screen ok");
+  }
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {
