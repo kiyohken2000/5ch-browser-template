@@ -4857,6 +4857,12 @@ a.body-link-image:hover::after {
   flex: 0 0 auto;
   max-height: 40vh;
 }
+/* スレッド窓を隠したときは上限を外し、空いた高さをスレ一覧に渡す。
+   上限を残すと下に空白が出る。分割線でドラッグした高さ (インライン) も App.tsx 側で外す。 */
+.narrow-layout .right-pane.responses-hidden > .pane.threads {
+  flex: 1 1 auto;
+  max-height: none;
+}
 .narrow-layout .layout > .right-pane,
 .narrow-layout .right-pane > .pane.responses {
   flex: 1 1 auto;

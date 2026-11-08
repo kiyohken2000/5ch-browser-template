@@ -13580,12 +13580,12 @@ export default function App() {
         )}
         <div
           ref={responseLayoutRef}
-          className={`right-pane ${paneLayoutMode === "river" ? "right-pane-river" : ""}`}
+          className={`right-pane ${paneLayoutMode === "river" ? "right-pane-river" : ""} ${responsePaneHidden ? "responses-hidden" : ""}`}
           style={paneLayoutMode === "river"
             ? { gridTemplateColumns: rightPaneTracks }
             : { gridTemplateRows: rightPaneTracks }}
         >
-        <section className="pane threads" onMouseDown={() => setFocusedPane("threads")} style={{ '--fs-delta': `${threadsFontSize - 12}px`, display: threadPaneHidden ? "none" : undefined, ...narrowPaneStyle(narrowThreadPanePx) } as React.CSSProperties}>
+        <section className="pane threads" onMouseDown={() => setFocusedPane("threads")} style={{ '--fs-delta': `${threadsFontSize - 12}px`, display: threadPaneHidden ? "none" : undefined, ...(responsePaneHidden ? {} : narrowPaneStyle(narrowThreadPanePx)) } as React.CSSProperties}>
           {showThreadSearchOnly && threadSearchResult && (
             <div className="thread-search-banner" role="status">
               <Search size={12} />
