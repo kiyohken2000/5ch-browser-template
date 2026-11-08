@@ -1,6 +1,12 @@
 /* eslint-disable no-param-reassign */
 /**
- * 監視リストと既読位置。§8-1 のホーム画面と、M1 の受け入れ条件 2 / 6 の土台。
+ * 監視リストと既読位置。
+ *
+ * `watchList` は**開いたスレ全部の控え**（レス数と新着の基準）で、ホームの
+ * 「監視」に出るのはそのうち `watched: true` のものだけ。監視は利用者が
+ * スレのヘッダーやホームの長押しメニューから自分で付ける。新着の数は
+ * 監視していないスレの分もここで持つ（スレ一覧・お気に入り・最近が使う）。
+ *§8-1 のホーム画面と、M1 の受け入れ条件 2 / 6 の土台。
  *
  * **既読はレス番号で持つ**（ピクセルではない）。デスクトップ版が既読を
  * 「論理位置（レス番号）」と「スクロール位置（ピクセル）」に分けて持っている
@@ -108,7 +114,7 @@ function refreshEntry(list, threadId, fields) {
 }
 
 const initialState = {
-  /** [{ threadId, threadUrl, boardUrl, boardName, title, totalCount, lastSeenCount, lastFetchedAt }] */
+  /** [{ threadId, threadUrl, boardUrl, boardName, title, totalCount, lastSeenCount, lastFetchedAt, watched }] */
   watchList: [],
   /** { [threadId]: { lastReadNo, totalCount, updatedAt } } */
   readMarkers: {},
@@ -129,7 +135,7 @@ const watchSlice = createSlice({
   name: 'watch',
   initialState,
   reducers: {
-    /** スレを開いたら監視リストの先頭へ。既にあれば情報だけ更新する。 */
+    /** スレを開いたら控えの先頭へ。既にあれば情報だけ更新する。監視は付けない。 */
     touchThread: (state, { payload }) => {
       const { threadId, threadUrl, boardUrl, boardName, title, totalCount } =
         payload
@@ -255,9 +261,42 @@ const watchSlice = createSlice({
       persistMyPosts(state)
     },
 
-    removeFromWatch: (state, { payload }) => {
-      state.watchList = state.watchList.filter((t) => t.threadId !== payload)
+    /**
+     * 監視を付ける / 外す。控えに無いスレ（一覧から直接付けたとき）は、
+     * 今のレス数を見た数として足す（付けた瞬間に全部が新着にならないように）。
+     */
+    toggleWatch: (state, { payload }) => {
+      const at = state.watchList.findIndex(
+        (t) => t.threadId === payload.threadId,
+      )
+      if (at >= 0) {
+        state.watchList[at].watched = !state.watchList[at].watched
+        if (state.watchList[at].watched) {
+          state.watchList[at].watchedAt = Date.now()
+        }
+      } else {
+        const totalCount = payload.totalCount ?? 0
+        state.watchList.unshift({
+          threadId: payload.threadId,
+          threadUrl: payload.threadUrl,
+          boardUrl: payload.boardUrl,
+          boardName: payload.boardName || '',
+          title: payload.title || '',
+          totalCount,
+          lastSeenCount: totalCount,
+          lastFetchedAt: 0,
+          watched: true,
+          watchedAt: Date.now(),
+        })
+      }
       persistWatch(state)
+    },
+
+    /** 監視を外す。控え（レス数と新着の基準）は残す。 */
+    removeFromWatch: (state, { payload }) => {
+      if (refreshEntry(state.watchList, payload, { watched: false })) {
+        persistWatch(state)
+      }
     },
 
     /** 「ここまで読んだ」。利用者が付ける印で、読み進めても動かさない。 */
@@ -331,6 +370,7 @@ export const {
   markSeen,
   updateCount,
   removeFromWatch,
+  toggleWatch,
   setReadMarker,
   toggleBoardFavorite,
   touchBoard,

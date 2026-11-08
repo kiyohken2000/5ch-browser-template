@@ -5,6 +5,7 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
 import { DEFAULT_GESTURES } from 'lib/gestures'
+import { DEFAULT_HOME_SHOWN } from 'lib/homeSegments'
 import { setCompatSitesEnabled } from 'lib/sites'
 import { DEFAULT_SORT_SHOWN } from 'lib/sort'
 import { KEYS, load, save } from 'lib/storage'
@@ -54,8 +55,12 @@ export const DEFAULTS = {
   autoScrollSpeed: 40,
   /** スレ一覧のスレタイの文字サイズ（pt） */
   threadTitleFontSize: 15,
+  /** 板一覧の板名の文字サイズ（pt）。見出しはここから小さくする */
+  boardListFontSize: 15,
   /** スレ一覧の並べ替えのボタンに出すモード */
   sortModesShown: DEFAULT_SORT_SHOWN,
+  /** ホームに出す切り替え。「最近」は常に出す（lib/homeSegments） */
+  homeSegmentsShown: DEFAULT_HOME_SHOWN,
   /** NG ID を登録から何日で消すか。0 は消さない */
   ngIdExpireDays: 0,
   /** 強調 ID を登録から何日で消すか。0 は消さない */

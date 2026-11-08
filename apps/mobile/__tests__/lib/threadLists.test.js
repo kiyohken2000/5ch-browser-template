@@ -12,6 +12,8 @@ import {
   removeThread,
   splitTitleTag,
   toggleThread,
+  unreadFirst,
+  watchedThreads,
   withWatchInfo,
 } from 'lib/threadLists'
 
@@ -193,5 +195,40 @@ describe('formatPerDay', () => {
     expect(formatPerDay(1234567)).toBe('1,234,567/日')
     expect(formatPerDay(0)).toBe('0/日')
     expect(formatPerDay(NaN)).toBe('0/日')
+  })
+})
+
+describe('unreadFirst', () => {
+  const count = (e) => e.n
+  it('新着のあるスレを上に寄せ、それぞれの中では元の順を保つ', () => {
+    const list = [
+      { threadId: 'a', n: 0 },
+      { threadId: 'b', n: 3 },
+      { threadId: 'c', n: 0 },
+      { threadId: 'd', n: 1 },
+    ]
+    expect(unreadFirst(list, count).map((e) => e.threadId)).toEqual([
+      'b',
+      'd',
+      'a',
+      'c',
+    ])
+  })
+  it('新着が無ければ元の配列をそのまま返す', () => {
+    const list = [{ threadId: 'a', n: 0 }]
+    expect(unreadFirst(list, count)).toBe(list)
+  })
+})
+
+describe('watchedThreads', () => {
+  it('監視しているものだけを、付けた新しい順に返す', () => {
+    const list = [
+      { threadId: 'a', watched: true, watchedAt: 10 },
+      { threadId: 'b' },
+      { threadId: 'c', watched: true, watchedAt: 30 },
+      { threadId: 'd', watched: false, watchedAt: 50 },
+      { threadId: 'e', watched: true, watchedAt: 10 },
+    ]
+    expect(watchedThreads(list).map((e) => e.threadId)).toEqual(['c', 'a', 'e'])
   })
 })

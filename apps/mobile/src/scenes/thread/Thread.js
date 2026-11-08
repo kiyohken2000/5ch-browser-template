@@ -72,6 +72,7 @@ import {
   setReadPosition,
 } from 'lib/readPosition'
 import { buildReplyTree } from 'lib/replyTree'
+import { watchEnabled } from 'lib/homeSegments'
 import {
   isAtBottom,
   isPullAtBottom,
@@ -135,6 +136,7 @@ import {
   touchRecentThread,
   touchThread,
   toggleFavorite,
+  toggleWatch,
   updateCount,
 } from 'slices/watch.slice'
 import useSheetAnimation from 'components/useSheetAnimation'
@@ -234,6 +236,11 @@ export default function Thread({ route, navigation }) {
   const settings = useSelector((state) => state.settings)
   const readMarkers = useSelector((state) => state.watch.readMarkers)
   const favorites = useSelector((state) => state.watch.favorites)
+  const watchList = useSelector((state) => state.watch.watchList)
+  // ホームに監視を出していないあいだは目のボタンも出さない
+  const showWatch = useSelector((state) =>
+    watchEnabled(state.settings.homeSegmentsShown),
+  )
   const myPosts = useSelector((state) => state.watch.myPosts)
 
   const { dismissAll: dismissSheets } = useBottomSheetModal()
@@ -300,6 +307,7 @@ export default function Thread({ route, navigation }) {
   // 「ここまで読んだ」は利用者が付ける印。読み進めても動かさない
   const lineNo = marker?.lastReadNo ?? 0
   const isFavorite = favorites.some((t) => t.threadId === threadId)
+  const isWatched = watchList.some((t) => t.threadId === threadId && t.watched)
   // 最後の更新で届いた最初のレス。新着が無ければ消す（デスクトップ版と同じ）
   const [newFromNo, setNewFromNo] = useState(null)
   const [copyTarget, setCopyTarget] = useState(null)
@@ -330,6 +338,20 @@ export default function Thread({ route, navigation }) {
       }),
     )
   }, [dispatch, threadId, threadUrl, boardUrl, boardName, title])
+
+  const onToggleWatch = useCallback(() => {
+    dispatch(
+      toggleWatch({
+        threadId,
+        threadUrl,
+        boardUrl,
+        boardName,
+        title,
+        totalCount: stateRef.current.entryCount,
+      }),
+    )
+    showToast({ title: isWatched ? '監視をやめました' : '監視に追加しました' })
+  }, [dispatch, threadId, threadUrl, boardUrl, boardName, title, isWatched])
 
   // ---- ヘッダ --------------------------------------------------------------
 
@@ -1048,6 +1070,20 @@ export default function Thread({ route, navigation }) {
       ),
       headerRight: () => (
         <View style={styles.headerRight}>
+          {showWatch ? (
+            <Pressable
+              accessibilityLabel={isWatched ? '監視をやめる' : '監視に追加'}
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={onToggleWatch}
+            >
+              <Icon
+                name={isWatched ? 'eyeFilled' : 'eye'}
+                size={22}
+                color={theme.accent}
+              />
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityLabel={
               isFavorite ? 'お気に入りから外す' : 'お気に入りに追加'
@@ -1090,6 +1126,9 @@ export default function Thread({ route, navigation }) {
     openThreadInfo,
     isFavorite,
     onToggleFavorite,
+    isWatched,
+    onToggleWatch,
+    showWatch,
   ])
 
   // ---- レスメニュー（長押し） ----------------------------------------------

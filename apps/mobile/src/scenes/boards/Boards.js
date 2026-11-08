@@ -46,6 +46,17 @@ export default function Boards({ navigation }) {
   // sites.js の有効・無効は settings.slice が合わせる。ここでは取り直しのきっかけに使う
   const compatSites = useSelector((state) => state.settings.compatSites)
   const settingsLoaded = useSelector((state) => state.settings.loaded)
+  // 板名がこの大きさ。見出しは既定（15）のときの差のまま小さくする
+  const boardFontSize = useSelector((state) => state.settings.boardListFontSize)
+  const fontSizes = useMemo(
+    () => ({
+      board: { fontSize: boardFontSize },
+      section: { fontSize: boardFontSize - 1 },
+      group: { fontSize: boardFontSize - 2 },
+      small: { fontSize: boardFontSize - 3 },
+    }),
+    [boardFontSize],
+  )
 
   const [categories, setCategories] = useState([])
   const [expanded, setExpanded] = useState({})
@@ -276,6 +287,7 @@ export default function Boards({ navigation }) {
             <Text
               style={[
                 section.group ? styles.groupTitle : styles.sectionTitle,
+                section.group ? fontSizes.group : fontSizes.section,
                 { color: section.group ? theme.textDim : theme.text },
               ]}
             >
@@ -283,7 +295,13 @@ export default function Boards({ navigation }) {
               {section.title}
             </Text>
             {section.count ? (
-              <Text style={[styles.sectionCount, { color: theme.textFaint }]}>
+              <Text
+                style={[
+                  styles.sectionCount,
+                  fontSizes.small,
+                  { color: theme.textFaint },
+                ]}
+              >
                 {section.count}
               </Text>
             ) : null}
@@ -294,7 +312,9 @@ export default function Boards({ navigation }) {
                 accessibilityRole="button"
                 accessibilityLabel="最近開いた板を消す"
               >
-                <Text style={{ color: theme.textDim, fontSize: 12 }}>消す</Text>
+                <Text style={[fontSizes.small, { color: theme.textDim }]}>
+                  消す
+                </Text>
               </Pressable>
             ) : null}
           </Pressable>
@@ -323,7 +343,7 @@ export default function Boards({ navigation }) {
             ]}
           >
             <Text
-              style={[styles.boardName, { color: theme.text }]}
+              style={[styles.boardName, fontSizes.board, { color: theme.text }]}
               numberOfLines={1}
             >
               {item.name}

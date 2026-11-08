@@ -52,6 +52,12 @@ export default function DisplaySettings({ navigation }) {
           min={11}
           max={24}
         />
+        <SettingStepper
+          settingKey="boardListFontSize"
+          label="板一覧の文字サイズ"
+          min={11}
+          max={24}
+        />
         <SettingChoices
           settingKey="bodyWeight"
           label="本文の太さ"

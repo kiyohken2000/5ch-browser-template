@@ -64,6 +64,7 @@ export default function Settings({ navigation }) {
       <SettingsSection title="表示と操作" theme={theme}>
         {link('表示', 'DisplaySettings')}
         {link('スレを読む', 'ReadingSettings')}
+        {link('ホーム', 'HomeSettings')}
         {link('スレ一覧の並べ替え', 'ThreadListSettings')}
         {link('画像とリンク', 'MediaSettings')}
       </SettingsSection>

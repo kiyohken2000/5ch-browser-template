@@ -24,7 +24,7 @@
  */
 
 import { useShareIntent } from 'expo-share-intent'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   NavigationContainer,
   useNavigationContainerRef,
@@ -38,6 +38,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Toast from 'react-native-toast-message'
 
 import Icon from 'components/Icon'
+import { makeToastConfig } from 'components/toastConfig'
 import { sharedUrl, shareTarget } from 'lib/shareTarget'
 import useIdExpiry from 'utils/useIdExpiry'
 import Boards from 'scenes/boards/Boards'
@@ -62,6 +63,7 @@ import ReadingSettings from 'scenes/settings/ReadingSettings'
 import Terms from 'scenes/settings/Terms'
 import Settings from 'scenes/settings/Settings'
 import ThreadListSettings from 'scenes/settings/ThreadListSettings'
+import HomeSettings from 'scenes/settings/HomeSettings'
 import Thread from 'scenes/thread/Thread'
 import Threads from 'scenes/threads/Threads'
 import { useEmberTheme } from 'theme/ember'
@@ -203,6 +205,7 @@ function SettingsStack() {
       {[
         ['DisplaySettings', DisplaySettings, '表示'],
         ['ReadingSettings', ReadingSettings, 'スレを読む'],
+        ['HomeSettings', HomeSettings, 'ホーム'],
         ['ThreadListSettings', ThreadListSettings, 'スレ一覧の並べ替え'],
         ['MediaSettings', MediaSettings, '画像とリンク'],
         ['ComposeSettings', ComposeSettings, '書き込み'],
@@ -340,6 +343,8 @@ function Tabs() {
 export default function Navigation() {
   const theme = useEmberTheme()
   const insets = useSafeAreaInsets()
+  // トーストもダークモードに合わせる
+  const toastConfig = useMemo(() => makeToastConfig(theme), [theme])
   const navRef = useNavigationContainerRef()
   const [navReady, setNavReady] = useState(false)
   useIdExpiry()
@@ -404,7 +409,10 @@ export default function Navigation() {
           />
         </RootStack.Navigator>
       </NavigationContainer>
-      <Toast topOffset={insets.top + TOAST_HEADER_CLEARANCE} />
+      <Toast
+        config={toastConfig}
+        topOffset={insets.top + TOAST_HEADER_CLEARANCE}
+      />
     </>
   )
 }

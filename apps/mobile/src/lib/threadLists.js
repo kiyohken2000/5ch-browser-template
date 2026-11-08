@@ -149,6 +149,35 @@ export function orderByIds(list, ids) {
 }
 
 /**
+ * 監視しているスレ。監視を付けた新しい順（同時刻は控えの順）。
+ * @param {Array<object>} watchList
+ */
+export function watchedThreads(watchList) {
+  return watchList
+    .filter((t) => t.watched)
+    .map((t, i) => [t, i])
+    .sort(
+      (a, b) => (b[0].watchedAt || 0) - (a[0].watchedAt || 0) || a[1] - b[1],
+    )
+    .map(([t]) => t)
+}
+
+/**
+ * 新着のあるスレを上に寄せる。新着のあるもの同士・無いもの同士は元の順を保つ。
+ * @param {Array<object>} list
+ * @param {(entry: object) => number} countOf 新着数を返す関数
+ */
+export function unreadFirst(list, countOf) {
+  const unread = []
+  const rest = []
+  for (const t of list) {
+    if (countOf(t) > 0) unread.push(t)
+    else rest.push(t)
+  }
+  return unread.length === 0 ? list : [...unread, ...rest]
+}
+
+/**
  * 一覧の 1 行に出す値。監視リストにあれば、そちらのレス数と新着数を使う。
  * タイトルは監視リストの値を控えとして使う。
  */

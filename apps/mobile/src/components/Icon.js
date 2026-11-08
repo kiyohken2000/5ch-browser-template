@@ -9,6 +9,9 @@ import Svg, { Circle, Path } from 'react-native-svg'
 const STAR =
   'M12 3.8l2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.8l-5.1 2.7 1-5.7-4.1-4 5.7-.8z'
 
+const EYE =
+  'M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z'
+
 const SHAPES = {
   home: <Path d="M3 11.5 12 4l9 7.5M5.5 9.5V20h13V9.5M10 20v-5.5h4V20" />,
   boards: <Path d="M4 6h16M4 12h16M4 18h16" />,
@@ -37,6 +40,18 @@ const SHAPES = {
   close: <Path d="M6 6l12 12M18 6 6 18" />,
   download: <Path d="M12 4v11M8 11.5l4 3.5 4-3.5M5 19.5h14" />,
   play: <Path d="M8 5.5v13l10.5-6.5z" />,
+  eye: (
+    <>
+      <Path d={EYE} />
+      <Circle cx="12" cy="12" r="2.8" />
+    </>
+  ),
+  eyeFilled: (
+    <>
+      <Path d={EYE} />
+      <Circle cx="12" cy="12" r="2.8" fill="currentColor" />
+    </>
+  ),
   star: <Path d={STAR} />,
   starFilled: <Path d={STAR} fill="currentColor" />,
 }
