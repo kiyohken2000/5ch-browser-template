@@ -20,7 +20,7 @@ yarn install            # 依存
 npx expo run:android    # Android の開発ビルドを作って起動（初回のみ時間がかかる）
 eas build --profile development --platform ios   # iOS シミュレーター用の開発ビルド
 yarn start              # 開発サーバー（開発ビルドを入れた後はこれで繋がる）
-yarn test               # ユニットテスト (jest-expo)。659 件 / 43 スイート
+yarn test               # ユニットテスト (jest-expo)。662 件 / 43 スイート
 yarn test:live          # 実際の 5ch に当てる通し確認。**CI では回さない**
 yarn lint               # ESLint (エラーのみ見るなら npx eslint src/ __tests__/ --quiet)
 npx expo export --platform android --output-dir .expo-export   # バンドル確認

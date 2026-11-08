@@ -82,6 +82,8 @@ function categoriesOf(json, prefix = '') {
  *
  * 互換サイト（kenmo.org など、`sites.js`）が有効なら、その bbsmenu も並行して取り、
  * 5ch.io のカテゴリの後ろに足す。**互換サイトが落ちていても 5ch.io の一覧は出す。**
+ * 逆に 5ch.io が取れなくても互換サイトの板が取れたら、それだけを返して
+ * `mainError` に 5ch.io のエラーを入れる。どちらも取れなければ 5ch.io のエラーで失敗する。
  *
  * @returns {Promise<{lastModified: string, categories: Array<{name: string, boards: Array}>}>}
  */
@@ -91,9 +93,8 @@ export async function fetchBbsmenu(options = {}) {
     read5chJson(BBSMENU_URL, options),
     ...sites.map((site) => read5chJson(site.bbsmenuUrl, options)),
   ])
-  if (main.status === 'rejected') throw main.reason
-  const json = main.value
-  const categories = categoriesOf(json)
+  const json = main.status === 'fulfilled' ? main.value : null
+  const categories = json ? categoriesOf(json) : []
   extras.forEach((got, i) => {
     if (got.status === 'rejected') {
       console.warn(
@@ -105,11 +106,18 @@ export async function fetchBbsmenu(options = {}) {
     }
     categories.push(...categoriesOf(got.value, sites[i].categoryPrefix))
   })
+  // 5ch.io が取れず、互換サイトの板も無いときだけ失敗にする
+  if (!json && categories.length === 0) throw main.reason
   return {
     lastModified: json?.last_modify_string || '',
     /** 取得したときの互換サイト。設定を切り替えたらキャッシュを使わず取り直す */
     sites: sites.map((site) => site.id),
     categories: categories.map((c, order) => ({ ...c, order })),
+    /**
+     * 5ch.io の板一覧が取れず、互換サイトの板だけを返したときのエラー。
+     * 接続元によって 5ch.io が 403 を返しても、kenmo.org などは読めることがある
+     */
+    mainError: json ? null : main.reason,
   }
 }
 

@@ -388,6 +388,12 @@ This build now explains the refusal in the app instead of showing only "403 forb
 If the review device uses a VPN, please turn it off and try again. If the message remains, please review from a network in Japan if possible. If that is not possible, please let me know, and I will provide a demo video recorded on a real device in Japan.
 ```
 
+**5ch.io に拒否されたときの代替（2026-11-08 に実装、未提出）:** 板一覧が 403 で取れないと、エラーの下に「kenmo.org / 00c.org の板を使う」ボタンが出る。審査端末を見分けて挙動を変えるのではなく、国外の回線などで誰にでも同じ画面が出る（Guideline 2.3.1 に触れないため）。このビルドを出すときは、返信文と審査メモに次の一文を足し、プライバシーの申告に kenmo.org / 00c.org への通信を足す。kenmo.org に国外から届くかは未確認なので、出す前に VPN などで確かめる。
+
+```
+If 5ch.io refuses the connection, the board list shows a button, "kenmo.org / 00c.org の板を使う". It switches the app to kenmo.org and 00c.org, which are separate bulletin boards that use the same format. The same button appears for every user whose connection is refused. It can be turned off again in Settings > スレを読む > 掲示板.
+```
+
 **デモ動画:** 最初は付けない。審査側から求められたら、日本の回線の実機で撮って送る。映すものは、初回の同意画面、板一覧、板の絞り込み、スレ一覧、スレ本文、長押しメニュー（NG、報告）、投稿画面。
 
 ## 提出前チェックリスト

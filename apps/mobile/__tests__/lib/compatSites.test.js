@@ -186,13 +186,41 @@ describe('板一覧', () => {
     warn.mockRestore()
   })
 
-  it('5ch.io が落ちたら今までどおり失敗にする', async () => {
+  it('5ch.io に拒否されても kenmo の板が取れたら、それだけを返してエラーを添える', async () => {
     setCompatSitesEnabled(true)
     serve({
-      'https://menu.5ch.io/bbsmenu.json': () => respond(500),
+      'https://menu.5ch.io/bbsmenu.json': () => respond(403),
       [KENMO.bbsmenuUrl]: () => respond(200, jsonBytes(KENMO_MENU)),
     })
+    const got = await fetchBbsmenu()
+    expect(got.categories.map((c) => [c.name, c.order])).toEqual([
+      ['kenmo.org / オルグ', 0],
+    ])
+    expect(got.mainError).toMatchObject({ status: 403 })
+    expect(got.mainError.message).toContain('拒否')
+  })
+
+  it('5ch.io も kenmo も取れなければ 5ch.io のエラーで失敗する', async () => {
+    setCompatSitesEnabled(true)
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    serve({
+      'https://menu.5ch.io/bbsmenu.json': () => respond(500),
+      [KENMO.bbsmenuUrl]: () => respond(503),
+    })
     await expect(fetchBbsmenu()).rejects.toMatchObject({ status: 500 })
+    warn.mockRestore()
+  })
+
+  it('OFF のとき 5ch.io が 403 なら今までどおり失敗する（代替ボタンの判定に使う）', async () => {
+    serve({ 'https://menu.5ch.io/bbsmenu.json': () => respond(403) })
+    await expect(fetchBbsmenu()).rejects.toMatchObject({ status: 403 })
+  })
+
+  it('5ch.io が取れたときは mainError を持たない', async () => {
+    serve({
+      'https://menu.5ch.io/bbsmenu.json': () => respond(200, jsonBytes(FIVE)),
+    })
+    expect((await fetchBbsmenu()).mainError).toBeNull()
   })
 })
 

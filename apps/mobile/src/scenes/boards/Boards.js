@@ -29,6 +29,7 @@ import { enabledCompatSites } from 'lib/sites'
 import { recentWithoutFavorites } from 'lib/boards'
 import { KEYS, load, save } from 'lib/storage'
 import { useEmberTheme } from 'theme/ember'
+import { setSetting } from 'slices/settings.slice'
 import { clearRecentBoards, toggleBoardFavorite } from 'slices/watch.slice'
 
 /** カテゴリ見出しの開閉マーク。お気に入りの節は折りたためないので無印。 */
@@ -50,32 +51,51 @@ export default function Boards({ navigation }) {
   const [expanded, setExpanded] = useState({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  /** `{ message, status }`。status は HTTP のステータス（取れなければ 0） */
   const [error, setError] = useState(null)
   const [filter, setFilter] = useState('')
 
   const read = useCallback(async (force) => {
     setError(null)
-    if (!force) {
+    // 互換サイトの有無が今の設定と違うキャッシュは使わない
+    const usableCache = async () => {
       const cached = await load(KEYS.boardCache, null)
-      // 互換サイトの有無が今の設定と違うキャッシュは使わない
       const sameSites =
         (cached?.sites || []).join(',') ===
         enabledCompatSites()
           .map((x) => x.id)
           .join(',')
-      if (cached?.categories?.length && sameSites) {
+      return cached?.categories?.length && sameSites ? cached : null
+    }
+    if (!force) {
+      const cached = await usableCache()
+      if (cached) {
         setCategories(cached.categories)
         setLoading(false)
       }
     }
+    const fail = (e) => {
+      console.warn(`[boards] 板一覧の取得に失敗: ${e?.message || e}`)
+      setError({
+        message: e?.message || '板一覧を取得できませんでした',
+        status: e?.status || 0,
+      })
+    }
     try {
       const got = await fetchBbsmenu()
+      if (got.mainError) {
+        // 5ch.io が取れず互換サイトの板だけ取れた。前に取った一覧があればそちらを出し、
+        // 5ch.io の板が欠けた一覧でキャッシュを上書きしない
+        const cached = await usableCache()
+        setCategories(cached ? cached.categories : got.categories)
+        fail(got.mainError)
+        return
+      }
       setCategories(got.categories)
       const ok = await save(KEYS.boardCache, got)
       if (!ok) console.warn('[boards] 板一覧のキャッシュ保存に失敗した')
     } catch (e) {
-      console.warn(`[boards] 板一覧の取得に失敗: ${e?.message || e}`)
-      setError(e?.message || '板一覧を取得できませんでした')
+      fail(e)
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -188,8 +208,41 @@ export default function Boards({ navigation }) {
           onPress={() => read(true)}
           style={[styles.errorBar, { backgroundColor: theme.accentDim }]}
         >
-          <Text style={{ color: theme.danger }}>{error}（タップで再試行）</Text>
+          <Text style={{ color: theme.danger }}>
+            {error.message}（タップで再試行）
+          </Text>
         </Pressable>
+      ) : null}
+
+      {/* 5ch.io に拒否されたときの代替。審査用ではなく、国外の回線などで誰にでも出る */}
+      {error?.status === 403 && !compatSites ? (
+        <View
+          style={[
+            styles.fallback,
+            { backgroundColor: theme.surface, borderColor: theme.border },
+          ]}
+        >
+          <Text style={[styles.fallbackText, { color: theme.textDim }]}>
+            5ch とは別の掲示板の kenmo.org / 00c.org
+            なら読めることがあります。設定の「掲示板」からいつでも切り替えられます
+          </Text>
+          <Pressable
+            onPress={() =>
+              dispatch(setSetting({ key: 'compatSites', value: true }))
+            }
+            style={({ pressed }) => [
+              styles.fallbackButton,
+              { backgroundColor: pressed ? theme.accentDim : theme.accent },
+            ]}
+            accessibilityRole="button"
+          >
+            <Text
+              style={[styles.fallbackButtonText, { color: theme.badgeText }]}
+            >
+              kenmo.org / 00c.org の板を使う
+            </Text>
+          </Pressable>
+        </View>
       ) : null}
 
       <SectionList
@@ -324,6 +377,19 @@ const styles = StyleSheet.create({
   },
   filterInput: { fontSize: 15, paddingVertical: 6 },
   errorBar: { padding: 12 },
+  fallback: {
+    padding: 12,
+    gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  fallbackText: { fontSize: 13, lineHeight: 19 },
+  fallbackButton: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  fallbackButtonText: { fontSize: 14, fontWeight: '600' },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
