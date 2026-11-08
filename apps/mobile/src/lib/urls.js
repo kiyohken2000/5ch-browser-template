@@ -4,15 +4,18 @@
  * デスクトップ版 `crates/core-fetch/src/lib.rs` の `normalize_5ch_url()` /
  * `parse_board_location()` / `BoardLocation` の移植（§11-6）。
  *
- * **デスクトップ版より範囲が狭い。** モバイルは 5ch.io のみを対象にし、
- * bbspink / EXおろちつねる には対応しない（決定、§14 の決定済み #3）。
- * そのため許可ホストは 3 つ（`5ch.io` / `5ch.net` / `2ch.net`）で、
- * デスクトップ版の 5 つより厳しい。
+ * **デスクトップ版より範囲が狭い。** bbspink / EXおろちつねる には対応しない
+ * （決定、§14 の決定済み #3）。5ch 系列の許可ホストは 3 つ（`5ch.io` / `5ch.net` /
+ * `2ch.net`）で、デスクトップ版の 5 つより厳しい。
+ *
+ * kenmo.org / 00c.org は設定で ON にしたときだけ通す（決定 #15、`sites.js`）。
  *
  * RN の `URL` 実装は不完全なので**使わない。** 正規表現で分解する。
  */
 
-/** 読み取りを許すホスト。これ以外は開かない。 */
+import { compatSiteOf } from './sites'
+
+/** 5ch 系列で読み取りを許すホスト。これと互換サイト（`sites.js`）以外は開かない。 */
 const ALLOWED_SUFFIXES = ['5ch.io', '5ch.net', '2ch.net']
 
 /** 投稿を許すホスト。読み取りよりさらに狭い（`.claude/rules/rust.md` と同じ規約）。 */
@@ -27,15 +30,21 @@ function hostMatches(host, suffix) {
 }
 
 /** 5ch 系列のホストか。末尾一致は必ずドット区切りで見る（`evil5ch.io` を通さない）。 */
-export function isAllowedHost(host) {
+export function is5chHost(host) {
   if (!host) return false
   return ALLOWED_SUFFIXES.some((s) => hostMatches(host, s))
+}
+
+/** 読み取りを許すホストか。互換サイトは設定が ON のときだけ通る。 */
+export function isAllowedHost(host) {
+  if (!host) return false
+  return is5chHost(host) || compatSiteOf(host) !== null
 }
 
 /** 投稿先として許されるホストか。 */
 export function isPostableHost(host) {
   if (!host) return false
-  return hostMatches(host, POSTABLE_SUFFIX)
+  return hostMatches(host, POSTABLE_SUFFIX) || compatSiteOf(host) !== null
 }
 
 /**
@@ -94,7 +103,7 @@ export function normalize5chUrl(input) {
 
 /**
  * 板・スレの場所。デスクトップ版の `BoardLocation` と同じ形。
- * `mountPath` は 5ch.io では常に `/`（bbspink の `/ex0ch/` は対象外）。
+ * `mountPath` は 5ch.io / kenmo.org / 00c.org では常に `/`（bbspink の `/ex0ch/` は対象外）。
  */
 export class BoardLocation {
   constructor({ scheme, host, mountPath, board, threadKey }) {
@@ -208,9 +217,9 @@ export function parseBoardLocation(input) {
   if (segs.length >= 1) {
     const board = segs[segs.length - 1]
     // `/test/` は read.cgi と bbs.cgi が置かれた CGI ディレクトリで板ではない。
-    // 5ch 系列しか相手にしないので一律で拒否してよい（デスクトップ版は
-    // kenmo.org の「テスト」板のためにホストで分岐しているが、こちらは不要）。
-    if (!board || board === 'test') {
+    // ただし kenmo.org には「テスト」板（`/test/`）が実在するので、5ch 系列の
+    // ホストでだけ拒否する（デスクトップ版と同じ分岐）。
+    if (!board || (board === 'test' && is5chHost(u.host))) {
       throw new Error('スレ URL・板 URL・subject.txt のいずれかを指定すること')
     }
     return new BoardLocation({

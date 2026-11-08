@@ -20,7 +20,7 @@ yarn install            # 依存
 npx expo run:android    # Android の開発ビルドを作って起動（初回のみ時間がかかる）
 eas build --profile development --platform ios   # iOS シミュレーター用の開発ビルド
 yarn start              # 開発サーバー（開発ビルドを入れた後はこれで繋がる）
-yarn test               # ユニットテスト (jest-expo)。629 件 / 42 スイート
+yarn test               # ユニットテスト (jest-expo)。650 件 / 43 スイート
 yarn test:live          # 実際の 5ch に当てる通し確認。**CI では回さない**
 yarn lint               # ESLint (エラーのみ見るなら npx eslint src/ __tests__/ --quiet)
 npx expo export --platform android --output-dir .expo-export   # バンドル確認
@@ -40,6 +40,7 @@ src/
 │   ├── ng.js        NG 判定（**全描画経路がここを通る**）
 │   ├── idcolor.js   ID → 色とアイコン（FNV-1a）
 │   ├── urls.js      URL の正規化とホスト検証
+│   ├── sites.js     5ch 互換サイト（kenmo.org / 00c.org）の定義と ON/OFF
 │   ├── sort.js      スレ一覧の並べ替えと勢い
 │   ├── boards.js    最近開いた板
 │   ├── search.js    スレ内検索とスレ横断検索（ff5ch）
@@ -76,8 +77,8 @@ src/
 - **User-Agent は必ず `Monazilla/1.00 Ember/<version>` を名乗る。** 専ブラであることの
   自己申告が 5ch の慣習で、善意の証拠になる
 - **対応は 5ch.io のみ。** bbspink / EXおろちつねる は非対応（決定済み）。
-  **kenmo.org / 00c.org は対応すると決めた（2026-11-08、未実装）。** 計画は
-  `docs/MOBILE_FEASIBILITY_STUDY.md` の §12-6
+  **kenmo.org / 00c.org は設定で ON にしたときだけ扱う（既定 OFF、2026-11-08）。**
+  対応サイトの定義は `lib/sites.js` の 1 か所だけ。詳細は `docs/MOBILE_FEASIBILITY_STUDY.md` の §12-6
 - **Cookie 値（`Be3M` / `Be3D` / `sid`）はログに出さない**
 - **`StyleSheet.absoluteFillObject` は RN 0.88 で廃止された。** 使うと黙って効かない。`StyleSheet.absoluteFill` を使う
 - **`ember://` で画面を開ける**（`ember://thread?threadUrl=...` / `ember://board?boardUrl=...` / `ember://search`）。iOS シミュレーターは毎回確認ダイアログが出る

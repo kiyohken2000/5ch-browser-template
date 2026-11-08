@@ -36,6 +36,14 @@ export default function ReadingSettings() {
         />
       </SettingsSection>
 
+      <SettingsSection title="掲示板" theme={theme}>
+        <SettingToggle
+          settingKey="compatSites"
+          label="kenmo.org / 00c.org の板を表示"
+          hint="5ch とは別の掲示板です。書き込みには、最初の 1 回だけブラウザでの認証が要る板があります"
+        />
+      </SettingsSection>
+
       <SettingsSection title="操作" theme={theme}>
         <SettingToggle
           settingKey="bodyIdTappable"

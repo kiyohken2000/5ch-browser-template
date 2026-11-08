@@ -4,7 +4,7 @@
  *
  * | 用途 | 経路 |
  * |---|---|
- * | 板一覧 | `https://menu.5ch.io/bbsmenu.json` |
+ * | 板一覧 | `https://menu.5ch.io/bbsmenu.json`（設定が ON なら `sites.js` の互換サイトの分も） |
  * | スレ一覧 | `<board>/subject.txt` |
  * | スレ本文 | `<board>/dat/<key>.dat` |
  * | 投稿 | `test/bbs.cgi`（M2） |
@@ -13,6 +13,7 @@
 import { concatBytes, endsWithTruncatedChar } from './bytes'
 import { getBytes, getJson, HttpError } from './http'
 import { parseDatBytes, parseSubjectBytes } from './parse'
+import { enabledCompatSites } from './sites'
 import { parseBoardLocation } from './urls'
 
 export const BBSMENU_URL = 'https://menu.5ch.io/bbsmenu.json'
@@ -41,26 +42,18 @@ const read5chJson = (url, options) =>
 const read5chBytes = (url, options) =>
   explainForbidden(() => getBytes(url, options))
 
-/**
- * 板一覧。`bbsmenu.json` は **UTF-8 の JSON** で Shift_JIS ではない
- * （M0 で実測。183KB / 49 カテゴリ）。
- *
- * 形: `{ menu_list: [ { category_content: [ { board_name, category_name, url, directory_name } ] } ] }`
- *
- * @returns {Promise<{lastModified: string, categories: Array<{name: string, boards: Array}>}>}
- */
-export async function fetchBbsmenu(options = {}) {
-  const json = await read5chJson(BBSMENU_URL, options)
+/** bbsmenu の JSON をカテゴリの配列にする。板でないもの・対象外のホストは落とす。 */
+function categoriesOf(json, prefix = '') {
   const categories = []
   for (const group of json?.menu_list || []) {
     const content = group?.category_content || []
     if (content.length === 0) continue
-    const name = content[0]?.category_name || ''
+    const name = `${prefix}${content[0]?.category_name || ''}`
     const boards = []
     for (const b of content) {
       if (!b?.url || !b?.board_name) continue
       // 板ではない外部リンク（公式 X・アンテナ等）は落とす。
-      // 5ch 系列のホストで、かつ板ディレクトリを持つものだけ通す。
+      // 対応するホストで、かつ板ディレクトリを持つものだけ通す。
       let location
       try {
         location = parseBoardLocation(b.url)
@@ -76,12 +69,47 @@ export async function fetchBbsmenu(options = {}) {
         order: boards.length,
       })
     }
-    if (boards.length > 0)
-      categories.push({ name, boards, order: categories.length })
+    if (boards.length > 0) categories.push({ name, boards })
   }
+  return categories
+}
+
+/**
+ * 板一覧。`bbsmenu.json` は **UTF-8 の JSON** で Shift_JIS ではない
+ * （M0 で実測。183KB / 49 カテゴリ）。
+ *
+ * 形: `{ menu_list: [ { category_content: [ { board_name, category_name, url, directory_name } ] } ] }`
+ *
+ * 互換サイト（kenmo.org など、`sites.js`）が有効なら、その bbsmenu も並行して取り、
+ * 5ch.io のカテゴリの後ろに足す。**互換サイトが落ちていても 5ch.io の一覧は出す。**
+ *
+ * @returns {Promise<{lastModified: string, categories: Array<{name: string, boards: Array}>}>}
+ */
+export async function fetchBbsmenu(options = {}) {
+  const sites = enabledCompatSites()
+  const [main, ...extras] = await Promise.allSettled([
+    read5chJson(BBSMENU_URL, options),
+    ...sites.map((site) => read5chJson(site.bbsmenuUrl, options)),
+  ])
+  if (main.status === 'rejected') throw main.reason
+  const json = main.value
+  const categories = categoriesOf(json)
+  extras.forEach((got, i) => {
+    if (got.status === 'rejected') {
+      console.warn(
+        `[api] ${sites[i].id} の板一覧を取得できない: ${
+          got.reason?.message || got.reason
+        }`,
+      )
+      return
+    }
+    categories.push(...categoriesOf(got.value, sites[i].categoryPrefix))
+  })
   return {
     lastModified: json?.last_modify_string || '',
-    categories,
+    /** 取得したときの互換サイト。設定を切り替えたらキャッシュを使わず取り直す */
+    sites: sites.map((site) => site.id),
+    categories: categories.map((c, order) => ({ ...c, order })),
   }
 }
 
@@ -103,6 +131,25 @@ export async function fetchSubject(boardUrl, options = {}) {
       threadUrl: location.threadUrl(t.threadKey),
     })),
   }
+}
+
+/**
+ * 互換サイトの通報先のスレ URL。管理運営板の subject.txt から、タイトルに
+ * `site.reportThreadTitle`（「削除依頼」）を含むスレを探す。スレは埋まると
+ * 次スレに替わるのでキーを固定で持たない。見つからなければ板の URL を返す。
+ *
+ * @param {object} site `sites.js` の行
+ * @returns {Promise<string>}
+ */
+export async function findReportThreadUrl(site, options = {}) {
+  try {
+    const { threads } = await fetchSubject(site.reportBoardUrl, options)
+    const hit = threads.find((t) => t.title.includes(site.reportThreadTitle))
+    if (hit) return hit.threadUrl
+  } catch (e) {
+    console.warn(`[api] 通報先のスレを探せない: ${e?.message || e}`)
+  }
+  return site.reportBoardUrl
 }
 
 /**

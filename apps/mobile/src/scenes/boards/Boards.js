@@ -1,9 +1,10 @@
 /**
  * 板一覧（§8-2）。カテゴリの折りたたみツリー。
  *
- * **5ch.io のみ。** bbspink / EXおろちつねる は非対応（決定、§14 決定済み #3）。
+ * **5ch.io が基本。** bbspink / EXおろちつねる は非対応（決定、§14 決定済み #3）。
  * 対象外のホストは lib/urls.js の `parseBoardLocation` が弾くので、
- * `fetchBbsmenu` の段階で一覧から落ちる。
+ * `fetchBbsmenu` の段階で一覧から落ちる。kenmo.org / 00c.org は設定の
+ * `compatSites` が ON のときだけ足す（決定 #15、lib/sites.js）。
  *
  * 画面は「お気に入り」「最近開いた板」「板一覧」の 3 グループ。絞り込み中は
  * 板一覧の該当だけを出す。
@@ -24,6 +25,7 @@ import { useDispatch, useSelector } from 'react-redux'
 
 import Icon from 'components/Icon'
 import { fetchBbsmenu } from 'lib/api'
+import { enabledCompatSites } from 'lib/sites'
 import { recentWithoutFavorites } from 'lib/boards'
 import { KEYS, load, save } from 'lib/storage'
 import { useEmberTheme } from 'theme/ember'
@@ -40,6 +42,9 @@ export default function Boards({ navigation }) {
   const dispatch = useDispatch()
   const boardFavorites = useSelector((state) => state.watch.boardFavorites)
   const recentBoards = useSelector((state) => state.watch.recentBoards)
+  // sites.js の有効・無効は settings.slice が合わせる。ここでは取り直しのきっかけに使う
+  const compatSites = useSelector((state) => state.settings.compatSites)
+  const settingsLoaded = useSelector((state) => state.settings.loaded)
 
   const [categories, setCategories] = useState([])
   const [expanded, setExpanded] = useState({})
@@ -52,7 +57,13 @@ export default function Boards({ navigation }) {
     setError(null)
     if (!force) {
       const cached = await load(KEYS.boardCache, null)
-      if (cached?.categories?.length) {
+      // 互換サイトの有無が今の設定と違うキャッシュは使わない
+      const sameSites =
+        (cached?.sites || []).join(',') ===
+        enabledCompatSites()
+          .map((x) => x.id)
+          .join(',')
+      if (cached?.categories?.length && sameSites) {
         setCategories(cached.categories)
         setLoading(false)
       }
@@ -73,8 +84,14 @@ export default function Boards({ navigation }) {
 
   useEffect(() => {
     load(KEYS.expandedCategories, {}).then(setExpanded)
+  }, [])
+
+  // 設定を読み終えてから取る（互換サイトの有無が決まっていないと一覧が変わる）。
+  // 設定を切り替えたときも取り直す
+  useEffect(() => {
+    if (!settingsLoaded) return
     read(false)
-  }, [read])
+  }, [read, settingsLoaded, compatSites])
 
   const toggleCategory = useCallback((name) => {
     setExpanded((prev) => {

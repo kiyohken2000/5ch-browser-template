@@ -64,7 +64,7 @@ import ImageViewer from 'components/ImageViewer'
 import ResponseItem from 'components/ResponseItem'
 import GlassSheetBackground from 'components/GlassSheetBackground'
 import ResponsePopup from 'components/ResponsePopup'
-import { fetchDat, fetchDatDelta } from 'lib/api'
+import { fetchDat, fetchDatDelta, findReportThreadUrl } from 'lib/api'
 import { buildBacklinks, parseBody } from 'lib/body'
 import {
   getReadPosition,
@@ -112,6 +112,7 @@ import { computeImageHash } from 'lib/imageHash'
 import { openInAppBrowser } from 'lib/inAppBrowser'
 import { collectImages, extractMedia } from 'lib/media'
 import { quoteReply } from 'lib/postDrafts'
+import { compatSiteOf } from 'lib/sites'
 import { CONTACT_URL, DELETION_REQUEST_URL } from 'lib/terms'
 import useIsCellular from 'lib/useIsCellular'
 import { applyNg, visibleResponses } from 'lib/ng'
@@ -1258,16 +1259,32 @@ export default function Thread({ route, navigation }) {
       label: 'このレスを報告',
       run: () => {
         closeMenu()
+        // kenmo.org / 00c.org のレスは 5ch の削除要請板では扱えない。そのサイトの窓口へ
+        let site = null
+        try {
+          site = compatSiteOf(parseBoardLocation(threadUrl).host)
+        } catch (e) {
+          site = null
+        }
         pushSheet({
           title: `>>${no} を報告`,
-          lead: '問題のある書き込みは、5ch の削除要請板へ申請できます。下のレスの URL を添えてください。見たくない場合は、ID や名前を NG にして隠せます。',
+          lead: site
+            ? '問題のある書き込みは、この掲示板の削除依頼スレッドへ申請できます。下のレスの URL を添えてください。見たくない場合は、ID や名前を NG にして隠せます。'
+            : '問題のある書き込みは、5ch の削除要請板へ申請できます。下のレスの URL を添えてください。見たくない場合は、ID や名前を NG にして隠せます。',
           rows: pickRows([no]),
           actions: [
             { label: 'URL をコピー', onPress: () => copy(resUrl(no), 'URL') },
-            {
-              label: '削除要請板を開く',
-              onPress: () => openInAppBrowser(DELETION_REQUEST_URL),
-            },
+            site
+              ? {
+                  label: '削除依頼スレッドを開く',
+                  onPress: () => {
+                    findReportThreadUrl(site).then(openInAppBrowser)
+                  },
+                }
+              : {
+                  label: '削除要請板を開く',
+                  onPress: () => openInAppBrowser(DELETION_REQUEST_URL),
+                },
             {
               label: 'Ember に問い合わせ',
               onPress: () => openInAppBrowser(CONTACT_URL),
@@ -1324,6 +1341,7 @@ export default function Thread({ route, navigation }) {
     addNgAndClose,
     dispatch,
     threadId,
+    threadUrl,
     ngRows.length,
     marker?.lastReadNo,
   ])

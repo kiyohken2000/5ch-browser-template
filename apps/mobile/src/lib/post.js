@@ -12,6 +12,7 @@
 
 import { decodeEntities } from './entities'
 import { HttpError, request } from './http'
+import { isSameSite } from './sites'
 import { decodeSjis, encodeSjisPercent } from './sjis'
 import { isPostableHost, parseBoardLocation, splitUrl } from './urls'
 
@@ -93,11 +94,22 @@ export function serverMessage(html) {
   return text || null
 }
 
-/** 「認証が必要」のときに案内される URL。http(s) のものだけを返す。 */
-export function authUrlOf(html) {
+/**
+ * 「認証が必要」のときに案内される URL。http(s) のものだけを返す。
+ *
+ * kenmo.org / 00c.org の実運用板は、書き込みのたびに使い捨ての認証 URL を
+ * 返してくる（Turnstile。専ブラ側では通さず、利用者にブラウザで開いてもらう）。
+ * `postUrl` を渡したときは、**投稿先と同じ掲示板の URL だけ**を返す（`isSameSite`）。
+ * 別のサイトへ誘導されないように。
+ */
+export function authUrlOf(html, postUrl = null) {
   if (!html.includes('認証が必要')) return null
   const url = html.match(/href\s*=\s*"([^"]+)"/i)?.[1]
-  return url && /^https?:\/\//i.test(url) ? url : null
+  if (!url || !/^https?:\/\//i.test(url)) return null
+  if (postUrl) {
+    if (!isSameSite(splitUrl(url)?.host, splitUrl(postUrl)?.host)) return null
+  }
+  return url
 }
 
 /**
@@ -182,7 +194,7 @@ async function sendForm(send, url, fields, referer) {
     body: formBody(fields),
   })
   const html = decodeSjis(new Uint8Array(await res.arrayBuffer()))
-  return { status: res.status, html }
+  return { status: res.status, html, url }
 }
 
 /**
@@ -234,15 +246,16 @@ function rejectedResult(response) {
     message:
       serverMessage(response.html) ||
       `サーバーが受け付けませんでした（${response.status}）`,
-    authUrl: authUrlOf(response.html),
+    authUrl: authUrlOf(response.html, response.url),
   }
 }
 
-function outcome(kind, html) {
+function outcome(kind, response) {
+  const html = response?.html
   return {
     kind,
     message: html ? serverMessage(html) : null,
-    authUrl: html ? authUrlOf(html) : null,
+    authUrl: html ? authUrlOf(html, response.url) : null,
   }
 }
 
@@ -292,8 +305,8 @@ export async function submitPost(
     const first = await sendForm(send, tokens.postUrl, fields, threadUrl)
     if (rejected(first.status)) return rejectedResult(first)
     const firstKind = classifyResponse(first.html)
-    if (firstKind === 'unknown') return outcome('uncertain', first.html)
-    if (firstKind !== 'confirm') return outcome(firstKind, first.html)
+    if (firstKind === 'unknown') return outcome('uncertain', first)
+    if (firstKind !== 'confirm') return outcome(firstKind, first)
 
     // 書き込み確認の中間ページ。ここだけは同じ内容を送り返す（1 回限り）
     const form = findPostForm(first.html)
@@ -302,10 +315,10 @@ export async function submitPost(
     if (rejected(second.status)) return rejectedResult(second)
     const secondKind = classifyResponse(second.html)
     if (secondKind === 'success' || secondKind === 'error') {
-      return outcome(secondKind, second.html)
+      return outcome(secondKind, second)
     }
-    if (secondKind === 'cookie') return outcome('cookie', second.html)
-    return outcome('uncertain', second.html)
+    if (secondKind === 'cookie') return outcome('cookie', second)
+    return outcome('uncertain', second)
   } catch (e) {
     // 送信中の失敗は届いた可能性がある。ホスト検証で止めたものは送っていない
     if (!(e instanceof HttpError)) {
@@ -330,7 +343,12 @@ export function resultText(result) {
     case 'cookie':
       return `${server}最初の書き込みの確認です。まだ書き込まれていません。10 秒ほど待ってもう一度送信してください。`
     case 'error':
-      return result.message || '書き込めませんでした。'
+      if (!result.message) return '書き込めませんでした。'
+      // 連続投稿の制限が明けていないときの文言。kenmo.org では 10 秒（デスクトップ版と同じ補足）
+      if (result.message.includes('もう一度やり直してください')) {
+        return `${result.message}\n少し待ってからもう一度送信してください。`
+      }
+      return result.message
     case 'uncertain':
       return `${
         UNCERTAIN_REASON[result.reason] || server

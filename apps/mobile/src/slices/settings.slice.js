@@ -5,6 +5,7 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
 import { DEFAULT_GESTURES } from 'lib/gestures'
+import { setCompatSitesEnabled } from 'lib/sites'
 import { DEFAULT_SORT_SHOWN } from 'lib/sort'
 import { KEYS, load, save } from 'lib/storage'
 
@@ -81,6 +82,11 @@ export const DEFAULTS = {
   keepPostHistory: true,
   /** セルラーでは画像を自動で読まない（§9-6） */
   cellularSaveData: true,
+  /**
+   * kenmo.org / 00c.org の板も扱う（決定 #15、§12-6）。既定は OFF。
+   * 値は lib/sites.js にも写す（ホスト検査が Redux を参照できないため）
+   */
+  compatSites: false,
 }
 
 export const loadSettings = createAsyncThunk('settings/load', async () =>
@@ -98,6 +104,7 @@ const settingsSlice = createSlice({
         return
       }
       state[key] = value
+      if (key === 'compatSites') setCompatSitesEnabled(value)
       const snapshot = {}
       for (const k of Object.keys(DEFAULTS)) snapshot[k] = state[k]
       save(KEYS.settings, snapshot).then((ok) => {
@@ -110,6 +117,7 @@ const settingsSlice = createSlice({
       for (const k of Object.keys(DEFAULTS)) {
         if (payload && payload[k] !== undefined) state[k] = payload[k]
       }
+      setCompatSitesEnabled(state.compatSites)
       state.loaded = true
     })
     builder.addCase(loadSettings.rejected, (state, action) => {
