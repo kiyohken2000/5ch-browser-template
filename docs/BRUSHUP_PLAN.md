@@ -1161,6 +1161,25 @@ https://github.com/ollaya-dev/ollaya (Apache-2.0、Rust、2026-09-23 公開)。�
 
 **対象ファイル(想定)**: `crates/core-ai/src/lib.rs`(ラベル数とラベル順、ctx)、`apps/desktop/src-tauri/src/lib.rs`(`NG_CLASSIFIER_MODEL_ID` の設定化)、`apps/desktop/src/App.tsx`(AI 設定の判定器セクションを列挙セレクトに)、`apps/desktop/src-tauri/ai-models.json`、`apps/desktop/scripts/smoke_ui_playwright.mjs`
 
+**追跡調査(2026-11-09)**: 見送り理由 4 は解消した。ただし差し替え候補はまだ実測していないので、ステータスは見送りのまま。
+
+- **llama.cpp 側はマージ済み**。#29818(laya / julia-1 / lev / openjev / kev と `/v1/systemone`)は 2026-10-02、#29831(clef、テキストのみ)は 10-03、#29622 は 10-04 にマージされた。laya 単独の #29363 はマージされずに閉じられ、#29818 に吸収された
+- **llama-cpp-2 の最新は 0.1.161 (2026-11-03)**。`llama-cpp-sys-2` 0.1.161 が同梱する llama.cpp には `decision.*` のテンソルとメタデータ、`models/clef.cpp` があることを確認した。Ember は 0.1.154 のまま
+- **ただし libllama に入ったのはグラフ(判定ヘッド)だけ**。質問と選択肢の組み立てや出力の読み取り(`{arch}.decision.type` による切り替え)は `tools/server/server-decision.cpp` にあり、llama-cpp-2 には含まれない。公開ヘッダ `llama.h` に decision 系の API は無く、getter は内部ヘッダ `llama-ext.h` 側にある。Ember で使うには、この入出力処理を Rust に移植し、必要なら FFI を自前で足す必要がある
+- **ggml-org の変換済み GGUF**(HF の API で確認):
+
+| モデル | ベース | GGUF | ライセンス | 日本語 | 見立て |
+|---|---|---|---|---|---|
+| **Julia-1** (`ggml-org/Julia-1-GGUF`) | mmBERT-small 144M | **Q8_0 168 MB** / BF16 303 MB | Apache-2.0 | 多言語。MASSIVE シナリオ分類の ja-JP で 82.2%(2446/2974) | **最有力** |
+| Laya (`ggml-org/Laya-GGUF`) | `convaiinnovations/laya`(英語チェックポイント) | Q8_0 449 MB | Apache-2.0 | 英語専用 | 不向き |
+| laya-multilingual | mmBERT-base | コミュニティ変換のみ(`mys/`、`Weidows/`、`andreilungeanu/` など) | Apache-2.0 | 100 言語以上 | マージ後の GGUF 形式で読めるか未確認 |
+| lev / Kev-4B | Qwen3.5-4B 系 | Q4_K_M 3.0 GB | Apache-2.0 | — | 重すぎる(見送り理由 2 と同じ) |
+| OpenJev | — | Q4_K_M 19.4 GB | **CC-BY-NC-4.0** | — | 対象外 |
+
+- **Julia-1 の数字の読み方**: 公表値は typed-decisions で 73.15%、yes/no 判定の `noul` で 80.67%。どちらも英語で測った値。ja-JP の 82% は 18 ラベルの話題分類で、曖昧 NG に要る yes/no 判定ではない。日本語で偽陽性を抑えられるかは未知
+
+**次に測るなら(コードに手を付ける前に)**: llama-server(#29818 以降)で `ggml-org/Julia-1-GGUF` の Q8_0 を `/v1/systemone` の `noul` で動かし、[N23] と同じ手書き 12 件と実スレ規模の適合率を現行 bge-m3 と比べる。並ぶか勝てば、bge-m3 の半分以下のサイズなのでモバイル版にも効く。その場合に限り、llama-cpp-2 の更新と入出力処理の移植に進む。負けたら却下として記録する
+
 ### 却下・取り下げ分(再提案しないこと)
 
 - [N9] スレ閲覧履歴 — ☑ 実装済みだった(App.tsx に閲覧履歴・書き込み履歴リスト UI が既存)
