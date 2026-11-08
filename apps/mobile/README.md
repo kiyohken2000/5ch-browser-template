@@ -75,7 +75,9 @@ src/
   必ずバイト列のまま区切ってからフィールド単位でデコードする（`lib/bytes.js`）
 - **User-Agent は必ず `Monazilla/1.00 Ember/<version>` を名乗る。** 専ブラであることの
   自己申告が 5ch の慣習で、善意の証拠になる
-- **対応は 5ch.io のみ。** bbspink / EXおろちつねる は非対応（決定済み）
+- **対応は 5ch.io のみ。** bbspink / EXおろちつねる は非対応（決定済み）。
+  **kenmo.org / 00c.org は対応すると決めた（2026-11-08、未実装）。** 計画は
+  `docs/MOBILE_FEASIBILITY_STUDY.md` の §12-6
 - **Cookie 値（`Be3M` / `Be3D` / `sid`）はログに出さない**
 - **`StyleSheet.absoluteFillObject` は RN 0.88 で廃止された。** 使うと黙って効かない。`StyleSheet.absoluteFill` を使う
 - **`ember://` で画面を開ける**（`ember://thread?threadUrl=...` / `ember://board?boardUrl=...` / `ember://search`）。iOS シミュレーターは毎回確認ダイアログが出る
