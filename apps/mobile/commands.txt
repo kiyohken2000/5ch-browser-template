@@ -29,6 +29,10 @@ xcrun simctl list devices booted
 xcrun simctl boot <UDID>
 // シミュレータ用 .app をインストール (上書き。データは残る)
 xcrun simctl install booted ../../_temp/Ember.app
+// リポジトリのルートから
+xcrun simctl install booted _temp/Ember.app
+// apps/mobile から（commands.txt のまま）
+cd apps/mobile && xcrun simctl install booted ../../_temp/Ember.app
 // アプリの起動 / 終了
 xcrun simctl launch booted net.votepurchase.ember
 xcrun simctl terminate booted net.votepurchase.ember
