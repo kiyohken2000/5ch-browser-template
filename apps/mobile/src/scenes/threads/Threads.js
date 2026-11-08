@@ -109,28 +109,45 @@ export default function Threads({ route, navigation }) {
       headerTitleContainerStyle: styles.headerTitleBox,
       headerRight: () =>
         boardInfo ? (
-          <Pressable
-            hitSlop={10}
-            style={styles.headerStar}
-            accessibilityRole="button"
-            accessibilityLabel={
-              isFavorite ? 'お気に入りから外す' : 'お気に入りに追加'
-            }
-            onPress={() =>
-              dispatch(
-                toggleBoardFavorite({
-                  ...boardInfo,
-                  name: boardInfo.name || boardInfo.board,
-                }),
-              )
-            }
-          >
-            <Icon
-              name={isFavorite ? 'starFilled' : 'star'}
-              size={22}
-              color={theme.accent}
-            />
-          </Pressable>
+          <View style={styles.headerButtons}>
+            <Pressable
+              hitSlop={10}
+              style={styles.headerStar}
+              accessibilityRole="button"
+              accessibilityLabel="スレを立てる"
+              onPress={() =>
+                navigation.navigate('Post', {
+                  newThread: true,
+                  boardUrl: boardInfo.url,
+                  boardName: boardInfo.name || boardInfo.board,
+                })
+              }
+            >
+              <Icon name="compose" size={22} color={theme.accent} />
+            </Pressable>
+            <Pressable
+              hitSlop={10}
+              style={styles.headerStar}
+              accessibilityRole="button"
+              accessibilityLabel={
+                isFavorite ? 'お気に入りから外す' : 'お気に入りに追加'
+              }
+              onPress={() =>
+                dispatch(
+                  toggleBoardFavorite({
+                    ...boardInfo,
+                    name: boardInfo.name || boardInfo.board,
+                  }),
+                )
+              }
+            >
+              <Icon
+                name={isFavorite ? 'starFilled' : 'star'}
+                size={22}
+                color={theme.accent}
+              />
+            </Pressable>
+          </View>
         ) : null,
     })
   }, [navigation, boardName, boardInfo, isFavorite, theme.accent, dispatch])
@@ -515,6 +532,7 @@ const styles = StyleSheet.create({
   headerTitleBox: { flexGrow: 1, flexShrink: 1 },
   headerRightBox: { flexGrow: 0, flexBasis: 'auto', flexShrink: 0 },
   headerStar: { paddingRight: 14 },
+  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   center: {
     flex: 1,
     alignItems: 'center',

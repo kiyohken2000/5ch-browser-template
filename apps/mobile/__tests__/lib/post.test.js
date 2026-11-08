@@ -6,7 +6,9 @@ import {
   resolveAction,
   resultText,
   serverMessage,
+  newThreadUrlOf,
   submitPost,
+  submitThread,
 } from '../../src/lib/post'
 import { encodeSjis } from '../../src/lib/sjis'
 
@@ -280,5 +282,82 @@ describe('resultText', () => {
     expect(resultText({ kind: 'cookie', message: null })).toContain(
       'まだ書き込まれていません',
     )
+  })
+})
+
+describe('submitThread — スレ立て', () => {
+  const BOARD = 'https://mi.5ch.io/software/'
+  const input = { boardUrl: BOARD, subject: ' 新スレ ', message: '本文' }
+
+  it('key の代わりに subject を送り、Referer は板', async () => {
+    const { send, posts } = fakeSend([
+      page(
+        '書きこみました。',
+        '<a href="../test/read.cgi/software/1800000000/">',
+      ),
+    ])
+    const got = await submitThread(input, { send })
+    expect(got.kind).toBe('success')
+    expect(got.threadUrl).toBe(
+      'https://mi.5ch.io/test/read.cgi/software/1800000000/',
+    )
+    expect(posts()).toHaveLength(1)
+    const [post] = posts()
+    expect(post.url).toBe(POST_URL)
+    expect(post.headers.Referer).toBe(BOARD)
+    expect(post.body).toContain('bbs=software')
+    expect(post.body).not.toContain('key=')
+    // スレタイは前後の空白を落とし、Shift_JIS で送る
+    expect(post.body).toContain(
+      `subject=${formBody([['', '新スレ']]).slice(1)}`,
+    )
+  })
+
+  it('成功ページに URL が無ければ threadUrl は null', async () => {
+    const { send } = fakeSend(['<!-- 2ch_X:true -->'])
+    const got = await submitThread(input, { send })
+    expect(got).toMatchObject({ kind: 'success', threadUrl: null })
+  })
+
+  it('書き込み確認のページは 1 回だけ送り返す', async () => {
+    const confirm = page(
+      '書き込み確認',
+      `<form method="POST" action="../test/bbs.cgi">
+         <input type="hidden" name="bbs" value="software">
+         <input type="hidden" name="subject" value="新スレ">
+         <input type="hidden" name="time" value="1700000123">
+       </form>`,
+    )
+    const { send, posts } = fakeSend([confirm, '<!-- 2ch_X:true -->'])
+    const got = await submitThread(input, { send })
+    expect(got.kind).toBe('success')
+    expect(posts()).toHaveLength(2)
+  })
+
+  it('スレタイか本文が空なら送らない', async () => {
+    const { send, posts } = fakeSend([])
+    expect(
+      (await submitThread({ ...input, subject: '  ' }, { send })).kind,
+    ).toBe('failed')
+    expect((await submitThread({ ...input, message: '' }, { send })).kind).toBe(
+      'failed',
+    )
+    expect(posts()).toHaveLength(0)
+  })
+
+  it('対応外のホストには送らない', async () => {
+    const { send, posts } = fakeSend([])
+    const got = await submitThread(
+      { ...input, boardUrl: 'https://example.com/software/' },
+      { send },
+    )
+    expect(got.kind).toBe('failed')
+    expect(posts()).toHaveLength(0)
+  })
+
+  it('newThreadUrlOf は板の違うリンクを拾わない', () => {
+    const loc = { board: 'software', threadUrl: (k) => `T${k}` }
+    expect(newThreadUrlOf('test/read.cgi/news/123/', loc)).toBeNull()
+    expect(newThreadUrlOf('test/read.cgi/software/123/', loc)).toBe('T123')
   })
 })

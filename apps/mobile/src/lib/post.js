@@ -17,6 +17,8 @@ import { decodeSjis, encodeSjisPercent } from './sjis'
 import { isPostableHost, parseBoardLocation, splitUrl } from './urls'
 
 const SUBMIT_LABEL = '書き込む'
+/** スレ立てのボタンの値（デスクトップ版 `create_thread` と同じ） */
+const NEW_THREAD_LABEL = '新規スレッド作成'
 
 const ERROR_WORDS = [
   'ＥＲＲＯＲ',
@@ -300,33 +302,124 @@ export async function submitPost(
     ['submit', SUBMIT_LABEL],
     ...tokens.extra,
   ]
+  const { result } = await sendWithConfirm(
+    send,
+    tokens.postUrl,
+    fields,
+    threadUrl,
+  )
+  return result
+}
 
+/**
+ * フォームを送り、書き込み確認の中間ページなら 1 回だけ送り返す。
+ * 書き込みとスレ立てで共通。例外は投げず、結果の種類を返す。
+ *
+ * @returns {Promise<{result: object, html: string|null}>} `html` は最後に受けた応答
+ *   （スレ立てで新しいスレの URL を拾うのに使う）
+ */
+async function sendWithConfirm(send, postUrl, fields, referer) {
+  const done = (result, response) => ({
+    result,
+    html: response?.html ?? null,
+  })
   try {
-    const first = await sendForm(send, tokens.postUrl, fields, threadUrl)
-    if (rejected(first.status)) return rejectedResult(first)
+    const first = await sendForm(send, postUrl, fields, referer)
+    if (rejected(first.status)) return done(rejectedResult(first), first)
     const firstKind = classifyResponse(first.html)
-    if (firstKind === 'unknown') return outcome('uncertain', first)
-    if (firstKind !== 'confirm') return outcome(firstKind, first)
+    if (firstKind === 'unknown') return done(outcome('uncertain', first), first)
+    if (firstKind !== 'confirm') return done(outcome(firstKind, first), first)
 
     // 書き込み確認の中間ページ。ここだけは同じ内容を送り返す（1 回限り）
     const form = findPostForm(first.html)
-    const action = resolveAction(form.action, tokens.postUrl)
-    const second = await sendForm(send, action, form.fields, tokens.postUrl)
-    if (rejected(second.status)) return rejectedResult(second)
+    const action = resolveAction(form.action, postUrl)
+    const second = await sendForm(send, action, form.fields, postUrl)
+    if (rejected(second.status)) return done(rejectedResult(second), second)
     const secondKind = classifyResponse(second.html)
     if (secondKind === 'success' || secondKind === 'error') {
-      return outcome(secondKind, second)
+      return done(outcome(secondKind, second), second)
     }
-    if (secondKind === 'cookie') return outcome('cookie', second)
-    return outcome('uncertain', second)
+    if (secondKind === 'cookie') return done(outcome('cookie', second), second)
+    return done(outcome('uncertain', second), second)
   } catch (e) {
     // 送信中の失敗は届いた可能性がある。ホスト検証で止めたものは送っていない
     if (!(e instanceof HttpError)) {
-      return { kind: 'failed', message: e?.message || String(e), authUrl: null }
+      return done({
+        kind: 'failed',
+        message: e?.message || String(e),
+        authUrl: null,
+      })
     }
     console.warn(`[post] 送信に失敗: ${e.kind}`)
-    return { kind: 'uncertain', message: null, authUrl: null, reason: e.kind }
+    return done({
+      kind: 'uncertain',
+      message: null,
+      authUrl: null,
+      reason: e.kind,
+    })
   }
+}
+
+/**
+ * 成功ページから、立ったスレの URL を拾う。5ch も kenmo も
+ * `test/read.cgi/<板>/<キー>/` へのリンクを返す（デスクトップ版 `create_thread` と同じ）。
+ *
+ * @returns {string|null}
+ */
+export function newThreadUrlOf(html, location) {
+  if (!html) return null
+  const re = new RegExp(`test/read\\.cgi/${location.board}/(\\d+)`)
+  const key = re.exec(html)?.[1]
+  return key ? location.threadUrl(key) : null
+}
+
+/**
+ * スレを立てる（§8-11）。`test/bbs.cgi` へ `key` の代わりに `subject` を送る。
+ * 板のページは読まず、板の URL から値を組み立てる（デスクトップ版と同じ）。
+ *
+ * **二重投稿（スレの二重立て）を起こさないことは書き込みと同じく最優先。**
+ * 自動で送り直すのは書き込み確認の中間ページの 1 回だけ。
+ *
+ * @param {{boardUrl: string, subject: string, name?: string, mail?: string, message: string}} input
+ * @returns {Promise<{kind: string, message: string|null, authUrl: string|null,
+ *   threadUrl?: string|null}>} 成功時の `threadUrl` は応答から拾えたときだけ入る
+ */
+export async function submitThread(
+  { boardUrl, subject, name = '', mail = '', message },
+  { send = request } = {},
+) {
+  if (!subject || !subject.trim()) {
+    return { kind: 'failed', message: 'スレタイがありません', authUrl: null }
+  }
+  if (!message || !message.trim()) {
+    return { kind: 'failed', message: '本文がありません', authUrl: null }
+  }
+
+  let location
+  try {
+    location = parseBoardLocation(boardUrl)
+    assertPostable(location.postUrl())
+  } catch (e) {
+    return { kind: 'failed', message: e?.message || String(e), authUrl: null }
+  }
+
+  const fields = [
+    ['FROM', name],
+    ['mail', mail],
+    ['MESSAGE', message],
+    ['bbs', location.board],
+    ['time', String(Math.floor(Date.now() / 1000))],
+    ['subject', subject.trim()],
+    ['submit', NEW_THREAD_LABEL],
+  ]
+  const { result, html } = await sendWithConfirm(
+    send,
+    location.postUrl(),
+    fields,
+    location.boardUrl(),
+  )
+  if (result.kind !== 'success') return result
+  return { ...result, threadUrl: newThreadUrlOf(html, location) }
 }
 
 /** 回線が切れる前提なので、何が起きたかを分けて伝える（§9-10）。 */

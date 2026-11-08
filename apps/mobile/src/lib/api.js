@@ -153,6 +153,28 @@ export async function findReportThreadUrl(site, options = {}) {
 }
 
 /**
+ * 立てたばかりのスレを板の subject.txt から探す。成功ページに URL が
+ * 書かれていなかったときの代わり。**スレタイが前方一致するうち一番新しい（キーが大きい）もの**を返す。
+ * 見つからなければ null。
+ *
+ * @returns {Promise<string|null>}
+ */
+export async function findThreadBySubject(boardUrl, subject, options = {}) {
+  const want = subject.trim()
+  try {
+    const { threads } = await fetchSubject(boardUrl, options)
+    // kenmo.org は立てた人の印を ` [xxxx★]` の形でスレタイの後ろに足すので前方一致で見る
+    const hits = threads.filter((t) => t.title.trim().startsWith(want))
+    if (hits.length === 0) return null
+    hits.sort((a, b) => Number(b.threadKey) - Number(a.threadKey))
+    return hits[0].threadUrl
+  } catch (e) {
+    console.warn(`[api] 立てたスレを探せない: ${e?.message || e}`)
+    return null
+  }
+}
+
+/**
  * スレ本文を丸ごと取る。
  *
  * @returns {{location, entries, title, byteLength, raw}}

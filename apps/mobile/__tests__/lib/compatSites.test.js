@@ -2,8 +2,8 @@
  * kenmo.org / 00c.org 対応（決定 #15、§12-6）。設定で ON にしたときだけ効くこと、
  * OFF のときは 5ch.io だけの挙動から何も変わらないことを確かめる。
  */
-import { fetchBbsmenu, findReportThreadUrl } from 'lib/api'
-import { authUrlOf, resultText, submitPost } from 'lib/post'
+import { fetchBbsmenu, findReportThreadUrl, findThreadBySubject } from 'lib/api'
+import { authUrlOf, resultText, submitPost, submitThread } from 'lib/post'
 import { shareTarget } from 'lib/shareTarget'
 import {
   COMPAT_SITES,
@@ -304,5 +304,55 @@ describe('書き込み', () => {
     expect(
       resultText({ kind: 'error', message: 'もう一度やり直してください' }),
     ).toContain('少し待って')
+  })
+})
+
+describe('スレ立て（kenmo）', () => {
+  const realFetch = global.fetch
+  afterEach(() => {
+    global.fetch = realFetch
+  })
+  beforeEach(() => setCompatSitesEnabled(true))
+
+  it('kenmo の板の bbs.cgi へ送る', async () => {
+    const posts = []
+    const send = async (url, options = {}) => {
+      if (options.method === 'POST') posts.push({ url, ...options })
+      return {
+        status: 200,
+        arrayBuffer: async () => encodeSjis('<!-- 2ch_X:true -->').buffer,
+      }
+    }
+    const got = await submitThread(
+      {
+        boardUrl: 'https://kenmo.org/poverty/',
+        subject: 'てすと',
+        message: 'a',
+      },
+      { send },
+    )
+    expect(got.kind).toBe('success')
+    expect(posts[0].url).toBe('https://kenmo.org/test/bbs.cgi')
+  })
+
+  it('立てたスレを subject.txt から探す。kenmo の印つきのスレタイにも当たり、新しい方を選ぶ', async () => {
+    const subject = encodeSjis(
+      '1794000000.dat<>てすと [old★] (3)\n' +
+        '1794100000.dat<>てすと [abcd★] (1)\n' +
+        '1794200000.dat<>別のスレ (1)\n',
+    )
+    global.fetch = jest.fn(async () => respond(200, subject))
+    await expect(
+      findThreadBySubject('https://kenmo.org/poverty/', 'てすと'),
+    ).resolves.toBe('https://kenmo.org/test/read.cgi/poverty/1794100000/')
+  })
+
+  it('見つからなければ null', async () => {
+    global.fetch = jest.fn(async () =>
+      respond(200, encodeSjis('1794200000.dat<>別のスレ (1)\n')),
+    )
+    await expect(
+      findThreadBySubject('https://kenmo.org/poverty/', 'てすと'),
+    ).resolves.toBeNull()
   })
 })

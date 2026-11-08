@@ -62,7 +62,8 @@ import {
 } from 'lib/combo'
 import { clearCookies, loadAccount } from 'lib/accountStore'
 import { ACCOUNTS } from 'lib/auth'
-import { resultText, submitPost } from 'lib/post'
+import { findThreadBySubject } from 'lib/api'
+import { resultText, submitPost, submitThread } from 'lib/post'
 import { withPostAccounts } from 'lib/postAccounts'
 import { setSetting } from 'slices/settings.slice'
 import {
@@ -75,7 +76,7 @@ import {
 } from 'lib/upload'
 import { KEYS, load, save } from 'lib/storage'
 import { hasConsented, TERMS_VERSION } from 'lib/terms'
-import { normalizeExternalUrl } from 'lib/urls'
+import { normalizeExternalUrl, parseBoardLocation } from 'lib/urls'
 import { recordMyPost } from 'slices/watch.slice'
 import { useEmberTheme } from 'theme/ember'
 
@@ -115,7 +116,11 @@ export default function Post({ route, navigation }) {
     boardName,
     title,
     quote,
+    /** true ならスレ立て。`threadUrl` は無く、`boardUrl` の板に立てる（§8-11） */
+    newThread = false,
   } = route.params
+  /** 下書きのキー。スレ立ては板ごとに 1 つ持つ */
+  const draftKey = newThread ? `new:${boardUrl}` : threadUrl
   const dispatch = useDispatch()
   const beLoggedIn = useSelector((state) => state.account.be.status === 'in')
   const upliftLoggedIn = useSelector(
@@ -133,6 +138,7 @@ export default function Post({ route, navigation }) {
   // この書き込みだけの sage。保存せず、開くたびに設定の既定値から始める
   const [sage, setSage] = useState(sageDefault)
   const [message, setMessage] = useState('')
+  const [subject, setSubject] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [sending, setSending] = useState(false)
   /** 選んだがまだ公開していない画像。公開は確認のあとにする（取り消せないため） */
@@ -337,22 +343,22 @@ export default function Post({ route, navigation }) {
       draftsRef.current = drafts && typeof drafts === 'object' ? drafts : {}
       setName(defaults?.name || '')
       setMail(mailToRemember(defaults?.mail))
-      setMessage(appendQuote(draftsRef.current[threadUrl], quote))
+      setMessage(appendQuote(draftsRef.current[draftKey], quote))
       setLoaded(true)
     })
     return () => {
       alive = false
     }
-  }, [threadUrl, quote])
+  }, [draftKey, quote])
 
   const saveDraft = useCallback(
     (text) => {
-      draftsRef.current = withDraft(draftsRef.current, threadUrl, text)
+      draftsRef.current = withDraft(draftsRef.current, draftKey, text)
       save(KEYS.postDrafts, draftsRef.current).then((ok) =>
         warnIfFailed(ok, '本文'),
       )
     },
-    [threadUrl],
+    [draftKey],
   )
 
   // 入力が止まったら本文を保存する。落ちても書いた文章が残るように
@@ -376,21 +382,35 @@ export default function Post({ route, navigation }) {
 
   const send = useCallback(async () => {
     if (sendingRef.current || !message.trim()) return
+    if (newThread && !subject.trim()) return
     sendingRef.current = true
     setSending(true)
     setResult(null)
+    const sendMail = mailToSend(mail, sageChecked(mail, sage))
     const got = await withPostAccounts(
       POST_ACCOUNTS.filter(({ key }) => loggedIn[key]).map(({ key }) => key),
       postSettings,
       () =>
-        submitPost({
-          threadUrl,
-          name,
-          mail: mailToSend(mail, sageChecked(mail, sage)),
-          message,
-        }),
+        newThread
+          ? submitThread({
+              boardUrl,
+              subject,
+              name,
+              mail: sendMail,
+              message,
+            })
+          : submitPost({ threadUrl, name, mail: sendMail, message }),
       { clear: clearCookies, login: reloginAccount },
     )
+    // スレ立ては成功ページに URL が無ければ subject.txt から探す。反映を少し待つ
+    let createdUrl = null
+    if (newThread && got.kind === 'success') {
+      createdUrl = got.threadUrl
+      for (let i = 0; !createdUrl && i < 3; i += 1) {
+        await new Promise((r) => setTimeout(r, 1500))
+        createdUrl = await findThreadBySubject(boardUrl, subject)
+      }
+    }
     sendingRef.current = false
     setSending(false)
 
@@ -413,23 +433,52 @@ export default function Post({ route, navigation }) {
     const nextNames = pushName(names, name)
     setNames(nextNames)
     save(KEYS.nameHistory, nextNames).then((ok) => warnIfFailed(ok, '名前履歴'))
-    if (keepHistory) {
+    const postedUrl = newThread ? createdUrl : threadUrl
+    if (keepHistory && postedUrl) {
+      let postedId = threadId
+      if (newThread) {
+        try {
+          postedId = parseBoardLocation(postedUrl).threadId()
+        } catch (e) {
+          postedId = postedUrl
+        }
+      }
       dispatch(
         recordMyPost({
-          threadId,
-          threadUrl,
+          threadId: postedId,
+          threadUrl: postedUrl,
           boardUrl,
           boardName,
-          title,
+          title: newThread ? subject.trim() : title,
           message,
           at: Date.now(),
         }),
       )
     }
-    draftsRef.current = withoutDraft(draftsRef.current, threadUrl)
+    draftsRef.current = withoutDraft(draftsRef.current, draftKey)
     save(KEYS.postDrafts, draftsRef.current).then((ok) =>
       warnIfFailed(ok, '本文'),
     )
+    if (newThread) {
+      latestRef.current.posted = true
+      if (createdUrl) {
+        // 立てたスレをそのまま開く。書き込み画面は閉じる
+        navigation.replace('Thread', {
+          threadUrl: createdUrl,
+          boardUrl,
+          boardName,
+          title: subject.trim(),
+        })
+      } else {
+        Toast.show({
+          type: 'success',
+          text1: 'スレを立てました',
+          text2: 'スレ一覧を更新すると表示されます',
+        })
+        navigation.goBack()
+      }
+      return
+    }
     if (keepOpen && threadRouteKey) {
       // 閉じずに次を書ける。後ろのスレには新着を取りに行かせる
       setMessage('')
@@ -445,6 +494,9 @@ export default function Post({ route, navigation }) {
     navigation.popTo('Thread', { postedAt: Date.now() }, { merge: true })
   }, [
     dispatch,
+    newThread,
+    subject,
+    draftKey,
     threadId,
     threadUrl,
     threadRouteKey,
@@ -465,7 +517,11 @@ export default function Post({ route, navigation }) {
   ])
 
   const canSend =
-    consented === true && loaded && !sending && message.trim().length > 0
+    consented === true &&
+    loaded &&
+    !sending &&
+    message.trim().length > 0 &&
+    (!newThread || subject.trim().length > 0)
   const stats = messageStats(message)
   const previewBody = useMemo(
     () => (preview ? parseBody(messageToDatBody(message)) : null),
@@ -492,7 +548,7 @@ export default function Post({ route, navigation }) {
       return
     }
     navigation.setOptions({
-      title: '書き込み',
+      title: newThread ? 'スレ立て' : '書き込み',
       headerRight: () =>
         sending ? (
           <ActivityIndicator color={theme.accent} style={styles.headerBtn} />
@@ -523,6 +579,7 @@ export default function Post({ route, navigation }) {
     sending,
     canSend,
     send,
+    newThread,
     theme.accent,
     theme.textFaint,
   ])
@@ -578,7 +635,28 @@ export default function Post({ route, navigation }) {
         { backgroundColor: theme.bg, paddingBottom: keyboardInset },
       ]}
     >
-      {title ? (
+      {newThread ? (
+        <View style={[styles.subjectRow, { borderColor: theme.border }]}>
+          <Text
+            numberOfLines={1}
+            style={[styles.subjectBoard, { color: theme.textDim }]}
+          >
+            {boardName ? `${boardName} に立てる` : 'この板に立てる'}
+          </Text>
+          <TextInput
+            accessibilityLabel="スレタイ"
+            value={subject}
+            onChangeText={setSubject}
+            placeholder="スレタイ"
+            placeholderTextColor={theme.textFaint}
+            autoFocus
+            editable={!sending}
+            style={[styles.subject, { color: theme.text }]}
+          />
+        </View>
+      ) : null}
+
+      {title && !newThread ? (
         <Text
           numberOfLines={1}
           style={[
@@ -717,7 +795,7 @@ export default function Post({ route, navigation }) {
           placeholder="本文"
           placeholderTextColor={theme.textFaint}
           multiline
-          autoFocus
+          autoFocus={!newThread}
           textAlignVertical="top"
           editable={!sending}
           style={[
@@ -875,6 +953,15 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   headerBtn: { paddingHorizontal: 16 },
   send: { fontSize: 16, fontWeight: '600' },
+  subjectRow: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 2,
+  },
+  subjectBoard: { fontSize: 12 },
+  subject: { fontSize: 16, fontWeight: '600', paddingVertical: 6 },
   title: {
     fontSize: 12,
     paddingHorizontal: 16,
