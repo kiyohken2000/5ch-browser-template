@@ -17,7 +17,7 @@
 [済] NG管理画面、下のほうのアイテムを編集するときにスクリーンキーボードで入力中の項目が隠れてしまう
 [済] AIベンチマークスコア機能、他の人とスコアを比べられるように
 [済] LFM3の搭載検討 https://huggingface.co/collections/LiquidAI/lfm3 → 要約用に搭載。曖昧NGは不採用（7/12正解）。デスクトップ版のllama-cpp-2はlfm3非対応
-[済] 翻訳用モデル「PLaMo 3 Translate」搭載検討、Hy-MT2との選択制に。採用の場合はデスクトップ版への導入も検討 https://huggingface.co/pfnet/plamo-3-translate-0.8b → 見送り。公開版には商用利用の事前登録が必要と読めるため
+[済] 翻訳用モデル「PLaMo 3 Translate」搭載検討、Hy-MT2との選択制に。採用の場合はデスクトップ版への導入も検討 https://huggingface.co/pfnet/plamo-3-translate-0.8b → 見送り。PLaMoコミュニティライセンスでは製品の開発・提供は無料でも「商業目的」に含まれるため、PFNへの事前登録（無料、売上10億円以下）が必要。加えて「Built with PLaMo」の表記、ライセンス本文の提供、利用者の18歳以上要件などがある（2026-11-09 全文確認 https://plamo.preferredai.jp/info/plamo-community-license-ja）
 [済] 曖昧NG用モデルをデスクトップ版と揃えるか検討 https://huggingface.co/votepurchase/bge-m3-zeroshot-v2.0-GGUF → bge-m3に統一。確率は近似でデスクトップ版と完全には一致しない
 [済] 汎用モデルを使用して曖昧NGのワードを生成支援（デスクトップ版にはある）。実装を検討する。 → レスの長押しメニューから候補を作り、判定器で測った数字と一緒に出す
 [見送り] Expo UIを全面に使用したモードに切り替えられるようにするか検討 → 作らない。理由は MOBILE_FEASIBILITY_STUDY.md §3
