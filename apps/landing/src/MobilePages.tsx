@@ -17,7 +17,7 @@ import shotXCard from "./assets/images/mobile/xcard.jpg";
 const GITHUB_URL = "https://github.com/kiyohken2000/5ch-browser-template";
 const SUPPORT_EMAIL = "retwpay@gmail.com";
 /** 法的文書の最終更新日。文面を変えたらここも変える */
-const LEGAL_UPDATED = "2026年11月5日";
+const LEGAL_UPDATED = "2026年11月8日";
 /** 公開されたら入れる。空のあいだはバッジに「準備中」と出す */
 const APP_STORE_URL = "";
 const GOOGLE_PLAY_URL = "";
@@ -363,6 +363,7 @@ function PrivacyPage() {
       </p>
       <ul>
         <li><strong>5ch.io とその関連サービス</strong>: 板やスレッドの取得、書き込み、BE / UPLIFT のログイン。Cookie を端末に保存して送信します。</li>
+        <li><strong>kenmo.org / 00c.org</strong>: 設定で表示を ON にしたときだけ、板やスレッドの取得と書き込みに使います。5ch.io とは別の運営者の掲示板です。Cookie を端末に保存して送信します。書き込みに必要な認証は、ブラウザで開いて行います。</li>
         <li><strong>ff5ch.syoboi.jp</strong>: スレッド検索をしたときに、検索語を送信します。</li>
         <li><strong>書き込みの中のリンク先</strong>: 画像、動画、リンクのカードを表示するときに、各サイトから取得します。設定で減らせます。</li>
         <li><strong>X（cdn.syndication.twimg.com）と YouTube（i.ytimg.com）</strong>: ポストのカードとサムネイルを表示するときに通信します。設定で止められます。</li>
@@ -373,8 +374,8 @@ function PrivacyPage() {
 
       <h2>書き込みについて</h2>
       <p>
-        書き込みは 5ch.io に送信され、誰でも読める形で公開されます。本アプリから削除することはできません。
-        書き込みの扱いには 5ch.io の決まりが適用されます。
+        書き込みは 5ch.io（kenmo.org / 00c.org の板ではそのサイト）に送信され、誰でも読める形で公開されます。
+        本アプリから削除することはできません。書き込みの扱いには、書き込んだ掲示板の決まりが適用されます。
       </p>
 
       <h2>オンデバイス AI</h2>
@@ -395,7 +396,7 @@ function PrivacyPage() {
         履歴とキャッシュは設定画面から消せます。BE / UPLIFT はログアウトするとログイン情報が消えます。
         本アプリを削除すると、端末の中のデータはすべて削除されます。
         開発者はデータを保有していないので、開発者側で消す作業はありません。
-        tadaup.jp へのアップロードや 5ch.io への書き込みは、各サービスの手続きに従ってください。
+        tadaup.jp へのアップロードや 5ch.io、kenmo.org / 00c.org への書き込みは、各サービスの手続きに従ってください。
       </p>
 
       <h2>年齢について</h2>

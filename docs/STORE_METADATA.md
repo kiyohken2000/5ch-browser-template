@@ -148,8 +148,10 @@ NG は語句、ID、名前に対応。似た画像を隠す画像 NG もあり�
 |---|---|---|---|---|
 | ID（ユーザー ID: 匿名） | RevenueCat | アナリティクス | いいえ | いいえ |
 | 写真またはビデオ | tadaup.jp（アップロードを選んだときだけ） | アプリの機能 | いいえ | いいえ |
-| その他のユーザーコンテンツ（書き込み） | 5ch.io | アプリの機能 | いいえ | いいえ |
+| その他のユーザーコンテンツ（書き込み） | 5ch.io、kenmo.org / 00c.org（設定で ON にしたときだけ） | アプリの機能 | いいえ | いいえ |
 | メールアドレス（BE のログイン時だけ） | 5ch.io | アプリの機能 | いいえ | いいえ |
+
+kenmo.org / 00c.org への書き込みは 5ch.io と同じ「書き込み」の項目に入るので、申告する種類は増えない。App Store Connect とデータセーフティの回答そのものは変わらない（取得先は申告の項目に無い。この表は手元の記録）。BE / UPLIFT のログインは 5ch.io だけ。
 
 ### 輸出コンプライアンス
 
@@ -163,10 +165,14 @@ NG は語句、ID、名前に対応。似た画像を隠す画像 NG もあり�
 ## Overview
 Ember is an unofficial native client for 5ch.io, a large Japanese bulletin board. The app reads public thread data directly from 5ch.io and lets users post to it. There is no backend run by the developer.
 
+The app can also read and post to kenmo.org and 00c.org. These are separate bulletin boards run by a different operator, and they use the same format as 5ch.io. They are off by default. The user turns them on in Settings > "スレを読む" > "掲示板", or with the button described below.
+
 ## Network Requirement (Please Read First)
 All boards and threads come directly from 5ch.io, which is operated by a third party. 5ch.io can refuse connections from some networks or regions with HTTP 403, and the developer does not control this. When that happens, the app shows the message "掲示板サーバーがこの回線からの接続を拒否しました（HTTP 403）" (the board server refused the connection from this network).
 
-The same build loads boards normally from a network in Japan. If you see this message and are using a VPN, please turn it off and try again. If the message remains, please review from a network in Japan. If that is not possible, please contact the developer, and a demo video recorded on a real device in Japan can be provided.
+Below the message, the board list shows a button, "kenmo.org / 00c.org の板を使う". It turns on kenmo.org and 00c.org so that their boards can be read. The same button appears for every user whose connection is refused. It is not specific to review. It can be turned off again in Settings > "スレを読む" > "掲示板".
+
+The same build loads 5ch.io boards normally from a network in Japan. If you see this message and are using a VPN, please turn it off and try again. If the message remains, please review from a network in Japan, or use the button above. If neither works, please contact the developer, and a demo video recorded on a real device in Japan can be provided.
 
 ## No Account Required
 No login is needed. Launch and browse immediately. BE / UPLIFT logins are optional 5ch.io services and are not needed to review the app.
@@ -186,25 +192,25 @@ No login is needed. Launch and browse immediately. BE / UPLIFT logins are option
 - Policy: https://ember-5ch.pages.dev/privacy.html
 
 ## UGC Moderation (Guideline 1.2)
-The app is rated 18+. Content comes from 5ch.io users.
+The app is rated 18+. Content comes from users of 5ch.io, and of kenmo.org and 00c.org when the user turns them on.
 - Terms: On first launch, a full-screen terms screen must be read to the end and accepted before any other part of the app can be used. The terms state the 18+ age requirement and zero tolerance for objectionable content and abusive users. Settings > "利用条件" shows them at any time. Full terms: https://ember-5ch.pages.dev/terms.html
 - Filter: Long-press a post > "NG・強調" to hide content by ID, name, or word.
 - Block: Long-press a post > "NG・強調" > "この ID を NG に追加" or "この名前を NG に追加" hides that user's posts immediately.
-- Report: Long-press a post > "このレスを報告" opens the 5ch.io deletion request board and a link to contact the developer.
-- Developer response: Reports sent to the developer are reviewed within 24 hours, and a deletion request is filed with 5ch.io when needed.
+- Report: Long-press a post > "このレスを報告" opens the deletion request page of the board that hosts the post, and a link to contact the developer. For 5ch.io this is the 5ch.io deletion request board. For kenmo.org and 00c.org it is the deletion request thread on the kenmo.org operation board (https://kenmo.org/operate/).
+- Developer response: Reports sent to the developer are reviewed within 24 hours, and a deletion request is filed with the board operator when needed.
 - Contact: https://ember-5ch.pages.dev/support.html
 
 ## Disclaimer
-Not affiliated with 5ch.io. The app accesses public content.
+Not affiliated with 5ch.io, kenmo.org, or 00c.org. The app accesses public content.
 
 ## Test Instructions
 1. Launch the app, scroll the terms to the end, and tap "同意して始める". The Home tab is empty until threads are opened.
-2. Open the "板" tab, choose a category and a board, then open a thread.
+2. Open the "板" tab, choose a category and a board, then open a thread. If the 403 message appears, tap "kenmo.org / 00c.org の板を使う" and choose a board under "kenmo.org / オルグ".
 3. In a thread, tap ">>" links to open popup cards. Tap outside a card to close it.
 4. Long-press a post. "このレスを報告" is on the first screen, and the block options are under "NG・強調".
 5. Settings > "AI" turns AI on. Models are 0.7 to 3.1 GB, so Wi-Fi is recommended.
 
-Please do not post real content during review if possible, because posts are public on 5ch.io.
+Please do not post real content during review if possible, because posts are public on 5ch.io, kenmo.org, and 00c.org.
 
 ## Test Account
 Not required.
@@ -323,7 +329,7 @@ iOS 版との違いは 1 か所。すりガラスは iOS だけなので、「�
 |---|---|---|---|
 | デバイス ID など（匿名の ID） | RevenueCat | 分析 | 必須 |
 | 写真 | tadaup.jp | アプリの機能 | 任意（アップロードを選んだときだけ） |
-| その他のユーザー作成コンテンツ（書き込み） | 5ch.io | アプリの機能 | 任意 |
+| その他のユーザー作成コンテンツ（書き込み） | 5ch.io、kenmo.org / 00c.org（設定で ON にしたときだけ） | アプリの機能 | 任意 |
 | メールアドレス（BE のログイン時だけ） | 5ch.io | アプリの機能 | 任意 |
 
 位置情報、連絡先、閲覧履歴、財務情報は収集しない。
@@ -383,16 +389,12 @@ Play Console で理由を求められる可能性がある権限。
 ```
 Thank you for the report. The "403 forbidden" message in your screenshot was returned by 5ch.io, the third-party bulletin board that the app reads from. It was not caused by a crash or a failure inside the app. 5ch.io can refuse connections from some networks or regions, and the developer does not control this. The same requests succeed from a network in Japan.
 
-This build now explains the refusal in the app instead of showing only "403 forbidden".
+This build now explains the refusal in the app instead of showing only "403 forbidden". Below the explanation, the board list also shows a button, "kenmo.org / 00c.org の板を使う". It switches the app to kenmo.org and 00c.org, which are separate bulletin boards that use the same format. The same button appears for every user whose connection is refused. It can be turned off again in Settings > "スレを読む" > "掲示板".
 
 If the review device uses a VPN, please turn it off and try again. If the message remains, please review from a network in Japan if possible. If that is not possible, please let me know, and I will provide a demo video recorded on a real device in Japan.
 ```
 
-**5ch.io に拒否されたときの代替（2026-11-08 に実装、未提出）:** 板一覧が 403 で取れないと、エラーの下に「kenmo.org / 00c.org の板を使う」ボタンが出る。審査端末を見分けて挙動を変えるのではなく、国外の回線などで誰にでも同じ画面が出る（Guideline 2.3.1 に触れないため）。このビルドを出すときは、返信文と審査メモに次の一文を足し、プライバシーの申告に kenmo.org / 00c.org への通信を足す。kenmo.org に国外から届くかは未確認なので、出す前に VPN などで確かめる。
-
-```
-If 5ch.io refuses the connection, the board list shows a button, "kenmo.org / 00c.org の板を使う". It switches the app to kenmo.org and 00c.org, which are separate bulletin boards that use the same format. The same button appears for every user whose connection is refused. It can be turned off again in Settings > スレを読む > 掲示板.
-```
+**5ch.io に拒否されたときの代替（2026-11-08 に実装）:** 板一覧が 403 で取れないと、エラーの下に「kenmo.org / 00c.org の板を使う」ボタンが出る。審査端末を見分けて挙動を変えるのではなく、国外の回線などで誰にでも同じ画面が出る（Guideline 2.3.1 に触れないため）。上の返信文、審査メモ、プライバシーの申告（App Store / データセーフティ / ランディングのプライバシーポリシー）は 2026-11-08 にこのボタンを前提に書き直した。**このボタンが入っていない古いビルドに返信するときは、返信文の 2 段落目の後半（"Below the explanation" 以降）を消す。** kenmo.org に国外から届くかは未確認なので、出す前に VPN などで確かめる。
 
 **デモ動画:** 最初は付けない。審査側から求められたら、日本の回線の実機で撮って送る。映すものは、初回の同意画面、板一覧、板の絞り込み、スレ一覧、スレ本文、長押しメニュー（NG、報告）、投稿画面。
 
@@ -405,6 +407,8 @@ If 5ch.io refuses the connection, the board list shows a button, "kenmo.org / 00
 - [ ] スクリーンショットを撮る
 - [ ] フィーチャーグラフィックを作る
 - [ ] 同じ内容で App のプライバシーとデータセーフティを入力する
+- [ ] kenmo.org / 00c.org に国外の回線や VPN から届くかを確かめる（届かなければ審査メモと返信文から切り替えボタンの段落を消す）
+- [ ] ランディングを `npm run deploy` で反映する（プライバシーポリシーに kenmo.org / 00c.org を足した。2026-11-08）
 - [ ] Google Play: 個人アカウントのクローズドテスト要件に該当するか確認する
 
 ---
