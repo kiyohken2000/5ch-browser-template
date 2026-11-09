@@ -19,7 +19,7 @@ const SUPPORT_EMAIL = "retwpay@gmail.com";
 /** 法的文書の最終更新日。文面を変えたらここも変える */
 const LEGAL_UPDATED = "2026年11月8日";
 /** 公開されたら入れる。空のあいだはバッジに「準備中」と出す */
-const APP_STORE_URL = "";
+const APP_STORE_URL = "https://apps.apple.com/jp/app/id6831091040";
 const GOOGLE_PLAY_URL = "";
 
 type ThemeKey = "light" | "dark";

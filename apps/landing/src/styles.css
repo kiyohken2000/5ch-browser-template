@@ -1064,14 +1064,8 @@ a.platform-chip:hover {
 .mobile-teaser-text .lead {
   margin: 10px 0 0;
 }
-/* ヒーローの pill を流用するが、あちらの緑は「配信中」に見えるので
-   ブランド色にして準備中だと分かるようにする */
-.mobile-teaser-pill {
+.mobile-teaser-text .store-badges {
   margin: 18px 0 0;
-}
-.mobile-teaser-pill .pill-dot {
-  background: var(--brand);
-  box-shadow: 0 0 10px var(--ring);
 }
 .mobile-teaser-text .actions {
   margin-top: 20px;
