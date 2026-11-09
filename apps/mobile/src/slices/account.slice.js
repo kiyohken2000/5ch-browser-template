@@ -47,6 +47,22 @@ export const logoutAccount = createAsyncThunk(
   },
 )
 
+/**
+ * Cookie を全部消す（設定の「通信」）。BE / UPLIFT のログインも消えるので、
+ * 保管した情報があるものは入り直す。どんぐりもリセットされる。
+ */
+export const resetCookies = createAsyncThunk(
+  'account/resetCookies',
+  async (_, { dispatch }) => {
+    await clearCookies()
+    await Promise.all(
+      Object.keys(ACCOUNTS).map((provider) =>
+        dispatch(restoreAccount({ provider })),
+      ),
+    )
+  },
+)
+
 const initial = () => ({ status: 'out', message: null })
 
 const accountSlice = createSlice({

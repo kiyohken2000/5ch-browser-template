@@ -6,6 +6,7 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
 import { DEFAULT_GESTURES } from 'lib/gestures'
 import { DEFAULT_HOME_SHOWN } from 'lib/homeSegments'
+import { setCustomUserAgent } from 'lib/http'
 import { setCompatSitesEnabled } from 'lib/sites'
 import { DEFAULT_SORT_SHOWN } from 'lib/sort'
 import { KEYS, load, save } from 'lib/storage'
@@ -92,6 +93,11 @@ export const DEFAULTS = {
    * 値は lib/sites.js にも写す（ホスト検査が Redux を参照できないため）
    */
   compatSites: false,
+  /**
+   * 5ch へ名乗る UA を手書きで差し替える。空なら既定の `Monazilla/1.00 Ember/<version>`。
+   * 通常は変えない。値は lib/http.js にも写す（通信が Redux を参照できないため）
+   */
+  customUserAgent: '',
 }
 
 export const loadSettings = createAsyncThunk('settings/load', async () =>
@@ -110,6 +116,7 @@ const settingsSlice = createSlice({
       }
       state[key] = value
       if (key === 'compatSites') setCompatSitesEnabled(value)
+      if (key === 'customUserAgent') setCustomUserAgent(value)
       const snapshot = {}
       for (const k of Object.keys(DEFAULTS)) snapshot[k] = state[k]
       save(KEYS.settings, snapshot).then((ok) => {
@@ -123,6 +130,7 @@ const settingsSlice = createSlice({
         if (payload && payload[k] !== undefined) state[k] = payload[k]
       }
       setCompatSitesEnabled(state.compatSites)
+      setCustomUserAgent(state.customUserAgent)
       state.loaded = true
     })
     builder.addCase(loadSettings.rejected, (state, action) => {

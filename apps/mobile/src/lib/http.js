@@ -5,9 +5,10 @@
  * タイムアウトとキャンセルは `AbortController` で足りる。
  *
  * 規約:
- *   - User-Agent は必ず `Monazilla/1.00 Ember/<version>` を名乗る（§11-1）。
+ *   - User-Agent は既定で `Monazilla/1.00 Ember/<version>` を名乗る（§11-1）。
  *     専ブラであることを自己申告するのが 5ch の慣習で、善意の証拠になる。
- *     隠すと立場が弱くなる（§13-2）
+ *     隠すと立場が弱くなる（§13-2）。設定で手書きの UA に差し替えられるが、
+ *     通常は変えない（`setCustomUserAgent`）
  *   - すべての通信に 30 秒のタイムアウトを入れる
  *     （デスクトップ版の `.timeout(Duration::from_secs(30))` と同じ）
  *   - 失敗を握り潰さない。`.catch(() => {})` は禁止（CLAUDE.md）
@@ -30,8 +31,31 @@ function appVersion() {
   return typeof v === 'string' && v.length > 0 ? v : '0.0.0'
 }
 
-export function userAgent() {
+export function defaultUserAgent() {
   return `Monazilla/1.00 Ember/${appVersion()}`
+}
+
+/** 設定で手書きした UA。空なら既定を使う。値は `settings.slice.js` から写す。 */
+let customUserAgent = ''
+
+/**
+ * 手書きの UA を整える。ヘッダに入らない改行・制御文字は落とし、前後の空白を削る。
+ * 空になったら既定に戻すという意味で '' を返す。
+ */
+export function sanitizeUserAgent(value) {
+  if (typeof value !== 'string') return ''
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\u0000-\u001f\u007f]/g, '').trim()
+}
+
+/** 設定の変化に合わせて呼ぶ（`settings.slice.js`）。 */
+export function setCustomUserAgent(value) {
+  customUserAgent = sanitizeUserAgent(value)
+}
+
+/** 5ch へ名乗る UA。手書きがあればそれ、無ければ既定。 */
+export function userAgent() {
+  return customUserAgent || defaultUserAgent()
 }
 
 /** 通信エラー。呼ぶ側が種類で分岐できるように `kind` を持たせる。 */

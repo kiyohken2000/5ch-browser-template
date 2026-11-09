@@ -83,6 +83,7 @@ export default function Settings({ navigation }) {
       <SettingsSection title="その他" theme={theme}>
         {link('AI', 'AiSettings')}
         {link('履歴とキャッシュ', 'DataSettings')}
+        {link('通信', 'NetworkSettings')}
       </SettingsSection>
 
       <SettingsSection title="このアプリについて" theme={theme}>

@@ -56,6 +56,7 @@ import AiBenchmark from 'scenes/settings/AiBenchmark'
 import AiSettings from 'scenes/settings/AiSettings'
 import ImageNgSettings from 'scenes/settings/ImageNgSettings'
 import MediaSettings from 'scenes/settings/MediaSettings'
+import NetworkSettings from 'scenes/settings/NetworkSettings'
 import NgSettings from 'scenes/settings/NgSettings'
 import UploadHistory from 'scenes/settings/UploadHistory'
 import PostHistory from 'scenes/settings/PostHistory'
@@ -210,6 +211,7 @@ function SettingsStack() {
         ['MediaSettings', MediaSettings, '画像とリンク'],
         ['ComposeSettings', ComposeSettings, '書き込み'],
         ['DataSettings', DataSettings, '履歴とキャッシュ'],
+        ['NetworkSettings', NetworkSettings, '通信'],
       ].map(([name, component, title]) => (
         <Stack.Screen
           key={name}

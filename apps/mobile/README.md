@@ -20,7 +20,7 @@ yarn install            # 依存
 npx expo run:android    # Android の開発ビルドを作って起動（初回のみ時間がかかる）
 eas build --profile development --platform ios   # iOS シミュレーター用の開発ビルド
 yarn start              # 開発サーバー（開発ビルドを入れた後はこれで繋がる）
-yarn test               # ユニットテスト (jest-expo)。662 件 / 43 スイート
+yarn test               # ユニットテスト (jest-expo)。674 件 / 45 スイート
 yarn test:live          # 実際の 5ch に当てる通し確認。**CI では回さない**
 yarn lint               # ESLint (エラーのみ見るなら npx eslint src/ __tests__/ --quiet)
 npx expo export --platform android --output-dir .expo-export   # バンドル確認
@@ -74,12 +74,15 @@ src/
 - **文字列にしてから dat を区切ってはいけない。** `encoding-japanese` は不正バイトの
   直後の 1 バイトを飲み込むので、区切り `<>` が消えてレコードが壊れる。
   必ずバイト列のまま区切ってからフィールド単位でデコードする（`lib/bytes.js`）
-- **User-Agent は必ず `Monazilla/1.00 Ember/<version>` を名乗る。** 専ブラであることの
-  自己申告が 5ch の慣習で、善意の証拠になる
+- **User-Agent は既定で `Monazilla/1.00 Ember/<version>` を名乗る。** 専ブラであることの
+  自己申告が 5ch の慣習で、善意の証拠になる。設定の「通信」で手書きに差し替えられるが
+  （`settings.customUserAgent`、空なら既定）、効くのは 5ch への通信だけ
 - **対応は 5ch.io のみ。** bbspink / EXおろちつねる は非対応（決定済み）。
   **kenmo.org / 00c.org は設定で ON にしたときだけ扱う（既定 OFF、2026-11-08）。**
   対応サイトの定義は `lib/sites.js` の 1 か所だけ。詳細は `docs/MOBILE_FEASIBILITY_STUDY.md` の §12-6
 - **Cookie 値（`Be3M` / `Be3D` / `sid`）はログに出さない**
+- **Cookie は 5ch のものだけを選んで消せない。** 消すと全部消える（`lib/accountStore.js` の `clearCookies`）。
+  ログアウトと設定の「通信」→「Cookie を削除」がこれを使い、BE / UPLIFT は保管した情報で入り直す
 - **`StyleSheet.absoluteFillObject` は RN 0.88 で廃止された。** 使うと黙って効かない。`StyleSheet.absoluteFill` を使う
 - **`ember://` で画面を開ける**（`ember://thread?threadUrl=...` / `ember://board?boardUrl=...` / `ember://search`）。iOS シミュレーターは毎回確認ダイアログが出る
 - `.catch(() => {})` 禁止。失敗は `console.warn` に出す
