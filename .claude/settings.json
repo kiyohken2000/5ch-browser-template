@@ -28,6 +28,7 @@
       "Bash(npm audit:*)",
       "Bash(cargo update --dry-run:*)",
       "Bash(cargo audit:*)",
+      "Bash(npm run deploy:*)",
       "Bash(cargo outdated:*)"
     ],
     "deny": [
