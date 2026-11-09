@@ -424,7 +424,7 @@ export default function App() {
         <section className="platforms-strip">
           <span>対応プラットフォーム</span>
           <div className="platforms-list">
-            <span className="platform-chip"><WindowsIcon /> Windows 11</span>
+            <span className="platform-chip"><WindowsIcon /> Windows 11 x64</span>
             <span className="platform-chip"><AppleIcon /> macOS (Apple Silicon)</span>
             <span className="platform-chip"><LinuxIcon /> Linux x64 / AArch64</span>
             {/* 「対応プラットフォーム」と銘打った場所に iOS / Android が無いと、
@@ -805,7 +805,7 @@ export default function App() {
             <article className="card install-card reveal" data-delay="1">
               <div className="install-head">
                 <WindowsIcon />
-                <h3>Windows</h3>
+                <h3>Windows 11 (x64)</h3>
               </div>
               <ol className="install-steps">
                 <li><code>ember-win-x64.zip</code> をダウンロード</li>
