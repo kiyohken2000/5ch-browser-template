@@ -218,3 +218,26 @@ export function formatPerDay(perDay) {
   const n = Math.round(Number.isFinite(perDay) ? perDay : 0)
   return `${String(n).replace(/\B(?=(\d{3})+$)/g, ',')}/日`
 }
+
+/**
+ * スレの履歴を丸ごと消す（スレ一覧の長押しの「履歴から削除」）。
+ * 控え（監視・新着の基準）、最近、お気に入り、書き込み、「ここまで読んだ」の
+ * どれからも消す。変わったものだけを返す（保存するものを絞るため）。
+ *
+ * @returns {{watchList?, recentOpened?, favorites?, myPosts?, readMarkers?}}
+ */
+export function forgetThreadRecords(state, threadId) {
+  const out = {}
+  for (const key of ['watchList', 'recentOpened', 'favorites', 'myPosts']) {
+    const list = state[key] || []
+    if (list.some((t) => t.threadId === threadId)) {
+      out[key] = list.filter((t) => t.threadId !== threadId)
+    }
+  }
+  if (state.readMarkers && state.readMarkers[threadId]) {
+    const markers = { ...state.readMarkers }
+    delete markers[threadId]
+    out.readMarkers = markers
+  }
+  return out
+}

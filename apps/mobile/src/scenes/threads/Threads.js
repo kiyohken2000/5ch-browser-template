@@ -5,15 +5,22 @@
  * 並べ替えは lib/sort.js の純粋関数に任せ、同点は subject.txt の元の並びで割る。
  */
 
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+} from '@gorhom/bottom-sheet'
 import * as Clipboard from 'expo-clipboard'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   FlatList,
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -24,8 +31,12 @@ import { useDispatch, useSelector } from 'react-redux'
 import { highlightStyle, splitHighlights } from 'lib/highlights'
 import { selectActiveHighlights } from 'slices/highlight.slice'
 
+import GlassSheetBackground from 'components/GlassSheetBackground'
 import Icon from 'components/Icon'
+import useSheetAnimation from 'components/useSheetAnimation'
 import { fetchSubject } from 'lib/api'
+import { longPressHaptic } from 'lib/haptics'
+import { openInAppBrowser } from 'lib/inAppBrowser'
 import { visibleThreads } from 'lib/ng'
 import {
   DEFAULT_SORT,
@@ -36,19 +47,47 @@ import {
   unreadCount,
   visibleSortModes,
 } from 'lib/sort'
+import { forgetReadPosition } from 'lib/readPosition'
 import { pushHistory } from 'lib/search'
 import { KEYS, load, save } from 'lib/storage'
+import { deleteCachedThread } from 'lib/threadCache'
 import { diffKnownThreads, formatPerDay, splitTitleTag } from 'lib/threadLists'
 import { parseBoardLocation } from 'lib/urls'
-import { selectNgFilters } from 'slices/ng.slice'
-import { toggleBoardFavorite, touchBoard } from 'slices/watch.slice'
+import { addNg, selectNgFilters } from 'slices/ng.slice'
+import {
+  forgetThread,
+  removeFromWatch,
+  toggleBoardFavorite,
+  toggleFavorite,
+  toggleWatch,
+  touchBoard,
+} from 'slices/watch.slice'
 import { useEmberTheme } from 'theme/ember'
 import { showToast } from 'utils/showToast'
 
 /** これより下へスクロールしたら「先頭へ」を出す。 */
 const TO_TOP_MIN_OFFSET = 400
 
+function renderMenuBackdrop(props) {
+  return (
+    <BottomSheetBackdrop
+      {...props}
+      opacity={0.2}
+      appearsOnIndex={0}
+      disappearsOnIndex={-1}
+      pressBehavior="close"
+    />
+  )
+}
+
+function copyText(text, done) {
+  Clipboard.setStringAsync(text)
+    .then(() => showToast({ title: done }))
+    .catch((e) => console.warn(`[threads] コピーに失敗: ${e?.message || e}`))
+}
+
 export default function Threads({ route, navigation }) {
+  const animationConfigs = useSheetAnimation()
   const listRef = useRef(null)
   const [showToTop, setShowToTop] = useState(false)
   const { boardUrl, boardName, initialFilter } = route.params
@@ -58,6 +97,9 @@ export default function Threads({ route, navigation }) {
   const ngFilters = useSelector(selectNgFilters)
   const { titleWords } = useSelector(selectActiveHighlights)
   const watchList = useSelector((state) => state.watch.watchList)
+  const favorites = useSelector((state) => state.watch.favorites)
+  const recentOpened = useSelector((state) => state.watch.recentOpened)
+  const myPosts = useSelector((state) => state.watch.myPosts)
   const titleFontSize = useSelector(
     (state) => state.settings.threadTitleFontSize,
   )
@@ -255,21 +297,123 @@ export default function Threads({ route, navigation }) {
     return rows.filter((t) => t.title.toLowerCase().includes(q))
   }, [sorted, ngFilters, filter])
 
-  // 一覧は 2 行で切るので、長押しで全文を見られるようにする
-  const showFullTitle = useCallback((title) => {
-    Alert.alert('スレタイ', title, [
-      {
-        text: 'コピー',
-        onPress: () =>
-          Clipboard.setStringAsync(title)
-            .then(() => showToast({ title: 'コピーしました' }))
-            .catch((e) =>
-              console.warn(`[threads] コピーに失敗: ${e?.message || e}`),
-            ),
-      },
-      { text: '閉じる', style: 'cancel' },
-    ])
+  // ---- 長押しのメニュー（デスクトップ版のスレ一覧の右クリックに合わせる）---
+
+  const [menuItem, setMenuItem] = useState(null)
+  const menuRef = useRef(null)
+
+  const openMenu = useCallback((item) => {
+    longPressHaptic()
+    setMenuItem(item)
   }, [])
+
+  const closeMenu = useCallback(() => {
+    if (menuRef.current) menuRef.current.dismiss()
+  }, [])
+
+  useEffect(() => {
+    if (menuItem && menuRef.current) menuRef.current.present()
+  }, [menuItem])
+
+  // Android の戻るボタンでメニューを閉じる
+  useEffect(() => {
+    if (!menuItem) return undefined
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      closeMenu()
+      return true
+    })
+    return () => sub.remove()
+  }, [menuItem, closeMenu])
+
+  const menuState = useMemo(() => {
+    if (!menuItem) return null
+    const id = menuItem.threadId
+    const has = (list) => list.some((t) => t.threadId === id)
+    const watched = !!watchById.get(id)?.watched
+    return {
+      favorite: has(favorites),
+      watched,
+      // 開いたことがあるスレだけ「履歴から削除」を出す
+      opened:
+        watchById.has(id) ||
+        has(recentOpened) ||
+        has(favorites) ||
+        has(myPosts),
+    }
+  }, [menuItem, watchById, favorites, recentOpened, myPosts])
+
+  /** お気に入り・監視に入れる形。 */
+  const refOf = useCallback(
+    (item) => ({
+      threadId: item.threadId,
+      threadUrl: item.threadUrl,
+      boardUrl: boardInfo?.url || boardUrl,
+      boardName: boardName || boardInfo?.board || '',
+      title: item.title,
+      totalCount: item.responseCount,
+    }),
+    [boardInfo, boardUrl, boardName],
+  )
+
+  const runMenu = useCallback(
+    (action) => {
+      const item = menuItem
+      if (!item) return
+      closeMenu()
+      if (action === 'copyTitle') {
+        copyText(item.title, 'スレタイをコピーしました')
+      } else if (action === 'copyUrl') {
+        copyText(item.threadUrl, 'スレURLをコピーしました')
+      } else if (action === 'share') {
+        Share.share({
+          title: item.title,
+          message: `${item.title}\n${item.threadUrl}`,
+        }).catch((e) =>
+          console.warn(`[threads] 共有に失敗: ${e?.message || e}`),
+        )
+      } else if (action === 'browser') {
+        openInAppBrowser(item.threadUrl)
+      } else if (action === 'ng') {
+        dispatch(addNg({ list: 'threadWords', value: item.title }))
+        showToast({ title: 'スレタイNGに追加しました' })
+      } else if (action === 'favorite') {
+        dispatch(toggleFavorite(refOf(item)))
+        showToast({
+          title: menuState?.favorite
+            ? 'お気に入りから外しました'
+            : 'お気に入りに追加しました',
+        })
+      } else if (action === 'watch') {
+        if (menuState?.watched) dispatch(removeFromWatch(item.threadId))
+        else dispatch(toggleWatch(refOf(item)))
+        showToast({
+          title: menuState?.watched ? '監視をやめました' : '監視に追加しました',
+        })
+      } else if (action === 'forget') {
+        const forget = () => {
+          dispatch(forgetThread(item.threadId))
+          forgetReadPosition(item.threadId).catch((e) =>
+            console.warn(
+              `[threads] 読んでいた位置を消せない: ${e?.message || e}`,
+            ),
+          )
+          deleteCachedThread(item.threadId).then((ok) => {
+            if (!ok) console.warn('[threads] キャッシュを消せなかった')
+          })
+          showToast({ title: '履歴から削除しました' })
+        }
+        if (!menuState?.watched) {
+          forget()
+          return
+        }
+        Alert.alert('履歴から削除', '監視も外れます。削除しますか？', [
+          { text: 'キャンセル', style: 'cancel' },
+          { text: '削除', style: 'destructive', onPress: forget },
+        ])
+      }
+    },
+    [menuItem, menuState, closeMenu, dispatch, refOf],
+  )
 
   if (loading) {
     return (
@@ -408,7 +552,7 @@ export default function Threads({ route, navigation }) {
                   totalCount: item.responseCount,
                 })
               }
-              onLongPress={() => showFullTitle(item.title)}
+              onLongPress={() => openMenu(item)}
               style={({ pressed }) => [
                 styles.row,
                 {
@@ -505,6 +649,67 @@ export default function Threads({ route, navigation }) {
           <Icon name="toTop" size={22} color={theme.accent} />
         </Pressable>
       ) : null}
+
+      {menuItem && menuState ? (
+        <BottomSheetModal
+          animationConfigs={animationConfigs}
+          accessible={false}
+          ref={menuRef}
+          name="thread-list-menu"
+          enablePanDownToClose
+          enableDynamicSizing
+          backdropComponent={renderMenuBackdrop}
+          backgroundComponent={GlassSheetBackground}
+          handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
+          onDismiss={() => setMenuItem(null)}
+        >
+          <BottomSheetView style={styles.menu}>
+            {/* 一覧は 2 行で切るので、ここで全文を見せる */}
+            <Text
+              selectable
+              style={[styles.menuTitle, { color: theme.textDim }]}
+            >
+              {menuItem.title || '(無題)'}
+            </Text>
+            {[
+              { key: 'copyTitle', label: 'スレタイをコピー' },
+              { key: 'copyUrl', label: 'スレURLをコピー' },
+              { key: 'share', label: '共有' },
+              { key: 'browser', label: 'ブラウザで開く' },
+              { key: 'ng', label: 'スレタイNGに追加' },
+              {
+                key: 'favorite',
+                label: menuState.favorite
+                  ? 'お気に入りから外す'
+                  : 'お気に入りに追加',
+              },
+              {
+                key: 'watch',
+                label: menuState.watched ? '監視をやめる' : '監視に追加',
+              },
+              ...(menuState.opened
+                ? [{ key: 'forget', label: '履歴から削除', danger: true }]
+                : []),
+            ].map(({ key, label, danger }) => (
+              <Pressable
+                key={key}
+                accessibilityRole="button"
+                style={styles.menuItem}
+                onPress={() => runMenu(key)}
+              >
+                <Text
+                  style={[
+                    styles.menuText,
+                    { color: danger ? theme.danger : theme.text },
+                  ]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </BottomSheetView>
+        </BottomSheetModal>
+      ) : null}
     </View>
   )
 }
@@ -567,4 +772,14 @@ const styles = StyleSheet.create({
   count: { fontSize: 12, fontWeight: '600' },
   unreadBadge: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 9 },
   unreadText: { fontSize: 12, fontWeight: '700' },
+  menu: { paddingBottom: 32 },
+  menuTitle: {
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 6,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  menuItem: { paddingHorizontal: 18, paddingVertical: 12 },
+  menuText: { fontSize: 15 },
 })

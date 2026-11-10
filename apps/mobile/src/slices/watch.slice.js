@@ -21,6 +21,7 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 import { boardRef, pushRecentBoard } from 'lib/boards'
 import { KEYS, load, save } from 'lib/storage'
 import {
+  forgetThreadRecords,
   manualReadMarkers,
   orderByIds,
   pushMyPost,
@@ -299,6 +300,31 @@ const watchSlice = createSlice({
       }
     },
 
+    /** 「履歴から削除」。payload は threadId。消す範囲は forgetThreadRecords。 */
+    forgetThread: (state, { payload }) => {
+      const next = forgetThreadRecords(state, payload)
+      if (next.watchList) {
+        state.watchList = next.watchList
+        persistWatch(state)
+      }
+      if (next.recentOpened) {
+        state.recentOpened = next.recentOpened
+        persistRecentOpened(state)
+      }
+      if (next.favorites) {
+        state.favorites = next.favorites
+        persistFavorites(state)
+      }
+      if (next.myPosts) {
+        state.myPosts = next.myPosts
+        persistMyPosts(state)
+      }
+      if (next.readMarkers) {
+        state.readMarkers = next.readMarkers
+        persistMarkers(state)
+      }
+    },
+
     /** 「ここまで読んだ」。利用者が付ける印で、読み進めても動かさない。 */
     setReadMarker: (state, { payload }) => {
       const { threadId, lastReadNo, totalCount } = payload
@@ -385,6 +411,7 @@ export const {
   recordMyPost,
   clearMyPosts,
   removePostedThread,
+  forgetThread,
 } = watchSlice.actions
 
 /** 新着レス数。0 以下なら新着なし。読んだ数を覚えていないスレは数えない。 */

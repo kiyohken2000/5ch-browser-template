@@ -74,6 +74,16 @@ export async function setReadPosition(threadId, no) {
   }
 }
 
+/** 位置を忘れる（「履歴から削除」）。次に開くと先頭から読む。 */
+export async function forgetReadPosition(threadId) {
+  const all = await loadAll()
+  if (!all[threadId]) return
+  const next = { ...all }
+  delete next[threadId]
+  positions = next
+  flush()
+}
+
 /** 裏に回ったら待たずに保存する。そのまま終了されても失わない。 */
 export function watchAppStateForPositions() {
   return AppState.addEventListener('change', (state) => {

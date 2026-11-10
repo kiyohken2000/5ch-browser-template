@@ -149,6 +149,20 @@ export async function clearThreadCache() {
   }
 }
 
+/** 1 件だけ消す（スレ一覧の長押しの「履歴から削除」）。 */
+export async function deleteCachedThread(threadId) {
+  try {
+    const handle = await db()
+    await handle.runAsync('DELETE FROM thread_cache WHERE thread_id = ?', [
+      threadId,
+    ])
+    return true
+  } catch (e) {
+    warn('削除', e)
+    return false
+  }
+}
+
 /** キャッシュにあるスレの ID。読めなければ空にする（dat 落ち一覧が空になるだけ）。 */
 export async function listCachedThreadIds() {
   try {

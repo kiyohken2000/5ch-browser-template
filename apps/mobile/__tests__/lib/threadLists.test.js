@@ -1,4 +1,5 @@
 import {
+  forgetThreadRecords,
   MAX_KNOWN_BOARDS,
   MAX_MY_POSTS,
   manualReadMarkers,
@@ -230,5 +231,51 @@ describe('watchedThreads', () => {
       { threadId: 'e', watched: true, watchedAt: 10 },
     ]
     expect(watchedThreads(list).map((e) => e.threadId)).toEqual(['c', 'a', 'e'])
+  })
+})
+
+describe('forgetThreadRecords（履歴から削除）', () => {
+  const ref = (threadId, extra = {}) => ({
+    threadId,
+    title: threadId,
+    ...extra,
+  })
+  const state = () => ({
+    watchList: [ref('a', { watched: true }), ref('b')],
+    recentOpened: [ref('a'), ref('b')],
+    favorites: [ref('a')],
+    myPosts: [
+      { ...ref('a'), at: 1 },
+      { ...ref('a'), at: 2 },
+      { ...ref('b'), at: 3 },
+    ],
+    readMarkers: { a: { lastReadNo: 3 }, b: { lastReadNo: 2 } },
+  })
+  const ids = (list) => list.map((e) => e.threadId)
+
+  it('控え・最近・お気に入り・書き込み・ここまで読んだから消す', () => {
+    const next = forgetThreadRecords(state(), 'a')
+    expect(ids(next.watchList)).toEqual(['b'])
+    expect(ids(next.recentOpened)).toEqual(['b'])
+    expect(ids(next.favorites)).toEqual([])
+    expect(ids(next.myPosts)).toEqual(['b'])
+    expect(next.readMarkers).toEqual({ b: { lastReadNo: 2 } })
+  })
+
+  it('記録の無い一覧は返さない（保存しない）', () => {
+    const next = forgetThreadRecords(state(), 'b')
+    expect(Object.keys(next).sort()).toEqual([
+      'myPosts',
+      'readMarkers',
+      'recentOpened',
+      'watchList',
+    ])
+    expect(forgetThreadRecords(state(), 'none')).toEqual({})
+  })
+
+  it('元の値を書き換えない', () => {
+    const before = state()
+    forgetThreadRecords(before, 'a')
+    expect(before).toEqual(state())
   })
 })

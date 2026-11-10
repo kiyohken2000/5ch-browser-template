@@ -1,6 +1,7 @@
 import {
   appendCachedThread,
   clearThreadCache,
+  deleteCachedThread,
   getCachedThread,
   MAX_THREADS,
   putCachedThread,
@@ -34,6 +35,8 @@ function fakeDb() {
           last_modified: lastModified,
           updated_at: clock,
         })
+      } else if (sql.includes('WHERE thread_id = ?')) {
+        rows.delete(params[0])
       } else if (sql.startsWith('DELETE FROM thread_cache WHERE')) {
         const keep = [...rows.entries()]
           .sort((a, b) => b[1].updated_at - a[1].updated_at)
@@ -121,6 +124,14 @@ describe('threadCache', () => {
     expect(await threadCacheStats()).toEqual({ count: 0, bytes: 0 })
   })
 
+  it('1 件だけ消す', async () => {
+    await putCachedThread('a', { raw: bytes(1), entryCount: 1 })
+    await putCachedThread('b', { raw: bytes(2), entryCount: 1 })
+    expect(await deleteCachedThread('a')).toBe(true)
+    expect(await getCachedThread('a')).toBeNull()
+    expect(await getCachedThread('b')).not.toBeNull()
+  })
+
   describe('DB が壊れていても例外を外へ出さない', () => {
     let warn
     beforeEach(() => {
@@ -136,6 +147,7 @@ describe('threadCache', () => {
       expect(await putCachedThread('t', { raw: bytes(1), entryCount: 1 })).toBe(
         false,
       )
+      expect(await deleteCachedThread('t')).toBe(false)
       expect(warn).toHaveBeenCalled()
     })
   })
