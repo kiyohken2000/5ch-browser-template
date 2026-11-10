@@ -177,17 +177,25 @@ function isDatDropped(e) {
   return e instanceof HttpError && e.status === 404
 }
 
+/**
+ * レスごとの AA 表示の切り替え。スレ → (レス番号 → 'off' | 'force')。
+ * アプリを閉じるまで持つ（保存はしない）
+ */
+const aaModeCache = new Map()
+
+function parseRow(e, aa = 'auto') {
+  const parsed = parseBody(e.body, { aa })
+  return {
+    ...e,
+    parsed,
+    media: extractMedia(parsed.urls),
+    plainBody: parsed.plain,
+    hasAa: parsed.blocks.some((b) => b.kind === 'aa'),
+  }
+}
+
 function parseRows(entries) {
-  return entries.map((e) => {
-    const parsed = parseBody(e.body)
-    return {
-      ...e,
-      parsed,
-      media: extractMedia(parsed.urls),
-      plainBody: parsed.plain,
-      hasAa: parsed.blocks.some((b) => b.kind === 'aa'),
-    }
-  })
+  return entries.map((e) => parseRow(e))
 }
 
 function renderMenuBackdrop(props) {
@@ -509,7 +517,33 @@ export default function Thread({ route, navigation }) {
   // ---- 解析と NG -----------------------------------------------------------
 
   // 本文の解析は重いのでレスが増えたときだけ回す
-  const parsedRows = useMemo(() => parseRows(entries), [entries])
+  const autoRows = useMemo(() => parseRows(entries), [entries])
+  const [aaModes, setAaModes] = useState(
+    () => aaModeCache.get(threadId) ?? new Map(),
+  )
+  useEffect(() => {
+    setAaModes(aaModeCache.get(threadId) ?? new Map())
+  }, [threadId])
+  // 切り替えたレスだけ解析し直す
+  const parsedRows = useMemo(() => {
+    if (aaModes.size === 0) return autoRows
+    return autoRows.map((r, i) => {
+      const mode = aaModes.get(r.no)
+      return mode ? parseRow(entries[i], mode) : r
+    })
+  }, [autoRows, aaModes, entries])
+  const toggleAa = useCallback(
+    (row) => {
+      setAaModes((prev) => {
+        const next = new Map(prev)
+        if (next.has(row.no)) next.delete(row.no)
+        else next.set(row.no, row.hasAa ? 'off' : 'force')
+        aaModeCache.set(threadId, next)
+        return next
+      })
+    },
+    [threadId],
+  )
 
   /**
    * **NG はここで 1 回だけ掛ける。**
@@ -1365,6 +1399,13 @@ export default function Thread({ route, navigation }) {
         },
       },
       readMarker,
+      {
+        label: menuRow.hasAa ? 'AA 表示をやめる' : 'AA として表示',
+        run: () => {
+          closeMenu()
+          toggleAa(menuRow)
+        },
+      },
       { label: MENU_GROUP_TITLES.copy, opens: 'copy' },
       { label: MENU_GROUP_TITLES.ng, opens: 'ng' },
       ...(aiItems.length > 0
@@ -1383,6 +1424,7 @@ export default function Thread({ route, navigation }) {
     threadUrl,
     ngRows.length,
     marker?.lastReadNo,
+    toggleAa,
   ])
 
   // ---- 既読位置 ------------------------------------------------------------

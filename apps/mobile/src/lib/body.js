@@ -159,21 +159,41 @@ export function tokenizeText(text) {
   return tokens
 }
 
-/**
- * 本文を描画用のブロック列にする。
- *
- * @param {string} rawBody dat から取った本文（タグ・実体参照つき）
- * @returns {{blocks: Array, plain: string, anchors: number[], ids: string[], urls: string[]}}
- */
+const BEICON_LINE_RE = new RegExp(`^\\s*${BEICON_RE.source}\\s*$`)
+
+function segmentsFor(plain, aa) {
+  if (aa === 'auto') return segmentBody(plain)
+  const lines = plain.split('\n')
+  if (aa === 'off') return [{ kind: 'text', lines }]
+  // BE アイコンはレスの頭に出すので、AA に混ぜず text に残す
+  let head = 0
+  while (head < lines.length && BEICON_LINE_RE.test(lines[head])) head += 1
+  const segs = []
+  if (head > 0) segs.push({ kind: 'text', lines: lines.slice(0, head) })
+  if (head < lines.length) segs.push({ kind: 'aa', lines: lines.slice(head) })
+  return segs
+}
+
 function withoutBeIcons(text) {
   return text
     .replace(new RegExp(`${BEICON_RE.source}[ \\t]*\\n?`, 'g'), '')
     .trim()
 }
 
-export function parseBody(rawBody) {
+/**
+ * 本文を描画用のブロック列にする。
+ *
+ * @param {string} rawBody dat から取った本文（タグ・実体参照つき）
+ * @param {{aa?: 'auto'|'off'|'force'}} [opts] AA の扱い。レスの長押しメニューで
+ *   レスごとに切り替える。
+ *   - `auto`: 自動で判定する（既定）
+ *   - `off`: AA と判定せず、全体を text ブロックとして扱う
+ *   - `force`: 先頭の BE アイコンの行を除き、全体を 1 つの AA ブロックにする
+ * @returns {{blocks: Array, plain: string, anchors: number[], ids: string[], urls: string[]}}
+ */
+export function parseBody(rawBody, { aa = 'auto' } = {}) {
   const plain = plainDatBody(rawBody)
-  const segs = segmentBody(plain)
+  const segs = segmentsFor(plain, aa)
 
   const blocks = []
   const anchors = []

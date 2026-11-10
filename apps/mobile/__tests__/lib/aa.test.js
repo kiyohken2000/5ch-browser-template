@@ -75,6 +75,23 @@ describe('ブロック単位の切り分け', () => {
     expect(aa[0].lines.length).toBe(5)
   })
 
+  it('アンカーだけの行を AA としない', () => {
+    for (const body of [
+      '>>541\n\n>>528',
+      '>>541\n>>528\n>>530',
+      '＞＞1-5\n>>6,7\n>>8 >>9',
+    ]) {
+      expect(segmentBody(body).every((s) => s.kind === 'text')).toBe(true)
+    }
+  })
+
+  it('アンカーの横の AA は AA のまま', () => {
+    const body = ['>>12', '　　∧＿∧', '　（　´∀｀）', '　（　　つ つ'].join(
+      '\n',
+    )
+    expect(containsAa(body)).toBe(true)
+  })
+
   it('行番号の範囲が元の本文と対応している', () => {
     const body = ['a', '　　∧＿∧', '　（　´∀｀）', '　（　　つ つ', 'b'].join(
       '\n',

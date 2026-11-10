@@ -50,10 +50,17 @@ export const AA_THRESHOLDS = {
 }
 
 /**
+ * アンカー（`>>12` `＞＞3-5` `>>1,2`）。記号の `>` を含むので、そのまま数えると
+ * アンカーだけの行が AA らしく見える。数える前に取り除く。
+ */
+const ANCHOR_IN_LINE_RE =
+  /(?:>>|＞＞)\s?\d{1,5}(?:\s?[-ー－~〜]\s?\d{1,5})?(?:\s?[,、]\s?\d{1,5})*/g
+
+/**
  * 1 行の AA らしさ。0〜1。
  */
 export function lineAaScore(line) {
-  const chars = Array.from(line)
+  const chars = Array.from(line.replace(ANCHOR_IN_LINE_RE, ''))
   if (chars.length === 0) return 0
 
   let symbols = 0
@@ -82,7 +89,8 @@ export function lineAaScore(line) {
 
 /** その行が「AA らしい行」か。 */
 export function isAaLine(line, t = AA_THRESHOLDS) {
-  if (Array.from(line.trim()).length < t.minLineLength) return false
+  const rest = line.replace(ANCHOR_IN_LINE_RE, '').trim()
+  if (Array.from(rest).length < t.minLineLength) return false
   return lineAaScore(line) >= t.symbolRatio
 }
 

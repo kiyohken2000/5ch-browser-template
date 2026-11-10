@@ -153,6 +153,24 @@ describe('parseBody', () => {
     expect(got.anchors).toEqual([])
   })
 
+  it("aa: 'off' なら AA も text として走査する", () => {
+    const raw = ' 　　∧＿∧ <br> 　（　´∀｀）&gt;&gt;3 <br> 　（　　つ つ '
+    expect(hasAaBlock(parseBody(raw))).toBe(true)
+    const got = parseBody(raw, { aa: 'off' })
+    expect(got.blocks.map((b) => b.kind)).toEqual(['text'])
+    expect(got.anchors).toEqual([3])
+  })
+
+  it("aa: 'force' なら本文全体を AA にし、BE アイコンは text に残す", () => {
+    const raw = ' sssp://img.5ch.io/ico/001.gif <br> 普通の文 <br> 二行目 '
+    expect(hasAaBlock(parseBody(raw))).toBe(false)
+    const got = parseBody(raw, { aa: 'force' })
+    expect(got.blocks.map((b) => b.kind)).toEqual(['text', 'aa'])
+    expect(got.blocks[1].lines).toEqual(['普通の文', '二行目'])
+    expect(got.blocks[1].width).toBeGreaterThan(0)
+    expect(got.plain).toBe('普通の文\n二行目')
+  })
+
   it('AA の無い本文は text ブロック 1 個', () => {
     const got = parseBody(' ふつうの本文です ')
     expect(got.blocks.length).toBe(1)
