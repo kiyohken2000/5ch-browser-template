@@ -2569,19 +2569,26 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
       }
     );
   }
-  // twimg の動画直リンク (video.twimg.com/....mp4) はインライン再生する。
-  // 直リンク画像と同じく URL 自体はリンクとして残し、プレイヤーはサムネ行に追加する。
+  // 動画ファイルへの直リンク (.mp4 / .webm / .mov) はサムネ行にプレイヤーを置く。
+  // 直リンク画像と同じく URL 自体はリンクとして残す。
   // <video> は referrerpolicy を持てないが、ページ全体を no-referrer にしてあるので
   // twimg の referer 403 を回避できる。直リンクにはポスター画像が無いため、#t=0.1 の
   // メディアフラグメントで先頭フレームをサムネ代わりに表示する (preload="metadata")。
+  // twimg は開いた時点で先頭フレームを読む。それ以外のサーバーは本文を開いただけで
+  // 知らない相手へ通信させないよう、「クリックで動画を表示」から始める
+  // (画像のサイズ制限は動画には効かないため)。
   if (!opts?.hideImages) {
     safe = safe.replace(
-      /(?:(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)video\.twimg\.com|(?<!\S)video\.twimg\.com)\/[^\s<>&"\u0080-\uFFFF]+\.mp4(?:\?[^\s<>&"\u0080-\uFFFF]*(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*)?/gi,
+      /((?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"\u0080-\uFFFF]+\.(?:mp4|webm|mov)(?:\?[^\s<>&"\u0080-\uFFFF]*(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*)?|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"\u0080-\uFFFF]*\.(?:mp4|webm|mov)(?:\?[^\s<>&"\u0080-\uFFFF]*(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*)?)(?![^\s<>&"\u0080-\uFFFF])/gi,
       (match) => {
         const href = normalizeExternalUrl(match);
         if (!href) return match;
-        // 自動読み込みを切っているときは先頭フレームの取得もしない (preload="none")。
-        collectedThumbs.push(`<video class="inline-video" src="${href}#t=0.1" controls preload="${manualThumbs ? "none" : "metadata"}" playsinline></video>`);
+        if (/^https?:\/\/video\.twimg\.com\//i.test(href)) {
+          // 自動読み込みを切っているときは先頭フレームの取得もしない (preload="none")。
+          collectedThumbs.push(`<video class="inline-video" src="${href}#t=0.1" controls preload="${manualThumbs ? "none" : "metadata"}" playsinline></video>`);
+        } else {
+          collectedThumbs.push(`<span class="thumb-link thumb-size-gate video-gate"><span class="thumb-gate-blocked thumb-gate-manual" data-reveal-video="${href}">▶ クリックで動画を表示</span></span>`);
+        }
         return `<a class="body-link" href="${href}" target="_blank" rel="noopener">${match}</a>`;
       }
     );
@@ -2592,9 +2599,9 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
     (match) => {
       // Skip if already inside a thumb-link or img tag
       if (match.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i)) return match;
-      // Skip twimg 動画: 上で <video src="..."> に変換済みなので二重リンク化しない
+      // 動画の直リンクは上でリンク化済みなので二重リンク化しない
       // (hideImages 時は変換していないので通常リンクとして処理する)
-      if (!opts?.hideImages && /video\.twimg\.com\/[^\s"'<>]+\.mp4/i.test(match)) return match;
+      if (!opts?.hideImages && /\.(?:mp4|webm|mov)(?:\?|$)/i.test(match)) return match;
       const href = normalizeExternalUrl(match);
       if (!href) return match;
       // 拡張子なしの Imgur 直リンクは補った URL で画像として扱う (表示文字列は投稿のまま)。
@@ -10389,6 +10396,26 @@ export default function App() {
   // 本文とポップアップの両方から呼ぶ。ポップアップは本文ペインの外に描くので、
   // 本文側のクリック委譲では拾えない。
   const revealGatedThumb = (gateBlocked: HTMLElement) => {
+    const videoSrc = gateBlocked.dataset.revealVideo;
+    if (videoSrc) {
+      const parent = gateBlocked.closest<HTMLElement>(".video-gate");
+      if (!parent) return;
+      // 属性は DOM API で入れる (投稿由来の URL を innerHTML に戻さない)。
+      const video = document.createElement("video");
+      video.className = "inline-video";
+      video.controls = true;
+      video.preload = "metadata";
+      video.playsInline = true;
+      // 再生できない (サーバーが拒否する / 形式に対応していない) ときは
+      // 黒い枠を残さず、本文のリンクから開くよう案内する。
+      video.addEventListener("error", () => {
+        console.warn("inline video failed:", videoSrc);
+        parent.innerHTML = `<span class="thumb-gate-blocked">この動画はここで再生できません — 本文のリンクから開いてください</span>`;
+      }, { once: true });
+      video.src = `${videoSrc}#t=0.1`;
+      parent.replaceChildren(video);
+      return;
+    }
     const src = gateBlocked.dataset.revealSrc;
     if (!src) return;
     const parent = gateBlocked.closest<HTMLElement>(".thumb-size-gate");
