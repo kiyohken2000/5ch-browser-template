@@ -7201,6 +7201,134 @@ try {
     console.log("smoke-ui: a video link plays from its gate and falls back when it cannot ok");
   }
 
+  // NG フィルタの効き方の回帰 (ユーザー報告 2 件)。
+  //  - 「レス本文の末尾に空行を追加」が あぼーん のレスだけ効いていなかった。
+  //    あぼーんは本文を素のテキストで描く別経路で、設定を読んでいなかった
+  //  - ▼N が NG のレスからの安価も数えていて、ポップアップを通すとスレッド窓では
+  //    見えないレスの本文が読めていた。ID ポップアップからも読めていた
+  // NG の判定は load_ng_filters を差し替えて仕込む。スレッド窓に出ている行と
+  // ▼N の数・ポップアップの中身で見る。
+  {
+    const NG_THREAD = "https://mao.5ch.io/test/read.cgi/ngt/9999999999/";
+    const NG_WORD = "ngword";
+    // レス 2 と 3 は同じ ID。3 だけが NG に当たる (2 は当たらない) ので、
+    // 「見えている返信は残り、NG の返信だけ消える」が区別できる。
+    const openNgThread = async (ngMode) => {
+      const p = await context.newPage();
+      await p.addInitScript((arg) => {
+        localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+        localStorage.setItem(
+          "desktop.layoutPrefs.v1",
+          JSON.stringify({ restoreSession: true, responseBodyBottomPad: true }),
+        );
+        localStorage.setItem(
+          "desktop.threadTabs.v1",
+          JSON.stringify({ tabs: [{ threadUrl: arg.thread, title: "NG のスレ" }], activeIndex: 0 }),
+        );
+        const mk = (no, body, id) => ({
+          responseNo: no,
+          name: "名無し",
+          mail: "",
+          dateAndId: `2026/11/10(火) 00:00:0${no}.00 ID:${id}`,
+          body,
+        });
+        const rows = [
+          mk(1, "ベースのレス", "aaaaaaaa"),
+          mk(2, "&gt;&gt;1 ふつうの返信", "bbbbbbbb"),
+          mk(3, `&gt;&gt;1 ${arg.word} を含む返信`, "bbbbbbbb"),
+        ];
+        window.__TAURI_INTERNALS__ = {
+          transformCallback: (cb) => cb,
+          invoke: (cmd, args) => {
+            if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+            if (cmd === "save_layout_prefs") return Promise.resolve(null);
+            if (cmd === "save_thread_cache") return Promise.resolve(null);
+            if (cmd === "load_read_status") return Promise.resolve({});
+            if (cmd === "load_thread_cache") {
+              return Promise.resolve(args.threadUrl === arg.thread ? JSON.stringify(rows) : null);
+            }
+            if (cmd === "fetch_thread_responses_command") return new Promise(() => {});
+            if (cmd === "load_ng_filters") {
+              return Promise.resolve({
+                words: [{ value: arg.word, mode: arg.ngMode, addedAt: Date.now() }],
+                ids: [],
+                names: [],
+                thread_words: [],
+              });
+            }
+            if (cmd === "save_ng_filters") return Promise.resolve(null);
+            return Promise.reject(new Error("smoke stub: " + cmd));
+          },
+        };
+      }, { thread: NG_THREAD, word: NG_WORD, ngMode });
+      await p.goto(targetUrl, { waitUntil: "load" });
+      await p.waitForSelector(".response-scroll [data-response-no]");
+      await new Promise((r) => setTimeout(r, 900));
+      return p;
+    };
+    const badgeText = (p) => p.$eval('.response-scroll .response-block[data-response-no="1"] .back-ref-trigger', (el) => el.textContent);
+    const openBadgePopup = async (p) => {
+      await p.hover('.response-scroll .response-block[data-response-no="1"] .back-ref-trigger');
+      await p.waitForSelector(".back-ref-popup", { timeout: 3000 });
+      return p.$eval(".back-ref-popup", (el) => el.textContent || "");
+    };
+
+    // --- あぼーん: 末尾の空行は通常レスと同じく付く ---
+    {
+      const abonePage = await openNgThread("abone");
+      const aboneHtml = await abonePage.$eval(".response-scroll .abone-body", (el) => el.innerHTML);
+      assert(
+        /<br\s*\/?>\s*<br\s*\/?>/i.test(aboneHtml),
+        `an abone body should end with the trailing blank line, got ${aboneHtml}`,
+      );
+      // あぼーんは枠が残るので ▼N の数にも残り、中身だけ伏せる (ここは元から正しい)。
+      assert(
+        (await badgeText(abonePage)) === "▼2",
+        `an abone reply keeps its slot so the badge should still count it, got ${await badgeText(abonePage)}`,
+      );
+      const abonePopup = await openBadgePopup(abonePage);
+      assert(
+        !abonePopup.includes(NG_WORD) && abonePopup.includes("あぼーん"),
+        `an abone reply must show as あぼーん in the popup, got ${abonePopup}`,
+      );
+      await abonePage.close();
+      console.log("smoke-ui: an abone response keeps the trailing blank line ok");
+    }
+
+    // --- NG 非表示: ▼N にも数えず、ポップアップにも出さない ---
+    {
+      const hidePage = await openNgThread("hide");
+      const shownRows = await hidePage.$$eval(".response-scroll [data-response-no]", (els) => els.map((el) => el.dataset.responseNo));
+      assert(
+        !shownRows.includes("3") && shownRows.includes("2"),
+        `only the NG reply should be hidden from the thread, got ${JSON.stringify(shownRows)}`,
+      );
+      assert(
+        (await badgeText(hidePage)) === "▼1",
+        `the badge should count only the replies on screen, got ${await badgeText(hidePage)}`,
+      );
+      const hidePopup = await openBadgePopup(hidePage);
+      assert(
+        !hidePopup.includes(NG_WORD),
+        `a hidden NG reply must not be readable through the badge popup, got ${hidePopup}`,
+      );
+      assert(
+        hidePopup.includes("ふつうの返信"),
+        `the reply on screen should still show in the badge popup, got ${hidePopup}`,
+      );
+      // ID ポップアップ (レス 2 と 3 は同じ ID) からも読めていた。
+      await hidePage.hover('.response-scroll .response-block[data-response-no="2"] .response-id-cell');
+      await hidePage.waitForSelector(".id-popup", { timeout: 3000 });
+      const idPopup = await hidePage.$eval(".id-popup", (el) => el.textContent || "");
+      assert(
+        !idPopup.includes(NG_WORD) && idPopup.includes("ふつうの返信"),
+        `the ID popup must not list a hidden NG response, got ${idPopup}`,
+      );
+      await hidePage.close();
+      console.log("smoke-ui: an ng-hidden reply never shows through a popup ok");
+    }
+  }
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

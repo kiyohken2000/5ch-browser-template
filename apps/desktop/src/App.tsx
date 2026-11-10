@@ -8469,6 +8469,26 @@ export default function App() {
   }, [responseItems, ngFilters, ngChainReplies, ngChainRepliesMode, ngChainRefMap, ngIdPostCount, ngIdPostCountMode]);
   const ngFilteredCount = ngResultMap.size;
 
+  // スレッド窓に出ていないレス (NG 非表示 / 手で開いていない曖昧NG)。
+  // あぼーんは枠が残るので「出ている」扱いで、中身だけ伏せる。
+  const isResponseDisplayHidden = (responseNo: number): boolean => {
+    if (ngResultMap.get(responseNo) === "hide") return true;
+    return ngAiHiddenMap.has(responseNo) && !ngAiRevealed.has(responseNo);
+  };
+  // ▼N の数とポップアップの中身に使う逆参照。スレッド窓で見えないレスからの安価は
+  // 数にも入れない。入れていたので、▼ を通すと NG にしたレスの本文が読めていた。
+  // backRefMap 自体は絞らない — ngChainRefMap と同じ useMemo で作っていて
+  // ngResultMap がそれに依存しているため、ここで絞ると連鎖 NG が壊れる。
+  const displayBackRefMap = useMemo(() => {
+    const map = new Map<number, number[]>();
+    for (const [target, froms] of backRefMap) {
+      const shown = froms.filter((from) => !isResponseDisplayHidden(from));
+      if (shown.length > 0) map.set(target, shown);
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backRefMap, ngResultMap, ngAiHiddenMap, ngAiRevealed]);
+
   // 折りたたみ対象のレスと、その実測値 (「続きを読む」のラベルに出す)。
   // しきい値は「以上」。レス数が多いスレでも毎描画で数えないよう memo に閉じ込める。
   const longResponseMap = useMemo(() => {
@@ -8515,7 +8535,7 @@ export default function App() {
     if (responseLinkFilter === "mine") {
       if (!myPostNos.has(r.id)) return false;
     } else if (responseLinkFilter === "hot") {
-      if ((backRefMap.get(r.id)?.length ?? 0) < hotResponseThreshold) return false;
+      if ((displayBackRefMap.get(r.id)?.length ?? 0) < hotResponseThreshold) return false;
     } else if (responseLinkFilter) {
       const plain = r.text.replace(/<[^>]+>/g, "");
       const urlRe = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"\u0080-\uFFFF]+|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"\u0080-\uFFFF]+/gi;
@@ -8742,7 +8762,7 @@ export default function App() {
     const b = t.closest<HTMLElement>(".popup-back-ref");
     if (b) {
       const target = Number(b.getAttribute("data-back-ref-target"));
-      const refs = backRefMap.get(target);
+      const refs = displayBackRefMap.get(target);
       if (refs && refs.length > 0) pushNested(b.getBoundingClientRect(), refs);
       return;
     }
@@ -8796,7 +8816,7 @@ export default function App() {
     // 同じ tick なので、この後の set がそのまま新しいポップアップになる。
     closeAllPopups();
     if (dir === "incoming") {
-      const refs = backRefMap.get(selectedResponse);
+      const refs = displayBackRefMap.get(selectedResponse);
       if (!refs || refs.length === 0) return;
       setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, anchorBottom: rect.bottom, responseIds: refs, z: allocatePopupZ() });
       return;
@@ -8820,7 +8840,7 @@ export default function App() {
     const abone = ngResultMap.get(resp.id) === "abone";
     const id = abone ? null : extractId(resp.time);
     const date = abone ? ABONE_TEXT : formatResponseDate(resp.time);
-    const refs = backRefMap.get(resp.id);
+    const refs = displayBackRefMap.get(resp.id);
     return (
       <div className="anchor-popup-header">
         <span
@@ -8861,11 +8881,13 @@ export default function App() {
     </div>
   );
 
-  // ポップアップ (アンカー / 逆参照 / ID) の本文。あぼーん指定のレスは中身を出さない
+  // ポップアップ (アンカー / 逆参照 / ID) の本文。あぼーん指定のレスは中身を出さず、
+  // NG モードが「画像」のレスは本文欄と同じく画像だけ落とす (以前は画像が出ていた)。
+  // NG 非表示と曖昧NGのレスはポップアップの一覧自体から外してある。
   const renderPopupBody = (resp: typeof responseItems[number]) =>
     ngResultMap.get(resp.id) === "abone"
       ? <div className="anchor-popup-body abone-body">{ABONE_TEXT}</div>
-      : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, idColor: idColorEnabled, darkMode })} />;
+      : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { hideImages: ngResultMap.get(resp.id) === "hide-images", youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, idColor: idColorEnabled, darkMode })} />;
 
   const goFromLocationInput = () => {
     const next = rewrite5chNet(locationInput.trim());
@@ -14373,7 +14395,8 @@ export default function App() {
                             <span className="response-date">{ABONE_TEXT}</span>
                           </span>
                         </div>
-                        <div className="response-body abone-body">{ABONE_TEXT}</div>
+                        {/* 「レス本文の末尾に空行を追加」は通常レスと同じく効かせる */}
+                        <div className="response-body abone-body">{ABONE_TEXT}{responseBodyBottomPad ? <><br /><br /></> : null}</div>
                       </div>
                       {r.id === currentReadMarker && (
                         <div className="read-marker-separator">
@@ -14433,14 +14456,14 @@ export default function App() {
                           [{r.mail}]
                         </span>
                       )}
-                      {backRefMap.has(r.id) && (
+                      {displayBackRefMap.has(r.id) && (
                         <span
-                          className={`back-ref-trigger${hotResponseRedEnabled && backRefMap.get(r.id)!.length >= hotResponseThreshold ? " hot" : ""}`}
+                          className={`back-ref-trigger${hotResponseRedEnabled && displayBackRefMap.get(r.id)!.length >= hotResponseThreshold ? " hot" : ""}`}
                           onClick={(e) => {
                             if (!isTouchMode()) return;
                             e.stopPropagation();
                             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                            setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, anchorBottom: rect.bottom, responseIds: backRefMap.get(r.id)!, z: allocatePopupZ() });
+                            setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, anchorBottom: rect.bottom, responseIds: displayBackRefMap.get(r.id)!, z: allocatePopupZ() });
                           }}
                           onMouseEnter={(e) => {
                             if (isTouchMode()) return;
@@ -14449,7 +14472,7 @@ export default function App() {
                               anchorPopupCloseTimer.current = null;
                             }
                             const rect = (e.target as HTMLElement).getBoundingClientRect();
-                            setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, anchorBottom: rect.bottom, responseIds: backRefMap.get(r.id)! });
+                            setBackRefPopup({ x: rect.left, y: rect.top - 4, anchorTop: rect.top, anchorBottom: rect.bottom, responseIds: displayBackRefMap.get(r.id)! });
                           }}
                           onMouseLeave={(ev) => {
                             if (isTouchMode()) return;
@@ -14467,7 +14490,7 @@ export default function App() {
                             }, 80);
                           }}
                         >
-                          ▼{backRefMap.get(r.id)!.length}
+                          ▼{displayBackRefMap.get(r.id)!.length}
                         </span>
                       )}
                       <span className="response-header-right">
@@ -16372,7 +16395,11 @@ export default function App() {
         </div>
       )}
       {anchorPopup && (() => {
-        const popupResps = anchorPopup.responseIds.map((id) => responseItems.find((r) => r.id === id)).filter(Boolean) as typeof responseItems;
+        // スレッド窓で見えないレスはポップアップにも出さない (>>N で覗けていた)
+        const popupResps = anchorPopup.responseIds
+          .filter((id) => !isResponseDisplayHidden(id))
+          .map((id) => responseItems.find((r) => r.id === id))
+          .filter(Boolean) as typeof responseItems;
         if (popupResps.length === 0) return null;
         const { flipUp, maxHeight } = fitPopupVertically(anchorPopup.y, anchorPopup.anchorTop - 1, 300);
         const posStyle = flipUp
@@ -16419,7 +16446,8 @@ export default function App() {
         );
       })()}
       {backRefPopup && (() => {
-        const refs = backRefPopup.responseIds;
+        const refs = backRefPopup.responseIds.filter((id) => !isResponseDisplayHidden(id));
+        if (refs.length === 0) return null;
         // 従来は常に ▼N の上に出していたが、▼N が画面上部にあると参照数ぶんの高さが上にはみ出して見えなかった。
         const { flipUp: brFlipUp, maxHeight: brMaxHeight } = fitPopupVertically(backRefPopup.anchorBottom + 1, backRefPopup.y, 360);
         const brWidth = Math.min(680, window.innerWidth - 24);
@@ -16468,7 +16496,10 @@ export default function App() {
         );
       })()}
       {nestedPopups.map((np, i) => {
-        const nestedResps = np.responseIds.map((id) => responseItems.find((r) => r.id === id)).filter(Boolean) as typeof responseItems;
+        const nestedResps = np.responseIds
+          .filter((id) => !isResponseDisplayHidden(id))
+          .map((id) => responseItems.find((r) => r.id === id))
+          .filter(Boolean) as typeof responseItems;
         if (nestedResps.length === 0) return null;
         const { flipUp: nFlipUp, maxHeight: nMaxHeight } = fitPopupVertically(np.y + i * 8, np.anchorTop - 1 - i * 8, 300);
         const nPopupWidth = Math.min(620, window.innerWidth - 24);
@@ -16519,7 +16550,7 @@ export default function App() {
         );
       })}
       {idPopup && (() => {
-        const idResponses = responseItems.filter((r) => extractId(r.time) === idPopup.id);
+        const idResponses = responseItems.filter((r) => extractId(r.time) === idPopup.id && !isResponseDisplayHidden(r.id));
         const { flipUp: idFlipUp, maxHeight: idMaxHeight } = fitPopupVertically(idPopup.y, idPopup.anchorTop - 2, 360);
         const idPosStyle = idFlipUp
           ? { right: idPopup.right, bottom: window.innerHeight - idPopup.anchorTop + 2, maxHeight: idMaxHeight }
@@ -16594,7 +16625,7 @@ export default function App() {
             </div>
             <div className="id-popup-list">
               {idResponses.map((r) => {
-                const replyCount = backRefMap.get(r.id)?.length ?? 0;
+                const replyCount = displayBackRefMap.get(r.id)?.length ?? 0;
                 return (
                 <div
                   key={r.id}
@@ -17467,7 +17498,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>201項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>203項目</span></div>
               </fieldset>
               </>)}
             </div>
