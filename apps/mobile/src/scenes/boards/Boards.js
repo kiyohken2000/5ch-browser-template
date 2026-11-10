@@ -13,6 +13,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ActivityIndicator,
+  Keyboard,
   Pressable,
   RefreshControl,
   SectionList,
@@ -260,6 +261,10 @@ export default function Boards({ navigation }) {
         sections={sections}
         keyExtractor={(item, index) => `${item.url}:${index}`}
         stickySectionHeadersEnabled
+        // 既定の 'never' だと、絞り込みのキーボードが開いているときの 1 回目の
+        // タップはキーボードを閉じるだけで候補に届かない。一覧を引けば閉じる
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -328,12 +333,14 @@ export default function Boards({ navigation }) {
         }
         renderItem={({ item }) => (
           <Pressable
-            onPress={() =>
+            onPress={() => {
+              // 画面を移っても入力欄は残るので、ここで閉じないとキーボードが残る
+              Keyboard.dismiss()
               navigation.navigate('Threads', {
                 boardUrl: item.url,
                 boardName: item.name,
               })
-            }
+            }}
             style={({ pressed }) => [
               styles.row,
               {
