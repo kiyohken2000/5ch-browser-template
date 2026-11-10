@@ -26,6 +26,7 @@ import PagerView from 'react-native-pager-view'
 import { useDispatch, useSelector } from 'react-redux'
 
 import { fetchSubject } from 'lib/api'
+import { longPressHaptic } from 'lib/haptics'
 import { FIXED_HOME_SEGMENT, visibleHomeSegments } from 'lib/homeSegments'
 import { listCachedThreadIds } from 'lib/threadCache'
 import {
@@ -242,7 +243,10 @@ export default function Home({ navigation }) {
               totalCount: item.totalCount,
             })
           }
-          onLongPress={() => setMenuItem(item)}
+          onLongPress={() => {
+            longPressHaptic()
+            setMenuItem(item)
+          }}
           delayLongPress={350}
           style={({ pressed }) => [
             styles.row,

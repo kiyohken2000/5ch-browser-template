@@ -66,6 +66,7 @@ import GlassSheetBackground from 'components/GlassSheetBackground'
 import ResponsePopup from 'components/ResponsePopup'
 import { fetchDat, fetchDatDelta, findReportThreadUrl } from 'lib/api'
 import { buildBacklinks, parseBody } from 'lib/body'
+import { longPressHaptic } from 'lib/haptics'
 import {
   getReadPosition,
   rowIndexForNo,
@@ -272,6 +273,10 @@ export default function Thread({ route, navigation }) {
     setSheetStack([])
   }, [dismissSheets])
   const [menuRow, setMenuRow] = useState(null)
+  const openRowMenu = useCallback((row) => {
+    longPressHaptic()
+    setMenuRow(row)
+  }, [])
   const [ngDraft, setNgDraft] = useState('')
   // 入力中は項目を畳む。シートが低くなり、キーボードの上に入力欄が出る
   const [ngInputFocused, setNgInputFocused] = useState(false)
@@ -1806,7 +1811,7 @@ export default function Thread({ route, navigation }) {
         onBacklinks={openBacklinks}
         onBe={setBeMenu}
         onUrl={openUrl}
-        onLongPress={setMenuRow}
+        onLongPress={openRowMenu}
       />
     ),
     [
@@ -1829,6 +1834,7 @@ export default function Thread({ route, navigation }) {
       openId,
       openBacklinks,
       openUrl,
+      openRowMenu,
     ],
   )
 
