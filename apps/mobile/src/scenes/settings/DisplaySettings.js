@@ -111,6 +111,11 @@ export default function DisplaySettings({ navigation }) {
           </>
         ) : null}
         <SettingToggle
+          settingKey="idColors"
+          label="ID を色分けする"
+          hint="切ると灰色になります。ID の形のアイコンと、自分で強調した ID の色は残ります"
+        />
+        <SettingToggle
           settingKey="trailingBlankLine"
           label="本文の末尾に空行を足す"
           hint="レスの下側をタップしやすくします"

@@ -634,6 +634,7 @@ export default function Thread({ route, navigation }) {
       aaFont: settings.aaFont,
       collapsedLines: settings.collapsePreviewLines,
       trailingBlank: settings.trailingBlankLine,
+      idColors: settings.idColors,
       highlights,
     }),
     [
@@ -642,6 +643,7 @@ export default function Thread({ route, navigation }) {
       settings.aaFont,
       settings.collapsePreviewLines,
       settings.trailingBlankLine,
+      settings.idColors,
       highlights,
     ],
   )

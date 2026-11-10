@@ -90,7 +90,14 @@ function InlineTokens({
               key={i}
               style={[
                 styles.bodyId,
-                { color: idColor(t.id, theme.dark) || theme.text },
+                {
+                  // 色分けを切っても本文と同じ色にはしない。タップできることが
+                  // 分からなくなるので、見出しの ID と同じ灰色にする
+                  color:
+                    textOptions?.idColors === false
+                      ? theme.textDim
+                      : idColor(t.id, theme.dark) || theme.text,
+                },
               ]}
               onPress={() => onId && onId(t.id)}
             >

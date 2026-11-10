@@ -117,6 +117,7 @@ function ResponseItem({
           onBacklinks={onBacklinks}
           onBe={onBe}
           highlights={textOptions?.highlights}
+          idColors={textOptions?.idColors !== false}
           isNew={isNew}
         />
 

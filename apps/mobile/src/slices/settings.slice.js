@@ -47,6 +47,11 @@ export const DEFAULTS = {
   aaHorizontalScroll: true,
   /** 本文中の ID をタップできるようにする（§8-4） */
   bodyIdTappable: true,
+  /**
+   * ID を色分けする。切ると灰色になる。形のアイコンと、自分で付けた強調の色は残す
+   * （デスクトップ版の「ID を色分けして表示する」と同じ）
+   */
+  idColors: true,
   /** 書き込みに BE / UPLIFT を使うか。ログインは保ったまま切り替える */
   postWithBe: true,
   postWithUplift: true,

@@ -26,11 +26,13 @@ export default function ResponseHeader({
   onBe,
   highlights,
   isNew,
+  idColors = true,
 }) {
   const { name, watchoi } = splitNameWatchoi(row.name)
   const idHighlight = matchColor(row.id, highlights?.ids)
   const small = fontSize - 4
-  const color = idColor(row.id, theme.dark)
+  // 色分けを切っても形のアイコンは残すので、同じ人かどうかは見分けられる
+  const color = idColors ? idColor(row.id, theme.dark) : null
 
   return (
     <View style={styles.wrap}>
