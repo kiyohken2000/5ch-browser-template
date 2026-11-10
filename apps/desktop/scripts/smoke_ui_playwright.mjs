@@ -6993,6 +6993,214 @@ try {
     console.log("smoke-ui: the thread list refresh targets the board on screen ok");
   }
 
+  // 本文の画像・動画の直リンク変換 (renderResponseBody) の回帰。
+  //  - 拡張子の無い Imgur の直リンク (v0.0.324) は .jpeg を補って画像として出す。
+  //    表示する文字列は投稿のままで、リンク先とサムネだけ補った URL になる
+  //  - .mp4 / .webm / .mov の直リンク (v0.0.325) はサムネ行にプレイヤーを置く。
+  //    twimg は本文を開いた時点で先頭フレームを読み、ほかのサーバーはクリックする
+  //    まで通信しない。クリックしても再生できなければ案内文に差し替える
+  // どちらも正規表現 1 本で決まる経路で、壊れても例外は出ずリンクが素の文字列に
+  // 戻るだけなので気づけない。外部へは 1 本も出さず、全部ルートで受け止める。
+  {
+    const MEDIA_THREAD = "https://mao.5ch.io/test/read.cgi/ngt/3333333333/";
+    const IMGUR_TEXT = "https://i.imgur.com/abcde";
+    const IMGUR_IMAGE = "https://i.imgur.com/abcde.jpeg";
+    // imgur.com/<ID> の閲覧ページ。ID に数字か大文字があるものだけ画像として扱う。
+    const IMGUR_PAGE_TEXT = "https://imgur.com/Ab3de";
+    const IMGUR_PAGE_IMAGE = "https://i.imgur.com/Ab3de.jpeg";
+    // imgur.com/upload は Imgur 自身のページ。画像と取り違えてはいけない。
+    const IMGUR_SITE_PAGE = "https://imgur.com/upload";
+    const MP4_URL = "https://media.example.com/clip.mp4";
+    const WEBM_URL = "https://media.example.com/clip.webm";
+    const MOV_URL = "https://media.example.com/clip.mov";
+    const TWIMG_URL = "https://video.twimg.com/ext_tw_video/1/pu/vid/720x1280/abc.mp4";
+    const BODY = [IMGUR_TEXT, IMGUR_PAGE_TEXT, IMGUR_SITE_PAGE, MP4_URL, WEBM_URL, MOV_URL, TWIMG_URL]
+      .join("<br>");
+    // 1x1 の PNG。imgur のサムネだけは実際に読ませて <img> を残す。
+    const PNG_1X1 = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+
+    const mediaPage = await context.newPage();
+    const externalRequests = [];
+    // クリックで作った <video> は取得に失敗すると案内文に差し替わる。要素を見てから
+    // 失敗させたいので、動画の応答はここで握ったままにしておく。
+    let heldVideoRoute = null;
+    await mediaPage.route("https://i.imgur.com/**", (route) => {
+      externalRequests.push(route.request().url());
+      void route.fulfill({ status: 200, contentType: "image/png", body: PNG_1X1 });
+    });
+    await mediaPage.route("https://imgur.com/**", (route) => {
+      externalRequests.push(route.request().url());
+      void route.abort();
+    });
+    await mediaPage.route("https://video.twimg.com/**", (route) => {
+      externalRequests.push(route.request().url());
+      void route.abort();
+    });
+    await mediaPage.route("https://media.example.com/**", (route) => {
+      externalRequests.push(route.request().url());
+      heldVideoRoute = route;
+    });
+    await mediaPage.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", JSON.stringify({ restoreSession: true }));
+      localStorage.setItem(
+        "desktop.threadTabs.v1",
+        JSON.stringify({ tabs: [{ threadUrl: arg.threadUrl, title: "メディアのスレ" }], activeIndex: 0 }),
+      );
+      const rows = [{
+        responseNo: 1,
+        name: "名無し",
+        mail: "",
+        dateAndId: "2026/11/10(火) 00:00:00.00 ID:mediaaaa",
+        body: arg.body,
+      }];
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "save_thread_cache") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({});
+          if (cmd === "load_thread_cache") {
+            return Promise.resolve(args.threadUrl === arg.threadUrl ? JSON.stringify(rows) : null);
+          }
+          if (cmd === "fetch_thread_responses_command") return new Promise(() => {});
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, { threadUrl: MEDIA_THREAD, body: BODY });
+    await mediaPage.goto(targetUrl, { waitUntil: "load" });
+    await mediaPage.waitForSelector(".response-scroll [data-response-no]");
+    await new Promise((r) => setTimeout(r, 700));
+
+    assert(
+      await mediaPage.$(".response-scroll .response-thumbs-row"),
+      "the seeded response should render a thumbnail row",
+    );
+    const bodyLinks = await mediaPage.$$eval(".response-scroll a.body-link", (els) =>
+      els.map((el) => ({ href: el.getAttribute("href") || "", text: el.textContent || "", cls: el.className })));
+
+    // --- 拡張子の無い Imgur の直リンクと、閲覧ページの URL ---
+    const imgurThumbs = await mediaPage.$$eval(
+      ".response-scroll .response-thumbs-row img.response-thumb",
+      (els) => els.map((el) => el.getAttribute("src")),
+    );
+    assert(
+      imgurThumbs.length === 2 && imgurThumbs[0] === IMGUR_IMAGE && imgurThumbs[1] === IMGUR_PAGE_IMAGE,
+      `the imgur links should render thumbnails with the .jpeg url, got ${JSON.stringify(imgurThumbs)}`,
+    );
+    const imgurLinks = bodyLinks.filter((a) => a.href.includes("imgur.com"));
+    assert(
+      imgurLinks.length === 3,
+      `the three imgur urls should each stay a link, got ${JSON.stringify(imgurLinks)}`,
+    );
+    assert(
+      imgurLinks[0].href === IMGUR_IMAGE && imgurLinks[0].text === IMGUR_TEXT,
+      `the bare direct link should point at the .jpeg url while showing the posted text, got ${JSON.stringify(imgurLinks[0])}`,
+    );
+    assert(
+      imgurLinks[1].href === IMGUR_PAGE_IMAGE && imgurLinks[1].text === IMGUR_PAGE_TEXT,
+      `the viewer page url should point at the .jpeg url while showing the posted text, got ${JSON.stringify(imgurLinks[1])}`,
+    );
+    // Imgur 自身のページは画像にしない。リンクのままで、サムネも取得もしない。
+    assert(
+      imgurLinks[2].href === IMGUR_SITE_PAGE
+        && imgurLinks[2].text === IMGUR_SITE_PAGE
+        && !imgurLinks[2].cls.includes("body-link-image"),
+      `imgur's own page must stay a plain link, got ${JSON.stringify(imgurLinks[2])}`,
+    );
+    assert(
+      externalRequests.includes(IMGUR_IMAGE) && externalRequests.includes(IMGUR_PAGE_IMAGE),
+      `both imgur thumbnails should be fetched with the .jpeg url, got ${JSON.stringify(externalRequests)}`,
+    );
+    assert(
+      externalRequests.every((u) => !u.startsWith("https://imgur.com/")),
+      `imgur's own page must never be fetched as an image, got ${JSON.stringify(externalRequests)}`,
+    );
+    console.log("smoke-ui: an imgur link renders as an image ok");
+
+    // --- 動画の直リンク ---
+    const gated = await mediaPage.$$eval(
+      ".response-scroll .response-thumbs-row .video-gate [data-reveal-video]",
+      (els) => els.map((el) => el.dataset.revealVideo),
+    );
+    assert(
+      gated.length === 3 && [MP4_URL, WEBM_URL, MOV_URL].every((u) => gated.includes(u)),
+      `.mp4 / .webm / .mov should each wait behind a gate, got ${JSON.stringify(gated)}`,
+    );
+    const inlineVideos = await mediaPage.$$eval(
+      ".response-scroll .response-thumbs-row video.inline-video",
+      (els) => els.map((el) => el.getAttribute("src")),
+    );
+    assert(
+      inlineVideos.length === 1 && inlineVideos[0] === `${TWIMG_URL}#t=0.1`,
+      `only twimg should play without a click, got ${JSON.stringify(inlineVideos)}`,
+    );
+    // 本文を開いただけで知らないサーバーへ通信しないこと。ここが肝で、ゲートが
+    // 外れても見た目は変わらないので要素の有無だけでは気づけない。
+    assert(
+      externalRequests.every((u) => !u.startsWith("https://media.example.com/")),
+      `opening the body must not touch an unknown video host, got ${JSON.stringify(externalRequests)}`,
+    );
+    const videoLinks = bodyLinks.filter((a) => /\.(?:mp4|webm|mov)$/i.test(a.href));
+    assert(
+      videoLinks.length === 4 && videoLinks.every((a) => a.text === a.href),
+      `every video url should stay a plain link showing itself, got ${JSON.stringify(videoLinks)}`,
+    );
+    assert(
+      (await mediaPage.$$eval(".response-scroll a.body-link a", (els) => els.length)) === 0,
+      "a video url must not be linkified twice",
+    );
+
+    const mp4Gate = await mediaPage.$(`.video-gate [data-reveal-video="${MP4_URL}"]`);
+    assert(mp4Gate, "the mp4 gate should be present to click");
+    // 取得はクリックの後に非同期で走るので、要求が出るのを待ってから数える。
+    const mp4Request = mediaPage.waitForRequest((req) => req.url().startsWith(MP4_URL), { timeout: 10000 });
+    await mp4Gate.click();
+    await mediaPage.waitForFunction(
+      (u) => !!document.querySelector(`video.inline-video[src="${u}#t=0.1"]`),
+      MP4_URL,
+      { timeout: 5000 },
+    );
+    const revealed = await mediaPage.$eval(`video.inline-video[src="${MP4_URL}#t=0.1"]`, (el) => ({
+      preload: el.getAttribute("preload"),
+      controls: el.hasAttribute("controls"),
+      inGate: !!el.closest(".video-gate"),
+    }));
+    assert(
+      revealed.preload === "metadata" && revealed.controls && revealed.inGate,
+      `the revealed player should load metadata with controls inside its gate, got ${JSON.stringify(revealed)}`,
+    );
+    const mp4RequestUrl = (await mp4Request).url();
+    assert(
+      mp4RequestUrl.startsWith(MP4_URL),
+      `the click should be the first contact with the video host, got ${mp4RequestUrl}`,
+    );
+
+    // 再生できないときは黒い枠を残さず、本文のリンクから開くよう案内する。
+    // ルートの受け取りは request イベントより後なので、握るまで少し待つ。
+    for (let i = 0; i < 50 && !heldVideoRoute; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert(heldVideoRoute, "the video request should have been intercepted to fail it on purpose");
+    await heldVideoRoute.abort();
+    await mediaPage.waitForFunction(
+      () => [...document.querySelectorAll(".video-gate .thumb-gate-blocked")]
+        .some((el) => (el.textContent || "").includes("ここで再生できません")),
+      undefined,
+      { timeout: 5000 },
+    );
+    assert(
+      (await mediaPage.$$(`video.inline-video[src="${MP4_URL}#t=0.1"]`)).length === 0,
+      "a video that cannot play must not leave a black frame behind",
+    );
+    await mediaPage.close();
+    console.log("smoke-ui: a video link plays from its gate and falls back when it cannot ok");
+  }
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {
