@@ -73,6 +73,20 @@ describe('tokenizeText', () => {
     expect(t[0].url).toBe('https://example.com/a')
   })
 
+  it('URL の直後に空白なしで続く日本語を含めない', () => {
+    const t = tokenizeText('https://example.com/aです')
+    expect(t[0].url).toBe('https://example.com/a')
+    expect(t[1]).toMatchObject({ type: 'text', text: 'です' })
+    expect(tokenizeText('ttps://example.com/x「引用」')[0].url).toBe(
+      'https://example.com/x',
+    )
+  })
+
+  it('半角の括弧を含む URL を途中で切らない', () => {
+    const t = tokenizeText('https://ja.wikipedia.org/wiki/A_(B) です')
+    expect(t[0].url).toBe('https://ja.wikipedia.org/wiki/A_(B)')
+  })
+
   it('本文中の ID を取り出す', () => {
     const t = tokenizeText('ID:eg6cKndR0 が言うには')
     expect(t[0]).toMatchObject({ type: 'id', id: 'eg6cKndR0' })
