@@ -65,9 +65,30 @@ describe('classifyUrl', () => {
     expect(classifyUrl('https://i.imgur.com/2JK4onT.png').url).toBe(
       'https://i.imgur.com/2JK4onT.png',
     )
-    // ページやアルバムは画像にしない
-    expect(classifyUrl('https://imgur.com/2JK4onT').kind).toBe('link')
+    // アルバムは画像にしない
     expect(classifyUrl('https://i.imgur.com/a/abcde1').kind).not.toBe('image')
+  })
+
+  it('imgur.com の閲覧ページの URL も直リンクにして画像にする', () => {
+    for (const raw of [
+      'https://imgur.com/5pWilLP',
+      'https://www.imgur.com/5pWilLP',
+      'https://m.imgur.com/5pWilLP',
+    ]) {
+      expect(classifyUrl(raw)).toEqual({
+        kind: 'image',
+        url: 'https://i.imgur.com/5pWilLP.jpeg',
+      })
+    }
+    // アルバム・ギャラリーと、Imgur 自身のページは画像にしない
+    for (const raw of [
+      'https://imgur.com/a/5pWilLP',
+      'https://imgur.com/gallery/5pWilLP',
+      'https://imgur.com/upload',
+      'https://imgur.com/5pWilLP?x=1',
+    ]) {
+      expect(classifyUrl(raw).kind).not.toBe('image')
+    }
   })
 
   it('普通のページはカードの対象', () => {

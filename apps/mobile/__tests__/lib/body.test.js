@@ -293,4 +293,13 @@ describe('省略された URL', () => {
     const got = parseBody(' i.imgur.com/abc.jpg ')
     expect(extractMedia(got.urls).images).toHaveLength(1)
   })
+
+  it('省略形の imgur.com の閲覧ページの URL も画像になる', () => {
+    for (const raw of [' imgur.com/5pWilLP ', ' ttps://imgur.com/5pWilLP ']) {
+      const got = parseBody(raw)
+      expect(extractMedia(got.urls).images.map((i) => i.url)).toEqual([
+        'https://i.imgur.com/5pWilLP.jpeg',
+      ])
+    }
+  })
 })

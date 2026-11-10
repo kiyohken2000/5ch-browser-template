@@ -18,11 +18,14 @@ import { isAllowedHost, normalizeExternalUrl, splitUrl } from './urls'
 const IMAGE_EXT_RE = /\.(?:jpe?g|png|gif|webp|heic|avif)$/i
 
 /**
- * 拡張子を省いた Imgur の直リンク（`i.imgur.com/<ID>`）。そのまま読むと
- * imgur.com の HTML ページへ転送されるので、`.jpeg` を補って画像として扱う。
- * Imgur は拡張子と実際の形式が違っても画像本体を返す。デスクトップ版と同じ扱い。
+ * 拡張子を省いた Imgur の直リンク（`i.imgur.com/<ID>`）と、閲覧ページの URL
+ * （`imgur.com/<ID>`）。そのまま読むと HTML ページになるので、`.jpeg` を補った
+ * 直リンクにして画像として扱う。Imgur は拡張子と実際の形式が違っても画像本体を
+ * 返す。`imgur.com/a/...` や `imgur.com/gallery/...`（アルバム）は対象外。
+ * デスクトップ版と同じ扱い。
  */
 const BARE_IMGUR_PATH_RE = /^\/([A-Za-z0-9]{5,10})\/?$/
+const IMGUR_HOST_RE = /^(?:(i|www|m)\.)?imgur\.com$/
 
 /** デスクトップ版 `YOUTUBE_VIDEO_ID_RE` と同じ形。 */
 const YOUTUBE_RE =
@@ -74,9 +77,14 @@ export function classifyUrl(raw) {
     }
   }
   if (IMAGE_EXT_RE.test(parts.path)) return { kind: 'image', url }
-  if (parts.host.toLowerCase() === 'i.imgur.com' && !parts.query) {
+  const imgurHost = IMGUR_HOST_RE.exec(parts.host.toLowerCase())
+  if (imgurHost && !parts.query) {
     const id = BARE_IMGUR_PATH_RE.exec(parts.path)?.[1]
-    if (id) return { kind: 'image', url: `https://i.imgur.com/${id}.jpeg` }
+    // imgur.com/upload のような Imgur 自身のページを画像と取り違えないよう、
+    // 閲覧ページの URL は ID に数字か大文字を含むものだけを画像にする
+    if (id && (imgurHost[1] === 'i' || /[0-9A-Z]/.test(id))) {
+      return { kind: 'image', url: `https://i.imgur.com/${id}.jpeg` }
+    }
   }
   if (extractTweetId(url)) return { kind: 'tweet', url }
   if (VIDEO_EXT_RE.test(parts.path)) {

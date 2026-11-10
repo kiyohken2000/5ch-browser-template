@@ -1576,13 +1576,24 @@ const normalizeExternalUrl = (raw: string): string | null => {
   return result ? rewrite5chNet(result) : null;
 };
 
-// i.imgur.com/<ID> のように拡張子を省いた Imgur の直リンク。そのまま <img> に渡すと
-// imgur.com の HTML ページへ飛ばされるので、拡張子を補った直リンクに置き換える。
-// Imgur は拡張子と実際の形式が違っても画像本体を返すので .jpeg で固定してよい。
-const BARE_IMGUR_TEXT_RE = /(?:(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)|(?<!\S))i\.imgur\.com\/[A-Za-z0-9]{5,10}(?![A-Za-z0-9.\/?#_-])/gi;
+// i.imgur.com/<ID> のように拡張子を省いた Imgur の直リンクと、imgur.com/<ID> の
+// 閲覧ページの URL。そのまま <img> に渡すと HTML ページになるので、拡張子を補った
+// 直リンクに置き換える。Imgur は拡張子と実際の形式が違っても画像本体を返すので
+// .jpeg で固定してよい。imgur.com/a/... や imgur.com/gallery/... (アルバム) は対象外。
+const BARE_IMGUR_TEXT_RE = /(?:(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)|(?<!\S))(?:i\.|www\.|m\.)?imgur\.com\/[A-Za-z0-9]{5,10}(?![A-Za-z0-9.\/?#_-])/gi;
 const bareImgurImageUrl = (url: string): string | null => {
-  const m = url.match(/^https?:\/\/i\.imgur\.com\/([A-Za-z0-9]{5,10})$/i);
-  return m ? `https://i.imgur.com/${m[1]}.jpeg` : null;
+  const m = url.match(/^https?:\/\/(i\.|www\.|m\.)?imgur\.com\/([A-Za-z0-9]{5,10})$/i);
+  if (!m) return null;
+  const id = m[2];
+  // imgur.com/upload のような Imgur 自身のページを画像と取り違えないよう、
+  // 閲覧ページの URL は ID に数字か大文字を含むものだけを画像として扱う
+  if (m[1]?.toLowerCase() !== "i." && !/[0-9A-Z]/.test(id)) return null;
+  return `https://i.imgur.com/${id}.jpeg`;
+};
+// 本文中の文字列 (スキーム省略形を含む) から、画像として扱う Imgur の URL を得る
+const bareImgurImageUrlFromText = (text: string): string | null => {
+  const href = normalizeExternalUrl(text);
+  return href ? bareImgurImageUrl(href) : null;
 };
 
 const isTextLikeInput = (el: HTMLInputElement | HTMLTextAreaElement): boolean => {
@@ -2541,7 +2552,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
     .replace(/"/g, "&quot;");
   if (opts?.hideImages) {
     // Remove image URL lines entirely
-    safe = safe.split("\n").filter((line) => !/(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/)[^\s<>&"\u0080-\uFFFF]+\.(?:jpg|jpeg|png|gif|webp)/i.test(line) && !new RegExp(BARE_IMGUR_TEXT_RE.source, "i").test(line)).join("\n");
+    safe = safe.split("\n").filter((line) => !/(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/)[^\s<>&"\u0080-\uFFFF]+\.(?:jpg|jpeg|png|gif|webp)/i.test(line) && !(line.match(BARE_IMGUR_TEXT_RE) ?? []).some((m) => bareImgurImageUrlFromText(m))).join("\n");
   }
   safe = safe.replace(/\n/g, "<br>");
   const collectedThumbs: string[] = [];
@@ -2931,8 +2942,7 @@ const extractImageUrls = (html: string): string[] => {
     return "https://" + u.replace(/^[^/]*:\/\//, "");
   });
   for (const m of decoded.match(BARE_IMGUR_TEXT_RE) ?? []) {
-    const href = normalizeExternalUrl(m);
-    const imgur = href ? bareImgurImageUrl(href) : null;
+    const imgur = bareImgurImageUrlFromText(m);
     if (imgur) urls.push(imgur);
   }
   return [...new Set(urls)];
@@ -8513,11 +8523,11 @@ export default function App() {
       const videoRe = /\.(?:mp4|webm|mov)(?:\?|$)|youtu\.?be|nicovideo|nico\.ms/i;
       const urls = plain.match(urlRe) || [];
       if (responseLinkFilter === "image") {
-        if (!urls.some((u) => imageRe.test(u) || /(?:^|\/\/)i\.imgur\.com\/[A-Za-z0-9]{5,10}$/i.test(u))) return false;
+        if (!urls.some((u) => imageRe.test(u) || bareImgurImageUrlFromText(u))) return false;
       } else if (responseLinkFilter === "video") {
         if (!urls.some((u) => videoRe.test(u))) return false;
       } else if (responseLinkFilter === "link") {
-        if (!urls.some((u) => !imageRe.test(u) && !videoRe.test(u) && !/(?:^|\/\/)i\.imgur\.com\/[A-Za-z0-9]{5,10}$/i.test(u))) return false;
+        if (!urls.some((u) => !imageRe.test(u) && !videoRe.test(u) && !bareImgurImageUrlFromText(u))) return false;
       }
     }
     return true;
