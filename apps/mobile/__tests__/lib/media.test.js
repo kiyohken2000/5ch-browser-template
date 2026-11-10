@@ -5,6 +5,7 @@ import {
   imageFileName,
   isPublicHost,
 } from 'lib/media'
+import { parseBody } from 'lib/body'
 
 describe('isPublicHost — 自動で通信してよいホスト', () => {
   it.each([
@@ -53,6 +54,22 @@ describe('classifyUrl', () => {
     expect(c.thumb).toBe('https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg')
   })
 
+  it('拡張子を省いた Imgur の直リンクは .jpeg を補って画像にする', () => {
+    expect(classifyUrl('https://i.imgur.com/2JK4onT')).toEqual({
+      kind: 'image',
+      url: 'https://i.imgur.com/2JK4onT.jpeg',
+    })
+    expect(classifyUrl('http://I.IMGUR.COM/2JK4onT').url).toBe(
+      'https://i.imgur.com/2JK4onT.jpeg',
+    )
+    expect(classifyUrl('https://i.imgur.com/2JK4onT.png').url).toBe(
+      'https://i.imgur.com/2JK4onT.png',
+    )
+    // ページやアルバムは画像にしない
+    expect(classifyUrl('https://imgur.com/2JK4onT').kind).toBe('link')
+    expect(classifyUrl('https://i.imgur.com/a/abcde1').kind).not.toBe('image')
+  })
+
   it('普通のページはカードの対象', () => {
     expect(classifyUrl('https://example.com/article').kind).toBe('link')
   })
@@ -90,6 +107,16 @@ describe('classifyUrl', () => {
 })
 
 describe('extractMedia', () => {
+  it('省略形で書かれた拡張子なしの Imgur も本文から画像として拾う', () => {
+    const { urls } = parseBody(
+      'ttps://i.imgur.com/2JK4onT<br>i.imgur.com/AbCdE12',
+    )
+    expect(extractMedia(urls).images.map((i) => i.url)).toEqual([
+      'https://i.imgur.com/2JK4onT.jpeg',
+      'https://i.imgur.com/AbCdE12.jpeg',
+    ])
+  })
+
   it('種類ごとに分ける', () => {
     const got = extractMedia([
       'https://a.example/x.png',

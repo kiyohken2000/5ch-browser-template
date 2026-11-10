@@ -17,6 +17,13 @@ import { isAllowedHost, normalizeExternalUrl, splitUrl } from './urls'
 
 const IMAGE_EXT_RE = /\.(?:jpe?g|png|gif|webp|heic|avif)$/i
 
+/**
+ * 拡張子を省いた Imgur の直リンク（`i.imgur.com/<ID>`）。そのまま読むと
+ * imgur.com の HTML ページへ転送されるので、`.jpeg` を補って画像として扱う。
+ * Imgur は拡張子と実際の形式が違っても画像本体を返す。デスクトップ版と同じ扱い。
+ */
+const BARE_IMGUR_PATH_RE = /^\/([A-Za-z0-9]{5,10})\/?$/
+
 /** デスクトップ版 `YOUTUBE_VIDEO_ID_RE` と同じ形。 */
 const YOUTUBE_RE =
   /(?:youtu\.be\/|youtube\.com\/(?:embed\/|shorts\/|watch\?[^"]*v=))([A-Za-z0-9_-]{11})/i
@@ -67,6 +74,10 @@ export function classifyUrl(raw) {
     }
   }
   if (IMAGE_EXT_RE.test(parts.path)) return { kind: 'image', url }
+  if (parts.host.toLowerCase() === 'i.imgur.com' && !parts.query) {
+    const id = BARE_IMGUR_PATH_RE.exec(parts.path)?.[1]
+    if (id) return { kind: 'image', url: `https://i.imgur.com/${id}.jpeg` }
+  }
   if (extractTweetId(url)) return { kind: 'tweet', url }
   if (VIDEO_EXT_RE.test(parts.path)) {
     // `.mp4/` と書かれることがある。スラッシュ付きのままでは取得できない
