@@ -1576,6 +1576,15 @@ const normalizeExternalUrl = (raw: string): string | null => {
   return result ? rewrite5chNet(result) : null;
 };
 
+// i.imgur.com/<ID> のように拡張子を省いた Imgur の直リンク。そのまま <img> に渡すと
+// imgur.com の HTML ページへ飛ばされるので、拡張子を補った直リンクに置き換える。
+// Imgur は拡張子と実際の形式が違っても画像本体を返すので .jpeg で固定してよい。
+const BARE_IMGUR_TEXT_RE = /(?:(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)|(?<!\S))i\.imgur\.com\/[A-Za-z0-9]{5,10}(?![A-Za-z0-9.\/?#_-])/gi;
+const bareImgurImageUrl = (url: string): string | null => {
+  const m = url.match(/^https?:\/\/i\.imgur\.com\/([A-Za-z0-9]{5,10})$/i);
+  return m ? `https://i.imgur.com/${m[1]}.jpeg` : null;
+};
+
 const isTextLikeInput = (el: HTMLInputElement | HTMLTextAreaElement): boolean => {
   if (el instanceof HTMLTextAreaElement) return true;
   const t = (el.type || "text").toLowerCase();
@@ -2532,7 +2541,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
     .replace(/"/g, "&quot;");
   if (opts?.hideImages) {
     // Remove image URL lines entirely
-    safe = safe.split("\n").filter((line) => !/(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/)[^\s<>&"\u0080-\uFFFF]+\.(?:jpg|jpeg|png|gif|webp)/i.test(line)).join("\n");
+    safe = safe.split("\n").filter((line) => !/(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/)[^\s<>&"\u0080-\uFFFF]+\.(?:jpg|jpeg|png|gif|webp)/i.test(line) && !new RegExp(BARE_IMGUR_TEXT_RE.source, "i").test(line)).join("\n");
   }
   safe = safe.replace(/\n/g, "<br>");
   const collectedThumbs: string[] = [];
@@ -2540,19 +2549,22 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   // クリックで実体に差し替える処理はサイズ制限のゲートと同じものを使い回す。
   const manualThumbs = opts?.thumbAutoLoad === false;
   const sizeGated = opts?.imageSizeLimitKb && opts.imageSizeLimitKb > 0;
+  const pushImageThumb = (href: string) => {
+    if (manualThumbs) {
+      collectedThumbs.push(`<span class="thumb-link thumb-size-gate" data-lightbox-src="${href}"><span class="thumb-gate-blocked thumb-gate-manual" data-reveal-src="${href}">クリックで表示</span></span>`);
+    } else if (sizeGated) {
+      collectedThumbs.push(`<span class="thumb-link thumb-size-gate" data-lightbox-src="${href}" data-gate-src="${href}" data-size-limit="${opts.imageSizeLimitKb}"><span class="thumb-gate-loading">画像を確認中…</span></span>`);
+    } else {
+      collectedThumbs.push(`<span class="thumb-link" data-lightbox-src="${href}"><img class="response-thumb" src="${href}" loading="lazy" referrerpolicy="no-referrer" alt="" /></span>`);
+    }
+  };
   if (!opts?.hideImages) {
     safe = safe.replace(
       /((?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)[^\s<>&"\u0080-\uFFFF]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"\u0080-\uFFFF]*(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*)?|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/[^\s<>&"\u0080-\uFFFF]*\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s<>&"\u0080-\uFFFF]*(?:&amp;[^\s<>&"\u0080-\uFFFF]*)*)?)/gi,
       (match) => {
         const href = normalizeExternalUrl(match);
         if (!href) return match;
-        if (manualThumbs) {
-          collectedThumbs.push(`<span class="thumb-link thumb-size-gate" data-lightbox-src="${href}"><span class="thumb-gate-blocked thumb-gate-manual" data-reveal-src="${href}">クリックで表示</span></span>`);
-        } else if (sizeGated) {
-          collectedThumbs.push(`<span class="thumb-link thumb-size-gate" data-lightbox-src="${href}" data-gate-src="${href}" data-size-limit="${opts.imageSizeLimitKb}"><span class="thumb-gate-loading">画像を確認中…</span></span>`);
-        } else {
-          collectedThumbs.push(`<span class="thumb-link" data-lightbox-src="${href}"><img class="response-thumb" src="${href}" loading="lazy" referrerpolicy="no-referrer" alt="" /></span>`);
-        }
+        pushImageThumb(href);
         return `<a class="body-link body-link-image" href="${href}" target="_blank" rel="noopener">${match}</a>`;
       }
     );
@@ -2585,6 +2597,13 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
       if (!opts?.hideImages && /video\.twimg\.com\/[^\s"'<>]+\.mp4/i.test(match)) return match;
       const href = normalizeExternalUrl(match);
       if (!href) return match;
+      // 拡張子なしの Imgur 直リンクは補った URL で画像として扱う (表示文字列は投稿のまま)。
+      // リンク先も補った URL にして、ホバープレビューの拡張子判定に乗せる。
+      const imgurHref = opts?.hideImages ? null : bareImgurImageUrl(href);
+      if (imgurHref) {
+        pushImageThumb(imgurHref);
+        return `<a class="body-link body-link-image" href="${imgurHref}" target="_blank" rel="noopener">${match}</a>`;
+      }
       return `<a class="body-link" href="${href}" target="_blank" rel="noopener">${match}</a>`;
     }
   );
@@ -2898,13 +2917,18 @@ const IMAGE_URL_RE = /(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\
 const extractImageUrls = (html: string): string[] => {
   const plain = html.replace(/<[^>]+>/g, " ");
   const decoded = decodeHtmlEntities(plain);
-  const matches = decoded.match(IMAGE_URL_RE);
-  if (!matches) return [];
+  const matches = decoded.match(IMAGE_URL_RE) ?? [];
   // Normalize partial URLs
-  return [...new Set(matches.map((u) => {
+  const urls = matches.map((u) => {
     if (u.startsWith("http")) return u;
     return "https://" + u.replace(/^[^/]*:\/\//, "");
-  }))];
+  });
+  for (const m of decoded.match(BARE_IMGUR_TEXT_RE) ?? []) {
+    const href = normalizeExternalUrl(m);
+    const imgur = href ? bareImgurImageUrl(href) : null;
+    if (imgur) urls.push(imgur);
+  }
+  return [...new Set(urls)];
 };
 
 // 画像サイズ制限の表示用。本文プレビューと画像一覧サブペインで同じ文言にする
@@ -8482,11 +8506,11 @@ export default function App() {
       const videoRe = /\.(?:mp4|webm|mov)(?:\?|$)|youtu\.?be|nicovideo|nico\.ms/i;
       const urls = plain.match(urlRe) || [];
       if (responseLinkFilter === "image") {
-        if (!urls.some((u) => imageRe.test(u))) return false;
+        if (!urls.some((u) => imageRe.test(u) || /(?:^|\/\/)i\.imgur\.com\/[A-Za-z0-9]{5,10}$/i.test(u))) return false;
       } else if (responseLinkFilter === "video") {
         if (!urls.some((u) => videoRe.test(u))) return false;
       } else if (responseLinkFilter === "link") {
-        if (!urls.some((u) => !imageRe.test(u) && !videoRe.test(u))) return false;
+        if (!urls.some((u) => !imageRe.test(u) && !videoRe.test(u) && !/(?:^|\/\/)i\.imgur\.com\/[A-Za-z0-9]{5,10}$/i.test(u))) return false;
       }
     }
     return true;
