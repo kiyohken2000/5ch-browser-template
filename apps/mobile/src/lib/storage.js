@@ -50,6 +50,10 @@ export const KEYS = {
   knownThreads: 'knownThreads.v1',
   uploadHistory: 'uploadHistory.v1',
   aiBenchmark: 'aiBenchmark.v1',
+  /** 通知の記録（どこまで通知したか、巡回で分かった dat 落ち）。§9-8 */
+  notifyRecords: 'notifyRecords.v1',
+  /** 巡回の記録（いつ動いたか）。実機で間隔を確かめるため。§9-8 */
+  notifyRuns: 'notifyRuns.v1',
   // 端末固有（同期しない — §10-1）
   scrollPositions: 'scrollPositions.v1',
 }

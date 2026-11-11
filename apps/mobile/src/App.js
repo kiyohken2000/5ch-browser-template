@@ -16,6 +16,8 @@ import TermsGate from 'components/TermsGate'
 import { KEYS, load, save } from 'lib/storage'
 import { hasConsented, TERMS_VERSION } from 'lib/terms'
 import { watchAppStateForPositions } from 'lib/readPosition'
+// 通知の巡回タスクの定義。OS がタスクだけで JS を起こしたときにも要るので最上位で読む
+import { syncNotifyTask } from 'lib/notifyTask'
 import { loadAi } from 'slices/ai.slice'
 import { loadHighlights } from 'slices/highlight.slice'
 import { loadImageNg } from 'slices/imageNg.slice'
@@ -77,6 +79,8 @@ export default function App() {
         }
       }
       if (alive) setDidLoad(true)
+      // 通知の巡回の登録を設定に合わせる（再インストールや OS 側の解除に備える）
+      syncNotifyTask(!!store.getState().settings.notifyEnabled)
       // 自動ログインは通信を待つので、起動の妨げにしない
       Object.keys(ACCOUNTS).forEach((provider) => {
         store.dispatch(restoreAccount({ provider }))

@@ -12,6 +12,8 @@ const STAR =
 const EYE =
   'M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z'
 
+const BELL = 'M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z'
+
 const SHAPES = {
   home: <Path d="M3 11.5 12 4l9 7.5M5.5 9.5V20h13V9.5M10 20v-5.5h4V20" />,
   boards: <Path d="M4 6h16M4 12h16M4 18h16" />,
@@ -50,6 +52,18 @@ const SHAPES = {
     <>
       <Path d={EYE} />
       <Circle cx="12" cy="12" r="2.8" fill="currentColor" />
+    </>
+  ),
+  bell: (
+    <>
+      <Path d={BELL} />
+      <Path d="M10 20a2 2 0 0 0 4 0" />
+    </>
+  ),
+  bellOff: (
+    <>
+      <Path d={BELL} />
+      <Path d="M10 20a2 2 0 0 0 4 0M4 4l16 16" />
     </>
   ),
   star: <Path d={STAR} />,

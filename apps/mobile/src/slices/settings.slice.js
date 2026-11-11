@@ -103,6 +103,17 @@ export const DEFAULTS = {
    * 通常は変えない。値は lib/http.js にも写す（通信が Redux を参照できないため）
    */
   customUserAgent: '',
+  /**
+   * 通知（§9-8）。全体のオン・オフはホームのベルと設定の通知画面で同じ値を使う。
+   * 巡回はバックグラウンドで動くので、Redux ではなく保存した値を読む（lib/notifyTask.js）
+   */
+  notifyEnabled: false,
+  /** 自分宛てのレスを通知する */
+  notifyReplies: true,
+  /** 監視中のスレの新着を通知する */
+  notifyWatch: true,
+  /** 監視中のスレは新着がこの件数以上で通知する */
+  notifyWatchThreshold: 1,
 }
 
 export const loadSettings = createAsyncThunk('settings/load', async () =>

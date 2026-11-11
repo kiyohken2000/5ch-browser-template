@@ -143,6 +143,7 @@ import {
 import useSheetAnimation from 'components/useSheetAnimation'
 import { useEmberTheme } from 'theme/ember'
 import { showToast } from 'utils/showToast'
+import { canAddWatch, WATCH_LIMIT_TOAST } from 'lib/threadLists'
 
 /** 本文の上に重ねるバーの高さ（ガラスの下をレスが通る — §9-3）。 */
 const FOOTER_HEIGHT = 44
@@ -353,6 +354,10 @@ export default function Thread({ route, navigation }) {
   }, [dispatch, threadId, threadUrl, boardUrl, boardName, title])
 
   const onToggleWatch = useCallback(() => {
+    if (!isWatched && !canAddWatch(watchList, threadId)) {
+      showToast(WATCH_LIMIT_TOAST)
+      return
+    }
     dispatch(
       toggleWatch({
         threadId,
@@ -364,7 +369,16 @@ export default function Thread({ route, navigation }) {
       }),
     )
     showToast({ title: isWatched ? '監視をやめました' : '監視に追加しました' })
-  }, [dispatch, threadId, threadUrl, boardUrl, boardName, title, isWatched])
+  }, [
+    dispatch,
+    threadId,
+    threadUrl,
+    boardUrl,
+    boardName,
+    title,
+    isWatched,
+    watchList,
+  ])
 
   // ---- ヘッダ --------------------------------------------------------------
 

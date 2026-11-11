@@ -42,6 +42,7 @@ export default function Settings({ navigation }) {
       state.highlight.names.length,
   )
   const imageNgCount = useSelector((state) => state.imageNg.entries.length)
+  const notifyEnabled = useSelector((state) => !!state.settings.notifyEnabled)
 
   const loggedIn = [
     account.be.status === 'in' ? 'BE' : null,
@@ -61,6 +62,10 @@ export default function Settings({ navigation }) {
 
   return (
     <SettingsScreen>
+      <SettingsSection title="通知" theme={theme}>
+        {link('通知', 'NotificationSettings', notifyEnabled ? 'オン' : 'オフ')}
+      </SettingsSection>
+
       <SettingsSection title="表示と操作" theme={theme}>
         {link('表示', 'DisplaySettings')}
         {link('スレを読む', 'ReadingSettings')}

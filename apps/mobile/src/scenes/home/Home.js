@@ -30,9 +30,11 @@ import { longPressHaptic } from 'lib/haptics'
 import { FIXED_HOME_SEGMENT, visibleHomeSegments } from 'lib/homeSegments'
 import { listCachedThreadIds } from 'lib/threadCache'
 import {
+  canAddWatch,
   droppedThreads,
   postedThreads,
-  unreadFirst,
+  WATCH_LIMIT_TOAST,
+  watchOrder,
   watchedThreads,
   withWatchInfo,
 } from 'lib/threadLists'
@@ -47,8 +49,11 @@ import {
   updateCount,
 } from 'slices/watch.slice'
 import GlassSheetBackground from 'components/GlassSheetBackground'
+import Icon from 'components/Icon'
 import useSheetAnimation from 'components/useSheetAnimation'
 import { useEmberTheme } from 'theme/ember'
+import { showToast } from 'utils/showToast'
+import useNotifySwitch from 'utils/useNotifySwitch'
 
 const EMPTY_TEXT = {
   watch:
@@ -94,6 +99,32 @@ export default function Home({ navigation }) {
     [segmentsShown],
   )
   const [segment, setSegment] = useState(() => segments[0].key)
+  const notify = useNotifySwitch()
+  const notifyDenied = notify.permission === 'denied'
+  const openNotifySettings = useCallback(() => {
+    navigation.navigate('SettingsTab', {
+      screen: 'NotificationSettings',
+      initial: false,
+    })
+  }, [navigation])
+  const onBell = useCallback(async () => {
+    // OS で切られているときは、オンにしても届かないので設定へ案内する
+    if (notifyDenied) {
+      openNotifySettings()
+      return
+    }
+    const next = !notify.enabled
+    const ok = await notify.setEnabled(next)
+    if (!ok) {
+      showToast({
+        title: '通知が許可されていません',
+        body: 'OS の設定で Ember の通知を許可してください',
+      })
+      openNotifySettings()
+      return
+    }
+    showToast({ title: next ? '通知をオンにしました' : '通知をオフにしました' })
+  }, [notify, notifyDenied, openNotifySettings])
   const pagerRef = useRef(null)
   // 表示中の切り替えを設定で消したら「最近」へ
   const current = segments.some((x) => x.key === segment)
@@ -135,8 +166,8 @@ export default function Home({ navigation }) {
       list.map((t) => withWatchInfo(t, watch.get(t.threadId)))
     const posted = postedThreads(myPosts)
     return {
-      // 新着のあるスレを上に。dat 落ちは新着を数えない（行のバッジと同じ）
-      watch: unreadFirst(watched, (t) => (t.datDropped ? 0 : newCount(t))),
+      // 新着のあるスレを上に、dat 落ちは下にまとめる（§9-8）
+      watch: watchOrder(watched, newCount),
       favorites: info(favorites),
       recent: info(recentOpened),
       posted: info(posted),
@@ -337,6 +368,32 @@ export default function Home({ navigation }) {
             </Text>
           </Pressable>
         ))}
+        {/* 通知の全体のスイッチ（§9-8）。長押しで通知の設定へ */}
+        <Pressable
+          accessibilityRole="switch"
+          accessibilityLabel="通知"
+          accessibilityHint="長押しで通知の設定を開きます"
+          accessibilityState={{ checked: notify.enabled }}
+          hitSlop={6}
+          onPress={onBell}
+          onLongPress={() => {
+            longPressHaptic()
+            openNotifySettings()
+          }}
+          delayLongPress={350}
+          style={styles.bell}
+        >
+          <Icon
+            name={notify.enabled ? 'bell' : 'bellOff'}
+            size={20}
+            color={notify.enabled ? theme.accent : theme.textFaint}
+          />
+          {notify.enabled && notifyDenied ? (
+            <View
+              style={[styles.bellAlert, { backgroundColor: theme.danger }]}
+            />
+          ) : null}
+        </Pressable>
       </View>
 
       <PagerView
@@ -418,8 +475,10 @@ export default function Home({ navigation }) {
                 onPress={() => {
                   if (watchedIds.has(menuItem.threadId)) {
                     dispatch(removeFromWatch(menuItem.threadId))
-                  } else {
+                  } else if (canAddWatch(watchList, menuItem.threadId)) {
                     dispatch(toggleWatch(menuItem))
+                  } else {
+                    showToast(WATCH_LIMIT_TOAST)
                   }
                   closeMenu()
                 }}
@@ -509,6 +568,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
   },
   segmentOff: { borderBottomColor: 'transparent' },
+  bell: {
+    width: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellAlert: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
   segmentText: { fontSize: 13, fontWeight: '600' },
   emptyBody: { fontSize: 13, lineHeight: 20, textAlign: 'center' },
 })

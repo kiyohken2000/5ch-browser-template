@@ -51,7 +51,13 @@ import { forgetReadPosition } from 'lib/readPosition'
 import { pushHistory } from 'lib/search'
 import { KEYS, load, save } from 'lib/storage'
 import { deleteCachedThread } from 'lib/threadCache'
-import { diffKnownThreads, formatPerDay, splitTitleTag } from 'lib/threadLists'
+import {
+  canAddWatch,
+  diffKnownThreads,
+  formatPerDay,
+  splitTitleTag,
+  WATCH_LIMIT_TOAST,
+} from 'lib/threadLists'
 import { parseBoardLocation } from 'lib/urls'
 import { addNg, selectNgFilters } from 'slices/ng.slice'
 import {
@@ -385,7 +391,10 @@ export default function Threads({ route, navigation }) {
         })
       } else if (action === 'watch') {
         if (menuState?.watched) dispatch(removeFromWatch(item.threadId))
-        else dispatch(toggleWatch(refOf(item)))
+        else if (!canAddWatch(watchList, item.threadId)) {
+          showToast(WATCH_LIMIT_TOAST)
+          return
+        } else dispatch(toggleWatch(refOf(item)))
         showToast({
           title: menuState?.watched ? '監視をやめました' : '監視に追加しました',
         })

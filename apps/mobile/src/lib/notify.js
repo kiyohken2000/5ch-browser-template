@@ -1,0 +1,284 @@
+/**
+ * 通知の判定（§9-8）。巡回の対象選び、新着からの自分宛ての抜き出し、
+ * 監視中のスレのしきい値、通知の文面。**ここは純粋関数だけ**で、
+ * 取得・保存・通知の発行は `lib/notifyTask.js` が持つ。
+ *
+ * **既読位置（`lastReadNo`）には触らない**（不変条件 3）。どこまで通知したかは
+ * 別の「通知の記録」で持ち、ここではそれを受け取るだけにする。
+ */
+
+import { buildBacklinks, parseBody } from './body'
+import { findMyResNumbers, findRepliesToMe } from './extract'
+
+/** 書き込み履歴のスレを見回る期間。最後に書いてからこの日数まで。 */
+export const NOTIFY_POSTED_DAYS = 7
+/** 書き込み履歴から見回るスレの上限。 */
+export const NOTIFY_POSTED_MAX = 30
+/** 監視中のスレの「N 件以上で通知」の既定と上限。 */
+export const DEFAULT_WATCH_THRESHOLD = 1
+export const MAX_WATCH_THRESHOLD = 999
+/** 通知の本文に出す長さ（文字）。 */
+const SNIPPET_MAX = 100
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** 「N 件以上」の値を 1〜999 の整数にそろえる。読めない値は既定に戻す。 */
+export function normalizeWatchThreshold(value) {
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_WATCH_THRESHOLD
+  return Math.min(n, MAX_WATCH_THRESHOLD)
+}
+
+/** 監視中のスレの新着で通知するか。 */
+export function shouldNotifyWatch(newCount, threshold) {
+  return newCount > 0 && newCount >= normalizeWatchThreshold(threshold)
+}
+
+/**
+ * 巡回するスレ。監視中のスレと、書き込み履歴のうち最後に書いてから
+ * `NOTIFY_POSTED_DAYS` 日以内のスレ（新しい順に `NOTIFY_POSTED_MAX` 本まで）を
+ * 合わせ、同じスレは 1 つにまとめる。dat 落ちしたスレは回らない。
+ *
+ * @param {object} args
+ * @param {object[]} args.watchList 監視の控え（`watched: true` が監視中）
+ * @param {object[]} args.myPosts 書き込み履歴（新しい順）
+ * @param {number} args.now
+ * @param {{replies: boolean, watch: boolean}} args.kinds 通知する種類
+ * @param {Set<string>} [args.skip] 巡回で dat 落ちと分かったスレ
+ * @returns {Array<{threadId, threadUrl, boardUrl, boardName, title,
+ *   seenCount: number|null, watched: boolean, posts: object[]}>}
+ *   `watched` は監視の新着を通知するか、`posts` は自分宛ての判定に使う
+ *   書き込み（空なら自分宛ては見ない）、`seenCount` は利用者が見たレス数
+ */
+export function selectNotifyTargets({ watchList, myPosts, now, kinds, skip }) {
+  const watchById = new Map((watchList || []).map((t) => [t.threadId, t]))
+  const byId = new Map()
+  const add = (thread, fields) => {
+    if (!thread?.threadId || !thread.threadUrl || !thread.boardUrl) return
+    const watchEntry = watchById.get(thread.threadId)
+    // dat 落ちの印は控えの側にも書き込み履歴の側にも付く
+    if (thread.datDropped || watchEntry?.datDropped) return
+    if (skip?.has(thread.threadId)) return
+    const prev = byId.get(thread.threadId)
+    if (prev) {
+      prev.watched = prev.watched || fields.watched
+      if (prev.posts.length === 0) prev.posts = fields.posts
+      return
+    }
+    const seen = watchEntry?.lastSeenCount
+    byId.set(thread.threadId, {
+      threadId: thread.threadId,
+      threadUrl: thread.threadUrl,
+      boardUrl: thread.boardUrl,
+      boardName: thread.boardName || '',
+      title: thread.title || watchEntry?.title || '',
+      seenCount: Number.isInteger(seen) ? seen : null,
+      ...fields,
+    })
+  }
+
+  if (kinds?.watch) {
+    for (const t of watchList || []) {
+      if (t.watched) add(t, { watched: true, posts: [] })
+    }
+  }
+
+  if (kinds?.replies) {
+    const since = now - NOTIFY_POSTED_DAYS * DAY_MS
+    const postsByThread = new Map()
+    for (const p of myPosts || []) {
+      if (!p?.threadId || !(p.at >= since)) continue
+      const list = postsByThread.get(p.threadId)
+      if (list) list.push(p)
+      else postsByThread.set(p.threadId, [p])
+    }
+    // 履歴は新しい順なので、Map の順がそのまま「最後に書いた順」になる
+    let count = 0
+    for (const posts of postsByThread.values()) {
+      if (count >= NOTIFY_POSTED_MAX) break
+      add(posts[0], { watched: false, posts })
+      count += 1
+    }
+  }
+
+  return Array.from(byId.values())
+}
+
+/** 板ごとに分ける。subject.txt を板ごとに 1 回だけ読むため。 */
+export function groupByBoard(targets) {
+  const out = new Map()
+  for (const t of targets) {
+    const list = out.get(t.boardUrl)
+    if (list) list.push(t)
+    else out.set(t.boardUrl, [t])
+  }
+  return out
+}
+
+/**
+ * subject.txt の一覧から、対象のスレのレス数を引く。
+ * **一覧を読めたのに載っていないスレは dat 落ち**（ホームの新着確認と同じ判定）。
+ * 空の一覧では判断しない。
+ *
+ * @param {object[]} targets その板の対象
+ * @param {Array<{threadId, responseCount}>} threads subject.txt を読んだもの
+ * @returns {Map<string, {count: number}|{dropped: true}|null>} 判断できないものは null
+ */
+export function countsFromSubject(targets, threads) {
+  const counts = new Map(
+    (threads || []).map((t) => [t.threadId, t.responseCount]),
+  )
+  const out = new Map()
+  for (const t of targets) {
+    const n = counts.get(t.threadId)
+    if (Number.isInteger(n)) out.set(t.threadId, { count: n })
+    else if ((threads || []).length > 0) out.set(t.threadId, { dropped: true })
+    else out.set(t.threadId, null)
+  }
+  return out
+}
+
+/**
+ * 通知の起点（この番号より後が新着）。通知済みの位置と、利用者が見たレス数の
+ * 大きいほう。**アプリで読んだ分では鳴らさない。** どちらも無ければ今のレス数に
+ * して、通知を初めてオンにしたときに過去のレスでまとめて鳴らさない。
+ */
+export function notifyBaseline(notifiedNo, seenCount, currentCount) {
+  const known = [notifiedNo, seenCount].filter(
+    (n) => Number.isInteger(n) && n >= 0,
+  )
+  if (known.length === 0) return Math.max(0, currentCount || 0)
+  return Math.max(...known)
+}
+
+/**
+ * 通知の記録を、今も控えにあるスレだけに絞る。
+ * @param {Object<string, object>} threads スレ → 記録
+ * @param {Set<string>} keepIds
+ */
+export function pruneNotifyRecords(threads, keepIds) {
+  const out = {}
+  for (const [id, record] of Object.entries(threads || {})) {
+    if (keepIds.has(id)) out[id] = record
+  }
+  return out
+}
+
+/** 1 行にして長さを切る。 */
+export function snippet(text, max = SNIPPET_MAX) {
+  const line = (text || '').replace(/\s+/g, ' ').trim()
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line
+}
+
+/**
+ * 新着のうち、自分のレスに返信しているもの。
+ *
+ * @param {object} args
+ * @param {Array<{no, body, date}>} args.entries スレの全レス（dat を読んだもの）
+ * @param {object[]} args.posts そのスレの自分の書き込み
+ * @param {number} args.fromNo これより後のレスだけを見る（通知の起点）
+ * @param {Set<number>} [args.hidden] NG で隠れているレス番号。通知しない
+ * @returns {Array<{no, toNo, name, date, id, text}>} レス番号の順
+ */
+export function findNewRepliesToMe({ entries, posts, fromNo, hidden }) {
+  if (!entries?.length || !posts?.length) return []
+  const rows = entries.map((e) => {
+    const parsed = parseBody(e.body)
+    return { ...e, plainBody: parsed.plain, anchors: parsed.anchors }
+  })
+  const mine = findMyResNumbers(rows, posts)
+  if (mine.size === 0) return []
+  const replies = findRepliesToMe(buildBacklinks(entries), mine)
+  return rows
+    .filter((r) => r.no > fromNo && replies.has(r.no) && !hidden?.has(r.no))
+    .map((r) => ({
+      no: r.no,
+      // 複数に返信していたら最初の自分のレスを出す
+      toNo: r.anchors.filter((n) => mine.has(n)).sort((a, b) => a - b)[0],
+      name: r.name || '',
+      date: r.date || '',
+      id: r.id || '',
+      text: r.plainBody,
+    }))
+}
+
+/** 自分宛てのレスの通知。1 件ずつ出す。タップするとアプリを開くだけ。 */
+export function replyNotification(thread, reply) {
+  return {
+    title: thread.title || '(無題)',
+    body: `>>${reply.toNo} への返信: ${snippet(reply.text)}`,
+  }
+}
+
+/** 監視中のスレの新着の通知。スレごとに 1 件にまとめる。 */
+export function watchNotification(thread, newCount) {
+  return {
+    title: thread.title || '(無題)',
+    body: `新着 ${newCount} 件`,
+  }
+}
+
+// ---- 巡回の記録（実機で間隔を確かめるため）--------------------------------
+
+/** 巡回の記録を何回分持つか。 */
+export const MAX_RUN_LOG = 20
+
+/**
+ * 巡回の記録を先頭に足す（新しい順）。
+ * @param {object[]} log
+ * @param {{at: number, background: boolean, notified: number, checked: number,
+ *   failed: number, skipped?: string}} run
+ */
+export function pushRunLog(log, run, max = MAX_RUN_LOG) {
+  return [run, ...(Array.isArray(log) ? log : [])].slice(0, max)
+}
+
+/**
+ * バックグラウンドの巡回の間隔（分）。記録は新しい順。
+ * @returns {{count: number, averageMin: number, minMin: number,
+ *   maxMin: number}|null} 2 回分に満たなければ null
+ */
+export function backgroundIntervals(log) {
+  const times = (Array.isArray(log) ? log : [])
+    .filter((r) => r?.background && Number.isFinite(r.at))
+    .map((r) => r.at)
+  if (times.length < 2) return null
+  const gaps = []
+  for (let i = 0; i < times.length - 1; i += 1) {
+    gaps.push((times[i] - times[i + 1]) / 60000)
+  }
+  const sum = gaps.reduce((a, b) => a + b, 0)
+  return {
+    count: gaps.length,
+    averageMin: Math.round(sum / gaps.length),
+    minMin: Math.round(Math.min(...gaps)),
+    maxMin: Math.round(Math.max(...gaps)),
+  }
+}
+
+/** 分を「45 分」「2 時間 10 分」の形にする。 */
+export function formatMinutes(min) {
+  const m = Math.max(0, Math.round(min))
+  if (m < 60) return `${m} 分`
+  const h = Math.floor(m / 60)
+  const rest = m % 60
+  return rest ? `${h} 時間 ${rest} 分` : `${h} 時間`
+}
+
+/** 巡回 1 回分の説明。 */
+export function describeRun(run) {
+  const d = new Date(run.at)
+  const pad = (n) => String(n).padStart(2, '0')
+  const when = `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(
+    d.getMinutes(),
+  )}`
+  const how = run.background ? 'バックグラウンド' : '今すぐ確認'
+  let what
+  if (run.skipped === 'off') what = '通知がオフなので何もしなかった'
+  else if (run.skipped === 'active') what = 'アプリを開いていたので見送った'
+  else {
+    what = `${run.checked} 本を確認、通知 ${run.notified} 件`
+    if (run.failed > 0) what += `、${run.failed} 本は読めなかった`
+  }
+  return `${when}（${how}）${what}`
+}

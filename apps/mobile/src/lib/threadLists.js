@@ -177,6 +177,48 @@ export function unreadFirst(list, countOf) {
   return unread.length === 0 ? list : [...unread, ...rest]
 }
 
+/** 監視できるスレの数（§9-8）。通知の巡回の量を抑えるため。dat 落ちは数えない。 */
+export const MAX_WATCHED = 50
+
+/** 上限に数える監視中のスレの数。dat 落ちは巡回しないので数えない。 */
+export function aliveWatchedCount(watchList) {
+  return (watchList || []).filter((t) => t.watched && !t.datDropped).length
+}
+
+/**
+ * このスレに監視を付けられるか。既に監視中なら（外す操作なので）常に true。
+ * @param {object[]} watchList
+ * @param {string} threadId
+ */
+export function canAddWatch(watchList, threadId) {
+  const entry = (watchList || []).find((t) => t.threadId === threadId)
+  if (entry?.watched) return true
+  return aliveWatchedCount(watchList) < MAX_WATCHED
+}
+
+/** 上限に達したときのトースト。 */
+export const WATCH_LIMIT_TOAST = {
+  title: `監視は ${MAX_WATCHED} 本までです`,
+  body: 'dat 落ちしたスレは数えません',
+}
+
+/**
+ * 「監視」の列の並び。新着あり → 新着なし → dat 落ち。それぞれの中は渡された順。
+ * @param {object[]} list
+ * @param {(t: object) => number} countOf
+ */
+export function watchOrder(list, countOf) {
+  const unread = []
+  const rest = []
+  const dropped = []
+  for (const t of list) {
+    if (t.datDropped) dropped.push(t)
+    else if (countOf(t) > 0) unread.push(t)
+    else rest.push(t)
+  }
+  return [...unread, ...rest, ...dropped]
+}
+
 /**
  * 一覧の 1 行に出す値。監視リストにあれば、そちらのレス数と新着数を使う。
  * タイトルは監視リストの値を控えとして使う。

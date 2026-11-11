@@ -58,6 +58,7 @@ import ImageNgSettings from 'scenes/settings/ImageNgSettings'
 import MediaSettings from 'scenes/settings/MediaSettings'
 import NetworkSettings from 'scenes/settings/NetworkSettings'
 import NgSettings from 'scenes/settings/NgSettings'
+import NotificationSettings from 'scenes/settings/NotificationSettings'
 import UploadHistory from 'scenes/settings/UploadHistory'
 import PostHistory from 'scenes/settings/PostHistory'
 import ReadingSettings from 'scenes/settings/ReadingSettings'
@@ -212,6 +213,7 @@ function SettingsStack() {
         ['ComposeSettings', ComposeSettings, '書き込み'],
         ['DataSettings', DataSettings, '履歴とキャッシュ'],
         ['NetworkSettings', NetworkSettings, '通信'],
+        ['NotificationSettings', NotificationSettings, '通知'],
       ].map(([name, component, title]) => (
         <Stack.Screen
           key={name}

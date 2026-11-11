@@ -21,6 +21,7 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 import { boardRef, pushRecentBoard } from 'lib/boards'
 import { KEYS, load, save } from 'lib/storage'
 import {
+  canAddWatch,
   forgetThreadRecords,
   manualReadMarkers,
   orderByIds,
@@ -267,6 +268,8 @@ const watchSlice = createSlice({
      * 今のレス数を見た数として足す（付けた瞬間に全部が新着にならないように）。
      */
     toggleWatch: (state, { payload }) => {
+      // 上限（MAX_WATCHED）は画面の側で先に伝える。ここは取りこぼしの保険
+      if (!canAddWatch(state.watchList, payload.threadId)) return
       const at = state.watchList.findIndex(
         (t) => t.threadId === payload.threadId,
       )

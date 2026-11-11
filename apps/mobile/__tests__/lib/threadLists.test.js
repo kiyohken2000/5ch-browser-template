@@ -1,5 +1,9 @@
 import {
+  aliveWatchedCount,
+  canAddWatch,
   forgetThreadRecords,
+  MAX_WATCHED,
+  watchOrder,
   MAX_KNOWN_BOARDS,
   MAX_MY_POSTS,
   manualReadMarkers,
@@ -277,5 +281,67 @@ describe('forgetThreadRecords（履歴から削除）', () => {
     const before = state()
     forgetThreadRecords(before, 'a')
     expect(before).toEqual(state())
+  })
+})
+
+describe('監視の上限', () => {
+  const watching = (n, extra = {}) =>
+    Array.from({ length: n }, (_, i) =>
+      t(String(i), { watched: true, ...extra }),
+    )
+
+  it('dat 落ちと監視していない控えは数えない', () => {
+    const list = [
+      ...watching(3),
+      t('d', { watched: true, datDropped: true }),
+      t('x'),
+    ]
+    expect(aliveWatchedCount(list)).toBe(3)
+  })
+
+  it('上限に達したら新しいスレは付けられない', () => {
+    const list = watching(MAX_WATCHED)
+    expect(canAddWatch(list, 'new')).toBe(false)
+    expect(canAddWatch(watching(MAX_WATCHED - 1), 'new')).toBe(true)
+  })
+
+  it('監視中のスレを外す操作は上限でもできる', () => {
+    expect(canAddWatch(watching(MAX_WATCHED), '0')).toBe(true)
+  })
+
+  it('控えにあるが監視していないスレも上限で止める', () => {
+    const list = [...watching(MAX_WATCHED), t('x')]
+    expect(canAddWatch(list, 'x')).toBe(false)
+  })
+
+  it('dat 落ちが多くても生きているスレが上限未満なら付けられる', () => {
+    const list = [
+      ...watching(MAX_WATCHED - 1),
+      ...Array.from({ length: 10 }, (_, i) =>
+        t(`d${i}`, { watched: true, datDropped: true }),
+      ),
+    ]
+    expect(canAddWatch(list, 'new')).toBe(true)
+  })
+})
+
+describe('watchOrder', () => {
+  it('新着あり → 新着なし → dat 落ちの順。中の順は保つ', () => {
+    const list = [
+      t('drop1', { datDropped: true }),
+      t('read1'),
+      t('new1', { n: 3 }),
+      t('read2'),
+      t('drop2', { datDropped: true }),
+      t('new2', { n: 1 }),
+    ]
+    expect(watchOrder(list, (x) => x.n || 0).map((x) => x.threadId)).toEqual([
+      'new1',
+      'new2',
+      'read1',
+      'read2',
+      'drop1',
+      'drop2',
+    ])
   })
 })
