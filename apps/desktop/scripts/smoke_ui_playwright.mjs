@@ -7329,6 +7329,124 @@ try {
     }
   }
 
+  // 「!」(既読が上) で並べたあと、スレ一覧フィルタを ON -> OFF すると、ヘッダは「!」の
+  // ままなのに既読が上に来なくなるという報告の回帰用。並び順はスナップショット比較で
+  // キャッシュしていて、既読マップ (キーは「今表示しているリストでの index + 1」) が
+  // フィルタ解除のあと非同期で引き直されるのを見ていなかった。
+  // あわせて v0.0.62 の「既読更新で並び替わらない」も測る — 既読マップの値で並べ直すと
+  // 直るが、スレを読むたびに行が飛ぶ昔の挙動に戻ってしまう。
+  {
+    const BOARD_A = "https://mao.5ch.io/ngt/";
+    const BOARD_B = "https://mao.5ch.io/other/";
+    const THREAD_B = "https://mao.5ch.io/test/read.cgi/other/3333333333/";
+    const p = await context.newPage();
+    await p.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", JSON.stringify({ restoreSession: true, lastBoard: { boardName: "ngt", url: arg.boardA } }));
+      localStorage.setItem("desktop.recentOpenedThreads.v1", JSON.stringify([
+        { threadUrl: arg.threadB, title: "板Bスレ", boardUrl: arg.boardB, updatedAt: 1 },
+      ]));
+      // 他のケースが同じ origin に残した選択状態を持ち込まない。
+      localStorage.removeItem("desktop.threadFilterMode.v1");
+      localStorage.removeItem("desktop.threadSortPrefs.v1");
+      localStorage.removeItem("desktop.threadSortPersistEnabled.v1");
+      localStorage.removeItem("desktop.recentPostedThreads.v1");
+      localStorage.removeItem("desktop.threadTabs.v1");
+      const rowsByBoard = {
+        [arg.boardA]: [
+          { threadKey: "1111111111", title: "板Aスレ1 未読", responseCount: 100, threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/1111111111/" },
+          { threadKey: "2222222222", title: "板Aスレ2 既読", responseCount: 120, threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/2222222222/" },
+          { threadKey: "4444444444", title: "板Aスレ3 未読", responseCount: 140, threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/4444444444/" },
+        ],
+        [arg.boardB]: [
+          { threadKey: "3333333333", title: "板Bスレ", responseCount: 10, threadUrl: arg.threadB },
+        ],
+      };
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "load_thread_cache") return Promise.resolve(null);
+          if (cmd === "fetch_thread_list") return Promise.resolve(rowsByBoard[args.threadUrl] ?? []);
+          if (cmd === "fetch_thread_responses_command") {
+            const out = [];
+            for (let i = 1; i <= 100; i++) {
+              out.push({ responseNo: i, name: "名無し", mail: "", dateAndId: "2026/11/11(水) 00:00:00.00 ID:abcdefgh", body: "本文 " + i });
+            }
+            return Promise.resolve({ responses: out, title: null, lastModified: null, notModified: false });
+          }
+          if (cmd === "save_ui_json" || cmd === "save_read_status" || cmd === "save_thread_cache") return Promise.resolve(null);
+          if (cmd === "load_read_status") {
+            return Promise.resolve({
+              [arg.boardA]: { "2222222222": 70 },
+              [arg.boardB]: { "3333333333": 5 },
+            });
+          }
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, { boardA: BOARD_A, boardB: BOARD_B, threadB: THREAD_B });
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector(".pane.threads tbody tr");
+    await new Promise((r) => setTimeout(r, 900));
+
+    const colIndex = async (label) => {
+      const headers = await p.$$eval(".pane.threads thead th", (els) => els.map((e) => (e.textContent || "").trim()));
+      const idx = headers.findIndex((h) => h === label || h.startsWith(label + " "));
+      assert(idx >= 0, `the thread list should have a ${label} column, got ${JSON.stringify(headers)}`);
+      return idx;
+    };
+    const titles = async () => {
+      const idx = await colIndex("タイトル");
+      return p.$$eval(`.pane.threads tbody tr td:nth-child(${idx + 1})`, (els) => els.map((e) => (e.textContent || "").trim()));
+    };
+
+    // 「!」を押して既読が上に
+    const bangIdx = await colIndex("!");
+    await (await p.$$(".pane.threads thead th"))[bangIdx].click();
+    await new Promise((r) => setTimeout(r, 400));
+    const sorted = await titles();
+    assert(
+      sorted[0].includes("スレ2 既読"),
+      `the ! sort should put the read thread first, got ${JSON.stringify(sorted)}`,
+    );
+
+    // スレ一覧フィルタを ON (最近開いたスレ = 別の板のスレ 1 件)
+    await p.click(".title-split-toggle");
+    await p.waitForSelector(".title-split-menu");
+    await p.click(".title-split-menu button:has-text('最近開いたスレ')");
+    await new Promise((r) => setTimeout(r, 900));
+    const filtered = await titles();
+    assert(
+      filtered.length === 1 && filtered[0].includes("板Bスレ"),
+      `the filter should show the recently read list, got ${JSON.stringify(filtered)}`,
+    );
+
+    // フィルタを OFF -> 板一覧へ戻っても既読が上のまま
+    await p.click(".title-split-main");
+    await new Promise((r) => setTimeout(r, 1200));
+    const back = await titles();
+    const bangHeader = await p.$eval(`.pane.threads thead th:nth-child(${bangIdx + 1})`, (el) => (el.textContent || "").trim());
+    assert(bangHeader.includes("▲"), `the ! column should still be the active sort, got ${bangHeader}`);
+    assert(
+      back[0].includes("スレ2 既読"),
+      `clearing the filter must keep the ! sort in effect, got ${JSON.stringify(back)}`,
+    );
+
+    // 未読のスレを開いて既読にしても並びは動かない (v0.0.62)
+    const threadRows = await p.$$(".pane.threads tbody tr");
+    await threadRows[1].click();
+    await new Promise((r) => setTimeout(r, 1200));
+    const afterRead = await titles();
+    assert(
+      afterRead.join(",") === back.join(","),
+      `reading a thread must not reshuffle the list, got ${JSON.stringify(afterRead)}`,
+    );
+    await p.close();
+    console.log("smoke-ui: the ! sort survives toggling the thread list filter ok");
+  }
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

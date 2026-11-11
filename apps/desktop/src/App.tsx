@@ -3752,7 +3752,7 @@ export default function App() {
   threadSortRef.current = { key: threadSortKey, asc: threadSortAsc };
   const autoUpdateCheckedRef = useRef(false);
   const cachedSortOrderRef = useRef<string[]>([]);
-  const prevSortSnapshotRef = useRef({ key: "", asc: true, urls: "", favFetched: false, newUrls: 0 });
+  const prevSortSnapshotRef = useRef({ key: "", asc: true, urls: "", favFetched: false, newUrls: 0, readToken: "" });
   const [threadTabs, setThreadTabs] = useState<ThreadTab[]>([]);
   const [activeTabIndex, setActiveTabIndex] = useState(-1);
   const tabCacheRef = useRef<Map<string, { responses: ThreadResponseItem[]; selectedResponse: number; scrollResponseNo?: number; newResponseStart?: number | null }>>(new Map());
@@ -3803,6 +3803,9 @@ export default function App() {
   const [selectedResponse, setSelectedResponse] = useState<number>(1);
   const [threadReadMap, setThreadReadMap] = useState<Record<number, boolean>>({ 1: false, 2: true });
   const [threadLastReadCount, setThreadLastReadCount] = useState<Record<number, number>>({});
+  // threadReadMap / threadLastReadCount を丸ごと作り直したときの「対象リスト」を表すトークン。
+  // 「!」「取得」「新着」の並び替えがこれを見て並べ直す。1 行だけ既読にする更新では変えない。
+  const [threadReadMapToken, setThreadReadMapToken] = useState("");
   const [threadMenu, setThreadMenu] = useState<{ x: number; y: number; threadId: number } | null>(null);
   const threadMenuRef = useRef<HTMLDivElement>(null);
   // fromPopup: アンカー / 逆参照 / ID ポップアップのレス番号から開いたメニュー。
@@ -4554,6 +4557,7 @@ export default function App() {
       });
       setThreadReadMap(readMap);
       setThreadLastReadCount(lastReadMap);
+      setThreadReadMapToken(`board\n${boardUrl}\n${threads.map((t) => t.threadUrl).join("\n")}`);
     } catch {
       // ignore
     }
@@ -6036,6 +6040,7 @@ export default function App() {
     });
     setThreadReadMap(readMap);
     setThreadLastReadCount(lastReadMap);
+    setThreadReadMapToken(`saved\n${statusLabel}\n${threads.map((ft) => ft.threadUrl).join("\n")}`);
     setFavNewCounts(counts);
     setFavNewCountsFetched(true);
     setStatus(`${statusLabel} new-count loaded (${counts.size}/${threads.length})`);
@@ -7280,7 +7285,15 @@ export default function App() {
     sortSnapshot.asc !== threadSortAsc ||
     sortSnapshot.urls !== currentFilteredUrls ||
     sortSnapshot.favFetched !== favNewCountsFetched ||
-    sortSnapshot.newUrls !== newThreadUrls.size;
+    sortSnapshot.newUrls !== newThreadUrls.size ||
+    // 「!」「取得」「新着」の並びは既読マップに依存する。既読マップのキーは「今表示して
+    // いるリストでの index + 1」なので、スレ一覧フィルタを解除して板一覧に戻るときは
+    // 引き直しが必要で、それが非同期で返ってくる。URL 一覧だけ見ていると、戻った直後の
+    // 古いマップで並べた順をキャッシュしたまま固まっていた (フィルタ ON 側は
+    // favNewCountsFetched の false -> true で並べ直されるので、解除側にだけ出ていた)。
+    // 値ではなく「どのリスト向けに作られたマップか」で見る — 値で見ると、スレを読んで
+    // 既読数が増えるたびに並び替わる (v0.0.62 で直した挙動) に戻ってしまう。
+    sortSnapshot.readToken !== threadReadMapToken;
   let visibleThreadItems: typeof filteredThreadItems;
   if (needsResort || cachedSortOrderRef.current.length === 0) {
     visibleThreadItems = [...filteredThreadItems].sort((a, b) => {
@@ -7310,7 +7323,7 @@ export default function App() {
       return threadSortAsc ? cmp : -cmp;
     });
     cachedSortOrderRef.current = visibleThreadItems.map((t) => t.threadUrl);
-    prevSortSnapshotRef.current = { key: threadSortKey, asc: threadSortAsc, urls: currentFilteredUrls, favFetched: favNewCountsFetched, newUrls: newThreadUrls.size };
+    prevSortSnapshotRef.current = { key: threadSortKey, asc: threadSortAsc, urls: currentFilteredUrls, favFetched: favNewCountsFetched, newUrls: newThreadUrls.size, readToken: threadReadMapToken };
   } else {
     const orderMap = new Map<string, number>();
     cachedSortOrderRef.current.forEach((url, i) => orderMap.set(url, i));
@@ -17498,7 +17511,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>203項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>204項目</span></div>
               </fieldset>
               </>)}
             </div>
