@@ -31,6 +31,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { highlightStyle, splitHighlights } from 'lib/highlights'
 import { selectActiveHighlights } from 'slices/highlight.slice'
 
+import ClearInputButton from 'components/ClearInputButton'
 import GlassSheetBackground from 'components/GlassSheetBackground'
 import Icon from 'components/Icon'
 import useSheetAnimation from 'components/useSheetAnimation'
@@ -440,18 +441,26 @@ export default function Threads({ route, navigation }) {
           { backgroundColor: theme.surface, borderColor: theme.border },
         ]}
       >
-        <TextInput
-          value={filter}
-          onChangeText={setFilter}
-          onFocus={() => setFilterFocused(true)}
-          onBlur={() => setFilterFocused(false)}
-          onSubmitEditing={rememberFilter}
-          returnKeyType="search"
-          placeholder="スレタイを絞り込む"
-          placeholderTextColor={theme.textFaint}
-          style={[styles.filterInput, { color: theme.text }]}
-          autoCorrect={false}
-        />
+        <View style={styles.filterRow}>
+          <TextInput
+            value={filter}
+            onChangeText={setFilter}
+            onFocus={() => setFilterFocused(true)}
+            onBlur={() => setFilterFocused(false)}
+            onSubmitEditing={rememberFilter}
+            returnKeyType="search"
+            placeholder="スレタイを絞り込む"
+            placeholderTextColor={theme.textFaint}
+            style={[styles.filterInput, { color: theme.text }]}
+            autoCorrect={false}
+          />
+          <ClearInputButton
+            value={filter}
+            onClear={() => setFilter('')}
+            color={theme.textFaint}
+            label="絞り込みを消す"
+          />
+        </View>
         {filterFocused && !filter && filterHistory.length > 0 ? (
           <ScrollView
             horizontal
@@ -760,7 +769,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 8,
   },
-  filterInput: { fontSize: 15, paddingVertical: 4 },
+  filterRow: { flexDirection: 'row', alignItems: 'center' },
+  filterInput: { flex: 1, fontSize: 15, paddingVertical: 4 },
   sortRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   sortChip: {
     paddingHorizontal: 10,

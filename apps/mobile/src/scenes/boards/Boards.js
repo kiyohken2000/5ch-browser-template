@@ -24,6 +24,7 @@ import {
 } from 'react-native'
 import { useDispatch, useSelector } from 'react-redux'
 
+import ClearInputButton from 'components/ClearInputButton'
 import Icon from 'components/Icon'
 import { fetchBbsmenu } from 'lib/api'
 import { enabledCompatSites } from 'lib/sites'
@@ -213,6 +214,12 @@ export default function Boards({ navigation }) {
           autoCorrect={false}
           autoCapitalize="none"
         />
+        <ClearInputButton
+          value={filter}
+          onClear={() => setFilter('')}
+          color={theme.textFaint}
+          label="絞り込みを消す"
+        />
       </View>
 
       {error ? (
@@ -398,11 +405,13 @@ const styles = StyleSheet.create({
   },
   dim: { fontSize: 13 },
   filterBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  filterInput: { fontSize: 15, paddingVertical: 6 },
+  filterInput: { flex: 1, fontSize: 15, paddingVertical: 6 },
   errorBar: { padding: 12 },
   fallback: {
     padding: 12,
