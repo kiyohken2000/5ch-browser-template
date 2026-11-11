@@ -24,7 +24,7 @@
  */
 
 import { useShareIntent } from 'expo-share-intent'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   NavigationContainer,
   useNavigationContainerRef,
@@ -33,7 +33,7 @@ import {
 } from '@react-navigation/native'
 import { createStackNavigator } from '@react-navigation/stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
-import { Platform, StatusBar, View } from 'react-native'
+import { AppState, Platform, StatusBar, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Toast from 'react-native-toast-message'
 
@@ -359,6 +359,24 @@ export default function Navigation() {
     if (error) console.warn(`[share] 共有を受け取れない: ${error}`)
   }, [error])
 
+  // 時計やバッテリーの色を、前面に戻ったときと画面を移ったときに送り直す。
+  // <StatusBar> は値が変わったときしか iOS に送らないため、共有シートやカメラなど
+  // iOS の画面を閉じたあとに白文字のまま残ることがある。
+  const barStyle = theme.dark ? 'light-content' : 'dark-content'
+  const reapplyBarStyle = useCallback(() => {
+    StatusBar.setBarStyle(barStyle, false)
+  }, [barStyle])
+  // テーマが変わったときも必ず送る（裏にいる間の切り替えで送り損ねることがある）
+  useEffect(() => {
+    reapplyBarStyle()
+  }, [reapplyBarStyle])
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') reapplyBarStyle()
+    })
+    return () => sub.remove()
+  }, [reapplyBarStyle])
+
   // 共有シートから来た 5ch の URL を開く（§6-3）
   useEffect(() => {
     if (!hasShareIntent || !navReady) return
@@ -385,9 +403,10 @@ export default function Navigation() {
 
   return (
     <>
-      <StatusBar barStyle={theme.dark ? 'light-content' : 'dark-content'} />
+      <StatusBar barStyle={barStyle} />
       <NavigationContainer
         ref={navRef}
+        onStateChange={reapplyBarStyle}
         theme={navTheme}
         linking={linking}
         onReady={() => setNavReady(true)}

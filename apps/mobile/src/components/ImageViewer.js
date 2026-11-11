@@ -18,6 +18,7 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
+  StatusBar,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -280,6 +281,8 @@ export default function ImageViewer({
 
   return (
     <GestureHandlerRootView style={styles.root}>
+      {/* 背景が黒なので、開いている間は白文字にする。閉じると元に戻る */}
+      <StatusBar barStyle="light-content" />
       <Animated.View style={[styles.backdrop, backdropStyle]} />
       <Animated.View style={[styles.root, contentStyle]}>
         <FlatList
