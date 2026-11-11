@@ -266,12 +266,17 @@ export function formatMinutes(min) {
 }
 
 /** 巡回 1 回分の説明。 */
-export function describeRun(run) {
-  const d = new Date(run.at)
+/** `11/12 08:05` の形。巡回の記録と診断で使う */
+export function formatWhen(ms) {
+  const d = new Date(ms)
   const pad = (n) => String(n).padStart(2, '0')
-  const when = `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(
     d.getMinutes(),
   )}`
+}
+
+export function describeRun(run) {
+  const when = formatWhen(run.at)
   const how = run.background ? 'バックグラウンド' : '今すぐ確認'
   let what
   if (run.skipped === 'off') what = '通知がオフなので何もしなかった'
@@ -281,4 +286,77 @@ export function describeRun(run) {
     if (run.failed > 0) what += `、${run.failed} 本は読めなかった`
   }
   return `${when}（${how}）${what}`
+}
+
+// ---- 巡回の診断 -------------------------------------------------------------
+
+/** expo-background-task が iOS で OS に入れる予約の名前 */
+export const IOS_WORKER_ID = 'com.expo.modules.backgroundtask.processing'
+
+const REFRESH_TEXT = {
+  available: 'オン',
+  denied: 'オフ（設定→一般→App のバックグラウンド更新）',
+  restricted: '制限されています（低電力モードや機能制限）',
+}
+
+/**
+ * 診断の値を設定画面の行にする。巡回が動かないとき、どこで止まっているかを見るため。
+ * @param {{
+ *   platform: string,
+ *   registered: boolean|null,
+ *   restricted: boolean|null,
+ *   lastSync: {at: number, action: string, error?: string}|null,
+ *   refresh: string|null,
+ *   pending: {identifier: string, earliestBeginDate: number|null}[]|null,
+ * }} diag null は「取れなかった」
+ * @returns {{label: string, hint: string}[]}
+ */
+export function describeNotifyDiag(diag) {
+  const ios = diag.platform === 'ios'
+  let registered
+  if (diag.restricted) registered = 'この端末では使えません'
+  else if (diag.registered == null) registered = '確認できません'
+  else registered = diag.registered ? '登録済み' : '登録されていません'
+
+  let lastSync = 'まだありません'
+  if (diag.lastSync) {
+    const s = diag.lastSync
+    const what =
+      {
+        register: '登録した',
+        unregister: '外した',
+        keep: '登録済みのまま',
+        off: '通知がオフ',
+      }[s.action] || s.action
+    lastSync = s.error
+      ? `${formatWhen(s.at)} 失敗: ${s.error}`
+      : `${formatWhen(s.at)} ${what}`
+  }
+
+  const rows = [
+    { label: 'タスクの登録', hint: registered },
+    { label: '起動時の登録の確認', hint: lastSync },
+  ]
+
+  if (!ios) {
+    rows.push({ label: 'OS の予約', hint: '対象外（iOS だけ）' })
+    return rows
+  }
+
+  let pending
+  if (!diag.pending) pending = '確認できません'
+  else {
+    const req = diag.pending.find((r) => r.identifier === IOS_WORKER_ID)
+    if (!req) pending = '入っていません'
+    else if (req.earliestBeginDate == null) pending = '入っています'
+    else pending = `入っています（${formatWhen(req.earliestBeginDate)} 以降）`
+  }
+  rows.push({ label: 'OS の予約', hint: pending })
+  rows.push({
+    label: 'バックグラウンド更新',
+    hint: diag.refresh
+      ? REFRESH_TEXT[diag.refresh] || diag.refresh
+      : '確認できません',
+  })
+  return rows
 }

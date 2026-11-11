@@ -54,6 +54,8 @@ export const KEYS = {
   notifyRecords: 'notifyRecords.v1',
   /** 巡回の記録（いつ動いたか）。実機で間隔を確かめるため。§9-8 */
   notifyRuns: 'notifyRuns.v1',
+  /** 巡回の登録を最後に確かめた結果。実機で登録の失敗を見るため。§9-8 */
+  notifyDiag: 'notifyDiag.v1',
   // 端末固有（同期しない — §10-1）
   scrollPositions: 'scrollPositions.v1',
 }

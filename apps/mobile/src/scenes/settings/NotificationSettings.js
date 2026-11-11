@@ -24,6 +24,7 @@ import SettingsSection from 'components/SettingsSection'
 import { watchEnabled } from 'lib/homeSegments'
 import {
   backgroundIntervals,
+  describeNotifyDiag,
   describeRun,
   formatMinutes,
   MAX_WATCH_THRESHOLD,
@@ -32,6 +33,7 @@ import {
   normalizeWatchThreshold,
 } from 'lib/notify'
 import {
+  loadNotifyDiag,
   loadRunLog,
   runNotifyCheck,
   sendTestNotification,
@@ -72,11 +74,17 @@ export default function NotificationSettings() {
   const { enabled, permission, setEnabled } = useNotifySwitch()
   const [busy, setBusy] = useState(false)
   const [runLog, setRunLog] = useState([])
+  const [diag, setDiag] = useState(null)
   const refreshRunLog = useCallback(() => {
     loadRunLog()
       .then(setRunLog)
       .catch((e) =>
         console.warn(`[notify] 巡回の記録を読めない: ${e?.message || e}`),
+      )
+    loadNotifyDiag()
+      .then(setDiag)
+      .catch((e) =>
+        console.warn(`[notify] 巡回の診断を読めない: ${e?.message || e}`),
       )
   }, [])
   useFocusEffect(refreshRunLog)
@@ -89,6 +97,7 @@ export default function NotificationSettings() {
 
   const toggle = async (on) => {
     const ok = await setEnabled(on)
+    refreshRunLog()
     if (!ok) {
       showToast({
         title: '通知が許可されていません',
@@ -240,6 +249,14 @@ export default function NotificationSettings() {
             ))}
           </View>
         ) : null}
+      </SettingsSection>
+
+      <SettingsSection title="巡回の診断" theme={theme}>
+        {diag
+          ? describeNotifyDiag(diag).map((row) => (
+              <SettingRow key={row.label} label={row.label} hint={row.hint} />
+            ))
+          : null}
       </SettingsSection>
 
       <Text style={[styles.note, { color: theme.textFaint }]}>{NOTE}</Text>

@@ -1,6 +1,8 @@
 import {
   backgroundIntervals,
+  describeNotifyDiag,
   describeRun,
+  IOS_WORKER_ID,
   formatMinutes,
   MAX_RUN_LOG,
   pushRunLog,
@@ -426,5 +428,70 @@ describe('巡回の記録', () => {
     expect(describeRun(run(at, { skipped: 'active' }))).toBe(
       '11/11 09:05（バックグラウンド）アプリを開いていたので見送った',
     )
+  })
+})
+
+describe('describeNotifyDiag', () => {
+  const base = {
+    platform: 'ios',
+    registered: true,
+    restricted: false,
+    lastSync: null,
+    refresh: 'available',
+    pending: [],
+  }
+  const hint = (rows, label) => rows.find((r) => r.label === label)?.hint
+
+  test('予約が無ければ「入っていません」', () => {
+    const rows = describeNotifyDiag(base)
+    expect(hint(rows, 'タスクの登録')).toBe('登録済み')
+    expect(hint(rows, 'OS の予約')).toBe('入っていません')
+    expect(hint(rows, 'バックグラウンド更新')).toBe('オン')
+    expect(hint(rows, '起動時の登録の確認')).toBe('まだありません')
+  })
+
+  test('予約があれば時刻を出す', () => {
+    const at = new Date(2026, 10, 12, 8, 5).getTime()
+    const rows = describeNotifyDiag({
+      ...base,
+      pending: [
+        { identifier: 'other', earliestBeginDate: null },
+        { identifier: IOS_WORKER_ID, earliestBeginDate: at },
+      ],
+    })
+    expect(hint(rows, 'OS の予約')).toBe('入っています（11/12 08:05 以降）')
+  })
+
+  test('登録の失敗と取れなかった値', () => {
+    const at = new Date(2026, 10, 12, 8, 5).getTime()
+    const rows = describeNotifyDiag({
+      ...base,
+      registered: null,
+      lastSync: { at, action: 'register', error: 'not configured' },
+      refresh: null,
+      pending: null,
+    })
+    expect(hint(rows, 'タスクの登録')).toBe('確認できません')
+    expect(hint(rows, '起動時の登録の確認')).toBe(
+      '11/12 08:05 失敗: not configured',
+    )
+    expect(hint(rows, 'OS の予約')).toBe('確認できません')
+    expect(hint(rows, 'バックグラウンド更新')).toBe('確認できません')
+  })
+
+  test('バックグラウンド更新がオフ・端末で使えない', () => {
+    const rows = describeNotifyDiag({
+      ...base,
+      restricted: true,
+      refresh: 'denied',
+    })
+    expect(hint(rows, 'タスクの登録')).toBe('この端末では使えません')
+    expect(hint(rows, 'バックグラウンド更新')).toMatch(/^オフ/)
+  })
+
+  test('Android は OS の予約を対象外にする', () => {
+    const rows = describeNotifyDiag({ ...base, platform: 'android' })
+    expect(hint(rows, 'OS の予約')).toBe('対象外（iOS だけ）')
+    expect(hint(rows, 'バックグラウンド更新')).toBeUndefined()
   })
 })

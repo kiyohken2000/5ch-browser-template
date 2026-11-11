@@ -16,6 +16,7 @@
  *     書き込み履歴のスレだけ（自分宛ての判定に本文が要るため）
  */
 
+import { requireOptionalNativeModule } from 'expo'
 import * as BackgroundTask from 'expo-background-task'
 import * as Notifications from 'expo-notifications'
 import * as TaskManager from 'expo-task-manager'
@@ -132,19 +133,74 @@ async function ensureChannel() {
 
 /** 全体のスイッチに合わせて、巡回を OS に登録する / 外す。 */
 export async function syncNotifyTask(enabled) {
+  let action = enabled ? 'keep' : 'off'
+  let error
   try {
     const registered = await TaskManager.isTaskRegisteredAsync(NOTIFY_TASK)
     if (enabled && !registered) {
+      action = 'register'
       await ensureChannel()
       await BackgroundTask.registerTaskAsync(NOTIFY_TASK, {
         minimumInterval: MIN_INTERVAL_MINUTES,
       })
     } else if (!enabled && registered) {
+      action = 'unregister'
       await BackgroundTask.unregisterTaskAsync(NOTIFY_TASK)
     }
   } catch (e) {
     warn('巡回の登録を変えられない', e)
+    error = String(e?.message || e)
   }
+  // 診断用。TestFlight では console.warn が見えないので、結果を残して設定画面に出す
+  const ok = await save(KEYS.notifyDiag, {
+    lastSync: { at: Date.now(), action, ...(error ? { error } : {}) },
+  })
+  if (!ok) console.warn('[notify] 登録の記録を保存できない')
+}
+
+/**
+ * 巡回が動かないときの切り分け（設定画面の「巡回の診断」）。読むだけ。
+ * OS の予約とバックグラウンド更新は iOS のネイティブモジュール（modules/ember-bg-diag）から取る。
+ */
+export async function loadNotifyDiag() {
+  const diag = {
+    platform: Platform.OS,
+    registered: null,
+    restricted: null,
+    lastSync: null,
+    refresh: null,
+    pending: null,
+  }
+  const tries = [
+    async () => {
+      diag.registered = await TaskManager.isTaskRegisteredAsync(NOTIFY_TASK)
+    },
+    async () => {
+      diag.restricted =
+        (await BackgroundTask.getStatusAsync()) ===
+        BackgroundTask.BackgroundTaskStatus.Restricted
+    },
+    async () => {
+      diag.lastSync = (await load(KEYS.notifyDiag, null))?.lastSync || null
+    },
+  ]
+  const native =
+    Platform.OS === 'ios' ? requireOptionalNativeModule('EmberBgDiag') : null
+  if (native) {
+    tries.push(
+      async () => {
+        diag.refresh = await native.getBackgroundRefreshStatus()
+      },
+      async () => {
+        diag.pending = await native.getPendingTaskRequests()
+      },
+    )
+  }
+  const results = await Promise.allSettled(tries.map((f) => f()))
+  for (const r of results) {
+    if (r.status === 'rejected') warn('診断の値を取れない', r.reason)
+  }
+  return diag
 }
 
 async function present({ title, body }, foreground) {
