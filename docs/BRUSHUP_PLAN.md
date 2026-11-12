@@ -1180,6 +1180,24 @@ https://github.com/ollaya-dev/ollaya (Apache-2.0、Rust、2026-09-23 公開)。�
 
 **次に測るなら(コードに手を付ける前に)**: llama-server(#29818 以降)で `ggml-org/Julia-1-GGUF` の Q8_0 を `/v1/systemone` の `noul` で動かし、[N23] と同じ手書き 12 件と実スレ規模の適合率を現行 bge-m3 と比べる。並ぶか勝てば、bge-m3 の半分以下のサイズなのでモバイル版にも効く。その場合に限り、llama-cpp-2 の更新と入出力処理の移植に進む。負けたら却下として記録する
 
+**追跡調査(2026-11-12)**: 実装に値する新しい候補は無い。見送りのまま。
+
+- 11-09 以降、判定モデル(Jev 系)の新しいモデルは見つからなかった。最有力は引き続き Julia-1 で、日本語の yes/no 判定は未計測
+- **新しく見つけた候補: Horizon-Labs/multilingual-zeroshot**(2026-09-25 公開、10-31 更新、Apache-2.0。large / base / small の 3 サイズ)。いずれも 2 ラベル `{0:not_entailment, 1:entailment}` で、**ラベル順が現行と逆**
+
+| モデル | ベース | 規模 | Ember 受け入れ条件 | 日本語 (作者評価) |
+|---|---|---|---|---|
+| multilingual-zeroshot-large | bge-m3 (`XLMRobertaForSequenceClassification`、24 層 / 1024、maxpos 8194) | 568M | **満たす**(ラベル順の反転だけ要対応)。既製 GGUF なし | 0.695 |
+| multilingual-zeroshot-base | mmBERT-base (`ModernBertForSequenceClassification`) | 308M | ModernBERT の classifier_pooling (PR #29627) が要るため llama-cpp-2 の更新が前提 | 0.706 |
+| multilingual-zeroshot-small | mmBERT-small (同上) | 141M | 同上 | 0.656 |
+| (現行) bge-m3-zeroshot-v2.0 | bge-m3 | 568M | 使用中 | **0.752** |
+
+- 日本語の数字は、モデルカードにある 16 言語の多ラベル話題分類(MASSIVE / SIB-200 などの平均)。曖昧 NG に要る yes/no 判定の値ではない
+- **large は作者自身の比較表でも、スワヒリ語以外のほぼ全項目で現行を下回る**(MASSIVE 0.535 vs 0.611、SIB-200 0.834 vs 0.837、日本語 0.695 vs 0.752)。利点は学習データが商用利用でもクリーンなことだけで、`-c` 版と同じ位置づけ。デスクトップで差し替える理由は無い
+- base / small はサイズの面でモバイル版に意味があるが、ModernBERT 系なので llama-cpp-2 の更新が前提になり、日本語の yes/no 判定も未計測
+
+**判断**: デスクトップは現行のまま。モバイル版で曖昧 NG を軽くしたくなった時点で、Julia-1(168 MB)と Horizon small / base を、[N23] の手書き 12 件 + 実スレ規模の適合率で現行と比べる(llama-server で試すだけでアプリのコード変更は不要)。勝った候補が出たときに限り、llama-cpp-2 の更新と組み込みに進む
+
 ### 却下・取り下げ分(再提案しないこと)
 
 - [N9] スレ閲覧履歴 — ☑ 実装済みだった(App.tsx に閲覧履歴・書き込み履歴リスト UI が既存)
