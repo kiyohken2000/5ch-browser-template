@@ -23,3 +23,8 @@ dist/
 /ios/
 /android/
 Podfile.lock
+
+# eas build --local の成果物 (iOS: build-*.tar.gz / Android: build-*.apk, *.aab)
+build-*.tar.gz
+build-*.apk
+build-*.aab
