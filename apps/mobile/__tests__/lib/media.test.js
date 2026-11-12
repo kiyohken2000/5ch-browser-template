@@ -91,6 +91,33 @@ describe('classifyUrl', () => {
     }
   })
 
+  it('Imgur のアルバムと投稿は imgurAlbum にし、取りに行く URL を揃える', () => {
+    expect(classifyUrl('https://imgur.com/a/beM1zmX')).toEqual({
+      kind: 'imgurAlbum',
+      url: 'https://imgur.com/a/beM1zmX',
+    })
+    expect(
+      classifyUrl('https://m.imgur.com/gallery/funny-title-AbCd123?x=1#y'),
+    ).toEqual({
+      kind: 'imgurAlbum',
+      url: 'https://imgur.com/gallery/AbCd123',
+    })
+    // i.imgur.com/a/... や、ID の形でないものはアルバムにしない
+    expect(classifyUrl('https://i.imgur.com/a/abcde1').kind).not.toBe(
+      'imgurAlbum',
+    )
+    expect(classifyUrl('https://imgur.com/a/beM1zmX/embed').kind).not.toBe(
+      'imgurAlbum',
+    )
+  })
+
+  it('同じアルバムは 1 つにまとめる', () => {
+    expect(
+      extractMedia(['https://imgur.com/a/beM1zmX', 'imgur.com/a/beM1zmX'])
+        .albums,
+    ).toEqual([{ kind: 'imgurAlbum', url: 'https://imgur.com/a/beM1zmX' }])
+  })
+
   it('普通のページはカードの対象', () => {
     expect(classifyUrl('https://example.com/article').kind).toBe('link')
   })
@@ -165,6 +192,33 @@ describe('collectImages', () => {
     no,
     ngMode,
     media: { images: urls.map((url) => ({ url })) },
+  })
+
+  it('解決済みのアルバムの画像も並びに入れる', () => {
+    const rows = [
+      {
+        no: 1,
+        ngMode: null,
+        media: {
+          images: [{ url: 'a' }],
+          albums: [{ url: 'album1' }, { url: 'album2' }],
+        },
+      },
+      {
+        no: 2,
+        ngMode: 'hide-images',
+        media: { images: [], albums: [{ url: 'album1' }] },
+      },
+    ]
+    const resolve = (url) =>
+      url === 'album1' ? { images: ['x', 'a', 'y'] } : undefined
+    expect(collectImages(rows, resolve)).toEqual([
+      { url: 'a', no: 1 },
+      { url: 'x', no: 1 },
+      { url: 'y', no: 1 },
+    ])
+    // 解決を渡さなければアルバムは入れない
+    expect(collectImages(rows)).toEqual([{ url: 'a', no: 1 }])
   })
 
   it('スレの順に並べる', () => {

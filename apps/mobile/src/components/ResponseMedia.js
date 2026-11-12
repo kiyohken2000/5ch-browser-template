@@ -13,6 +13,11 @@ import React, { memo, useEffect, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
 import { fetchImageBytes, formatBytes, isOverLimit } from 'lib/imageSize'
+import {
+  IMGUR_ALBUM_MAX_THUMBS,
+  fetchImgurAlbum,
+  getCachedImgurAlbum,
+} from 'lib/imgurAlbum'
 import { fetchOgp, isUsableCard } from 'lib/ogp'
 import useImageNg from 'lib/useImageNg'
 import { splitUrl } from 'lib/urls'
@@ -74,8 +79,23 @@ export function Thumb({
   ]
 
   if (failed) {
+    // 本文ではリンク切れ（期限切れの一時アップローダーなど）とアイコンで示す。
+    // ビューアは開いても何も出ないので開かない。確かめたいときは本文のリンクから
+    if (!square) {
+      return (
+        <View
+          accessible
+          accessibilityLabel="画像を読み込めませんでした（リンク切れ）"
+          style={[
+            styles.broken,
+            { borderColor: theme.border, backgroundColor: theme.surfaceAlt },
+          ]}
+        >
+          <Icon name="imageOff" size={20} color={theme.textFaint} />
+        </View>
+      )
+    }
     // 一覧ではマスが抜けると番号だけが浮くので、読めなかったことを出す
-    if (!square) return null
     return (
       <Pressable onLongPress={onLongPress} style={boxStyle}>
         <Text style={[styles.deferredText, { color: theme.textFaint }]}>
@@ -165,6 +185,96 @@ export function Thumb({
   )
 }
 
+/**
+ * Imgur のアルバム。中の画像に解決してから `Thumb` を並べる（20 枚まで。残りは
+ * 「+N枚」でアルバムを開く）。解決できない・画像が無いアルバムは何も出さず、
+ * 本文のリンクのままにする。セルラーでは、タップされるまで Imgur に問い合わせない。
+ */
+function ImgurAlbumThumbs({ url, options, theme, onImage, onUrl }) {
+  const [album, setAlbum] = useState(() => getCachedImgurAlbum(url))
+  const [requested, setRequested] = useState(false)
+  const waitingForTap = options.saveData && !requested && album === undefined
+
+  useEffect(() => {
+    if (album !== undefined || waitingForTap) return undefined
+    let alive = true
+    fetchImgurAlbum(url).then((got) => {
+      if (alive) setAlbum(got)
+    })
+    return () => {
+      alive = false
+    }
+  }, [url, album, waitingForTap])
+
+  const size = options.thumbSize || THUMB
+  const boxStyle = [
+    styles.thumb,
+    { width: size, height: size, backgroundColor: theme.surfaceAlt },
+  ]
+
+  if (waitingForTap) {
+    return (
+      <Pressable
+        accessibilityLabel="アルバムを読み込む"
+        accessibilityRole="imagebutton"
+        onPress={() => setRequested(true)}
+        style={boxStyle}
+      >
+        <View style={styles.deferred}>
+          <Icon name="download" size={20} color={theme.textDim} />
+          <Text style={[styles.deferredText, { color: theme.textDim }]}>
+            タップでアルバムを読み込む
+          </Text>
+        </View>
+      </Pressable>
+    )
+  }
+  if (album === undefined) {
+    return (
+      <View style={boxStyle}>
+        <Text style={[styles.deferredText, { color: theme.textFaint }]}>
+          アルバムを確認中…
+        </Text>
+      </View>
+    )
+  }
+  if (album === null) return null
+
+  const shown = album.images.slice(0, IMGUR_ALBUM_MAX_THUMBS)
+  const more = album.images.length - shown.length + album.unlisted
+  return (
+    <>
+      {shown.map((src) => (
+        <Thumb
+          key={src}
+          uri={src}
+          label="画像"
+          masked={options.thumbMask}
+          // アルバムのタップで読み込みに同意しているので 1 枚ずつは待たせない
+          deferred={false}
+          maxKb={options.imageMaxKb}
+          size={options.thumbSize}
+          imageNg={options.imageNg}
+          theme={theme}
+          onOpen={() => onImage && onImage(src)}
+        />
+      ))}
+      {more > 0 ? (
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel={`アルバムの残り ${more} 枚を開く`}
+          onPress={() => onUrl && onUrl(url)}
+          style={boxStyle}
+        >
+          <Text style={[styles.moreText, { color: theme.textDim }]}>
+            +{more}枚
+          </Text>
+        </Pressable>
+      ) : null}
+    </>
+  )
+}
+
 function OgpCard({ url, theme, masked, hideImages, onUrl }) {
   const [card, setCard] = useState(null)
 
@@ -235,6 +345,7 @@ function OgpCard({ url, theme, masked, hideImages, onUrl }) {
 function ResponseMedia({ media, options, hideImages, theme, onImage, onUrl }) {
   if (!media) return null
   const images = !hideImages && options.thumbnails ? media.images : []
+  const albums = !hideImages && options.thumbnails ? media.albums || [] : []
   const videos = !hideImages && options.youtubeThumbs ? media.youtube : []
   // カードはリンク先へ自動で接続するので、セルラーでは出さない。リンク自体は本文にある
   const links = options.ogpCards && !options.saveData ? media.links : []
@@ -243,6 +354,7 @@ function ResponseMedia({ media, options, hideImages, theme, onImage, onUrl }) {
     options.tweetCards && !options.saveData ? media.tweets || [] : []
   if (
     images.length +
+      albums.length +
       videos.length +
       links.length +
       files.length +
@@ -254,7 +366,7 @@ function ResponseMedia({ media, options, hideImages, theme, onImage, onUrl }) {
 
   return (
     <View style={styles.wrap}>
-      {images.length + videos.length > 0 ? (
+      {images.length + albums.length + videos.length > 0 ? (
         <View style={styles.thumbs}>
           {images.map((m) => (
             <Thumb
@@ -268,6 +380,16 @@ function ResponseMedia({ media, options, hideImages, theme, onImage, onUrl }) {
               imageNg={options.imageNg}
               theme={theme}
               onOpen={() => onImage && onImage(m.url)}
+            />
+          ))}
+          {albums.map((m) => (
+            <ImgurAlbumThumbs
+              key={m.url}
+              url={m.url}
+              options={options}
+              theme={theme}
+              onImage={onImage}
+              onUrl={onUrl}
             />
           ))}
           {videos.map((m) => (
@@ -330,6 +452,16 @@ const styles = StyleSheet.create({
     padding: 6,
   },
   deferredText: { fontSize: 10, textAlign: 'center' },
+  moreText: { fontSize: 14, fontWeight: '600' },
+  broken: {
+    width: 40,
+    height: 40,
+    borderRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   wrap: { gap: 6, marginTop: 6 },
   thumbs: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   square: { borderRadius: 0 },

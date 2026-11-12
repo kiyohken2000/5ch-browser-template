@@ -112,6 +112,7 @@ import { beProfileUrl, beThreadHistoryUrl } from 'lib/be'
 import { wordHits } from 'lib/highlights'
 import { computeImageHash } from 'lib/imageHash'
 import { openInAppBrowser } from 'lib/inAppBrowser'
+import { getCachedImgurAlbum } from 'lib/imgurAlbum'
 import { collectImages, extractMedia } from 'lib/media'
 import { quoteReply } from 'lib/postDrafts'
 import { compatSiteOf } from 'lib/sites'
@@ -615,14 +616,15 @@ export default function Thread({ route, navigation }) {
     [dispatch],
   )
   const galleryImages = useMemo(
-    () => (galleryOpen ? collectImages(shown) : []),
+    () => (galleryOpen ? collectImages(shown, getCachedImgurAlbum) : []),
     [galleryOpen, shown],
   )
 
   /** ビューアの並び。今見ている画像が一覧に無ければ、その 1 枚だけにする。 */
   const viewerImages = useMemo(() => {
     if (viewerUrl === null) return { list: [], index: 0 }
-    const list = collectImages(shown)
+    // アルバムの画像は解決済みの分だけ入る（タップできた画像は解決済み）
+    const list = collectImages(shown, getCachedImgurAlbum)
     const index = list.findIndex((m) => m.url === viewerUrl)
     return index >= 0
       ? { list, index }

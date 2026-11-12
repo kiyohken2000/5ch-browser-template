@@ -21,11 +21,19 @@ const IMAGE_EXT_RE = /\.(?:jpe?g|png|gif|webp|heic|avif)$/i
  * 拡張子を省いた Imgur の直リンク（`i.imgur.com/<ID>`）と、閲覧ページの URL
  * （`imgur.com/<ID>`）。そのまま読むと HTML ページになるので、`.jpeg` を補った
  * 直リンクにして画像として扱う。Imgur は拡張子と実際の形式が違っても画像本体を
- * 返す。`imgur.com/a/...` や `imgur.com/gallery/...`（アルバム）は対象外。
- * デスクトップ版と同じ扱い。
+ * 返す。`imgur.com/a/...` や `imgur.com/gallery/...`（アルバム）は下の
+ * `IMGUR_ALBUM_PATH_RE` で別に扱う。デスクトップ版と同じ扱い。
  */
 const BARE_IMGUR_PATH_RE = /^\/([A-Za-z0-9]{5,10})\/?$/
 const IMGUR_HOST_RE = /^(?:(i|www|m)\.)?imgur\.com$/
+/**
+ * Imgur のアルバム（`imgur.com/a/<ID>`）と投稿（`imgur.com/gallery/<ID>`）。
+ * 1 つの URL に複数の画像が入っていることがあり、URL からは中身が分からないので、
+ * `lib/imgurAlbum` で画像の直リンクに解決してから並べる。タイトル付きの
+ * `a/<タイトル>-<ID>` も末尾の ID を拾う。デスクトップ版と同じ扱い。
+ */
+const IMGUR_ALBUM_PATH_RE =
+  /^\/(a|gallery)\/(?:[^/]*-)?([A-Za-z0-9]{5,10})\/?$/i
 
 /** デスクトップ版 `YOUTUBE_VIDEO_ID_RE` と同じ形。 */
 const YOUTUBE_RE =
@@ -59,7 +67,7 @@ export function isPublicHost(host) {
 
 /**
  * 1 つの URL を分類する。
- * @returns {{kind: 'image'|'youtube'|'video'|'tweet'|'link'|'none', url: string, videoId?: string, thumb?: string}}
+ * @returns {{kind: 'image'|'imgurAlbum'|'youtube'|'video'|'tweet'|'link'|'none', url: string, videoId?: string, thumb?: string}}
  */
 export function classifyUrl(raw) {
   const url = normalizeExternalUrl(raw)
@@ -86,6 +94,17 @@ export function classifyUrl(raw) {
       return { kind: 'image', url: `https://i.imgur.com/${id}.jpeg` }
     }
   }
+  if (imgurHost && imgurHost[1] !== 'i') {
+    const album = IMGUR_ALBUM_PATH_RE.exec(parts.path)
+    if (album) {
+      const kind = album[1].toLowerCase()
+      // 取りに行く URL は形を揃える（クエリやタイトル部分は落とす）
+      return {
+        kind: 'imgurAlbum',
+        url: `https://imgur.com/${kind}/${album[2]}`,
+      }
+    }
+  }
   if (extractTweetId(url)) return { kind: 'tweet', url }
   if (VIDEO_EXT_RE.test(parts.path)) {
     // `.mp4/` と書かれることがある。スラッシュ付きのままでは取得できない
@@ -108,6 +127,7 @@ export function classifyUrl(raw) {
 export function extractMedia(urls, options = {}) {
   const { maxCards = 2 } = options
   const images = []
+  const albums = []
   const youtube = []
   const videos = []
   const tweets = []
@@ -115,12 +135,14 @@ export function extractMedia(urls, options = {}) {
   for (const raw of urls || []) {
     const c = classifyUrl(raw)
     if (c.kind === 'image') images.push(c)
-    else if (c.kind === 'youtube') youtube.push(c)
+    else if (c.kind === 'imgurAlbum') {
+      if (!albums.some((a) => a.url === c.url)) albums.push(c)
+    } else if (c.kind === 'youtube') youtube.push(c)
     else if (c.kind === 'video') videos.push(c)
     else if (c.kind === 'tweet' && tweets.length < maxCards) tweets.push(c)
     else if (c.kind === 'link' && links.length < maxCards) links.push(c)
   }
-  return { images, youtube, videos, tweets, links }
+  return { images, albums, youtube, videos, tweets, links }
 }
 
 /**
@@ -128,10 +150,14 @@ export function extractMedia(urls, options = {}) {
  * レスの画像は入れない**（不変条件 2。一覧からは隠れているのに前後移動で
  * 見えてしまう、という経路を作らない）。
  *
+ * Imgur アルバムの画像は、解決済みのものだけを `resolveAlbum` から入れる
+ * （画面に出たアルバムは解決済みなので、タップした画像は並びに入っている）。
+ *
  * @param {Array} rows `applyNg` 済みの行
+ * @param {(url: string) => ({images: string[]} | null | undefined)} [resolveAlbum]
  * @returns {Array<{url: string, no: number}>}
  */
-export function collectImages(rows) {
+export function collectImages(rows, resolveAlbum) {
   const out = []
   const seen = new Set()
   for (const row of rows || []) {
@@ -144,6 +170,14 @@ export function collectImages(rows) {
         if (!seen.has(image.url)) {
           seen.add(image.url)
           out.push({ url: image.url, no: row.no })
+        }
+      }
+      for (const album of resolveAlbum ? row.media?.albums || [] : []) {
+        for (const url of resolveAlbum(album.url)?.images || []) {
+          if (!seen.has(url)) {
+            seen.add(url)
+            out.push({ url, no: row.no })
+          }
         }
       }
     }
