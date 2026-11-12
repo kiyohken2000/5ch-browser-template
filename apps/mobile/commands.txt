@@ -10,6 +10,11 @@ eas build --profile preview --platform android
 eas build --profile production --platform ios
 eas build --profile production --platform android
 
+// build: develop (iOS Simulator, ローカルビルド。EAS のビルド枠を使わない)
+// 成果物は build-*.tar.gz。展開した Ember.app を xcrun simctl install でインストール
+eas build --profile development --platform ios --local
+tar -xzf build-*.tar.gz -C ../../_temp
+
 // OTA update
 eas update --channel internal --message "Updating the app"
 eas update --channel production --message "Updating the app"
