@@ -3954,6 +3954,46 @@ a.body-link-image:hover::after {
   filter: none;
 }
 
+/* 読み込めなかったサムネイル (リンク切れ)。ImageOff のアイコンだけを薄く出す。 */
+.thumb-link.thumb-broken {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  box-sizing: border-box;
+  border: 1px dashed #c8ccd2;
+  border-radius: 3px;
+  background: #f6f7f9;
+  color: #9aa1ab;
+  cursor: default;
+}
+.dark .thumb-link.thumb-broken {
+  border-color: #474c54;
+  background: #23262b;
+  color: #6f7682;
+}
+/* 「Ctrl でポップアップ」の案内は画像が無い枠には出さない */
+.thumb-link.thumb-broken::after,
+.thumb-link.imgur-album-slot::after,
+.thumb-link.imgur-album-gate::after {
+  content: none;
+}
+/* アルバムの残り枚数。サムネの並びの末尾に置く。 */
+a.imgur-album-more {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  min-height: 30px;
+  font-size: 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 3px;
+  text-decoration: none;
+}
+.dark a.imgur-album-more {
+  border-color: #474c54;
+}
+
 .thumb-gate-loading {
   display: inline-block;
   padding: 4px 8px;

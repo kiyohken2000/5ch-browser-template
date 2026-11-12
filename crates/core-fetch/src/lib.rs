@@ -420,6 +420,141 @@ fn parse_ogp(url: &str, html: &str) -> OgpCard {
 }
 
 // --------------------------------------------------------------------------
+// Imgur アルバム解決
+// --------------------------------------------------------------------------
+
+/// Imgur アルバム (`imgur.com/a/<id>` / `imgur.com/gallery/<id>`) の中身。
+/// `images` は `i.imgur.com` の画像直リンク (動画は含めない)。
+/// `unlisted` は埋め込みページに件数だけ載っていて一覧に無かった分。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImgurAlbum {
+    pub images: Vec<String>,
+    pub unlisted: usize,
+}
+
+/// 埋め込みページ本文の読み込み上限。実測 100KB 前後なので余裕を持たせる。
+const IMGUR_EMBED_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+fn is_imgur_id(s: &str) -> bool {
+    (5..=10).contains(&s.len()) && s.chars().all(|c| c.is_ascii_alphanumeric())
+}
+
+/// アルバム URL から `(種類, ID)` を取り出す。種類は `"a"` か `"gallery"`。
+/// `imgur.com/a/<タイトル>-<ID>` のようにタイトル付きの形は末尾の `-` 以降を ID とみなす。
+pub fn parse_imgur_album_url(url: &str) -> Option<(&'static str, String)> {
+    let parsed = Url::parse(url).ok()?;
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    if !matches!(host.as_str(), "imgur.com" | "www.imgur.com" | "m.imgur.com") {
+        return None;
+    }
+    let mut segs = parsed.path_segments()?.filter(|s| !s.is_empty());
+    let kind = match segs.next()? {
+        "a" => "a",
+        "gallery" => "gallery",
+        _ => return None,
+    };
+    let slug = segs.next()?;
+    if segs.next().is_some() {
+        return None;
+    }
+    let id = slug.rsplit('-').next()?;
+    is_imgur_id(id).then(|| (kind, id.to_string()))
+}
+
+/// 埋め込みページ (`/a/<id>/embed`) に書かれた `var images = {...}` から画像一覧を取り出す
+/// 純粋関数。動画 (`.mp4` など) は除外する。見つからなければ None。
+fn parse_imgur_embed(html: &str) -> Option<ImgurAlbum> {
+    let start = html.find("var images")?;
+    let rest = &html[start..];
+    let eq = rest.find('=')?;
+    let json_part = rest[eq + 1..].trim_start();
+    let value: Value = serde_json::Deserializer::from_str(json_part)
+        .into_iter::<Value>()
+        .next()?
+        .ok()?;
+    let list = value.get("images")?.as_array()?;
+    let count = value
+        .get("count")
+        .and_then(|c| c.as_u64())
+        .map(|c| c as usize)
+        .unwrap_or(list.len());
+    let images = list
+        .iter()
+        .filter_map(|item| {
+            let hash = item.get("hash")?.as_str()?;
+            let ext = item.get("ext")?.as_str()?.to_ascii_lowercase();
+            if !is_imgur_id(hash) {
+                return None;
+            }
+            matches!(ext.as_str(), ".jpg" | ".jpeg" | ".png" | ".gif" | ".webp")
+                .then(|| format!("https://i.imgur.com/{}{}", hash, ext))
+        })
+        .collect();
+    Some(ImgurAlbum {
+        images,
+        unlisted: count.saturating_sub(list.len()),
+    })
+}
+
+/// og:image (例 `https://i.imgur.com/bjLKzIF.jpeg?fb`) を画像直リンクに整える。
+/// `i.imgur.com` 以外 (Imgur のロゴ画像など) は採用しない。
+fn imgur_cover_from_og_image(og: &str) -> Option<String> {
+    let parsed = Url::parse(og).ok()?;
+    if parsed.host_str()? != "i.imgur.com" {
+        return None;
+    }
+    let file = parsed.path().trim_start_matches('/');
+    let (hash, ext) = file.split_once('.')?;
+    let ext = ext.to_ascii_lowercase();
+    (is_imgur_id(hash) && matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp"))
+        .then(|| format!("https://i.imgur.com/{}.{}", hash, ext))
+}
+
+/// Imgur のアルバム URL を画像直リンクの一覧に解決する。
+/// まず埋め込みページから全画像を取り、取れなければアルバムページの og:image (表紙1枚) で代用する。
+pub async fn fetch_imgur_album(client: &Client, url: &str) -> Result<ImgurAlbum, FetchError> {
+    let (kind, id) = parse_imgur_album_url(url)
+        .ok_or_else(|| FetchError::Parse("not an imgur album url".into()))?;
+    let embed_url = format!("https://imgur.com/a/{}/embed?pub=true", id);
+    match fetch_imgur_embed(client, &embed_url).await {
+        Ok(Some(album)) => return Ok(album),
+        Ok(None) => {}
+        Err(e) => eprintln!("imgur embed fetch failed ({}): {}", id, e),
+    }
+    let page_url = format!("https://imgur.com/{}/{}", kind, id);
+    let card = fetch_ogp(client, &page_url).await?;
+    let cover = card
+        .image
+        .as_deref()
+        .and_then(imgur_cover_from_og_image)
+        .ok_or_else(|| FetchError::Parse("imgur album has no cover image".into()))?;
+    Ok(ImgurAlbum {
+        images: vec![cover],
+        unlisted: 0,
+    })
+}
+
+async fn fetch_imgur_embed(
+    client: &Client,
+    embed_url: &str,
+) -> Result<Option<ImgurAlbum>, FetchError> {
+    let mut resp = client.get(embed_url).send().await?;
+    if !resp.status().is_success() {
+        return Err(FetchError::HttpStatus(resp.status()));
+    }
+    let mut buf: Vec<u8> = Vec::with_capacity(128 * 1024);
+    while let Some(chunk) = resp.chunk().await? {
+        buf.extend_from_slice(&chunk);
+        if buf.len() >= IMGUR_EMBED_MAX_BYTES {
+            break;
+        }
+    }
+    let html = String::from_utf8_lossy(&buf);
+    Ok(parse_imgur_embed(&html))
+}
+
+// --------------------------------------------------------------------------
 // X (Twitter) ポストカード取得
 // --------------------------------------------------------------------------
 
@@ -1840,6 +1975,7 @@ mod tests {
         resolve_dat_url_from_thread_url, resolve_subject_url_from_thread_url, seed_cookie,
         synthesize_post_form_tokens, syndication_token, Value,
     };
+    use super::{imgur_cover_from_og_image, parse_imgur_album_url, parse_imgur_embed};
     use reqwest::cookie::Jar;
 
     #[test]
@@ -1866,6 +2002,54 @@ mod tests {
         );
         // charset 宣言なし → None
         assert_eq!(detect_meta_charset(b"<html><head></head></html>"), None);
+    }
+
+    #[test]
+    fn parse_imgur_album_url_accepts_album_and_gallery() {
+        assert_eq!(
+            parse_imgur_album_url("https://imgur.com/a/beM1zmX"),
+            Some(("a", "beM1zmX".to_string()))
+        );
+        assert_eq!(
+            parse_imgur_album_url("https://m.imgur.com/gallery/some-funny-title-AbCd123"),
+            Some(("gallery", "AbCd123".to_string()))
+        );
+        assert_eq!(parse_imgur_album_url("https://imgur.com/beM1zmX"), None);
+        assert_eq!(
+            parse_imgur_album_url("https://imgur.com/a/beM1zmX/embed"),
+            None
+        );
+        assert_eq!(parse_imgur_album_url("https://example.com/a/beM1zmX"), None);
+    }
+
+    #[test]
+    fn parse_imgur_embed_lists_images_and_skips_videos() {
+        let html = r#"<script>(function() {
+            var images      = {"count":4,"images":[{"hash":"bjLKzIF","title":"","ext":".jpg"},{"hash":"Vid0001","ext":".mp4"},{"hash":"Png0002","ext":".PNG"}]};
+            var other = 1;
+        })();</script>"#;
+        let album = parse_imgur_embed(html).expect("album");
+        assert_eq!(
+            album.images,
+            vec![
+                "https://i.imgur.com/bjLKzIF.jpg".to_string(),
+                "https://i.imgur.com/Png0002.png".to_string()
+            ]
+        );
+        assert_eq!(album.unlisted, 1);
+        assert_eq!(parse_imgur_embed("<html>no data</html>"), None);
+    }
+
+    #[test]
+    fn imgur_cover_from_og_image_strips_query() {
+        assert_eq!(
+            imgur_cover_from_og_image("https://i.imgur.com/bjLKzIF.jpeg?fb").as_deref(),
+            Some("https://i.imgur.com/bjLKzIF.jpeg")
+        );
+        assert_eq!(
+            imgur_cover_from_og_image("https://s.imgur.com/images/logo.png"),
+            None
+        );
     }
 
     #[test]

@@ -1579,7 +1579,8 @@ const normalizeExternalUrl = (raw: string): string | null => {
 // i.imgur.com/<ID> のように拡張子を省いた Imgur の直リンクと、imgur.com/<ID> の
 // 閲覧ページの URL。そのまま <img> に渡すと HTML ページになるので、拡張子を補った
 // 直リンクに置き換える。Imgur は拡張子と実際の形式が違っても画像本体を返すので
-// .jpeg で固定してよい。imgur.com/a/... や imgur.com/gallery/... (アルバム) は対象外。
+// .jpeg で固定してよい。imgur.com/a/... や imgur.com/gallery/... (アルバム) は
+// 中の画像を resolve_imgur_album で調べる必要があるので、下の imgurAlbumKey で別に扱う。
 const BARE_IMGUR_TEXT_RE = /(?:(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)|(?<!\S))(?:i\.|www\.|m\.)?imgur\.com\/[A-Za-z0-9]{5,10}(?![A-Za-z0-9.\/?#_-])/gi;
 const bareImgurImageUrl = (url: string): string | null => {
   const m = url.match(/^https?:\/\/(i\.|www\.|m\.)?imgur\.com\/([A-Za-z0-9]{5,10})$/i);
@@ -1595,6 +1596,28 @@ const bareImgurImageUrlFromText = (text: string): string | null => {
   const href = normalizeExternalUrl(text);
   return href ? bareImgurImageUrl(href) : null;
 };
+// Imgur のアルバム (imgur.com/a/<ID>) と投稿 (imgur.com/gallery/<ID>)。1 つの URL に
+// 複数の画像が入っていることがあり、URL からは中身が分からないので、Rust 側の
+// resolve_imgur_album で画像の直リンクの一覧に解決してからサムネイルを並べる。
+// 「a/<ID>」の形のキーを返す。タイトル付きの「a/<タイトル>-<ID>」も末尾の ID を拾う。
+const IMGUR_ALBUM_URL_RE = /^https?:\/\/(?:www\.|m\.)?imgur\.com\/(a|gallery)\/(?:[^/?#\s]*-)?([A-Za-z0-9]{5,10})\/?(?:[?#][^\s]*)?$/i;
+const imgurAlbumKey = (url: string): string | null => {
+  const m = url.match(IMGUR_ALBUM_URL_RE);
+  return m ? `${m[1].toLowerCase()}/${m[2]}` : null;
+};
+// 本文の 1 行からアルバムの URL らしき部分を拾う (スキーム省略形を含む)。判定は imgurAlbumKeyFromText で行う。
+const IMGUR_ALBUM_TEXT_RE = /(?:(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/)|(?<!\S))(?:www\.|m\.)?imgur\.com\/(?:a|gallery)\/[^\s<>&"\u0080-\uFFFF]+/gi;
+const imgurAlbumKeyFromText = (text: string): string | null => {
+  const href = normalizeExternalUrl(text);
+  return href ? imgurAlbumKey(href) : null;
+};
+// 解決済みのアルバム。null は解決できなかったもの (リンクのまま表示する)。
+type ImgurAlbumEntry = { images: string[]; unlisted: number } | null;
+// 1 つのアルバムから並べるサムネイルの上限。残りは「+N枚」でアルバムへのリンクにする。
+const IMGUR_ALBUM_MAX_THUMBS = 20;
+// 読み込めなかったサムネイルの代わりに出すアイコン (lucide の ImageOff と同じ図形)。
+// サムネイルは HTML 文字列で組み立てているので、React 部品ではなく SVG を直接埋め込む。
+const BROKEN_THUMB_ICON_HTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="2" x2="22" y1="2" y2="22"/><path d="M10.41 10.41a2 2 0 1 1-2.83-2.83"/><line x1="13.5" x2="6" y1="13.5" y2="21"/><line x1="18" x2="21" y1="12" y2="15"/><path d="M3.59 3.59A1.99 1.99 0 0 0 3 5v14a2 2 0 0 0 2 2h14c.55 0 1.052-.22 1.41-.59"/><path d="M21 15V5a2 2 0 0 0-2-2H9"/></svg>';
 
 const isTextLikeInput = (el: HTMLInputElement | HTMLTextAreaElement): boolean => {
   if (el instanceof HTMLTextAreaElement) return true;
@@ -2539,7 +2562,7 @@ const ogpDomainAllowed = (url: string, allow: string[], block: string[]): boolea
   return true;
 };
 
-const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[]; knownIds?: { has: (id: string) => boolean }; idColor?: boolean; darkMode?: boolean }): { __html: string } => {
+const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[]; knownIds?: { has: (id: string) => boolean }; idColor?: boolean; darkMode?: boolean; imgurAlbums?: Record<string, ImgurAlbumEntry>; imgurAlbumsRevealed?: { has: (key: string) => boolean } }): { __html: string } => {
   let safe = html
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<a\s[^>]*>(.*?)<\/a>/gi, "$1")
@@ -2552,7 +2575,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
     .replace(/"/g, "&quot;");
   if (opts?.hideImages) {
     // Remove image URL lines entirely
-    safe = safe.split("\n").filter((line) => !/(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/)[^\s<>&"\u0080-\uFFFF]+\.(?:jpg|jpeg|png|gif|webp)/i.test(line) && !(line.match(BARE_IMGUR_TEXT_RE) ?? []).some((m) => bareImgurImageUrlFromText(m))).join("\n");
+    safe = safe.split("\n").filter((line) => !/(?:https?:\/\/|ttps?:\/\/|ps:\/\/|s:\/\/|(?<![a-zA-Z]):\/\/|(?<!\S)(?:[a-zA-Z0-9][-a-zA-Z0-9]*\.)+[a-zA-Z]{2,}\/)[^\s<>&"\u0080-\uFFFF]+\.(?:jpg|jpeg|png|gif|webp)/i.test(line) && !(line.match(BARE_IMGUR_TEXT_RE) ?? []).some((m) => bareImgurImageUrlFromText(m)) && !(line.match(IMGUR_ALBUM_TEXT_RE) ?? []).some((m) => imgurAlbumKeyFromText(m))).join("\n");
   }
   safe = safe.replace(/\n/g, "<br>");
   const collectedThumbs: string[] = [];
@@ -2560,13 +2583,40 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   // クリックで実体に差し替える処理はサイズ制限のゲートと同じものを使い回す。
   const manualThumbs = opts?.thumbAutoLoad === false;
   const sizeGated = opts?.imageSizeLimitKb && opts.imageSizeLimitKb > 0;
-  const pushImageThumb = (href: string) => {
-    if (manualThumbs) {
+  // force は「クリックでアルバムを表示」を押したあとのアルバム画像。押した時点で
+  // 読み込みに同意しているので、1 枚ずつのプレースホルダには戻さない。
+  const pushImageThumb = (href: string, force = false) => {
+    if (manualThumbs && !force) {
       collectedThumbs.push(`<span class="thumb-link thumb-size-gate" data-lightbox-src="${href}"><span class="thumb-gate-blocked thumb-gate-manual" data-reveal-src="${href}">クリックで表示</span></span>`);
     } else if (sizeGated) {
       collectedThumbs.push(`<span class="thumb-link thumb-size-gate" data-lightbox-src="${href}" data-gate-src="${href}" data-size-limit="${opts.imageSizeLimitKb}"><span class="thumb-gate-loading">画像を確認中…</span></span>`);
     } else {
       collectedThumbs.push(`<span class="thumb-link" data-lightbox-src="${href}"><img class="response-thumb" src="${href}" loading="lazy" referrerpolicy="no-referrer" alt="" /></span>`);
+    }
+  };
+  // Imgur のアルバム。解決前は「確認中」の枠を置き、App 側が画面に入った枠から
+  // resolve_imgur_album を呼んで imgurAlbums に結果を入れると、次の描画で画像が並ぶ。
+  // サムネの自動読み込みを切っているときは、押されるまで Imgur へ問い合わせない。
+  const seenAlbumKeys = new Set<string>();
+  const pushImgurAlbumThumbs = (key: string, href: string) => {
+    if (seenAlbumKeys.has(key)) return;
+    seenAlbumKeys.add(key);
+    const entry = opts?.imgurAlbums?.[key];
+    const revealed = opts?.imgurAlbumsRevealed?.has(key) ?? false;
+    if (entry === undefined) {
+      if (manualThumbs && !revealed) {
+        collectedThumbs.push(`<span class="thumb-link thumb-size-gate imgur-album-gate"><span class="thumb-gate-blocked thumb-gate-manual" data-reveal-imgur-album="${key}" data-album-url="${href}">クリックでアルバムを表示</span></span>`);
+      } else {
+        collectedThumbs.push(`<span class="thumb-link imgur-album-slot" data-imgur-album="${key}" data-album-url="${href}"><span class="thumb-gate-loading">アルバムを確認中…</span></span>`);
+      }
+      return;
+    }
+    if (entry === null) return;
+    const shown = entry.images.slice(0, IMGUR_ALBUM_MAX_THUMBS);
+    for (const src of shown) pushImageThumb(src, revealed);
+    const more = entry.images.length - shown.length + entry.unlisted;
+    if (more > 0) {
+      collectedThumbs.push(`<a class="body-link imgur-album-more" href="${href}" target="_blank" rel="noopener" title="アルバムの残りを開く">+${more}枚</a>`);
     }
   };
   if (!opts?.hideImages) {
@@ -2617,6 +2667,11 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
       if (!href) return match;
       // 拡張子なしの Imgur 直リンクは補った URL で画像として扱う (表示文字列は投稿のまま)。
       // リンク先も補った URL にして、ホバープレビューの拡張子判定に乗せる。
+      const albumKey = opts?.hideImages ? null : imgurAlbumKey(href);
+      if (albumKey) {
+        pushImgurAlbumThumbs(albumKey, href);
+        return `<a class="body-link body-link-imgur-album" href="${href}" target="_blank" rel="noopener">${match}</a>`;
+      }
       const imgurHref = opts?.hideImages ? null : bareImgurImageUrl(href);
       if (imgurHref) {
         pushImageThumb(imgurHref);
@@ -2751,7 +2806,7 @@ const renderResponseBody = (html: string, opts?: { hideImages?: boolean; imageSi
   }
   return { __html: safe };
 };
-const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[]; knownIds?: { has: (id: string) => boolean }; idColor?: boolean; darkMode?: boolean }): { __html: string } => {
+const renderResponseBodyHighlighted = (html: string, query: string, highlightWords: { value: string; color: string }[], opts?: { hideImages?: boolean; imageSizeLimitKb?: number; thumbAutoLoad?: boolean; youtubeThumbs?: boolean; ogpCards?: boolean; tweetCards?: boolean; ogpAllow?: string[]; ogpBlock?: string[]; knownIds?: { has: (id: string) => boolean }; idColor?: boolean; darkMode?: boolean; imgurAlbums?: Record<string, ImgurAlbumEntry>; imgurAlbumsRevealed?: { has: (key: string) => boolean } }): { __html: string } => {
   let out = renderResponseBody(html, opts).__html;
   out = highlightEntriesPreservingTags(out, highlightWords);
   out = highlightHtmlPreservingTags(out, query);
@@ -3535,6 +3590,13 @@ export default function App() {
   const tweetInflightRef = useRef<Map<string, Promise<TweetCardData | null>>>(new Map());
   // 取得済み OGP のキャッシュ (null = 取得失敗/データ無し)。再レンダー間で共有し再取得を防ぐ。
   const ogpCacheRef = useRef<Map<string, OgpCardData | null>>(new Map());
+  // Imgur アルバムの解決結果 (キーは「a/<ID>」)。本文の描画に渡し、結果が入ると画像が並ぶ。
+  const [imgurAlbums, setImgurAlbums] = useState<Record<string, ImgurAlbumEntry>>({});
+  // サムネの自動読み込み OFF のときに「クリックでアルバムを表示」を押したアルバム。
+  const [imgurAlbumsRevealed, setImgurAlbumsRevealed] = useState<Set<string>>(() => new Set());
+  // 一度問い合わせたアルバムは、このセッション中は取り直さない (結果は Rust 側でもキャッシュする)。
+  const imgurAlbumRequestedRef = useRef<Set<string>>(new Set());
+  const imgurAlbumObserverRef = useRef<IntersectionObserver | null>(null);
   // 取得中の URL → Promise。同一 URL の並行フェッチを1本にまとめる。
   const ogpInflightRef = useRef<Map<string, Promise<OgpCardData | null>>>(new Map());
   // OGP 取得対象ドメインの許可/ブロックリスト。ブロックは常に除外、許可は空なら全許可。
@@ -4359,7 +4421,11 @@ export default function App() {
           sizePromise = fetch(src, { method: "HEAD" }).then((res) => {
             const cl = res.headers.get("content-length");
             return cl ? parseInt(cl, 10) : null;
-          }).catch(() => null);
+          }).catch((err) => {
+            // サイズが分からないときは制限をかけずに表示する (従来どおり)
+            console.warn("image size check failed", src, err);
+            return null;
+          });
           cache.set(src, sizePromise);
         }
         sizePromise.then((size) => {
@@ -8556,11 +8622,11 @@ export default function App() {
       const videoRe = /\.(?:mp4|webm|mov)(?:\?|$)|youtu\.?be|nicovideo|nico\.ms/i;
       const urls = plain.match(urlRe) || [];
       if (responseLinkFilter === "image") {
-        if (!urls.some((u) => imageRe.test(u) || bareImgurImageUrlFromText(u))) return false;
+        if (!urls.some((u) => imageRe.test(u) || bareImgurImageUrlFromText(u) || imgurAlbumKeyFromText(u))) return false;
       } else if (responseLinkFilter === "video") {
         if (!urls.some((u) => videoRe.test(u))) return false;
       } else if (responseLinkFilter === "link") {
-        if (!urls.some((u) => !imageRe.test(u) && !videoRe.test(u) && !bareImgurImageUrlFromText(u))) return false;
+        if (!urls.some((u) => !imageRe.test(u) && !videoRe.test(u) && !bareImgurImageUrlFromText(u) && !imgurAlbumKeyFromText(u))) return false;
       }
     }
     return true;
@@ -8619,7 +8685,10 @@ export default function App() {
         sizePromise = fetch(url, { method: "HEAD" }).then((res) => {
           const cl = res.headers.get("content-length");
           return cl ? parseInt(cl, 10) : null;
-        }).catch(() => null);
+        }).catch((err) => {
+          console.warn("image size check failed", url, err);
+          return null;
+        });
         cache.set(url, sizePromise);
       }
       void sizePromise.then((size) => {
@@ -8900,7 +8969,7 @@ export default function App() {
   const renderPopupBody = (resp: typeof responseItems[number]) =>
     ngResultMap.get(resp.id) === "abone"
       ? <div className="anchor-popup-body abone-body">{ABONE_TEXT}</div>
-      : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { hideImages: ngResultMap.get(resp.id) === "hide-images", youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, idColor: idColorEnabled, darkMode })} />;
+      : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { hideImages: ngResultMap.get(resp.id) === "hide-images", youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, idColor: idColorEnabled, darkMode, imgurAlbums, imgurAlbumsRevealed })} />;
 
   const goFromLocationInput = () => {
     const next = rewrite5chNet(locationInput.trim());
@@ -10440,7 +10509,81 @@ export default function App() {
   // 「クリックで表示」(サムネの自動読み込み OFF / サイズ制限) の枠を画像に差し替える。
   // 本文とポップアップの両方から呼ぶ。ポップアップは本文ペインの外に描くので、
   // 本文側のクリック委譲では拾えない。
+  // Imgur アルバムを画像の直リンクの一覧に解決して imgurAlbums に入れる。
+  // 失敗や画像が 1 枚も無い (動画だけの) アルバムは null にして、リンクのままにする。
+  const resolveImgurAlbum = (key: string, url: string) => {
+    if (!isTauriRuntime()) return;
+    const requested = imgurAlbumRequestedRef.current;
+    if (requested.has(key)) return;
+    requested.add(key);
+    invoke<{ images: string[]; unlisted: number }>("resolve_imgur_album", { url })
+      .then((album) => {
+        const entry: ImgurAlbumEntry = album.images.length > 0 ? { images: album.images, unlisted: album.unlisted } : null;
+        setImgurAlbums((prev) => ({ ...prev, [key]: entry }));
+      })
+      .catch((err) => {
+        console.warn("resolve_imgur_album failed", url, err);
+        setImgurAlbums((prev) => ({ ...prev, [key]: null }));
+      });
+  };
+  const resolveImgurAlbumRef = useRef(resolveImgurAlbum);
+  resolveImgurAlbumRef.current = resolveImgurAlbum;
+  // 「アルバムを確認中…」の枠が画面に近づいたら解決する。本文ペインとポップアップの
+  // どちらにも出るので、root を決めずにビューポート基準で見張る (祖先のスクロール
+  // 領域で隠れている間は交差しない)。描画のたびに新しい枠を登録する。
+  useEffect(() => {
+    let io = imgurAlbumObserverRef.current;
+    if (!io) {
+      io = new IntersectionObserver(
+        (entries, obs) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const slot = entry.target as HTMLElement;
+            obs.unobserve(slot);
+            const key = slot.dataset.imgurAlbum;
+            const url = slot.dataset.albumUrl;
+            if (key && url) resolveImgurAlbumRef.current(key, url);
+          }
+        },
+        { rootMargin: "300px" },
+      );
+      imgurAlbumObserverRef.current = io;
+    }
+    const observer = io;
+    document.querySelectorAll<HTMLElement>(".imgur-album-slot[data-imgur-album]").forEach((slot) => observer.observe(slot));
+  });
+  useEffect(() => () => {
+    imgurAlbumObserverRef.current?.disconnect();
+    imgurAlbumObserverRef.current = null;
+  }, []);
+  // 読み込めなかったサムネイル (リンク切れ・一時アップローダーの期限切れなど) を、
+  // 枠線だけが細く残る壊れた <img> の代わりに ImageOff のアイコンにする。
+  // error はバブリングしないので document でキャプチャして拾う。画像ビューアは
+  // 開いても何も出ないので開かないようにし、確かめたいときは本文のリンクから開いてもらう。
+  useEffect(() => {
+    const onError = (ev: Event) => {
+      const img = ev.target;
+      if (!(img instanceof HTMLImageElement) || !img.classList.contains("response-thumb")) return;
+      const link = img.closest<HTMLElement>(".thumb-link");
+      if (!link) return;
+      console.warn("thumbnail failed to load:", img.getAttribute("src"));
+      link.classList.add("thumb-broken");
+      link.removeAttribute("data-lightbox-src");
+      link.title = "画像を読み込めませんでした (リンク切れ)";
+      link.innerHTML = BROKEN_THUMB_ICON_HTML;
+    };
+    document.addEventListener("error", onError, true);
+    return () => document.removeEventListener("error", onError, true);
+  }, []);
+
   const revealGatedThumb = (gateBlocked: HTMLElement) => {
+    const albumKey = gateBlocked.dataset.revealImgurAlbum;
+    if (albumKey) {
+      const url = gateBlocked.dataset.albumUrl;
+      setImgurAlbumsRevealed((prev) => new Set(prev).add(albumKey));
+      if (url) resolveImgurAlbum(albumKey, url);
+      return;
+    }
     const videoSrc = gateBlocked.dataset.revealVideo;
     if (videoSrc) {
       const parent = gateBlocked.closest<HTMLElement>(".video-gate");
@@ -12580,7 +12723,7 @@ export default function App() {
       fontSize={composeFontSize}
     />
     {composePreview && (
-      <div className="compose-preview" dangerouslySetInnerHTML={renderResponseBody(composeBody || "(空)", { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled })} />
+      <div className="compose-preview" dangerouslySetInnerHTML={renderResponseBody(composeBody || "(空)", { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, imgurAlbums, imgurAlbumsRevealed })} />
     )}
     <div className="compose-actions">
       <span className="compose-meta">{composeBody.length}文字 / {composeBody.split("\n").length}行</span>
@@ -14562,7 +14705,7 @@ export default function App() {
                       </span>
                     </div>
                     <div className={`response-body${(aaOverrides.has(r.id) ? aaOverrides.get(r.id) : isAsciiArt(r.text)) ? " aa" : ""}${longCollapsed ? " collapsed" : ""}`} style={longCollapsed ? ({ "--collapse-lines": collapsePreviewLines } as CSSProperties) : undefined} dangerouslySetInnerHTML={{ __html: (() => {
-                      const full = threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block, knownIds: idCountMap, idColor: idColorEnabled, darkMode }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block, knownIds: idCountMap, idColor: idColorEnabled, darkMode }).__html;
+                      const full = threadCategoryPanelOpen ? applyCategoryHighlights(renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block, knownIds: idCountMap, idColor: idColorEnabled, darkMode, imgurAlbums, imgurAlbumsRevealed }).__html, responseCategoryMap.get(r.id)) : renderResponseBodyHighlighted(r.text, responseSearchQuery, hlWordEntries, { hideImages: ngResultMap.get(r.id) === "hide-images", imageSizeLimitKb: imageSizeLimit, thumbAutoLoad: thumbAutoLoadEnabled, youtubeThumbs: youtubeThumbsEnabled, ogpCards: ogpCardsEnabled, tweetCards: tweetCardsEnabled, ogpAllow: ogpDomainFilters.allow, ogpBlock: ogpDomainFilters.block, knownIds: idCountMap, idColor: idColorEnabled, darkMode, imgurAlbums, imgurAlbumsRevealed }).__html;
                       // 折りたたみ中だけ表示文字数で切る。切り詰めは常にサニタイズ後の HTML に対して行う
                       const shown = longCollapsed && collapsePreviewChars > 0 ? truncateResponseHtml(full, collapsePreviewChars) : full;
                       return shown + (responseBodyBottomPad ? "<br><br>" : "");
@@ -16654,7 +16797,7 @@ export default function App() {
                   )}
                   {ngResultMap.get(r.id) === "abone"
                     ? <span className="id-popup-text abone-body">{ABONE_TEXT}</span>
-                    : <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, idColor: idColorEnabled, darkMode })} />}
+                    : <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, idColor: idColorEnabled, darkMode, imgurAlbums, imgurAlbumsRevealed })} />}
                 </div>
                 );
               })}
@@ -17511,7 +17654,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>204項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>205項目</span></div>
               </fieldset>
               </>)}
             </div>

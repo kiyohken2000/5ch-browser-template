@@ -7201,6 +7201,199 @@ try {
     console.log("smoke-ui: a video link plays from its gate and falls back when it cannot ok");
   }
 
+  // Imgur のアルバム (imgur.com/a/... / imgur.com/gallery/...) と、読み込めないサムネイル。
+  //  - アルバムは resolve_imgur_album で中の画像に解決してサムネを並べる。並べるのは
+  //    20 枚までで、残りは「+N枚」でアルバムへのリンクにする
+  //  - 解決できない・画像が無い (動画だけの) アルバムはリンクのまま
+  //  - サムネの自動読み込みが OFF なら、押されるまで解決しない。押したら 1 枚ずつの
+  //    プレースホルダに戻さず、そのまま画像を出す
+  //  - 読み込めなかったサムネは細い枠線ではなく ImageOff のアイコンにし、画像ビューアは開かない
+  // 外部へは 1 本も出さず、全部ルートで受け止める。
+  {
+    const ALBUM_THREAD = "https://mao.5ch.io/test/read.cgi/ngt/4444444444/";
+    const ALBUM_OK = "https://imgur.com/a/Alb0001";
+    const ALBUM_FAIL = "https://imgur.com/gallery/funny-title-Gal0002";
+    const ALBUM_VIDEO = "https://imgur.com/a/Vid0003";
+    const DEAD_IMAGE = "https://dead.example.com/gone.jpg";
+    const BODY = [ALBUM_OK, ALBUM_FAIL, ALBUM_VIDEO, DEAD_IMAGE].join("<br>");
+    const ALBUM_IMAGES = Array.from({ length: 22 }, (_, i) => `https://i.imgur.com/Img${String(i).padStart(4, "0")}.jpg`);
+    const PNG_1X1 = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+
+    const openAlbumPage = async (thumbAutoLoad) => {
+      const page = await context.newPage();
+      const externalRequests = [];
+      await page.route("https://i.imgur.com/**", (route) => {
+        externalRequests.push(route.request().url());
+        void route.fulfill({ status: 200, contentType: "image/png", body: PNG_1X1 });
+      });
+      await page.route("https://imgur.com/**", (route) => {
+        externalRequests.push(route.request().url());
+        void route.abort();
+      });
+      await page.route("https://dead.example.com/**", (route) => {
+        externalRequests.push(route.request().url());
+        void route.fulfill({ status: 404, contentType: "text/html", body: "<h1>Not Found</h1>" });
+      });
+      await page.addInitScript((arg) => {
+        localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+        localStorage.setItem(
+          "desktop.layoutPrefs.v1",
+          JSON.stringify({ restoreSession: true, thumbAutoLoadEnabled: arg.thumbAutoLoad }),
+        );
+        localStorage.setItem(
+          "desktop.threadTabs.v1",
+          JSON.stringify({ tabs: [{ threadUrl: arg.threadUrl, title: "アルバムのスレ" }], activeIndex: 0 }),
+        );
+        const rows = [{
+          responseNo: 1,
+          name: "名無し",
+          mail: "",
+          dateAndId: "2026/11/12(木) 00:00:00.00 ID:albummmm",
+          body: arg.body,
+        }];
+        window.__smokeAlbumCalls = [];
+        window.__TAURI_INTERNALS__ = {
+          transformCallback: (cb) => cb,
+          invoke: (cmd, args) => {
+            if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+            if (cmd === "save_layout_prefs") return Promise.resolve(null);
+            if (cmd === "save_thread_cache") return Promise.resolve(null);
+            if (cmd === "load_read_status") return Promise.resolve({});
+            if (cmd === "load_thread_cache") {
+              return Promise.resolve(args.threadUrl === arg.threadUrl ? JSON.stringify(rows) : null);
+            }
+            if (cmd === "fetch_thread_responses_command") return new Promise(() => {});
+            if (cmd === "resolve_imgur_album") {
+              window.__smokeAlbumCalls.push(args.url);
+              if (args.url === arg.albumOk) return Promise.resolve({ images: arg.images, unlisted: 1 });
+              if (args.url === arg.albumVideo) return Promise.resolve({ images: [], unlisted: 0 });
+              return Promise.reject(new Error("smoke: album not found"));
+            }
+            return Promise.reject(new Error("smoke stub: " + cmd));
+          },
+        };
+      }, {
+        threadUrl: ALBUM_THREAD,
+        body: BODY,
+        thumbAutoLoad,
+        albumOk: ALBUM_OK,
+        albumVideo: ALBUM_VIDEO,
+        images: ALBUM_IMAGES,
+      });
+      await page.goto(targetUrl, { waitUntil: "load" });
+      await page.waitForSelector(".response-scroll [data-response-no]");
+      return { page, externalRequests };
+    };
+
+    // --- 自動読み込み ON ---
+    {
+      const { page, externalRequests } = await openAlbumPage(true);
+      await page.waitForFunction(
+        () => document.querySelectorAll(".response-scroll .response-thumbs-row img.response-thumb").length >= 20
+          && document.querySelector(".response-scroll .thumb-link.thumb-broken"),
+        null,
+        { timeout: 5000 },
+      ).catch((err) => console.warn("smoke-ui: waiting for album thumbs timed out", err.message));
+      const calls = await page.evaluate(() => window.__smokeAlbumCalls);
+      assert(
+        [ALBUM_OK, ALBUM_FAIL, ALBUM_VIDEO].every((u) => calls.includes(u)),
+        `each album link should be resolved once on screen, got ${JSON.stringify(calls)}`,
+      );
+      const thumbs = await page.$$eval(
+        ".response-scroll .response-thumbs-row img.response-thumb",
+        (els) => els.map((el) => el.getAttribute("src")),
+      );
+      assert(
+        thumbs.length === 20 && thumbs.every((src, i) => src === ALBUM_IMAGES[i]),
+        `the album should show its first 20 images, got ${JSON.stringify(thumbs)}`,
+      );
+      const more = await page.$eval(
+        ".response-scroll .response-thumbs-row a.imgur-album-more",
+        (el) => ({ href: el.getAttribute("href"), text: el.textContent }),
+      ).catch((err) => { console.warn("smoke-ui: element not found", err.message); return null; });
+      assert(
+        more && more.href === ALBUM_OK && more.text === "+3枚",
+        `the rest of the album (2 over the cap + 1 unlisted) should be a "+3枚" link, got ${JSON.stringify(more)}`,
+      );
+      assert(
+        (await page.$$(".response-scroll .imgur-album-slot")).length === 0,
+        "no album should be left in the checking state once resolved",
+      );
+      const albumLinks = await page.$$eval(".response-scroll a.body-link-imgur-album", (els) =>
+        els.map((el) => el.getAttribute("href")));
+      assert(
+        albumLinks.length === 3 && [ALBUM_OK, ALBUM_FAIL, ALBUM_VIDEO].every((u) => albumLinks.includes(u)),
+        `every album url should stay a link in the body, got ${JSON.stringify(albumLinks)}`,
+      );
+      assert(
+        externalRequests.every((u) => !u.startsWith("https://imgur.com/")),
+        `the frontend must not fetch imgur pages itself, got ${JSON.stringify(externalRequests)}`,
+      );
+
+      // --- 読み込めないサムネイル ---
+      const broken = await page.$eval(".response-scroll .thumb-link.thumb-broken", (el) => ({
+        hasIcon: Boolean(el.querySelector("svg")),
+        hasImg: Boolean(el.querySelector("img")),
+        lightbox: el.getAttribute("data-lightbox-src"),
+        title: el.getAttribute("title"),
+      })).catch((err) => { console.warn("smoke-ui: element not found", err.message); return null; });
+      assert(
+        broken && broken.hasIcon && !broken.hasImg && broken.lightbox === null && /リンク切れ/.test(broken.title || ""),
+        `a thumbnail that fails to load should become the broken-link icon without a viewer target, got ${JSON.stringify(broken)}`,
+      );
+      assert(
+        externalRequests.includes(DEAD_IMAGE),
+        `the dead image should have been tried once, got ${JSON.stringify(externalRequests)}`,
+      );
+      const deadLink = await page.$eval(
+        `.response-scroll a.body-link[href="${DEAD_IMAGE}"]`,
+        (el) => el.textContent,
+      ).catch((err) => { console.warn("smoke-ui: element not found", err.message); return null; });
+      assert(deadLink === DEAD_IMAGE, `the dead image url should stay a link in the body, got ${JSON.stringify(deadLink)}`);
+      await page.close();
+    }
+
+    // --- 自動読み込み OFF ---
+    {
+      const { page, externalRequests } = await openAlbumPage(false);
+      await new Promise((r) => setTimeout(r, 700));
+      assert(
+        (await page.evaluate(() => window.__smokeAlbumCalls)).length === 0,
+        "with auto-load off, albums must not be resolved before a click",
+      );
+      const gate = await page.$(`.response-scroll [data-reveal-imgur-album="a/Alb0001"]`);
+      assert(gate, "with auto-load off, an album should wait behind a click-to-show gate");
+      await gate.click();
+      await page.waitForFunction(
+        () => document.querySelectorAll(".response-scroll .response-thumbs-row img.response-thumb").length >= 20,
+        null,
+        { timeout: 5000 },
+      ).catch((err) => console.warn("smoke-ui: waiting for revealed album timed out", err.message));
+      const calls = await page.evaluate(() => window.__smokeAlbumCalls);
+      assert(
+        calls.length === 1 && calls[0] === ALBUM_OK,
+        `clicking the gate should resolve only that album, got ${JSON.stringify(calls)}`,
+      );
+      const revealed = await page.$$eval(
+        ".response-scroll .response-thumbs-row img.response-thumb",
+        (els) => els.map((el) => el.getAttribute("src")),
+      );
+      assert(
+        revealed.length === 20 && revealed[0] === ALBUM_IMAGES[0],
+        `a revealed album should show its images directly, got ${JSON.stringify(revealed)}`,
+      );
+      assert(
+        externalRequests.every((u) => !u.startsWith("https://dead.example.com/")),
+        `with auto-load off, other images must not load before a click, got ${JSON.stringify(externalRequests)}`,
+      );
+      await page.close();
+    }
+    console.log("smoke-ui: imgur albums resolve to thumbnails and broken thumbnails show an icon ok");
+  }
+
   // NG フィルタの効き方の回帰 (ユーザー報告 2 件)。
   //  - 「レス本文の末尾に空行を追加」が あぼーん のレスだけ効いていなかった。
   //    あぼーんは本文を素のテキストで描く別経路で、設定を読んでいなかった

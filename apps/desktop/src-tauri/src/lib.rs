@@ -516,6 +516,34 @@ async fn fetch_tweet_card(url: String) -> Result<TweetCard, String> {
     Ok(card)
 }
 
+/// Imgur のアルバム URL (`imgur.com/a/<id>` / `imgur.com/gallery/<id>`) を
+/// 中の画像直リンクの一覧に解決する。本文のアルバムリンクをサムネイル表示するために使う。
+/// キャッシュは OGP と同じテーブルを `imgur-album:v1:<種類>:<id>` キーで共用する (7日 TTL)。
+#[tauri::command]
+async fn resolve_imgur_album(url: String) -> Result<core_fetch::ImgurAlbum, String> {
+    let (kind, id) = core_fetch::parse_imgur_album_url(&url)
+        .ok_or_else(|| "not an imgur album url".to_string())?;
+    let cache_key = format!("imgur-album:v1:{}:{}", kind, id);
+    if let Ok(Some(json)) = core_store::load_ogp_cache(&cache_key) {
+        if let Ok(album) = serde_json::from_str::<core_fetch::ImgurAlbum>(&json) {
+            return Ok(album);
+        }
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (compatible; Ember/0.1)")
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let album = core_fetch::fetch_imgur_album(&client, &url)
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Ok(json) = serde_json::to_string(&album) {
+        let _ = core_store::save_ogp_cache(&cache_key, &json);
+    }
+    Ok(album)
+}
+
 #[tauri::command]
 async fn fetch_thread_responses_command(
     thread_url: String,
@@ -3786,6 +3814,7 @@ pub fn run() {
             fetch_thread_list,
             fetch_thread_responses_command,
             fetch_ogp_card,
+            resolve_imgur_album,
             fetch_tweet_card,
             search_threads_ff5ch,
             debug_post_connectivity,
