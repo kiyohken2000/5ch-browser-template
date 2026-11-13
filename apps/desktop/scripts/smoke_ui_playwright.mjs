@@ -5443,6 +5443,345 @@ try {
     console.log("smoke-ui: the new-response marker lands, repeats and clears on an empty refresh ok");
   }
 
+  // タブを閉じたときに「ここから新着」と New! の起点をタブごとに戻すことの回帰用。
+  // closeTab は本文・選択レス・読書位置は復元していたのに新着の起点だけ復元しておらず、
+  // 閉じたタブの値がそのまま残っていた。報告は 2 通りの見え方で届いた。
+  //  - keep : 新着ありスレ → 新着なしスレを開いて閉じると、戻ったスレの New! が消える
+  //  - leak : 新着なしスレ → 新着ありスレを開いて閉じると、戻ったスレの「閉じたスレの
+  //           起点」以降すべてに New! が付く (閉じたスレのレス数が少ないときに見える)
+  // 裏タブを閉じただけのときはアクティブタブを描き直さないこと (キャッシュは離れた
+  // ときの内容なので、描き直すと本文が古くなり読書位置も飛ぶ) もここで見る。
+  {
+    const BOARD = "https://mao.5ch.io/ngt/";
+    const THREAD_1 = "https://mao.5ch.io/test/read.cgi/ngt/4444444441/";
+    const THREAD_2 = "https://mao.5ch.io/test/read.cgi/ngt/4444444442/";
+    for (const mode of ["keep", "leak"]) {
+      const p = await context.newPage();
+      await p.addInitScript((arg) => {
+        localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+        localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+        localStorage.setItem("desktop.boardCategories.v1", arg.boards);
+        localStorage.setItem("desktop.expandedCategories.v1", JSON.stringify(["テスト"]));
+        // ブラウザのコンテキストは使い回しなので、前のケースのスレ一覧フィルタが
+        // localStorage に残っている。板一覧を見るケースでは外しておく。
+        localStorage.removeItem("desktop.threadFilterMode.v1");
+        const mkRows = (n) => {
+          const out = [];
+          for (let i = 1; i <= n; i++) {
+            out.push({
+              responseNo: i,
+              name: "名無し",
+              mail: "",
+              dateAndId: "2026/11/13(金) 00:00:00.00 ID:abcdefgh",
+              body: "タブを閉じる検査用のレス " + i + " 行目のダミーです。",
+            });
+          }
+          return out;
+        };
+        const calls = {};
+        const sizes = { [arg.thread1]: arg.sizes1, [arg.thread2]: arg.sizes2 };
+        window.__TAURI_INTERNALS__ = {
+          transformCallback: (cb) => cb,
+          invoke: (cmd, args) => {
+            if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+            if (cmd === "save_layout_prefs") return Promise.resolve(null);
+            if (cmd === "load_thread_cache") return Promise.resolve(null);
+            if (cmd === "save_thread_cache") return Promise.resolve(null);
+            if (cmd === "load_read_status") return Promise.resolve({});
+            if (cmd === "save_read_status") return Promise.resolve(null);
+            if (cmd === "load_ui_json") return Promise.resolve("");
+            if (cmd === "save_ui_json") return Promise.resolve(null);
+            if (cmd === "fetch_thread_list") {
+              return Promise.resolve([
+                { threadKey: "4444444441", title: "タブ検査スレ1", responseCount: 999, threadUrl: arg.thread1 },
+                { threadKey: "4444444442", title: "タブ検査スレ2", responseCount: 999, threadUrl: arg.thread2 },
+              ]);
+            }
+            if (cmd === "fetch_thread_responses_command") {
+              const u = args.threadUrl;
+              const n = calls[u] ?? 0;
+              calls[u] = n + 1;
+              return Promise.resolve({ responses: mkRows((sizes[u] ?? [10, 10, 10, 10])[Math.min(n, 3)]), title: null });
+            }
+            return Promise.reject(new Error("smoke stub: " + cmd));
+          },
+        };
+      }, {
+        prefs: JSON.stringify({ restoreSession: true, lastBoard: { boardName: "ngt", url: BOARD } }),
+        boards: JSON.stringify([{ categoryName: "テスト", boards: [{ boardName: "ngt", url: BOARD }] }]),
+        thread1: THREAD_1,
+        thread2: THREAD_2,
+        // keep: スレ1 に新着 (60 -> 80 なので >>61 から) を作り、新着なしのスレ2 を開いて閉じる
+        // leak: スレ1 は 100 レスで新着なし、新着ありのスレ2 (40 -> 50) を開いて閉じる
+        sizes1: mode === "keep" ? [60, 80, 80, 80] : [100, 100, 100, 100],
+        sizes2: mode === "keep" ? [30, 30, 30, 30] : [40, 50, 50, 50],
+      });
+      await p.goto(targetUrl, { waitUntil: "load" });
+      await p.waitForSelector(".pane.threads tbody tr");
+      await new Promise((r) => setTimeout(r, 900));
+      // 「ここから新着」の直後に並んでいるレス番
+      const newStart = () => p.evaluate(() => {
+        const sep = document.querySelector(".new-response-separator");
+        const el = sep?.nextElementSibling;
+        return el ? Number(el.dataset.responseNo) : null;
+      });
+      const newMarkers = () => p.evaluate(() => document.querySelectorAll(".response-new-marker").length);
+      const shownResponses = () => p.evaluate(() => document.querySelectorAll(".response-scroll [data-response-no]").length);
+      const rowClick = async (i) => {
+        const rows = await p.$$(".pane.threads tbody tr");
+        await rows[i].click();
+        await new Promise((r) => setTimeout(r, 1500));
+      };
+      const closeActiveTab = async () => {
+        const btn = await p.$(".thread-tab.active .thread-tab-close");
+        assert(btn, "the active tab should have a close button");
+        await btn.click();
+        await new Promise((r) => setTimeout(r, 1400));
+      };
+      const activeTabTitle = () => p.evaluate(() => document.querySelector(".thread-tab.active .thread-tab-title")?.textContent?.trim() ?? null);
+
+      if (mode === "keep") {
+        await rowClick(0);
+        // 同じ行をもう一度押すと新着取得になり、>>61 から新着になる
+        await rowClick(0);
+        assert((await newStart()) === 61, `the refresh should mark >>61 as the first new response, got ${await newStart()}`);
+        // 新着が無いスレを新しいタブで開く (この時点では新着の印は出ない)
+        await rowClick(1);
+        assert((await newStart()) === null, `a thread without new responses must not show the marker, got ${await newStart()}`);
+        await closeActiveTab();
+        assert((await activeTabTitle()) === "タブ検査スレ1", `closing the active tab should fall back to the other tab, got ${await activeTabTitle()}`);
+        assert(
+          (await newStart()) === 61,
+          `closing a tab must bring back the other tab's new marker, got ${await newStart()}`,
+        );
+        assert((await newMarkers()) > 0, "closing a tab must bring back the other tab's New! labels");
+        console.log("smoke-ui: closing a tab brings back the new marker of the tab it falls back to ok");
+      } else {
+        // 新着が無い 100 レスのスレを開いておく
+        await rowClick(0);
+        assert((await newStart()) === null, `a thread without new responses must not show the marker, got ${await newStart()}`);
+        const shown = await shownResponses();
+        assert(shown === 100, `the first thread should show all of its responses, got ${shown}`);
+        // レス数が少ないスレで新着 (>>41 から) を作ってから閉じる
+        await rowClick(1);
+        await rowClick(1);
+        assert((await newStart()) === 41, `the refresh should mark >>41 as the first new response, got ${await newStart()}`);
+        await closeActiveTab();
+        assert((await activeTabTitle()) === "タブ検査スレ1", `closing the active tab should fall back to the other tab, got ${await activeTabTitle()}`);
+        assert(
+          (await newStart()) === null,
+          `closing a tab must not leak its new marker into the other tab, got ${await newStart()}`,
+        );
+        assert(
+          (await newMarkers()) === 0,
+          `closing a tab must not leak its New! labels into the other tab, got ${await newMarkers()}`,
+        );
+        console.log("smoke-ui: closing a tab does not leak its new marker into the other tab ok");
+      }
+      await p.close();
+    }
+  }
+
+  // 「最近開いたスレ」でスレを押すと一覧のスクロール位置が飛ぶという報告の回帰用。
+  // 最近開いたスレは MRU なので、押したスレが先頭へ動いて行の番号が振り直される。
+  // 選択行の追従スクロール (scrollIntoView) は行番号で見ていたため、選択スレが同じでも
+  // 「選択が変わった」と見なして一覧を別の位置まで引っぱっていた。
+  {
+    const BOARD = "https://mao.5ch.io/ngt/";
+    const p = await context.newPage();
+    await p.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+      localStorage.setItem("desktop.boardCategories.v1", arg.boards);
+      localStorage.setItem("desktop.expandedCategories.v1", JSON.stringify(["テスト"]));
+      localStorage.setItem("desktop.threadFilterMode.v1", "recent-opened");
+      const recent = [];
+      for (let i = 1; i <= 60; i++) {
+        recent.push({
+          threadUrl: arg.board + "test/read.cgi/ngt/55555555" + String(i).padStart(2, "0") + "/",
+          title: "最近開いたスレ " + i,
+          boardUrl: arg.board,
+          updatedAt: 1760000000000 - i * 1000,
+        });
+      }
+      localStorage.setItem("desktop.recentOpenedThreads.v1", JSON.stringify(recent));
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "load_thread_cache") return Promise.resolve(null);
+          if (cmd === "save_thread_cache") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({});
+          if (cmd === "save_read_status") return Promise.resolve(null);
+          // 移行済み (uiJsonMigrated) の起動ではファイル側が正なので、空を返すと
+          // localStorage に仕込んだ副本まで消される。種はファイル側から返す。
+          if (cmd === "load_ui_json") {
+            if (args && args.name === "recent_opened_threads") return Promise.resolve(localStorage.getItem("desktop.recentOpenedThreads.v1") || "");
+            return Promise.resolve("");
+          }
+          if (cmd === "save_ui_json") return Promise.resolve(null);
+          // 板の一覧は空にしておく (= サーバー側のレス数が分からない状態)。レス数が
+          // 並んでいないので「レス」で並べ替えても全行が同順位で、MRU の並びが出る。
+          if (cmd === "fetch_thread_list") return Promise.resolve([]);
+          if (cmd === "fetch_thread_responses_command") {
+            const rows = [];
+            for (let i = 1; i <= 12; i++) {
+              rows.push({
+                responseNo: i,
+                name: "名無し",
+                mail: "",
+                dateAndId: "2026/11/13(金) 00:00:00.00 ID:abcdefgh",
+                body: "スクロール検査用のレス " + i + " 行目のダミーです。",
+              });
+            }
+            return Promise.resolve({ responses: rows, title: null });
+          }
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, {
+      prefs: JSON.stringify({ restoreSession: true, lastBoard: { boardName: "ngt", url: BOARD } }),
+      boards: JSON.stringify([{ categoryName: "テスト", boards: [{ boardName: "ngt", url: BOARD }] }]),
+      board: BOARD,
+    });
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector(".pane.threads tbody tr");
+    await new Promise((r) => setTimeout(r, 1200));
+    const rowCount = await p.$$eval(".pane.threads tbody tr", (els) => els.length);
+    assert(rowCount === 60, `the recent-opened list should show the seeded threads, got ${rowCount}`);
+    // 報告は「レス」「作成日時」などで並び替えた状態での操作
+    await p.click('.pane.threads thead th:text-is("レス")');
+    await new Promise((r) => setTimeout(r, 300));
+    const listMetrics = () => p.evaluate(() => {
+      const c = document.querySelector(".threads-table-wrap");
+      if (!c) return null;
+      return { top: c.scrollTop, over: c.scrollHeight - c.clientHeight };
+    });
+    const before = await listMetrics();
+    assert(before && before.over > 100, `the recent-opened list should be scrollable for this check, got ${JSON.stringify(before)}`);
+    // 下の方まで送ってから、そこに見えている行を押す
+    await p.evaluate(() => {
+      const c = document.querySelector(".threads-table-wrap");
+      c.scrollTop = c.scrollHeight;
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    const scrolled = await listMetrics();
+    assert(scrolled.top > 100, `the list should be scrolled down before the click, got ${scrolled.top}`);
+    // 画面に見えている行のうち真ん中あたりを押す (押した行は動かないのが期待値)
+    const targetIndex = await p.evaluate(() => {
+      const c = document.querySelector(".threads-table-wrap");
+      const box = c.getBoundingClientRect();
+      const rows = [...c.querySelectorAll("tbody tr")];
+      const visible = rows.filter((r) => {
+        const b = r.getBoundingClientRect();
+        return b.top >= box.top && b.bottom <= box.bottom;
+      });
+      const pick = visible[Math.floor(visible.length / 2)];
+      return pick ? rows.indexOf(pick) : -1;
+    });
+    assert(targetIndex > 0, `the check needs a visible row to click, got ${targetIndex}`);
+    const rows = await p.$$(".pane.threads tbody tr");
+    await rows[targetIndex].click();
+    await new Promise((r) => setTimeout(r, 1600));
+    const after = await listMetrics();
+    assert(
+      Math.abs(after.top - scrolled.top) <= 4,
+      `opening a thread from the recent-opened list must not scroll the list (before ${scrolled.top}, after ${after.top})`,
+    );
+    await p.close();
+    console.log("smoke-ui: the recent-opened list keeps its scroll position when a thread is opened ok");
+  }
+
+  // 新着の先頭が NG 非表示だと「ここから新着」が出ないという報告の回帰用。
+  // 区切り線はレス番の完全一致で出していたため、起点のレスが一覧から消えると
+  // (NG 非表示 / レス検索 / カテゴリ絞り込み) 線ごと出なくなっていた。New ボタンと
+  // 同じ「表示されている中で最初の 起点以降のレス」の前に出す。
+  {
+    const BOARD = "https://mao.5ch.io/ngt/";
+    const THREAD = "https://mao.5ch.io/test/read.cgi/ngt/6666666666/";
+    const p = await context.newPage();
+    await p.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+      localStorage.setItem("desktop.boardCategories.v1", arg.boards);
+      localStorage.setItem("desktop.expandedCategories.v1", JSON.stringify(["テスト"]));
+      // 前のケースのスレ一覧フィルタが localStorage に残るので外しておく
+      localStorage.removeItem("desktop.threadFilterMode.v1");
+      const mkRows = (n) => {
+        const out = [];
+        for (let i = 1; i <= n; i++) {
+          out.push({
+            responseNo: i,
+            name: "名無し",
+            mail: "",
+            dateAndId: "2026/11/13(金) 00:00:00.00 ID:abcdefgh",
+            // 新着の先頭 (>>61) だけ NG 非表示にする
+            body: i === 61 ? "NG検査用ワードを含むレスです。" : "NG 検査用のレス " + i + " 行目のダミーです。",
+          });
+        }
+        return out;
+      };
+      const calls = {};
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "load_thread_cache") return Promise.resolve(null);
+          if (cmd === "save_thread_cache") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({});
+          if (cmd === "save_read_status") return Promise.resolve(null);
+          if (cmd === "load_ui_json") return Promise.resolve("");
+          if (cmd === "save_ui_json") return Promise.resolve(null);
+          if (cmd === "load_ng_filters") {
+            return Promise.resolve({ words: [{ value: "NG検査用ワード", mode: "hide" }], ids: [], names: [], thread_words: [] });
+          }
+          if (cmd === "save_ng_filters") return Promise.resolve(null);
+          if (cmd === "fetch_thread_list") {
+            return Promise.resolve([
+              { threadKey: "6666666666", title: "NG検査スレ", responseCount: 999, threadUrl: arg.thread },
+            ]);
+          }
+          if (cmd === "fetch_thread_responses_command") {
+            const n = calls[args.threadUrl] ?? 0;
+            calls[args.threadUrl] = n + 1;
+            return Promise.resolve({ responses: mkRows([60, 80, 80, 80][Math.min(n, 3)]), title: null });
+          }
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, {
+      prefs: JSON.stringify({ restoreSession: true, lastBoard: { boardName: "ngt", url: BOARD } }),
+      boards: JSON.stringify([{ categoryName: "テスト", boards: [{ boardName: "ngt", url: BOARD }] }]),
+      thread: THREAD,
+    });
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector(".pane.threads tbody tr");
+    await new Promise((r) => setTimeout(r, 900));
+    const rowClick = async () => {
+      const rows = await p.$$(".pane.threads tbody tr");
+      await rows[0].click();
+      await new Promise((r) => setTimeout(r, 1600));
+    };
+    await rowClick();
+    // もう一度押すと新着取得になり、>>61 から新着になる (その >>61 は NG 非表示)
+    await rowClick();
+    const hiddenCount = await p.$$eval('.response-scroll [data-response-no="61"]', (els) => els.length);
+    assert(hiddenCount === 0, `>>61 should be hidden by the NG word for this check, got ${hiddenCount}`);
+    const startNo = await p.evaluate(() => {
+      const sep = document.querySelector(".new-response-separator");
+      const el = sep?.nextElementSibling;
+      return el ? Number(el.dataset.responseNo) : null;
+    });
+    assert(
+      startNo === 62,
+      `the new-response separator should sit before the first shown new response, got ${startNo}`,
+    );
+    await p.close();
+    console.log("smoke-ui: the new-response separator survives an NG-hidden first new response ok");
+  }
+
   // レスナビバー右端の「>>」(レス番号を入れて Enter) の回帰用。たびたび壊れる経路なので
   // 「選択が変わった」ではなく「対象レスが実際に画面の先頭へ来た」ところまで毎回見る。
   //  - scrollToResponseNo は 50ms〜2 秒かけて再アンカーし続け、実入力 (wheel / touchmove /

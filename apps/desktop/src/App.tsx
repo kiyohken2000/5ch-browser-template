@@ -4295,6 +4295,13 @@ export default function App() {
   const tabBarRef = useRef<HTMLDivElement | null>(null);
   const threadListScrollRef = useRef<HTMLDivElement | null>(null);
   const suppressThreadScrollRef = useRef(false);
+  // 選択行の追従スクロールを「一覧がもう合っているスレ」では走らせないための控え。
+  // 選択行のキーは「今表示しているリストでの index + 1」で、最近読んだ / 書き込んだは
+  // MRU なのでスレを開くと index が振り直される (= 同じスレのまま selectedThread が
+  // 変わる)。さらに一覧をクリックして開いた行はもともと見えているので寄せる必要が
+  // ない。index で見ていると、並び替えた一覧がどちらでも別の位置まで飛んでいた。
+  const visibleThreadUrlByIdRef = useRef<Map<number, string>>(new Map());
+  const threadScrollAnchorUrlRef = useRef<string | null>(null);
   // ナビボタン(Top/New/続き/End/ジャンプ)等の明示的な移動時に立てる。
   // autoScrollToSelected が OFF でも、この操作では必ずスクロールさせるためのフラグ。
   const forceResponseScrollRef = useRef(false);
@@ -5655,14 +5662,29 @@ export default function App() {
     setActiveTabIndex(nextIndex);
     const tab = nextTabs[nextIndex];
     clearTabNewCount(tab.threadUrl);
+    // 裏タブを閉じただけならアクティブタブは入れ替わらない。キャッシュは「そのタブを
+    // 離れたときの内容」なので、ここで描き直すと本文が古くなり読書位置も飛ぶ。
+    const wasActiveUrl = activeTabIndex >= 0 && activeTabIndex < threadTabs.length
+      ? threadTabs[activeTabIndex].threadUrl
+      : null;
+    if (tab.threadUrl === wasActiveUrl) {
+      setThreadUrl(tab.threadUrl);
+      setLocationInput(tab.threadUrl);
+      return;
+    }
     const cached = tabCacheRef.current.get(tab.threadUrl);
     if (cached) {
       setFetchedResponses(cached.responses);
       setSelectedResponse(cached.selectedResponse);
+      // 「ここから新着」と New! の起点もタブごとの値へ戻す。戻さないと閉じたタブの
+      // 起点が残ったままになり、隣のスレの New! が消えたり (起点 null を引き継ぐ)、
+      // 逆に新着が無いスレの「閉じたスレの起点」以降すべてに New! が付いていた。
+      setNewResponseStart(cached.newResponseStart ?? null);
       // メモリ上に位置が無ければ永続化した読書位置へ戻す (?? 0 だと先頭のままだった)
       scrollToResponseNo(cached.scrollResponseNo ?? loadScrollPos(tab.threadUrl));
     } else {
       // タブ復元直後などキャッシュが無い場合。SQLite から描き直して読書位置も戻す
+      setNewResponseStart(null);
       activateTabFromStore(tab.threadUrl);
     }
     setThreadUrl(tab.threadUrl);
@@ -7459,6 +7481,8 @@ export default function App() {
       return (orderMap.get(a.threadUrl) ?? 999999) - (orderMap.get(b.threadUrl) ?? 999999);
     });
   }
+  // 選択行の追従スクロールが「同じスレのまま index だけ動いた」のを見分けるための対応表
+  visibleThreadUrlByIdRef.current = new Map(visibleThreadItems.map((t) => [t.id, t.threadUrl]));
   const isThreadColShown = (key: ThreadColKey): boolean => {
     if (key === "id") return true;
     return threadColVisible[key];
@@ -8698,6 +8722,21 @@ export default function App() {
   const currentReadMarker: number | null =
     readMarker[getBoardUrlFromThreadUrl(threadUrl)]?.[getThreadKeyFromThreadUrl(threadUrl)] ?? null;
   const selectedResponseLabel = activeResponse ? `#${activeResponse.id}` : "-";
+  // 区切り線 (「ここから新着」「ここまで読んだ」) を出すレス。起点のレスそのものが
+  // NG 非表示・レス検索・カテゴリ絞り込みで一覧から消えると、レス番の完全一致では
+  // どこにも出せず線が丸ごと消えていた (新着の先頭が NG だと「ここから新着」が
+  // 出ないという報告)。New ボタンの着地 (id >= 起点の最初) と同じ基準に揃える。
+  const firstNewVisibleId: number | null = newResponseStart === null
+    ? null
+    : (visibleResponseItems.find((r) => r.id >= newResponseStart)?.id ?? null);
+  // 「ここまで読んだ」は起点のレスの後ろに出す線なので、消えているときは
+  // 「マーカー以下で最後に残っているレス」の後ろに出す。
+  const readMarkerAfterId: number | null = currentReadMarker === null
+    ? null
+    : (visibleResponseItems.reduce<number | null>(
+        (acc, r) => (r.id <= currentReadMarker ? r.id : acc),
+        null,
+      ));
   // レス行のダブルクリック。設定で「引用して書き込み」と「ここまで読んだに設定」を切り替える。
   // マーカー側は右クリックメニューと同じトグルなので、誤爆しても同じ操作で取り消せる。
   const onResponseDoubleClick = (no: number) => {
@@ -11647,11 +11686,21 @@ export default function App() {
   }, [composeName, composeMail, composeSageDefault, composeFontSize, composeForgetName, composeKeepDraft, composeKeepOpenAfterPost]);
 
   useEffect(() => {
+    const url = selectedThread == null ? null : (visibleThreadUrlByIdRef.current.get(selectedThread) ?? null);
     if (suppressThreadScrollRef.current) {
       suppressThreadScrollRef.current = false;
+      threadScrollAnchorUrlRef.current = url;
       return;
     }
-    if (selectedThread == null || !threadTbodyRef.current) return;
+    if (selectedThread == null || !threadTbodyRef.current) {
+      threadScrollAnchorUrlRef.current = null;
+      return;
+    }
+    // 選択スレ自体は変わっていないのに index が振り直されただけ (最近読んだ / 書き込んだ
+    // スレを開くと MRU で先頭へ動く) のときはスクロールしない。クリックした行はもともと
+    // 見えているので、ここで寄せると並び替え中の一覧が全然違う位置まで飛んでいた。
+    if (url !== null && url === threadScrollAnchorUrlRef.current) return;
+    threadScrollAnchorUrlRef.current = url;
     const row = threadTbodyRef.current.querySelector<HTMLTableRowElement>(".selected-row");
     row?.scrollIntoView({ block: "nearest" });
   }, [selectedThread]);
@@ -13925,6 +13974,10 @@ export default function App() {
                       // フェッチすると2回目が「新着なし」と判定して新着マーカーを消してしまう。
                       const isActiveTab = clickedUrl != null && activeTabIndex >= 0 && threadTabs[activeTabIndex]?.threadUrl === clickedUrl;
                       setSelectedThread(t.id);
+                      // 押した行はすでに見えているので追従スクロールで寄せ直さない。
+                      // 最近読んだ / 書き込んだスレは押すと MRU で行が動くため、
+                      // ここで寄せると一覧が全然違う位置まで飛んでいた。
+                      if (clickedUrl != null) threadScrollAnchorUrlRef.current = clickedUrl;
                       // 今開いているスレを押し直したときは選択を >>1 に戻さない。
                       // openThreadInTab のアクティブタブ経路は keepSelection で取り直すだけで
                       // 読書位置を復元しないので、ここで戻すと自動スクロールが本文を先頭へ
@@ -14555,7 +14608,7 @@ export default function App() {
                 // ID が強調エントリに一致したら id セル全体をハイライト色で着色
                 const idHlColor = id ? hlIdEntries.find((e) => id.toLowerCase().includes(e.value.toLowerCase()))?.color : undefined;
                 const isNew = newResponseStart !== null && r.id >= newResponseStart;
-                const isFirstNew = isNew && r.id === newResponseStart;
+                const isFirstNew = firstNewVisibleId !== null && r.id === firstNewVisibleId;
                 // 長文の折りたたみ。あぼーん・曖昧NGは本文自体を出さないので下の分岐で先に抜ける
                 const longMetrics = longResponseMap.get(r.id);
                 const longCollapsed = !!longMetrics && !expandedLongResponses.has(r.id);
@@ -14591,7 +14644,7 @@ export default function App() {
                           表示
                         </button>
                       </div>
-                      {r.id === currentReadMarker && (
+                      {r.id === readMarkerAfterId && (
                         <div className="read-marker-separator">
                           <span>ここまで読んだ</span>
                         </div>
@@ -14625,7 +14678,7 @@ export default function App() {
                         {/* 「レス本文の末尾に空行を追加」は通常レスと同じく効かせる */}
                         <div className="response-body abone-body">{ABONE_TEXT}{responseBodyBottomPad ? <><br /><br /></> : null}</div>
                       </div>
-                      {r.id === currentReadMarker && (
+                      {r.id === readMarkerAfterId && (
                         <div className="read-marker-separator">
                           <span>ここまで読んだ</span>
                         </div>
@@ -14806,7 +14859,7 @@ export default function App() {
                       );
                     })()}
                   </div>
-                  {r.id === currentReadMarker && (
+                  {r.id === readMarkerAfterId && (
                     <div className="read-marker-separator">
                       <span>ここまで読んだ</span>
                     </div>
@@ -17730,7 +17783,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>209項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>213項目</span></div>
               </fieldset>
               </>)}
             </div>
