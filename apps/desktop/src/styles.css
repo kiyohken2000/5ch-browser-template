@@ -8963,3 +8963,16 @@ a.imgur-album-more {
 .dark .ng-ai-prob {
   color: #ffb08a;
 }
+
+/* 設定 > 外観 > 文字 の「マウスが乗ったレスを薄く色付けする」をオフにしたとき。
+   レス欄で行を跨ぐたびに背景が変わるのが目に障るという声があるので、:hover の背景を
+   選択なしと同じ透明に戻す。ダークは詳細度で勝てるが、ガラスは同点・上回るので個別に書く。 */
+.shell.no-response-hover .response-block:hover:not(.selected) {
+  background: transparent;
+}
+.shell.glass.no-response-hover .response-block:hover:not(.selected) {
+  background: transparent;
+}
+.shell.glass.dark.no-response-hover .response-block:hover:not(.selected) {
+  background: transparent;
+}

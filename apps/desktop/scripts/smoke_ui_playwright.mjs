@@ -2659,6 +2659,100 @@ try {
   }
   console.log("smoke-ui: id color setting ok");
 
+  // レスのホバー色を切る設定 (既定 ON = 従来どおり薄く色が付く)。OFF にすると shell に
+  // no-response-hover が付き、:hover の背景が選択なしと同じ透明に戻る。ライト/ダーク/
+  // ガラスで別々のルールが当たっていて詳細度で負けやすいので、クラスの有無だけでなく
+  // 実際の背景色まで見る。設定パネルは全面の .lightbox-overlay なので、下のレスには
+  // ホバーが届かない。色を測る間だけ閉じて、測り終えたら開き直す。
+  {
+    const openSettings = async () => {
+      await page.click('.menu-item:has-text("ファイル")');
+      await new Promise((r) => setTimeout(r, 100));
+      await page.click('.menu-dropdown button:has-text("設定")');
+      await page.waitForSelector(".settings-panel.settings-panel-tabbed");
+      await new Promise((r) => setTimeout(r, 150));
+    };
+    const closeSettings = async () => {
+      await page.click('.settings-panel.settings-panel-tabbed .settings-header button:has-text("閉じる")');
+      await new Promise((r) => setTimeout(r, 150));
+    };
+    // 選択中のレスは :hover の対象外 (.selected が勝つ) なので、選択していない行で測る
+    const hoverSelector = ".response-scroll .response-block:not(.selected)";
+    const measure = async () => {
+      const target = await page.$(hoverSelector);
+      assert(target, "the response pane should show an unselected response for the hover color check");
+      // いったんレス欄の外へ逃がして、ホバーしていないときの背景を取る
+      await page.mouse.move(4, 4);
+      await new Promise((r) => setTimeout(r, 80));
+      const idle = await target.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+      await target.hover();
+      await new Promise((r) => setTimeout(r, 80));
+      const hovered = await target.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+      await page.mouse.move(4, 4);
+      await new Promise((r) => setTimeout(r, 80));
+      return { idle, hovered };
+    };
+    const hasNoHoverClass = () => page.$eval(".shell", (el) => el.classList.contains("no-response-hover"));
+    const hoverPref = () =>
+      page.evaluate(() => {
+        try {
+          return JSON.parse(localStorage.getItem("desktop.layoutPrefs.v1") || "{}").responseHoverHighlightEnabled;
+        } catch {
+          return undefined;
+        }
+      });
+
+    await showSetting(page, '.settings-body label:has-text("マウスが乗ったレスを薄く色付けする")');
+    const hoverToggle = await page.$('.settings-body label:has-text("マウスが乗ったレスを薄く色付けする") input[type="checkbox"]');
+    assert(hoverToggle, "settings should have the response hover highlight toggle");
+    assert(await hoverToggle.isChecked(), "the response hover highlight should default to on");
+    assert(!(await hasNoHoverClass()), "the shell should not carry no-response-hover while the setting is on");
+
+    await closeSettings();
+    const onColors = await measure();
+    assert(
+      onColors.hovered !== onColors.idle,
+      `hovering a response should change its background while the setting is on, got ${onColors.hovered} both ways`,
+    );
+
+    await openSettings();
+    await showSetting(page, '.settings-body label:has-text("マウスが乗ったレスを薄く色付けする")');
+    const hoverToggleOff = await page.$('.settings-body label:has-text("マウスが乗ったレスを薄く色付けする") input[type="checkbox"]');
+    assert(hoverToggleOff, "the response hover highlight toggle should still be there after reopening settings");
+    await hoverToggleOff.uncheck();
+    await new Promise((r) => setTimeout(r, 150));
+    assert(await hasNoHoverClass(), "turning the setting off should put no-response-hover on the shell");
+    const prefOff = await hoverPref();
+    assert(prefOff === false, `the hover highlight off should persist, got ${prefOff}`);
+
+    await closeSettings();
+    const offColors = await measure();
+    assert(
+      offColors.hovered === offColors.idle,
+      `hovering a response should leave its background alone once the setting is off, got ${offColors.hovered} over ${offColors.idle}`,
+    );
+
+    await openSettings();
+    await showSetting(page, '.settings-body label:has-text("マウスが乗ったレスを薄く色付けする")');
+    const hoverToggleBack = await page.$('.settings-body label:has-text("マウスが乗ったレスを薄く色付けする") input[type="checkbox"]');
+    assert(hoverToggleBack, "the response hover highlight toggle should still be there for turning it back on");
+    await hoverToggleBack.check();
+    await new Promise((r) => setTimeout(r, 150));
+    assert(!(await hasNoHoverClass()), "turning the setting back on should take no-response-hover off the shell");
+    const prefOn = await hoverPref();
+    assert(prefOn === true, `the hover highlight on should persist, got ${prefOn}`);
+
+    await closeSettings();
+    const backColors = await measure();
+    assert(
+      backColors.hovered === onColors.hovered && backColors.hovered !== backColors.idle,
+      `turning the setting back on should restore the hover color, got ${backColors.hovered} (was ${onColors.hovered})`,
+    );
+    // 後続の検査は設定パネルが開いたままである前提なので、開き直してから抜ける
+    await openSettings();
+  }
+  console.log("smoke-ui: response hover highlight setting ok");
+
   // サムネイルの自動読み込み設定 (既定 ON = 従来どおり)。OFF にすると本文も画像一覧も
   // <img> を作らず、プレースホルダをクリックしたときだけ画像ホストへ通信する。
   await showSetting(page, '.settings-body label:has-text("サムネイルを自動で読み込む")');

@@ -3572,6 +3572,10 @@ export default function App() {
   // ID を 20 色のパレットで色分けするか。既定は色分けする (従来どおり)。オフにすると
   // インライン style を付けず、styles.css の控えめな灰色 (#555 / ダークは #888) になる。
   const [idColorEnabled, setIdColorEnabled] = useState(true);
+  // マウスが乗ったレスを薄く色付けするか。既定は色付けする (従来どおり)。行を跨ぐたびに
+  // 背景が変わるのが目に障るという声があるので、オフにすると shell に no-response-hover
+  // が付き、styles.css 側でライト/ダーク/ガラスすべての :hover 背景を透明に戻す。
+  const [responseHoverHighlightEnabled, setResponseHoverHighlightEnabled] = useState(true);
   const [hoverPreviewDelay, setHoverPreviewDelay] = useState(0);
   // ホバープレビューの画像をウィンドウ内に収めるか。既定は原寸 (縦長はスクロール、Ctrl+ホイールで縮小)
   const [hoverPreviewFitEnabled, setHoverPreviewFitEnabled] = useState(false);
@@ -10088,6 +10092,7 @@ export default function App() {
           hoverPreviewEnabled?: boolean;
           idPopupEnabled?: boolean;
           idColorEnabled?: boolean;
+          responseHoverHighlightEnabled?: boolean;
           lastBoard?: { boardName: string; url: string };
           hoverPreviewDelay?: number;
           hoverPreviewFitEnabled?: boolean;
@@ -10194,6 +10199,7 @@ export default function App() {
         if (typeof parsed.hoverPreviewEnabled === "boolean") setHoverPreviewEnabled(parsed.hoverPreviewEnabled);
         if (typeof parsed.idPopupEnabled === "boolean") setIdPopupEnabled(parsed.idPopupEnabled);
         if (typeof parsed.idColorEnabled === "boolean") setIdColorEnabled(parsed.idColorEnabled);
+        if (typeof parsed.responseHoverHighlightEnabled === "boolean") setResponseHoverHighlightEnabled(parsed.responseHoverHighlightEnabled);
         if (parsed.lastBoard && typeof parsed.lastBoard.boardName === "string" && typeof parsed.lastBoard.url === "string") {
           pendingLastBoardRef.current = parsed.lastBoard;
         }
@@ -11346,6 +11352,7 @@ export default function App() {
       hoverPreviewEnabled,
       idPopupEnabled,
       idColorEnabled,
+      responseHoverHighlightEnabled,
       lastBoard: lastBoardUrlRef.current ? { boardName: selectedBoard, url: lastBoardUrlRef.current } : undefined,
       hoverPreviewDelay,
       hoverPreviewFitEnabled,
@@ -11393,7 +11400,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, narrowBoardPanePx, narrowThreadPanePx, paneLayoutMode, boardPaneHidden, threadPaneHidden, responsePaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, textThicken, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, idColorEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, narrowBoardPanePx, narrowThreadPanePx, paneLayoutMode, boardPaneHidden, threadPaneHidden, responsePaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, textThicken, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, idColorEnabled, responseHoverHighlightEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled && !typingComboEnabled) return;
@@ -13009,7 +13016,7 @@ export default function App() {
 
   return (
     <div
-      className={`shell${darkMode ? " dark" : ""}${glassMode ? " glass" : ""}${glassMode && glassUltraLite ? " glass-ultra-lite" : ""}${glassMode && !glassUltraLite && glassLite ? " glass-lite" : ""}${thumbMaskEnabled ? " thumb-masked" : ""}${responseMetaInline ? " meta-inline" : ""}`}
+      className={`shell${darkMode ? " dark" : ""}${glassMode ? " glass" : ""}${glassMode && glassUltraLite ? " glass-ultra-lite" : ""}${glassMode && !glassUltraLite && glassLite ? " glass-lite" : ""}${thumbMaskEnabled ? " thumb-masked" : ""}${responseMetaInline ? " meta-inline" : ""}${responseHoverHighlightEnabled ? "" : " no-response-hover"}`}
       style={{ fontFamily: fontFamily ? `"Backslash", ${fontFamily}` : undefined, gridTemplateRows: [
         "26px",
         toolBarVisible ? "32px" : null,
@@ -17198,6 +17205,11 @@ export default function App() {
                   <span title="オフにすると ID を色分けせず、控えめな灰色で表示します">ID を色分けして表示する</span>
                   <span className="settings-hint">オフにすると ID が灰色になります。自分でハイライトした ID の色は残ります</span>
                 </label>
+                <label className="settings-row">
+                  <input type="checkbox" className="response-hover-highlight-toggle" checked={responseHoverHighlightEnabled} onChange={(e) => setResponseHoverHighlightEnabled(e.target.checked)} />
+                  <span title="オフにするとマウスが乗ったレスの背景色が変わらなくなります">マウスが乗ったレスを薄く色付けする</span>
+                  <span className="settings-hint">レス欄でマウスを動かすたびに背景がチカチカするのが気になるときはオフにしてください</span>
+                </label>
               </fieldset>
               </>)}
               {settingsTab === "layout" && (<>
@@ -17718,7 +17730,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>208項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>209項目</span></div>
               </fieldset>
               </>)}
             </div>
