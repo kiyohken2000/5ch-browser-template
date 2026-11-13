@@ -299,6 +299,24 @@ body.zoom-open {
   margin: 0 0 22px;
   font-variant-numeric: tabular-nums;
 }
+.hero-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 22px;
+}
+.hero-pills .pill {
+  margin: 0;
+}
+.pill-link {
+  text-decoration: none;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.pill-link:hover,
+.pill-link:focus-visible {
+  border-color: var(--accent);
+  color: var(--ink);
+}
 .pill-dot {
   width: 6px;
   height: 6px;

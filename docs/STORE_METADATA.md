@@ -420,12 +420,12 @@ If the review device uses a VPN, please turn it off and try again. If the messag
 ここを直すまで検索結果や SNS のカードの時点で PC 専用アプリとして扱われる。
 該当箇所には同じ趣旨のコードコメントも置いてある。
 
-- [ ] `apps/landing/src/MobilePages.tsx` の `APP_STORE_URL` / `GOOGLE_PLAY_URL` にストアの URL を入れる。空のあいだストアバッジは「準備中」と出る
-- [ ] `apps/landing/src/App.tsx` 対応プラットフォームの帯にある iOS / Android チップから「準備中」バッジ (`.platform-chip-note`) を外す
-- [ ] 同 `.mobile-teaser` の告知カードを、ストアバッジ付きの正式なセクションへ格上げする。「App Store / Google Play 準備中」の pill は外す
-- [ ] 同ヒーローの pill「v0.0.xxx · Windows / macOS / Linux」にモバイルを足す
-- [ ] `apps/landing/index.html` の 6 か所を直す — `<title>` (7 行目)、`meta description` (10)、`og:description` (18)、`twitter:description` (29)、JSON-LD の `operatingSystem` (39) と `description` (40)
-- [ ] `cd apps/landing && npm run deploy` で反映する。**アプリのリリースではないので `scripts/release.sh` / `release_finish.sh` は通さない**（バージョン更新も `latest.json` の差し替えも不要）
+- [x] `apps/landing/src/MobilePages.tsx` の `APP_STORE_URL` / `GOOGLE_PLAY_URL` にストアの URL を入れる。空のあいだストアバッジは「準備中」と出る
+- [x] `apps/landing/src/App.tsx` 対応プラットフォームの帯にある iOS / Android チップから「準備中」バッジ (`.platform-chip-note`) を外す
+- [x] 同 `.mobile-teaser` の告知カードを、ストアバッジ付きの正式なセクションへ格上げする。「App Store / Google Play 準備中」の pill は外す
+- [x] 同ヒーローの pill「v0.0.xxx · Windows / macOS / Linux」にモバイルを足す
+- [x] `apps/landing/index.html` の 6 か所を直す — `<title>` (7 行目)、`meta description` (10)、`og:description` (18)、`twitter:description` (29)、JSON-LD の `operatingSystem` (39) と `description` (40)
+- [x] `cd apps/landing && npm run deploy` で反映する。**アプリのリリースではないので `scripts/release.sh` / `release_finish.sh` は通さない**（バージョン更新も `latest.json` の差し替えも不要）
 
 ### 経緯
 

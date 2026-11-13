@@ -20,7 +20,7 @@ const SUPPORT_EMAIL = "retwpay@gmail.com";
 const LEGAL_UPDATED = "2026年11月8日";
 /** 公開されたら入れる。空のあいだはバッジに「準備中」と出す */
 const APP_STORE_URL = "https://apps.apple.com/jp/app/id6831091040";
-const GOOGLE_PLAY_URL = "";
+const GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=net.votepurchase.ember";
 
 type ThemeKey = "light" | "dark";
 export type MobilePageKey = "mobile" | "privacy" | "terms" | "support";

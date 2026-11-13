@@ -27,6 +27,7 @@ import badgeAppStore from "./assets/images/mobile/appstore.png";
 import badgeGooglePlay from "./assets/images/mobile/googleplay.png";
 
 const APP_STORE_URL = "https://apps.apple.com/jp/app/id6831091040";
+const GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=net.votepurchase.ember";
 
 const REPO_RELEASES_URL = "https://github.com/kiyohken2000/5ch-browser-template/releases";
 const GITHUB_URL = "https://github.com/kiyohken2000/5ch-browser-template";
@@ -372,10 +373,15 @@ export default function App() {
           </div>
           <div className="hero-inner">
             <div className="hero-copy">
-              <p className="pill">
-                <span className="pill-dot" />
-                v{meta?.version || "—"} · Windows / macOS / Linux
-              </p>
+              {/* デスクトップとモバイルで分ける。バージョン番号はデスクトップ版のものなので、
+                  同じ pill に iOS / Android を並べるとモバイル版も同じ番号に見えてしまう。 */}
+              <div className="hero-pills">
+                <p className="pill">
+                  <span className="pill-dot" />
+                  v{meta?.version || "—"} · Windows / macOS / Linux
+                </p>
+                <a className="pill pill-link" href="/mobile.html">iOS / Android</a>
+              </div>
               <h1>
                 5chを、<br />
                 <span className="gradient-text">現代の体験</span>で。
@@ -432,13 +438,12 @@ export default function App() {
             <span className="platform-chip"><AppleIcon /> macOS (Apple Silicon)</span>
             <span className="platform-chip"><LinuxIcon /> Linux x64 / AArch64</span>
             {/* 「対応プラットフォーム」と銘打った場所に iOS / Android が無いと、
-                デスクトップ専用のアプリだと読まれてしまう。iOS は App Store へ直接送り、
-                まだストアが開いていない Android は状態を添えてモバイル版のページへ送る。 */}
+                デスクトップ専用のアプリだと読まれてしまう。どちらもストアへ直接送る。 */}
             <a className="platform-chip" href={APP_STORE_URL} target="_blank" rel="noreferrer">
               <AppleIcon /> iOS
             </a>
-            <a className="platform-chip" href="/mobile.html">
-              <AndroidIcon /> Android <span className="platform-chip-note">準備中</span>
+            <a className="platform-chip" href={GOOGLE_PLAY_URL} target="_blank" rel="noreferrer">
+              <AndroidIcon /> Android
             </a>
           </div>
         </section>
@@ -1064,14 +1069,12 @@ export default function App() {
         </section>
 
         {/* モバイル版の告知。トップからの導線がナビとフッタの裸のリンクだけで、
-            何があるのか分からなかった。Google Play も開いたら正式なセクションへ
-            格上げし、title / description / OG / JSON-LD の「Windows / macOS / Linux」も
-            書き換える。 */}
+            何があるのか分からなかったので置いた。 */}
         <section className="section">
           <article className="card mobile-teaser reveal">
             <div className="mobile-teaser-text">
               <p className="kicker">iOS / Android</p>
-              <h3>モバイル版、iOS で配信を始めました</h3>
+              <h3>モバイル版、iOS / Android で配信中です</h3>
               <p className="lead">
                 アンカーをカードで重ねて辿り、画像も動画もその場で。要約や翻訳は端末の中の AI で動きます。
                 デスクトップ版と同じく無料・広告なし・オープンソースです。
@@ -1080,10 +1083,9 @@ export default function App() {
                 <a className="store-badge" href={APP_STORE_URL} target="_blank" rel="noreferrer">
                   <img src={badgeAppStore} alt="App Store で入手" />
                 </a>
-                <span className="store-badge is-pending">
-                  <img src={badgeGooglePlay} alt="" />
-                  <span className="store-badge-note">Google Play: 準備中</span>
-                </span>
+                <a className="store-badge" href={GOOGLE_PLAY_URL} target="_blank" rel="noreferrer">
+                  <img src={badgeGooglePlay} alt="Google Play で入手" />
+                </a>
               </div>
               <div className="actions">
                 <a className="btn ghost" href="/mobile.html">モバイル版の機能を見る</a>
