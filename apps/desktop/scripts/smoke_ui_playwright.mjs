@@ -6639,6 +6639,342 @@ try {
     console.log("smoke-ui: only a 404 greys out a dat落ち tab ok");
   }
 
+  // --- 自動開閉: スレタブバーとアイコン列のクリックでは畳まない ---
+  // 「スレ一覧を自動で開閉する」は、レスペインを触ったときにスレ一覧を畳む。ただし
+  // スレタイトルバー (アイコン列) とスレタブバーもレスペインの中にあるので、そこで
+  // 畳むとレスペインが詰まって押そうとしたタブ・ボタンがカーソルの下から逃げ、
+  // mouseup が別要素に落ちて 1 回目のクリックが消える (押し直しが必要になる) という
+  // 報告があった。検査するのは:
+  //  - タブをクリックしたらスレ一覧は出たまま、かつタブが切り替わること
+  //  - アイコン列のボタンを押してもスレ一覧は出たまま、かつボタンが効くこと
+  //  - レス本文を触ったときは従来どおり畳むこと
+  {
+    const AT1 = "https://mao.5ch.io/test/read.cgi/ngt/1511111111/";
+    const AT2 = "https://mao.5ch.io/test/read.cgi/ngt/1522222222/";
+    const autoPage = await context.newPage();
+    await autoPage.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+      localStorage.setItem("desktop.threadTabs.v1", arg.tabs);
+      const makeRows = (n) => {
+        const out = [];
+        for (let i = 1; i <= n; i += 1) {
+          out.push({
+            responseNo: i,
+            name: "名無しさん",
+            mail: "",
+            dateAndId: "2026/11/01(土) 00:00:00.00 ID:abcdefgh",
+            body: "本文 " + i,
+          });
+        }
+        return out;
+      };
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          // 仕込んだファイルだけ返す。空文字で返すと「ユーザーが消した」扱いで
+          // localStorage の副本まで落ちる (bootstrapUiJson) ので、他は失敗させる。
+          if (cmd === "load_ui_json" && args && args.name === "thread_tabs") {
+            return Promise.resolve(localStorage.getItem("desktop.threadTabs.v1") || "");
+          }
+          if (cmd === "save_ui_json") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({});
+          if (cmd === "save_read_status") return Promise.resolve(null);
+          if (cmd === "load_thread_cache") return Promise.resolve(null);
+          if (cmd === "save_thread_cache") return Promise.resolve(null);
+          if (cmd === "fetch_thread_list") {
+            return Promise.resolve([
+              { threadKey: "1511111111", title: "板のスレ1", responseCount: 10, threadUrl: arg.t1 },
+              { threadKey: "1522222222", title: "板のスレ2", responseCount: 20, threadUrl: arg.t2 },
+            ]);
+          }
+          if (cmd === "fetch_thread_responses_command") {
+            return Promise.resolve({ responses: makeRows(8), title: null, lastModified: "LM", notModified: false });
+          }
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, {
+      prefs: JSON.stringify({
+        restoreSession: true,
+        threadPaneAutoToggle: true,
+        lastBoard: { boardName: "ngt", url: "https://mao.5ch.io/ngt/" },
+      }),
+      tabs: JSON.stringify({
+        tabs: [{ threadUrl: AT1, title: "タブ1" }, { threadUrl: AT2, title: "タブ2" }],
+        activeIndex: 0,
+      }),
+      t1: AT1, t2: AT2,
+    });
+    await autoPage.goto(targetUrl, { waitUntil: "load" });
+    await autoPage.waitForSelector(".thread-tab:not(.placeholder)");
+    await new Promise((r) => setTimeout(r, 700));
+
+    const threadPaneShown = () => autoPage.$eval(".pane.threads", (el) => getComputedStyle(el).display !== "none");
+    const activeTabTitle = () => autoPage
+      .$eval(".thread-tab.active .thread-tab-title", (el) => (el.textContent || "").trim())
+      .catch(() => "(no active tab)");
+
+    assert(await threadPaneShown(), "the auto toggle should restore with the thread pane shown");
+    assert((await activeTabTitle()) === "タブ1", `the first tab should start active, got ${await activeTabTitle()}`);
+
+    // タブのクリック: 1 回で切り替わり、スレ一覧は残る
+    const autoTabs = await autoPage.$$(".thread-tab:not(.placeholder)");
+    assert(autoTabs.length === 2, `the auto toggle case needs 2 restored tabs, got ${autoTabs.length}`);
+    await autoTabs[1].click();
+    await new Promise((r) => setTimeout(r, 400));
+    assert(
+      (await activeTabTitle()) === "タブ2",
+      `one click on a tab should switch to it even with the auto toggle on, got ${await activeTabTitle()}`,
+    );
+    assert(
+      await threadPaneShown(),
+      "clicking a tab in the tab bar must not collapse the thread pane (the click would be eaten by the reflow)",
+    );
+
+    // アイコン列のクリック: ボタンが効き、スレ一覧は残る
+    const ngBtn = await autoPage.$('.thread-title-bar .title-action-btn[title="NGフィルタ"]');
+    assert(ngBtn, "the thread title bar should have an NGフィルタ button");
+    await ngBtn.click();
+    await autoPage.waitForSelector('.ng-panel[aria-label="NGフィルタ"]', { timeout: 5000 });
+    assert(
+      await threadPaneShown(),
+      "clicking an icon above the tab bar must not collapse the thread pane",
+    );
+    await ngBtn.click();
+    await autoPage.waitForFunction(() => !document.querySelector('.ng-panel[aria-label="NGフィルタ"]'), null, { timeout: 5000 });
+
+    // レス本文を触ったときは従来どおり畳む
+    await autoPage.click(".response-scroll");
+    await autoPage.waitForFunction(
+      () => getComputedStyle(document.querySelector(".pane.threads")).display === "none",
+      null,
+      { timeout: 5000 },
+    );
+
+    await autoPage.close();
+    console.log("smoke-ui: the auto toggle keeps the thread pane while the tab bar and icons are clicked ok");
+  }
+
+  // --- 最近開いたスレ: 開いて並びが変わっても既読数と選択行がずれない ---
+  // 既読マップ・既読数・選択行は「今表示しているリストでの index + 1」をキーにしている。
+  // 最近開いたスレは MRU なので、スレを開くとそのスレが先頭へ動く。引き直さないと各行が
+  // 別のスレの既読数を表示して「レス」数 < 「既読」数 が出るし、選択行も別のスレになって
+  // selectedThread の scrollIntoView が見当違いの行へ飛ぶ (スクロール位置が飛ぶ報告の原因)。
+  // 検査するのは:
+  //  - 開く前は各行の既読数が自分のスレのものであること
+  //  - 途中の行を開いて先頭へ動いた後も、各行の既読数が自分のスレのものであること
+  //    (開いたスレだけ既読数 = レス数 になる)
+  //  - どの行も「レス」数 >= 「既読」数 であること
+  //  - 並び替えてスクロールした状態で開いても、選択行が開いたスレのままで、
+  //    スクロール位置が飛ばないこと
+  {
+    const MRU_BOARD = "https://mao.5ch.io/ngt/";
+    const MRU_COUNT = 60;
+    const mruTitle = (i) => "R" + String(i).padStart(2, "0");
+    const mruPage = await context.newPage();
+    await mruPage.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+      localStorage.setItem("desktop.threadFilterMode.v1", "recent-opened");
+      localStorage.setItem("desktop.recentOpenedThreads.v1", arg.recent);
+      // 前の検査が残した「板ごとにソートを記憶」を持ち込まない (既定の番号順で始める)
+      localStorage.setItem("desktop.threadSortPersistEnabled.v1", "false");
+      const board = arg.board;
+      const count = arg.count;
+      const key = (i) => String(3200000000 + i);
+      const url = (i) => "https://mao.5ch.io/test/read.cgi/ngt/" + key(i) + "/";
+      const rows = [];
+      const readStatus = {};
+      const resByUrl = {};
+      for (let i = 1; i <= count; i += 1) {
+        // レス数は 100+i、既読数は i — どちらもスレごとに違う値にしておく。
+        // 行と数字の対応がずれたら必ず気づけるようにするため。
+        rows.push({ threadKey: key(i), title: "R" + String(i).padStart(2, "0"), responseCount: 100 + i, threadUrl: url(i) });
+        readStatus[key(i)] = i;
+        resByUrl[url(i)] = 100 + i;
+      }
+      const makeRows = (n) => {
+        const out = [];
+        for (let i = 1; i <= n; i += 1) {
+          out.push({
+            responseNo: i,
+            name: "名無しさん",
+            mail: "",
+            dateAndId: "2026/11/01(土) 00:00:00.00 ID:abcdefgh",
+            body: "本文 " + i,
+          });
+        }
+        return out;
+      };
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          // 仕込んだファイルだけ返す (他を空文字で返すと localStorage の副本が落ちる)
+          if (cmd === "load_ui_json" && args && args.name === "recent_opened_threads") {
+            return Promise.resolve(localStorage.getItem("desktop.recentOpenedThreads.v1") || "");
+          }
+          if (cmd === "save_ui_json") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({ [board]: readStatus });
+          if (cmd === "save_read_status") return Promise.resolve(null);
+          if (cmd === "load_thread_cache") return Promise.resolve(null);
+          if (cmd === "save_thread_cache") return Promise.resolve(null);
+          if (cmd === "fetch_thread_list") return Promise.resolve(rows);
+          if (cmd === "fetch_thread_responses_command") {
+            // 取得できるレス数は板一覧のレス数と同じ (開いたスレは既読 = レス数 になる)
+            const n = resByUrl[args && args.threadUrl] ?? 1;
+            return Promise.resolve({ responses: makeRows(n), title: null, lastModified: "LM", notModified: false });
+          }
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, {
+      prefs: JSON.stringify({ restoreSession: true, lastBoard: { boardName: "ngt", url: MRU_BOARD } }),
+      recent: JSON.stringify(
+        Array.from({ length: MRU_COUNT }, (_, i) => ({
+          threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/" + (3200000000 + i + 1) + "/",
+          title: mruTitle(i + 1),
+          boardUrl: MRU_BOARD,
+          updatedAt: MRU_COUNT - i,
+        })),
+      ),
+      board: MRU_BOARD,
+      count: MRU_COUNT,
+    });
+    await mruPage.goto(targetUrl, { waitUntil: "load" });
+    await mruPage.waitForSelector(".pane.threads tbody .thread-title-cell");
+
+    const mruHeaderIndex = (label) => mruPage.$$eval(".pane.threads thead th", (els, want) => {
+      for (let i = 0; i < els.length; i += 1) {
+        if ((els[i].textContent || "").replace(/[\s▲▼]/g, "") === want) return i;
+      }
+      return -1;
+    }, label);
+    const mruIdx = {
+      title: await mruHeaderIndex("タイトル"),
+      res: await mruHeaderIndex("レス"),
+      read: await mruHeaderIndex("既読"),
+    };
+    assert(
+      mruIdx.title >= 0 && mruIdx.res >= 0 && mruIdx.read >= 0,
+      `the thread list should show the タイトル / レス / 既読 columns, got ${JSON.stringify(mruIdx)}`,
+    );
+    const mruRows = () => mruPage.$$eval(".pane.threads tbody tr", (trs, idx) => trs.map((tr) => {
+      const tds = tr.querySelectorAll("td");
+      const cell = (i) => (tds[i] ? (tds[i].textContent || "").trim() : "");
+      return { title: cell(idx.title), res: cell(idx.res), read: cell(idx.read), selected: tr.classList.contains("selected-row"), cells: Array.from(tds).map((td) => (td.textContent || "").trim()) };
+    }), mruIdx);
+    // レス数が入るのは起動時のフィルタ復元で fetch_thread_list が返ってから
+    await mruPage.waitForFunction(
+      (want) => {
+        const trs = document.querySelectorAll(".pane.threads tbody tr");
+        return trs.length === want;
+      },
+      MRU_COUNT,
+      { timeout: 15000 },
+    );
+    const mruSettled = async () => {
+      for (let i = 0; i < 60; i++) {
+        const rows = await mruRows();
+        if (rows.length === MRU_COUNT && rows.every((r) => r.res !== "-" && r.read !== "-")) return rows;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return await mruRows();
+    };
+    const checkMruRows = async (openedTitles) => {
+      const rows = await mruSettled();
+      assert(rows.length === MRU_COUNT, `the recent list should show ${MRU_COUNT} rows, got ${rows.length}`);
+      for (const r of rows) {
+        const n = Number(r.title.slice(1));
+        assert(Number.isFinite(n) && n >= 1 && n <= MRU_COUNT, `unexpected row title in the recent list: ${JSON.stringify(r)}`);
+        const wantRes = String(100 + n);
+        // 開いたスレは「既読 = レス数」になる (その行だけ既読数が上がる)
+        const wantRead = openedTitles.includes(r.title) ? wantRes : String(n);
+        assert(
+          r.res === wantRes && r.read === wantRead,
+          `row ${r.title} should keep its own レス/既読 (${wantRes}/${wantRead}), got ${JSON.stringify(r)}`,
+        );
+        assert(Number(r.res) >= Number(r.read), `no row should end up with レス数 < 既読数, got ${JSON.stringify(r)}`);
+      }
+      return rows;
+    };
+
+    await checkMruRows([]);
+
+    // 途中の行を開く -> MRU で先頭へ動く。既読数が行とずれないこと
+    const mruRowIndexOf = (title) => mruPage.$$eval(
+      ".pane.threads tbody .thread-title-cell",
+      (els, want) => els.findIndex((el) => (el.textContent || "").trim() === want),
+      title,
+    );
+    const clickMruRow = async (title) => {
+      const i = await mruRowIndexOf(title);
+      assert(i >= 0, `the recent list should contain ${title}`);
+      const trs = await mruPage.$$(".pane.threads tbody tr");
+      await trs[i].click();
+      await new Promise((r) => setTimeout(r, 500));
+    };
+    await clickMruRow(mruTitle(4));
+    const afterOpen = await checkMruRows([mruTitle(4)]);
+    assert(
+      afterOpen[0].title === mruTitle(4),
+      `the opened thread should move to the head of the recent list, got ${afterOpen[0].title}`,
+    );
+    assert(
+      afterOpen.filter((r) => r.selected).length === 1 && afterOpen.find((r) => r.selected).title === mruTitle(4),
+      `the opened row should stay the selected one, got ${JSON.stringify(afterOpen.filter((r) => r.selected))}`,
+    );
+
+    // 並び替え + スクロールした状態で開く -> スクロール位置が飛ばないこと
+    let resHeader = null;
+    for (const th of await mruPage.$$(".pane.threads thead th.sortable-th")) {
+      if ((await th.innerText()).replace(/[\s▲▼]/g, "") === "レス") { resHeader = th; break; }
+    }
+    assert(resHeader, "the thread list should have a sortable レス header");
+    // 「レス」は 1 回押すと降順 (toggleThreadSort の既定) — レス数が一番多い R60 が先頭
+    await resHeader.click();
+    await mruPage.waitForFunction(
+      (want) => {
+        const first = document.querySelector(".pane.threads tbody .thread-title-cell");
+        return first && (first.textContent || "").trim() === want;
+      },
+      mruTitle(MRU_COUNT),
+      { timeout: 10000 },
+    );
+
+    const mruScroll = () => mruPage.$eval(".pane.threads .threads-table-wrap", (el) => ({
+      top: el.scrollTop,
+      max: el.scrollHeight - el.clientHeight,
+      rowHeight: el.querySelector("tbody tr")?.offsetHeight ?? 22,
+    }));
+    await mruPage.$eval(".pane.threads tbody tr:nth-child(30)", (el) => el.scrollIntoView({ block: "center" }));
+    await new Promise((r) => setTimeout(r, 250));
+    const scrollBefore = await mruScroll();
+    assert(
+      scrollBefore.max > 0 && scrollBefore.top > 0,
+      `the recent list should be scrolled away from the top for this check, got ${JSON.stringify(scrollBefore)}`,
+    );
+    const midTitle = await mruPage.$eval(".pane.threads tbody tr:nth-child(30) .thread-title-cell", (el) => (el.textContent || "").trim());
+    await clickMruRow(midTitle);
+    const scrollAfter = await mruScroll();
+    const afterSorted = await mruRows();
+    assert(
+      afterSorted.filter((r) => r.selected).length === 1 && afterSorted.find((r) => r.selected).title === midTitle,
+      `the row opened from the sorted list should stay selected (${midTitle}), got ${JSON.stringify(afterSorted.filter((r) => r.selected))}`,
+    );
+    assert(
+      Math.abs(scrollAfter.top - scrollBefore.top) <= scrollBefore.rowHeight * 2,
+      `opening a thread from the sorted recent list should not jump the scroll position, got ${scrollBefore.top} -> ${scrollAfter.top}`,
+    );
+
+    await mruPage.close();
+    console.log("smoke-ui: opening a thread from 最近開いたスレ keeps every row's 既読 and the selected row ok");
+  }
+
   // kenmo.org / 00c.org (5ch 互換の別サイト) の板一覧を EXおろちつねると同じ扱いで
   // 出せること。既定は非表示なので、起動時の取得で kenmo が要求されないこと、
   // 板メニューのトグルでカテゴリが出入りすること、設定が残ることを見る。

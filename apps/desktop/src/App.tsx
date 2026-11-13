@@ -3675,6 +3675,13 @@ export default function App() {
   const [showRecentPostedOnly, setShowRecentPostedOnly] = useState(restoredThreadFilter === "recent-posted");
   const [recentOpenedThreads, setRecentOpenedThreads] = useState<RecentThread[]>([]);
   const [recentPostedThreads, setRecentPostedThreads] = useState<RecentThread[]>([]);
+  // 最近読んだ / 書き込んだは MRU なので、スレを開くとそのスレが先頭へ動く。取得の完了後
+  // (非同期) に「今のリストでの位置」を引くときに描画時のクロージャを見ると並べ替え前を
+  // 指してしまい、別の行の既読数を書き換えてしまうため、最新のリストを ref でも持つ。
+  const recentOpenedThreadsRef = useRef<RecentThread[]>([]);
+  const recentPostedThreadsRef = useRef<RecentThread[]>([]);
+  useEffect(() => { recentOpenedThreadsRef.current = recentOpenedThreads; }, [recentOpenedThreads]);
+  useEffect(() => { recentPostedThreadsRef.current = recentPostedThreads; }, [recentPostedThreads]);
   const [favNewCounts, setFavNewCounts] = useState<Map<string, number>>(new Map());
   const [favNewCountsFetched, setFavNewCountsFetched] = useState(false);
   // 一括巡回 (お気に入り + 最近読んだ + 最近書き込んだ スレの新着判定)。
@@ -6419,9 +6426,9 @@ export default function App() {
         : showCachedOnly
         ? cachedThreadList.findIndex((ct) => sameThread(ct.threadUrl))
         : showRecentOpenedOnly
-        ? recentOpenedThreads.findIndex((ft) => sameThread(ft.threadUrl))
+        ? recentOpenedThreadsRef.current.findIndex((ft) => sameThread(ft.threadUrl))
         : showRecentPostedOnly
-        ? recentPostedThreads.findIndex((ft) => sameThread(ft.threadUrl))
+        ? recentPostedThreadsRef.current.findIndex((ft) => sameThread(ft.threadUrl))
         : showFavoritesOnly
         ? favorites.threads.findIndex((ft) => sameThread(ft.threadUrl))
         : threadListIndex;
@@ -6992,11 +6999,17 @@ export default function App() {
       boardUrl: getBoardUrlFromThreadUrl(normalizedUrl),
       updatedAt: Date.now(),
     };
-    setRecentOpenedThreads((prev) => {
-      const next = upsertRecentThread(prev, entry);
-      saveUiJson(RECENT_OPENED_THREADS_KEY, JSON.stringify(next));
-      return next;
-    });
+    // 開いたスレは先頭へ移る (MRU)。既読マップ・選択行のキーは「今表示しているリストでの
+    // index + 1」なので、最近読んだスレを表示中に並べ替えると番号が別のスレを指してしまう。
+    // 削除系と同じく引き直す。
+    const prev = recentOpenedThreads;
+    const next = upsertRecentThread(prev, entry);
+    // ref は effect を待たずここで進める。開いた直後の取得がこの tick のうちに
+    // 返ってくると、effect より先に「今のリストでの位置」を引くため。
+    recentOpenedThreadsRef.current = next;
+    setRecentOpenedThreads(next);
+    saveUiJson(RECENT_OPENED_THREADS_KEY, JSON.stringify(next));
+    if (showRecentOpenedOnly) remapSavedThreadCounts(prev, next);
   };
   const pushRecentPostedThread = (url: string, title: string) => {
     const normalizedUrl = normalizeThreadUrl(url);
@@ -7006,11 +7019,13 @@ export default function App() {
       boardUrl: getBoardUrlFromThreadUrl(normalizedUrl),
       updatedAt: Date.now(),
     };
-    setRecentPostedThreads((prev) => {
-      const next = upsertRecentThread(prev, entry);
-      saveUiJson(RECENT_POSTED_THREADS_KEY, JSON.stringify(next));
-      return next;
-    });
+    // 最近開いたスレと同じ理由で、表示中なら引き直す (書き込むと先頭へ移る)。
+    const prev = recentPostedThreads;
+    const next = upsertRecentThread(prev, entry);
+    recentPostedThreadsRef.current = next;
+    setRecentPostedThreads(next);
+    saveUiJson(RECENT_POSTED_THREADS_KEY, JSON.stringify(next));
+    if (showRecentPostedOnly) remapSavedThreadCounts(prev, next);
   };
   // スレを取得してタイトルが分かったら、最近読んだ / 書き込んだ の表示名も直す。
   // スレ内のリンクや過去ログから開くと、開いた時点ではタイトルが無く URL 末尾の
@@ -7027,21 +7042,34 @@ export default function App() {
     setRecentOpenedThreads(apply(RECENT_OPENED_THREADS_KEY));
     setRecentPostedThreads(apply(RECENT_POSTED_THREADS_KEY));
   };
+  // 保存リスト (お気に入り / 最近読んだ / 最近書き込んだ) の並びが変わったときに、
+  // 位置インデックスで持っている既読マップ・既読数・選択行を新しい位置へ引き直す。
+  // setState は関数形で渡す — 同じ tick で先にキューされた更新 (スレ一覧の行をクリック
+  // したときの「既読にする」) を描画時クロージャの古い値で踏み潰さないため。
   const remapSavedThreadCounts = (prev: RecentThread[], next: RecentThread[]) => {
     const newIndexByUrl = new Map<string, number>();
     next.forEach((t, i) => newIndexByUrl.set(t.threadUrl, i));
-    const newReadMap: Record<number, boolean> = {};
-    const newLastReadMap: Record<number, number> = {};
-    prev.forEach((t, oldIdx) => {
-      const newIdx = newIndexByUrl.get(t.threadUrl);
-      if (newIdx == null) return;
-      const r = threadReadMap[oldIdx + 1];
-      const l = threadLastReadCount[oldIdx + 1];
-      if (r != null) newReadMap[newIdx + 1] = r;
-      if (l != null) newLastReadMap[newIdx + 1] = l;
+    const remap = <T,>(cur: Record<number, T>): Record<number, T> => {
+      const out: Record<number, T> = {};
+      prev.forEach((t, oldIdx) => {
+        const newIdx = newIndexByUrl.get(t.threadUrl);
+        if (newIdx == null) return;
+        const v = cur[oldIdx + 1];
+        if (v != null) out[newIdx + 1] = v;
+      });
+      return out;
+    };
+    setThreadReadMap(remap);
+    setThreadLastReadCount(remap);
+    // 選択行も位置インデックス。引き直さないと別のスレが選択扱いになり、
+    // selectedThread の effect の scrollIntoView が見当違いの行へ飛ばす。
+    setSelectedThread((cur) => {
+      if (cur == null) return cur;
+      const url = prev[cur - 1]?.threadUrl;
+      if (url == null) return null;
+      const newIdx = newIndexByUrl.get(url);
+      return newIdx == null ? null : newIdx + 1;
     });
-    setThreadReadMap(newReadMap);
-    setThreadLastReadCount(newLastReadMap);
   };
   const removeRecentOpenedThread = (url: string) => {
     const target = normalizeThreadUrl(url);
@@ -13958,7 +13986,13 @@ export default function App() {
           setFocusedPane("responses");
           // 畳むのは左クリックのときだけ。右クリック (ジェスチャの開始) や
           // 戻るボタンまで拾うと、スレ一覧を出し直した直後にまた畳んでしまう。
-          if (e.button === 0 && threadPaneAutoToggle) setThreadPaneHidden(true);
+          if (e.button !== 0 || !threadPaneAutoToggle) return;
+          // スレタイトルバー (アイコン列) とスレタブバーは「読み始めた」操作ではない。
+          // ここで畳むとレスペインが詰まって押そうとしたタブ・ボタンがカーソルの下から
+          // 逃げ、mouseup が別要素に落ちて click が成立しない (1回目が消えて押し直しに
+          // なる)。畳みはレス本文・書き込み欄を触ったときだけにする。
+          if ((e.target as HTMLElement | null)?.closest(".thread-title-bar, .thread-tab-bar-wrap, .tab-rows-splitter")) return;
+          setThreadPaneHidden(true);
         }} style={{ '--fs-delta': `${responsesFontSize - 12}px`, display: responsePaneHidden ? "none" : undefined } as React.CSSProperties}>
           {activeTabIndex >= 0 && activeTabIndex < threadTabs.length && (
             <div className="thread-title-bar">
@@ -17684,7 +17718,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>206項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>208項目</span></div>
               </fieldset>
               </>)}
             </div>
