@@ -3794,6 +3794,12 @@ button.search-history-btn:hover {
   color: #cc3300;
 }
 
+/* dat落ち (取得が 404) のタブ。スレ一覧の行 (.dat-ochi-row) と同じ薄さに揃える */
+.thread-tab-title.dat-ochi,
+.tab-list-item-title.dat-ochi {
+  opacity: 0.4;
+}
+
 .tab-new-count {
   flex: 0 0 auto;
   font-size: calc(9px + var(--tab-fs-delta, 0px));

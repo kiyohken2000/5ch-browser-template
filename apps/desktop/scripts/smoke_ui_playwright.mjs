@@ -6466,6 +6466,179 @@ try {
     console.log("smoke-ui: refreshing every tab marks the ones with new responses ok");
   }
 
+  // --- dat落ちしたタブのタイトルを灰色にする ---
+  // JaneStyle と同じ「落ちたスレのタブは灰色」。検査するのは:
+  //  - 取得が 404 のタブだけ .dat-ochi が付くこと
+  //  - 404 以外のエラー (一時的な通信エラー) では付かないこと。reqwest のエラー文には
+  //    URL が入るので、スレッドキー (unix 秒) に含まれる "404" を拾って誤判定しない
+  //    ことまで見る
+  //  - styles.css に薄く描く規則があること
+  //  - タブ一覧ドロップダウンでも灰色になること
+  //  - タブと一緒に保存されること (再起動しても灰色のまま)
+  //  - あとで取得が通ったら灰色が外れること (過去ログとして読めた場合も含む)
+  {
+    // A1 = アクティブタブ (普通に取れる) / A2 = 404 / A3 = 通信エラー (URL に 404 を含む)
+    const A1 = "https://mao.5ch.io/test/read.cgi/ngt/1111111111/";
+    const A2 = "https://mao.5ch.io/test/read.cgi/ngt/2222222222/";
+    const A3 = "https://mao.5ch.io/test/read.cgi/ngt/1762404123/";
+    const ochiPage = await context.newPage();
+    await ochiPage.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+      localStorage.setItem("desktop.threadTabs.v1", arg.tabs);
+      const A1 = arg.a1, A2 = arg.a2, A3 = arg.a3;
+      const makeRows = (n) => {
+        const out = [];
+        for (let i = 1; i <= n; i += 1) {
+          out.push({
+            responseNo: i,
+            name: "名無しさん",
+            mail: "",
+            dateAndId: "2026/11/01(土) 00:00:00.00 ID:abcdefgh",
+            body: "本文 " + i,
+          });
+        }
+        return out;
+      };
+      const cacheCounts = { [A1]: 10, [A2]: 20, [A3]: 30 };
+      // 取得を失敗させるエラー文。Rust 側の FetchError の Display に合わせる。
+      const errorPlan = {
+        [A2]: "unexpected status: 404 Not Found",
+        [A3]: "request failed: error sending request for url (" + A3 + ")",
+      };
+      window.__smokeOchi = {
+        // 落ちていたスレが読めるようになった状態にする
+        heal: () => { errorPlan[A2] = null; },
+      };
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "save_thread_cache") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({});
+          if (cmd === "load_thread_cache") {
+            const n = cacheCounts[args.threadUrl] ?? 0;
+            return Promise.resolve(n > 0 ? JSON.stringify(makeRows(n)) : null);
+          }
+          if (cmd === "fetch_thread_responses_command") {
+            const url = args.threadUrl;
+            const err = errorPlan[url];
+            if (err) return Promise.reject(new Error(err));
+            // 件数は手元のキャッシュと同じ = 新着なし (新着の印と混ざらないように)
+            return new Promise((resolve) => {
+              setTimeout(() => resolve({
+                responses: makeRows(cacheCounts[url] ?? 10),
+                title: null,
+                lastModified: "LM-" + url,
+                notModified: false,
+              }), 40);
+            });
+          }
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, {
+      prefs: JSON.stringify({ restoreSession: true }),
+      tabs: JSON.stringify({
+        tabs: [
+          { threadUrl: A1, title: "生きてる" },
+          { threadUrl: A2, title: "落ちた" },
+          { threadUrl: A3, title: "通信エラー" },
+        ],
+        activeIndex: 0,
+      }),
+      a1: A1, a2: A2, a3: A3,
+    });
+    await ochiPage.goto(targetUrl, { waitUntil: "load" });
+    await ochiPage.waitForSelector(".thread-tab:not(.placeholder)");
+    await new Promise((r) => setTimeout(r, 600));
+
+    const ochiState = () => ochiPage.$$eval(".thread-tab:not(.placeholder)", (els) => els.map((el) => ({
+      title: el.querySelector(".thread-tab-title")?.textContent?.trim() ?? "",
+      datOchi: el.querySelector(".thread-tab-title")?.classList.contains("dat-ochi") ?? false,
+    })));
+
+    const beforeOchi = await ochiState();
+    assert(beforeOchi.length === 3, `the dat落ち case needs 3 restored tabs, got ${JSON.stringify(beforeOchi)}`);
+    assert(
+      beforeOchi.every((t) => !t.datOchi),
+      `no tab should be greyed before the tabs are refreshed, got ${JSON.stringify(beforeOchi)}`,
+    );
+
+    const ochiBtn = await ochiPage.$(".bulk-refresh-btn");
+    assert(ochiBtn, "the toolbar should have a 全タブ更新 button");
+    await ochiBtn.click();
+    await ochiPage.waitForFunction(
+      () => (document.querySelector(".status-bar")?.textContent ?? "").includes("全タブ更新完了"),
+      null,
+      { timeout: 15000 },
+    );
+
+    const afterOchi = await ochiState();
+    assert(!afterOchi[0].datOchi, `a tab that loads must not be greyed, got ${JSON.stringify(afterOchi)}`);
+    assert(afterOchi[1].datOchi, `a tab whose fetch returned 404 should be greyed, got ${JSON.stringify(afterOchi)}`);
+    assert(
+      !afterOchi[2].datOchi,
+      `a tab that failed with a non-404 error must not be greyed (its url contains "404"), got ${JSON.stringify(afterOchi)}`,
+    );
+
+    const ochiRuleFound = await ochiPage.evaluate(() => {
+      for (const sheet of document.styleSheets) {
+        try {
+          for (const rule of sheet.cssRules) {
+            if (rule.cssText?.includes(".thread-tab-title.dat-ochi")) return true;
+          }
+        } catch {
+          // 外部シートは読めないことがある
+        }
+      }
+      return false;
+    });
+    assert(ochiRuleFound, "styles.css should fade .thread-tab-title.dat-ochi");
+
+    // タブ一覧ドロップダウンでも同じ印が付く
+    const ochiListBtn = await ochiPage.$(".tab-list-btn");
+    assert(ochiListBtn, "the tab bar should have a tab list button");
+    await ochiListBtn.click();
+    await ochiPage.waitForSelector(".tab-list-dropdown");
+    const listOchi = await ochiPage.$$eval(".tab-list-item-title", (els) => els.map((el) => ({
+      title: el.textContent?.trim() ?? "",
+      datOchi: el.classList.contains("dat-ochi"),
+    })));
+    assert(
+      listOchi.filter((t) => t.datOchi).length === 1,
+      `the tab list should grey exactly the dat落ち tab, got ${JSON.stringify(listOchi)}`,
+    );
+    await ochiListBtn.click();
+
+    // タブと一緒に保存される (再起動しても灰色のまま)
+    const savedOchi = await ochiPage.evaluate(() => {
+      try {
+        const parsed = JSON.parse(localStorage.getItem("desktop.threadTabs.v1") || "{}");
+        return (parsed.tabs ?? []).filter((t) => t.datOchi).map((t) => t.threadUrl);
+      } catch {
+        return null;
+      }
+    });
+    assert(
+      Array.isArray(savedOchi) && savedOchi.length === 1 && savedOchi[0] === A2,
+      `the dat落ち mark should be saved with the tabs, got ${JSON.stringify(savedOchi)}`,
+    );
+
+    // 取得が通るようになったら灰色を外す
+    await ochiPage.evaluate(() => window.__smokeOchi.heal());
+    await (await ochiPage.$(".bulk-refresh-btn")).click();
+    await ochiPage.waitForFunction(
+      () => !document.querySelector(".thread-tab-title.dat-ochi"),
+      null,
+      { timeout: 15000 },
+    );
+
+    await ochiPage.close();
+    console.log("smoke-ui: only a 404 greys out a dat落ち tab ok");
+  }
+
   // kenmo.org / 00c.org (5ch 互換の別サイト) の板一覧を EXおろちつねると同じ扱いで
   // 出せること。既定は非表示なので、起動時の取得で kenmo が要求されないこと、
   // 板メニューのトグルでカテゴリが出入りすること、設定が残ることを見る。

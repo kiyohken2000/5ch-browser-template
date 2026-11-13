@@ -523,7 +523,16 @@ type ThreadTab = {
   title: string;
   // ロック中のタブは閉じる操作をすべて拒否し、セッション復元の設定に関係なく起動時に戻す
   locked?: boolean;
+  // dat落ち (取得が 404)。タブのタイトルを灰色にするための印。タブと一緒に保存される
+  // ので再起動しても灰色のままになり、取得が通ったら外れる (過去ログとして読めた場合も)。
+  datOchi?: boolean;
 };
+
+// dat落ちの判定は 404 のときだけに絞る。core-fetch の FetchError::HttpStatus は
+// "unexpected status: 404 Not Found" を返す。reqwest のエラー文には URL が入ることが
+// あり、スレッドキー (unix 秒) に "404" を含む URL があるので、エラー文の単純な部分
+// 一致だと一時的な通信エラーを dat落ちと誤判定してしまう。
+const isNotFoundError = (msg: string): boolean => /unexpected status:\s*404\b/.test(msg);
 
 const stripHtmlForMatch = (html: string): string =>
   html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, " ").trim();
@@ -3840,6 +3849,15 @@ export default function App() {
       return next;
     });
   };
+  // dat落ち (404) の印を立てる / 外す。変化が無いときは state をそのまま返す —
+  // 作り直すとタブの保存 effect が走って localStorage を書き直してしまう。
+  const markTabDatOchi = (url: string, datOchi: boolean) => {
+    setThreadTabs((prev) => {
+      if (!prev.some((t) => t.threadUrl === url && !!t.datOchi !== datOchi)) return prev;
+      // false のときは undefined にしておく (JSON.stringify がキーごと落とす)
+      return prev.map((t) => (t.threadUrl === url ? { ...t, datOchi: datOchi ? true : undefined } : t));
+    });
+  };
   // タブを閉じたときに、そのスレのために持っていたものを全部捨てる
   const forgetTabState = (url: string) => {
     tabCacheRef.current.delete(url);
@@ -6312,6 +6330,9 @@ export default function App() {
         ifModifiedSince: since,
       });
       if (result.lastModified) tabLastModifiedRef.current.set(url, result.lastModified);
+      // 取得が通った (304 も含む) なら dat落ちではない。過去ログの HTML から読めた
+      // スレもここに来るので、灰色のままにはしない。
+      markTabDatOchi(url, false);
       if (result.notModified) {
         // 304 (更新なし)。本文は流れていないので、表示は手元のキャッシュのままで正しい。
         setResponseListProbe("ok (not modified)");
@@ -6432,6 +6453,9 @@ export default function App() {
       setResponseListProbe(`error: ${msg}`);
       const isDatOchi = msg.includes("404") || msg.includes("Not Found") || msg.includes("HttpStatus");
       setStatus(isDatOchi ? `dat落ちまたは存在しないスレです` : `response load error: ${msg}`);
+      // タブを灰色にするのは 404 のときだけ。一時的な通信エラーで灰色にすると、
+      // 回線が不安定なときに生きているタブまで落ちたように見えてしまう。
+      if (isNotFoundError(msg)) markTabDatOchi(url, true);
     } finally {
       setResponsesLoading(false);
     }
@@ -6513,6 +6537,8 @@ export default function App() {
             allowHtmlFallback: false,
           });
           if (result.lastModified) tabLastModifiedRef.current.set(url, result.lastModified);
+          // 取得が通った (304 も含む) なら dat落ちではないので灰色を外す
+          markTabDatOchi(url, false);
           if (result.notModified) continue;
           const rows = result.responses;
           // 空が返ったときは手元のキャッシュを残す (取得失敗と区別できないため)
@@ -6551,6 +6577,10 @@ export default function App() {
           // dat 落ち・過去ログ・一時的なエラーはスキップして次のタブへ進む
           skipped++;
           console.warn(`refreshAllTabs: skipped ${url}`, e);
+          // 404 だけはタブを灰色にする。ここは allowHtmlFallback: false で呼んで
+          // いるので、過去ログ (read.cgi では読める) も 404 になる — そのタブを
+          // 開けば取得が通って灰色は外れる。
+          if (isNotFoundError(String(e))) markTabDatOchi(url, true);
         } finally {
           // 304 や空応答で continue したときも進行表示は進める
           setBulkRefreshProgress({ done: i + 1, total: targets.length });
@@ -14139,9 +14169,9 @@ export default function App() {
                   window.addEventListener("pointerup", onUp);
                   window.addEventListener("pointercancel", onUp);
                 }}
-                title={tab.title || tab.threadUrl}
+                title={`${tab.title || tab.threadUrl}${tab.datOchi ? " (dat落ち)" : ""}`}
               >
-                <span className={`thread-tab-title${(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 ? " has-new" : ""}`}>{tab.title}</span>
+                <span className={`thread-tab-title${(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 ? " has-new" : ""}${tab.datOchi ? " dat-ochi" : ""}`}>{tab.title}</span>
                 {tabCacheRef.current.has(tab.threadUrl) && (
                   <span className="tab-res-count">({tabCacheRef.current.get(tab.threadUrl)!.responses.length})</span>
                 )}
@@ -16403,7 +16433,7 @@ export default function App() {
                     onClick={() => jumpToTabFromList(index)}
                   >
                     {tab.locked && <Lock className="tab-list-item-lock" size={10} />}
-                    <span className={`tab-list-item-title${(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 ? " has-new" : ""}`}>{tab.title || tab.threadUrl}</span>
+                    <span className={`tab-list-item-title${(tabNewCounts.get(tab.threadUrl) ?? 0) > 0 ? " has-new" : ""}${tab.datOchi ? " dat-ochi" : ""}`}>{tab.title || tab.threadUrl}</span>
                     {tabCacheRef.current.has(tab.threadUrl) && (
                       <span className="tab-list-item-count">({tabCacheRef.current.get(tab.threadUrl)!.responses.length})</span>
                     )}
@@ -17654,7 +17684,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>205項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>206項目</span></div>
               </fieldset>
               </>)}
             </div>
