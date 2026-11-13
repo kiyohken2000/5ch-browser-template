@@ -29,6 +29,8 @@ export const light = {
   badge: '#c0441b',
   badgeText: '#ffffff',
   readLine: '#c0441b',
+  // 新着レスのあるスレのスレタイ（デスクトップ版 .has-unread-row と同じ色）
+  unreadTitle: '#cc3300',
   aaBg: '#fbfbfd',
   // レスの配色はデスクトップ版に揃える
   resNo: '#226688',
@@ -55,6 +57,8 @@ export const dark = {
   badge: '#f08050',
   badgeText: '#1a1a1b',
   readLine: '#f08050',
+  // 新着レスのあるスレのスレタイ（デスクトップ版 .has-unread-row と同じ色）
+  unreadTitle: '#ff6644',
   aaBg: '#1f1f21',
   // レスの配色はデスクトップ版に揃える
   resNo: '#6a9fb8',

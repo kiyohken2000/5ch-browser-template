@@ -559,6 +559,9 @@ export default function Threads({ route, navigation }) {
           const seen = watchById.get(item.threadId)
           const unread = unreadCount(item, seen)
           const { title, tag } = splitTitleTag(item.title)
+          // 新着レスがあれば赤太字（デスクトップ版と同じ）、読んだスレはグレー
+          let titleColor = seen ? theme.textDim : theme.text
+          if (unread > 0) titleColor = theme.unreadTitle
           return (
             <Pressable
               onPress={() =>
@@ -615,7 +618,8 @@ export default function Threads({ route, navigation }) {
               <Text
                 style={[
                   {
-                    color: seen ? theme.textDim : theme.text,
+                    color: titleColor,
+                    fontWeight: unread > 0 ? '700' : undefined,
                     fontSize: titleFontSize,
                     lineHeight: Math.round(titleFontSize * 1.34),
                   },
