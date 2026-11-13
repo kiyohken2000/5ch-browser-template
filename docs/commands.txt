@@ -10,6 +10,12 @@ eas build --profile preview --platform android
 eas build --profile production --platform ios
 eas build --profile production --platform android
 
+// build: production (ローカルビルド。EAS のビルド枠を使わない。apps/mobile で実行)
+// 成果物は build-*.ipa / build-*.aab。提出は eas submit --platform <ios|android> --path <ファイル>
+// iOS は xcodebuild -showBuildSettings が fastlane の既定タイムアウト (3 秒〜) を超えて落ちるので延ばす
+FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT=120 eas build --profile production --platform ios --local
+eas build --profile production --platform android --local
+
 // build: develop (iOS Simulator, ローカルビルド。EAS のビルド枠を使わない)
 // 成果物は build-*.tar.gz。展開した Ember.app を xcrun simctl install でインストール
 eas build --profile development --platform ios --local
