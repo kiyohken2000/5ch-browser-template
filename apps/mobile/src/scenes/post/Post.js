@@ -19,6 +19,7 @@ import React, {
 } from 'react'
 import {
   ActivityIndicator,
+  Dimensions,
   Keyboard,
   LayoutAnimation,
   Linking,
@@ -156,6 +157,8 @@ export default function Post({ route, navigation }) {
   const [keyboardShown, setKeyboardShown] = useState(false)
   // 画面の下端がキーボードに隠れる量。入力欄と操作列をこの分だけ持ち上げる
   const [keyboardInset, setKeyboardInset] = useState(0)
+  /** Android で最後に出たキーボードの位置。遷移のあとに測り直すのに使う */
+  const androidKeyboardRef = useRef(null)
 
   useEffect(() => {
     const showEvent =
@@ -172,23 +175,40 @@ export default function Post({ route, navigation }) {
         return
       }
       // Android は OS が画面を縮めていることがあるので、実際に重なる分だけ足す
+      androidKeyboardRef.current = e.endCoordinates
+      measureAndroidInset()
+    }
+    // 本文の autoFocus で、画面が下から入ってくる途中にキーボードが出る。
+    // そのとき測ると画面がまだ下にずれていて、重なりが画面より大きく出る。
+    // 本文と操作列が潰れて、打った文字が見えなくなっていた（キーボードを
+    // 一度閉じて開き直すまで戻らない）。キーボードの上端から画面の下端までを
+    // 上限にし、遷移が終わったら測り直す
+    const measureAndroidInset = () => {
+      const kb = androidKeyboardRef.current
       const root = rootRef.current
-      if (!root) return
+      if (!kb || !root) return
       root.measureInWindow((x, y, width, height) => {
-        setKeyboardInset(Math.max(0, y + height - e.endCoordinates.screenY))
+        const max = Math.max(0, Dimensions.get('screen').height - kb.screenY)
+        setKeyboardInset(Math.min(max, Math.max(0, y + height - kb.screenY)))
       })
     }
     const show = Keyboard.addListener(showEvent, onShow)
     const hide = Keyboard.addListener(hideEvent, () => {
+      androidKeyboardRef.current = null
       setKeyboardShown(false)
       LayoutAnimation.easeInEaseOut()
       setKeyboardInset(0)
     })
+    const transitionEnd =
+      Platform.OS === 'android'
+        ? navigation.addListener('transitionEnd', measureAndroidInset)
+        : null
     return () => {
       show.remove()
       hide.remove()
+      if (transitionEnd) transitionEnd()
     }
-  }, [])
+  }, [navigation])
 
   // 入力コンボ（設定でオンのときだけ）
   const comboEnabled = useSelector((state) => state.settings.typingCombo)
