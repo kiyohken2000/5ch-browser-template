@@ -9,15 +9,15 @@ iOS シミュレーターで動きを確かめ、見つけた不具合を直し�
 
 ## 前提
 
-- ブランチ: `mobile-notify-history`（push 済み）/ 実装の commit: `c5e67e9`。main からの差分はモバイルとドキュメントだけ（デスクトップの同じ本文の連投 NG は Windows の作業ツリーに残してある）
+- ブランチ: **`main`**（ブランチは切らない）/ 実装の commit: `c5e67e9`。デスクトップの同じ本文の連投 NG は Windows の作業ツリーに残してある（未コミット）
 - Windows で通ったもの:
   - `npx jest`（50 スイート / 773 件）
   - `npx eslint src __tests__`（エラー 0）
   - `npx expo export --platform android`（バンドルが通る）
-- 確認が済んで問題がなければ main に入れる。モバイルのリリース（EAS）は別に判断する
+- モバイルのリリース（EAS）は確認が済んでから別に判断する
 
 ```bash
-git fetch && git switch <ブランチ>
+git switch main && git pull
 cd apps/mobile
 yarn install
 npx jest                 # まず Mac でも通ることを確かめる
