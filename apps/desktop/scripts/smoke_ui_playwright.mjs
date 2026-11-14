@@ -1714,17 +1714,32 @@ try {
   const ngBtn2 = await page.$(".ng-filter-toggle");
   if (ngBtn2) await ngBtn2.click();
   await new Promise((r) => setTimeout(r, 100));
-  const ngWordInput = await page.$('.ng-panel input[type="text"]');
-  if (ngWordInput) {
-    await ngWordInput.fill("認証テスト");
-    await ngWordInput.press("Enter");
-    await new Promise((r) => setTimeout(r, 200));
-    const threadCountAfter = await page.$$eval(".threads tbody tr", (els) => els.length);
+  if (!(await page.$("section[aria-label='NGフィルタ']"))) await page.click("button[title='NGフィルタ']");
+  await page.waitForSelector("section[aria-label='NGフィルタ']");
+  {
+    // NG フィルタの「ワード」は既定でスレタイにも効き、チェックを外すとレスにだけ効く
+    const ngSec = "section[aria-label='NGフィルタ']";
+    const titleToggle = `${ngSec} .ng-words-thread-list-setting input`;
+    const countRows = () => page.$$eval(".threads tbody tr", (els) => els.length);
+    const hasAuthRow = () => page.$$eval(".threads tbody tr", (els) => els.some((el) => (el.textContent || "").includes("認証テスト")));
+    assert(await hasAuthRow(), "fallback thread 認証テスト should be listed before NG");
+    assert(await page.isChecked(titleToggle), "ワードをスレタイにも適用 should default to ON");
+    await page.selectOption(`${ngSec} .ng-panel-add select:first-child`, "words");
+    await page.fill(`${ngSec} .ng-panel-add input`, "認証テスト");
+    await page.press(`${ngSec} .ng-panel-add input`, "Enter");
+    await page.waitForFunction(() => ![...document.querySelectorAll(".threads tbody tr")].some((el) => (el.textContent || "").includes("認証テスト")));
+    const threadCountAfter = await countRows();
     assert(threadCountAfter < threadCountBefore, `NG word should hide thread, before=${threadCountBefore} after=${threadCountAfter}`);
+    await page.uncheck(titleToggle);
+    await page.waitForFunction(() => [...document.querySelectorAll(".threads tbody tr")].some((el) => (el.textContent || "").includes("認証テスト")));
+    assert((await countRows()) === threadCountBefore, "with the toggle OFF, NG words should not hide threads");
+    const storedOff = await page.evaluate(() => localStorage.getItem("desktop.ngWordsInThreadList.v1"));
+    assert(storedOff === "false", `toggle OFF should be saved, got ${storedOff}`);
+    await page.check(titleToggle);
+    await page.waitForFunction(() => ![...document.querySelectorAll(".threads tbody tr")].some((el) => (el.textContent || "").includes("認証テスト")));
     // cleanup: remove the NG word
-    const removeBtn = await page.$('.ng-panel button:has-text("×")');
-    if (removeBtn) await removeBtn.click();
-    await new Promise((r) => setTimeout(r, 100));
+    await page.click(`${ngSec} .ng-list li:has-text("認証テスト") .ng-remove`);
+    await page.waitForFunction(() => [...document.querySelectorAll(".threads tbody tr")].some((el) => (el.textContent || "").includes("認証テスト")));
   }
   // close NG panel
   const ngCloseBtn = await page.$('.ng-panel button:has-text("閉じる")');

@@ -778,6 +778,8 @@ const NG_CHAIN_REPLIES_MODE_KEY = "desktop.ngChainRepliesMode.v1";
 // スレ内で N レス以上書いた ID を自動 NG にする閾値 (0 = 無効) と、そのモード。
 // 5ch の ID は日替わりなので NG リストには入れず、開いているスレの中だけで効かせる。
 const NG_ID_POST_COUNT_KEY = "desktop.ngIdPostCount.v1";
+// NG フィルタの「ワード」をスレ一覧のスレタイにも当てるか。以前は常に当てていたので既定オン。
+const NG_WORDS_IN_THREAD_LIST_KEY = "desktop.ngWordsInThreadList.v1";
 const NG_ID_POST_COUNT_MODE_KEY = "desktop.ngIdPostCountMode.v1";
 // 曖昧 NG (AI ルール) の定義
 const NG_AI_RULES_KEY = "desktop.ngAiRules.v1";
@@ -883,6 +885,7 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   ngChainReplies: NG_CHAIN_REPLIES_KEY,
   ngChainRepliesMode: NG_CHAIN_REPLIES_MODE_KEY,
   ngIdPostCount: NG_ID_POST_COUNT_KEY,
+  ngWordsInThreadList: NG_WORDS_IN_THREAD_LIST_KEY,
   ngIdPostCountMode: NG_ID_POST_COUNT_MODE_KEY,
   hlIdExpireDays: HL_ID_EXPIRE_DAYS_KEY,
   ex0chEnabled: EX0CH_ENABLED_KEY,
@@ -3272,6 +3275,16 @@ export default function App() {
   useEffect(() => {
     saveUiSetting(NG_CHAIN_REPLIES_KEY, String(ngChainReplies));
   }, [ngChainReplies]);
+  const [ngWordsInThreadList, setNgWordsInThreadList] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(NG_WORDS_IN_THREAD_LIST_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    saveUiSetting(NG_WORDS_IN_THREAD_LIST_KEY, String(ngWordsInThreadList));
+  }, [ngWordsInThreadList]);
   // 連鎖させるレスに当てるモード。画像 NG は返信側に当てても意味がないので 2 択。
   // 未保存のときは従来の挙動 (あぼーん) を維持する。
   const [ngChainRepliesMode, setNgChainRepliesMode] = useState<NgMode>(() => {
@@ -6032,7 +6045,7 @@ export default function App() {
         if (row.threadKey === currentKey) continue;
         const rowCreated = Number(row.threadKey) || 0;
         if (rowCreated <= currentCreated) continue;
-        if (ngFilters.words.some((w) => !ngEntryDisabled(w) && ngMatch(ngVal(w), row.title))) continue;
+        if (ngWordsInThreadList && ngFilters.words.some((w) => !ngEntryDisabled(w) && ngMatch(ngVal(w), row.title))) continue;
         if (ngFilters.thread_words.some((w) => !ngEntryDisabled(w) && ngMatch(ngVal(w), row.title))) continue;
         const rowNorm = normalizeThreadTitleForSearch(row.title);
         if (!rowNorm || !normalized) continue;
@@ -7419,7 +7432,7 @@ export default function App() {
   }));
   const filteredThreadItems = normalizedThreadItems
     .filter((t) => {
-      if (ngFilters.words.some((w) => !ngEntryDisabled(w) && ngMatch(ngVal(w), t.title))) return false;
+      if (ngWordsInThreadList && ngFilters.words.some((w) => !ngEntryDisabled(w) && ngMatch(ngVal(w), t.title))) return false;
       if (ngFilters.thread_words.some((w) => !ngEntryDisabled(w) && ngMatch(ngVal(w), t.title))) return false;
       // 全板検索の結果は API 側で絞り込み済み。"A -B" や "@板名" のような構文は
       // 部分一致にならないので、ここでは絞らない。
@@ -15733,6 +15746,13 @@ export default function App() {
                 <option value="hide">非表示</option>
                 <option value="abone">あぼーん</option>
               </select>
+            </label>
+            <label
+              className="ng-words-thread-list-setting"
+              title="オンにすると、下の「ワード」に一致するスレタイのスレをスレ一覧でも隠します。オフにするとワードはレスにだけ効きます。スレタイだけを隠したい語は「スレ一覧NGワード」へ。"
+            >
+              <input type="checkbox" checked={ngWordsInThreadList} onChange={(e) => setNgWordsInThreadList(e.target.checked)} />
+              ワードをスレタイにも適用
             </label>
             <label
               className="ng-postcount-setting"

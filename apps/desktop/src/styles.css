@@ -2979,7 +2979,8 @@ button.search-history-btn:hover {
   opacity: 0.5;
   cursor: default;
 }
-.ng-chain-setting {
+.ng-chain-setting,
+.ng-words-thread-list-setting {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2988,7 +2989,8 @@ button.search-history-btn:hover {
   color: var(--sub);
   cursor: pointer;
 }
-.ng-chain-setting input {
+.ng-chain-setting input,
+.ng-words-thread-list-setting input {
   margin: 0;
 }
 .ng-chain-setting select:disabled {
