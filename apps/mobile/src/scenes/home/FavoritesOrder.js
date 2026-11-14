@@ -1,14 +1,16 @@
 /**
  * お気に入りの並べ替え。右端のつまみをドラッグして動かす。
+ * ホームと同じく dat 落ちは下にまとめて見せる（ホームではいつも下に出るため）。
  */
 
-import React, { useCallback } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import DraggableFlatList, {
   ScaleDecorator,
 } from 'react-native-draggable-flatlist'
 import { useDispatch, useSelector } from 'react-redux'
 
+import { droppedLast, withWatchInfo } from 'lib/threadLists'
 import { setFavoriteOrder } from 'slices/watch.slice'
 import { useEmberTheme } from 'theme/ember'
 
@@ -16,6 +18,13 @@ export default function FavoritesOrder() {
   const theme = useEmberTheme()
   const dispatch = useDispatch()
   const favorites = useSelector((state) => state.watch.favorites)
+  const watchList = useSelector((state) => state.watch.watchList)
+  const rows = useMemo(() => {
+    const watch = new Map(watchList.map((t) => [t.threadId, t]))
+    return droppedLast(
+      favorites.map((t) => withWatchInfo(t, watch.get(t.threadId))),
+    )
+  }, [favorites, watchList])
 
   const renderItem = useCallback(
     ({ item, drag, isActive }) => (
@@ -34,6 +43,11 @@ export default function FavoritesOrder() {
               {item.title || '(無題)'}
             </Text>
             <Text style={{ color: theme.textFaint, fontSize: 11 }}>
+              {item.datDropped ? (
+                <Text style={[styles.datTag, { color: theme.danger }]}>
+                  dat落ち{'　'}
+                </Text>
+              ) : null}
               {item.boardName}
             </Text>
           </View>
@@ -55,7 +69,7 @@ export default function FavoritesOrder() {
   return (
     <DraggableFlatList
       style={{ backgroundColor: theme.bg }}
-      data={favorites}
+      data={rows}
       keyExtractor={(item) => item.threadId}
       renderItem={renderItem}
       onDragEnd={({ data }) =>
@@ -76,4 +90,5 @@ const styles = StyleSheet.create({
   text: { flex: 1, gap: 2, paddingVertical: 8 },
   handle: { paddingHorizontal: 16, paddingVertical: 10 },
   handleText: { fontSize: 24 },
+  datTag: { fontWeight: '700' },
 })

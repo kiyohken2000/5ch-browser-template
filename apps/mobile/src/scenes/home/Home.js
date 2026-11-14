@@ -31,6 +31,7 @@ import { FIXED_HOME_SEGMENT, visibleHomeSegments } from 'lib/homeSegments'
 import { listCachedThreadIds } from 'lib/threadCache'
 import {
   canAddWatch,
+  droppedLast,
   droppedThreads,
   postedThreads,
   WATCH_LIMIT_TOAST,
@@ -48,6 +49,7 @@ import {
   toggleWatch,
   updateCount,
 } from 'slices/watch.slice'
+import { setSetting } from 'slices/settings.slice'
 import GlassSheetBackground from 'components/GlassSheetBackground'
 import Icon from 'components/Icon'
 import useSheetAnimation from 'components/useSheetAnimation'
@@ -64,6 +66,12 @@ const EMPTY_TEXT = {
   dropped:
     'dat 落ちしたスレのうち、手元に保存があるものが並びます。\n下に引くと全部の新着と一緒に確認します。',
 }
+
+/** お気に入りの並び。手動は手で並べた順、unread は新着を上に寄せる。dat 落ちはどちらも下 */
+const FAVORITE_ORDERS = [
+  { key: 'manual', label: '手動' },
+  { key: 'unread', label: '新着を上' },
+]
 
 function renderMenuBackdrop(props) {
   return (
@@ -85,6 +93,9 @@ export default function Home({ navigation }) {
   const readMarkers = useSelector((state) => state.watch.readMarkers)
   const titleFontSize = useSelector(
     (state) => state.settings.threadTitleFontSize,
+  )
+  const favoritesUnreadFirst = useSelector(
+    (state) => state.settings.favoritesUnreadFirst,
   )
   /**
    * 新着チェック中に、下に引いた切り替えの key。スピナーはその画面にだけ出す。
@@ -168,7 +179,10 @@ export default function Home({ navigation }) {
     return {
       // 新着のあるスレを上に、dat 落ちは下にまとめる（§9-8）
       watch: watchOrder(watched, newCount),
-      favorites: info(favorites),
+      // 並べ替えるのは表示だけで、手で並べた順はそのまま残す。dat 落ちはどちらでも下
+      favorites: favoritesUnreadFirst
+        ? watchOrder(info(favorites), newCount)
+        : droppedLast(info(favorites)),
       recent: info(recentOpened),
       posted: info(posted),
       dropped: droppedThreads(
@@ -176,7 +190,61 @@ export default function Home({ navigation }) {
         cachedIds,
       ),
     }
-  }, [watchList, watched, favorites, recentOpened, myPosts, cachedIds])
+  }, [
+    watchList,
+    watched,
+    favorites,
+    favoritesUnreadFirst,
+    recentOpened,
+    myPosts,
+    cachedIds,
+  ])
+
+  const favoriteOrder = favoritesUnreadFirst ? 'unread' : 'manual'
+  const favoritesHeader = (
+    <View
+      accessibilityRole="radiogroup"
+      accessibilityLabel="お気に入りの並び"
+      style={[styles.orderRow, { borderColor: theme.border }]}
+    >
+      <Text style={[styles.orderLabel, { color: theme.textFaint }]}>並び</Text>
+      {FAVORITE_ORDERS.map((o) => {
+        const on = favoriteOrder === o.key
+        return (
+          <Pressable
+            key={o.key}
+            accessibilityRole="radio"
+            accessibilityState={{ checked: on }}
+            hitSlop={6}
+            onPress={() =>
+              dispatch(
+                setSetting({
+                  key: 'favoritesUnreadFirst',
+                  value: o.key === 'unread',
+                }),
+              )
+            }
+            style={[
+              styles.orderChip,
+              {
+                backgroundColor: on ? theme.accent : 'transparent',
+                borderColor: on ? theme.accent : theme.border,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.orderChipText,
+                { color: on ? theme.badgeText : theme.textDim },
+              ]}
+            >
+              {o.label}
+            </Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
 
   const removeFromSegment = useCallback(
     (from, threadId) => {
@@ -422,6 +490,11 @@ export default function Home({ navigation }) {
                 />
               }
               renderItem={renderRow}
+              ListHeaderComponent={
+                key === 'favorites' && favorites.length > 1
+                  ? favoritesHeader
+                  : null
+              }
               ListEmptyComponent={
                 <View style={styles.empty}>
                   <Text style={[styles.emptyBody, { color: theme.textDim }]}>
@@ -546,6 +619,22 @@ const styles = StyleSheet.create({
   meta: { flexDirection: 'row', gap: 12 },
   metaText: { fontSize: 11 },
   datTag: { fontSize: 11, fontWeight: '700' },
+  orderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  orderLabel: { fontSize: 12, marginRight: 2 },
+  orderChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  orderChipText: { fontSize: 12 },
   menu: { paddingBottom: 32 },
   menuTitle: {
     paddingHorizontal: 18,

@@ -4,6 +4,7 @@ import {
   forgetThreadRecords,
   MAX_WATCHED,
   watchOrder,
+  droppedLast,
   MAX_KNOWN_BOARDS,
   MAX_MY_POSTS,
   manualReadMarkers,
@@ -322,6 +323,28 @@ describe('監視の上限', () => {
       ),
     ]
     expect(canAddWatch(list, 'new')).toBe(true)
+  })
+})
+
+describe('droppedLast', () => {
+  it('dat 落ちだけ下にまとめる。中の順は保つ', () => {
+    const list = [
+      t('drop1', { datDropped: true }),
+      t('a', { n: 2 }),
+      t('drop2', { datDropped: true }),
+      t('b'),
+    ]
+    expect(droppedLast(list).map((x) => x.threadId)).toEqual([
+      'a',
+      'b',
+      'drop1',
+      'drop2',
+    ])
+  })
+
+  it('dat 落ちが無ければ同じ配列を返す', () => {
+    const list = [t('a'), t('b')]
+    expect(droppedLast(list)).toBe(list)
   })
 })
 

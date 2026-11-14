@@ -203,6 +203,17 @@ export const WATCH_LIMIT_TOAST = {
 }
 
 /**
+ * dat 落ちを下にまとめる。それぞれの中は渡された順（お気に入りの「手動」の並び）。
+ * @param {object[]} list
+ */
+export function droppedLast(list) {
+  const alive = []
+  const dropped = []
+  for (const t of list) (t.datDropped ? dropped : alive).push(t)
+  return dropped.length === 0 ? list : [...alive, ...dropped]
+}
+
+/**
  * 「監視」の列の並び。新着あり → 新着なし → dat 落ち。それぞれの中は渡された順。
  * @param {object[]} list
  * @param {(t: object) => number} countOf

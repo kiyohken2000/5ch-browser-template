@@ -67,6 +67,8 @@ export const DEFAULTS = {
   sortModesShown: DEFAULT_SORT_SHOWN,
   /** ホームに出す切り替え。「最近」は常に出す（lib/homeSegments） */
   homeSegmentsShown: DEFAULT_HOME_SHOWN,
+  /** ホームのお気に入りで、新着のあるスレを上に寄せる（一覧の上の「並び」）。切ると手で並べた順 */
+  favoritesUnreadFirst: false,
   /** NG ID を登録から何日で消すか。0 は消さない */
   ngIdExpireDays: 0,
   /** 強調 ID を登録から何日で消すか。0 は消さない */
