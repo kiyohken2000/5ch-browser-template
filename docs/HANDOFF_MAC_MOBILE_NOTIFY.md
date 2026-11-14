@@ -9,7 +9,7 @@ iOS シミュレーターで動きを確かめ、見つけた不具合を直し�
 
 ## 前提
 
-- ブランチ: `（push 後に追記）` / commit: `（push 後に追記）`
+- ブランチ: `mobile-notify-history`（push 済み）/ 実装の commit: `c5e67e9`。main からの差分はモバイルとドキュメントだけ（デスクトップの同じ本文の連投 NG は Windows の作業ツリーに残してある）
 - Windows で通ったもの:
   - `npx jest`（50 スイート / 773 件）
   - `npx eslint src __tests__`（エラー 0）
