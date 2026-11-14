@@ -265,6 +265,13 @@ export const MAX_THREAD_NOTIFICATIONS_PER_BOARD = 3
  * 取りこぼさないよう幅を持たせ、通知済みのスレは `seen` で 2 度鳴らさない
  */
 export const ALERT_LOOKBACK_SEC = 24 * 60 * 60
+/**
+ * スレの番号がこれより先（秒）の未来なら、立ったスレではない。運営の告知スレ
+ * （「★ UPLIFT プレミアム・サービスのお知らせ」など）は 9240230830 のような
+ * 遠い未来の番号で板の先頭に置かれ、登録より前からあっても「後に立った」に見える。
+ * 端末の時計のずれを見込んで幅を持たせる
+ */
+export const ALERT_FUTURE_SLACK_SEC = 24 * 60 * 60
 
 /** 比べるための形。全角半角・大文字小文字をそろえる。 */
 export function normalizeAlertText(text) {
@@ -345,6 +352,7 @@ export function findNewAlertThreads({
     .filter((t) => {
       const key = Number(t.threadKey)
       if (!Number.isFinite(key) || key <= record.since) return false
+      if (key > nowSec + ALERT_FUTURE_SLACK_SEC) return false
       if (seen.has(String(t.threadKey))) return false
       if (!alertMatches(t.title, alert.words)) return false
       if (isNgTitle?.(t.title)) return false

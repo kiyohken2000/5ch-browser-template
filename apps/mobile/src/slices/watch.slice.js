@@ -147,6 +147,8 @@ const watchSlice = createSlice({
         const prev = state.watchList[at]
         state.watchList[at] = {
           ...prev,
+          // 板の URL を持たずに入った行（ember://thread で開いたもの）を埋める
+          boardUrl: prev.boardUrl || boardUrl,
           title: title || prev.title,
           boardName: boardName || prev.boardName,
           totalCount: totalCount ?? prev.totalCount,

@@ -1,7 +1,7 @@
 /**
  * 通知の履歴（§9-8）。出した通知を残して、ボトムタブの「通知」に一覧で出す。
  *
- * - 書くのは巡回（lib/notifyTask.js）と、通知タブでの既読だけ
+ * - 書くのは巡回（lib/notifyTask.js）と、通知タブでの既読・削除だけ
  * - **最新 `MAX_HISTORY` 件まで、かつ `HISTORY_DAYS` 日以内。** どちらかを超えた
  *   古いものから消す（30 日たつと元のスレが落ちていることが多い）
  * - 巡回はアプリを開いていない間に書くので、アプリは前面に戻るたびに読み直す。
@@ -63,6 +63,12 @@ export function markRead(list, ids) {
   )
 }
 
+/** `ids` を一覧から消す。 */
+export function removeItems(list, ids) {
+  const drop = new Set(ids)
+  return (Array.isArray(list) ? list : []).filter((h) => !drop.has(h.id))
+}
+
 /** バッジの数字。99 を超えたら「99+」。 */
 export function badgeLabel(count) {
   if (!count) return undefined
@@ -108,6 +114,11 @@ export function appendHistory(items) {
 
 export function markHistoryRead(ids) {
   return update((list) => markRead(list, ids))
+}
+
+/** 通知タブの長押しの「一覧から削除」。 */
+export function removeHistoryItems(ids) {
+  return update((list) => removeItems(list, ids))
 }
 
 /** 読み直して画面に知らせる（前面に戻ったとき）。 */

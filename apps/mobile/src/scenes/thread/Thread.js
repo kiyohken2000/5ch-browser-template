@@ -239,7 +239,18 @@ const EMPTY_MENU = { top: [], copy: [], ng: [], ai: [] }
 
 export default function Thread({ route, navigation }) {
   const animationConfigs = useSheetAnimation()
-  const { threadUrl, boardUrl, boardName, title: initialTitle } = route.params
+  const { threadUrl, boardName, title: initialTitle } = route.params
+  // ember://thread のリンクでは板の URL が来ない。無いと控えに板が入らず、
+  // 通知の巡回とホームの新着確認から外れるので、スレの URL から割り出す
+  const paramBoardUrl = route.params.boardUrl
+  const boardUrl = useMemo(() => {
+    if (paramBoardUrl) return paramBoardUrl
+    try {
+      return parseBoardLocation(threadUrl).boardUrl()
+    } catch (e) {
+      return undefined
+    }
+  }, [paramBoardUrl, threadUrl])
   const theme = useEmberTheme()
   const insets = useSafeAreaInsets()
   const dispatch = useDispatch()

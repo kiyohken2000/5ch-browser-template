@@ -8,6 +8,7 @@ import {
   MAX_HISTORY,
   pruneHistory,
   pushHistory,
+  removeItems,
   subscribeHistory,
   unreadCount,
 } from 'lib/notifyHistory'
@@ -81,6 +82,13 @@ describe('通知の履歴', () => {
     expect(unreadCount(one)).toBe(2)
     const all = markRead(one)
     expect(unreadCount(all)).toBe(0)
+  })
+
+  it('削除は指定した分だけ。残りの並びは変えない', () => {
+    const list = pushHistory([], [item('a'), item('b'), item('c')], NOW)
+    const left = removeItems(list, [list[1].id])
+    expect(left.map((h) => h.title)).toEqual(['a', 'c'])
+    expect(removeItems(null, ['x'])).toEqual([])
   })
 
   it('バッジは 0 なら出さず、99 を超えたら 99+', () => {

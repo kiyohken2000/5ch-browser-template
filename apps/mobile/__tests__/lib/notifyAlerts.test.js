@@ -76,6 +76,19 @@ describe('スレ立て通知: 新しく立ったスレ', () => {
     ])
   })
 
+  it('番号が遠い未来の告知スレは、立ったスレとみなさない', () => {
+    const { hits } = findNewAlertThreads({
+      alert: alert(),
+      record: alertRecord(alert(), undefined),
+      threads: [
+        thread(9240230830, '★ ポケモン のお知らせ'),
+        thread(NOW_SEC + 60, 'ポケモン 時計が少し遅れた端末'),
+      ],
+      nowSec: NOW_SEC,
+    })
+    expect(hits.map((t) => t.title)).toEqual(['ポケモン 時計が少し遅れた端末'])
+  })
+
   it('一度通知したスレは 2 度鳴らさない', () => {
     const threads = [thread(since + 100, 'ポケモン')]
     const first = findNewAlertThreads({
