@@ -39,6 +39,7 @@ import { fetchSubject } from 'lib/api'
 import { longPressHaptic } from 'lib/haptics'
 import { openInAppBrowser } from 'lib/inAppBrowser'
 import { visibleThreads } from 'lib/ng'
+import { MAX_THREAD_ALERTS } from 'lib/notify'
 import {
   DEFAULT_SORT,
   formatAge,
@@ -152,6 +153,31 @@ export default function Threads({ route, navigation }) {
 
   const isFavorite = boardFavorites.some((b) => b.url === boardInfo?.url)
 
+  // スレ立て通知（§9-8）。通知がオンのときだけベルを出す。登録済みの板なら編集を開く
+  const notifyEnabled = useSelector((state) => !!state.settings.notifyEnabled)
+  const threadAlerts = useSelector((state) => state.settings.threadAlerts)
+  const boardAlert = (threadAlerts || []).find(
+    (a) => a.boardUrl === boardInfo?.url,
+  )
+  const openThreadAlert = useCallback(() => {
+    if (!boardInfo) return
+    if (boardAlert) {
+      navigation.navigate('ThreadAlertEdit', { id: boardAlert.id })
+      return
+    }
+    if ((threadAlerts || []).length >= MAX_THREAD_ALERTS) {
+      showToast({
+        title: `スレ立て通知は ${MAX_THREAD_ALERTS} 板までです`,
+        body: '設定 → 通知 で整理してください',
+      })
+      return
+    }
+    navigation.navigate('ThreadAlertEdit', {
+      boardUrl: boardInfo.url,
+      boardName: boardInfo.name || boardInfo.board,
+    })
+  }, [boardInfo, boardAlert, threadAlerts, navigation])
+
   useEffect(() => {
     navigation.setOptions({
       title: boardName || boardInfo?.board || 'スレ一覧',
@@ -162,6 +188,23 @@ export default function Threads({ route, navigation }) {
       headerRight: () =>
         boardInfo ? (
           <View style={styles.headerButtons}>
+            {notifyEnabled ? (
+              <Pressable
+                hitSlop={10}
+                style={styles.headerStar}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  boardAlert ? 'スレ立て通知を編集' : 'この板でスレ立て通知'
+                }
+                onPress={openThreadAlert}
+              >
+                <Icon
+                  name={boardAlert ? 'bell' : 'bellOff'}
+                  size={22}
+                  color={theme.accent}
+                />
+              </Pressable>
+            ) : null}
             <Pressable
               hitSlop={10}
               style={styles.headerStar}
@@ -202,7 +245,17 @@ export default function Threads({ route, navigation }) {
           </View>
         ) : null,
     })
-  }, [navigation, boardName, boardInfo, isFavorite, theme.accent, dispatch])
+  }, [
+    navigation,
+    boardName,
+    boardInfo,
+    isFavorite,
+    theme.accent,
+    dispatch,
+    notifyEnabled,
+    boardAlert,
+    openThreadAlert,
+  ])
 
   // ソート設定は板ごとに覚える
   useEffect(() => {

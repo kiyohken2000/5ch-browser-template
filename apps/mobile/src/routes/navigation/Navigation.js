@@ -9,8 +9,9 @@
  *   ├─ ホーム    監視リスト
  *   ├─ 板        カテゴリツリー → スレ一覧
  *   ├─ 検索      スレ横断検索
+ *   ├─ 通知      出した通知の履歴（通知がオンのときだけ出す）
  *   └─ 設定      表示設定 + NG 管理
- *   タブの最上位の 4 画面にヘッダーは置かない。どの画面かはタブバーで分かるので、
+ *   タブの最上位の画面にヘッダーは置かない。どの画面かはタブバーで分かるので、
  *   その高さを中身に回す。戻る操作が要るスレ一覧とスレビューには残す。
  *   スレビューはタブの外のルートスタックに push する（§7）。**同時に開くスレは
  *   1 つだけ**で、タブバーは隠れて本文が広くなる。スレ間の移動はホームから
@@ -19,12 +20,14 @@
  * `parseBoardLocation` を通るので、対応ホスト以外は取得前に止まる。
  *   ember://thread?threadUrl=<スレ URL>
  *   ember://board?boardUrl=<板 URL>&boardName=<板名>
- *   ember://search / ember://settings
+ *   ember://search / ember://settings / ember://notifications
+ * 通知をタップすると、そのスレ（まとめた通知なら通知タブ）を開いて既読にする。
  * 書き込み画面はスレビューから全画面モーダルで開く。リンクからは開けない。
  */
 
+import * as Notifications from 'expo-notifications'
 import { useShareIntent } from 'expo-share-intent'
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   NavigationContainer,
   useNavigationContainerRef,
@@ -36,13 +39,17 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { AppState, Platform, StatusBar, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import Toast from 'react-native-toast-message'
+import { useSelector } from 'react-redux'
 
 import Icon from 'components/Icon'
 import { makeToastConfig } from 'components/toastConfig'
+import { badgeLabel, markHistoryRead, unreadCount } from 'lib/notifyHistory'
 import { sharedUrl, shareTarget } from 'lib/shareTarget'
 import useIdExpiry from 'utils/useIdExpiry'
+import useNotifyHistory from 'utils/useNotifyHistory'
 import Boards from 'scenes/boards/Boards'
 import Home from 'scenes/home/Home'
+import NotificationList from 'scenes/notifications/Notifications'
 import Post from 'scenes/post/Post'
 import Search from 'scenes/search/Search'
 import AccountSettings from 'scenes/settings/AccountSettings'
@@ -64,6 +71,7 @@ import PostHistory from 'scenes/settings/PostHistory'
 import ReadingSettings from 'scenes/settings/ReadingSettings'
 import Terms from 'scenes/settings/Terms'
 import Settings from 'scenes/settings/Settings'
+import ThreadAlertEdit from 'scenes/settings/ThreadAlertEdit'
 import ThreadListSettings from 'scenes/settings/ThreadListSettings'
 import HomeSettings from 'scenes/settings/HomeSettings'
 import Thread from 'scenes/thread/Thread'
@@ -88,6 +96,7 @@ const linking = {
             screens: { Boards: 'boards', Threads: 'board' },
           },
           SearchTab: { screens: { SearchTop: 'search' } },
+          NotifyTab: { screens: { NotifyTop: 'notifications' } },
           SettingsTab: { screens: { SettingsTop: 'settings' } },
         },
       },
@@ -134,6 +143,7 @@ const HomeTop = belowStatusBar(Home)
 const BoardsTop = belowStatusBar(Boards, { bar: true })
 const SearchTop = belowStatusBar(Search, { bar: true })
 const SettingsTop = belowStatusBar(Settings)
+const NotifyTop = belowStatusBar(NotificationList, { bar: true })
 const NO_HEADER = { headerShown: false }
 
 const tabIcon =
@@ -189,6 +199,19 @@ function SearchStack() {
       <Stack.Screen
         name="SearchTop"
         component={SearchTop}
+        options={NO_HEADER}
+      />
+    </Stack.Navigator>
+  )
+}
+
+function NotifyStack() {
+  const theme = useEmberTheme()
+  return (
+    <Stack.Navigator screenOptions={stackScreens(theme)}>
+      <Stack.Screen
+        name="NotifyTop"
+        component={NotifyTop}
         options={NO_HEADER}
       />
     </Stack.Navigator>
@@ -308,6 +331,8 @@ function SettingsStack() {
 
 function Tabs() {
   const theme = useEmberTheme()
+  const notifyEnabled = useSelector((state) => !!state.settings.notifyEnabled)
+  const history = useNotifyHistory()
   return (
     <Tab.Navigator
       screenOptions={{
@@ -335,6 +360,22 @@ function Tabs() {
         component={SearchStack}
         options={{ title: '検索', tabBarIcon: tabIcon('search') }}
       />
+      {notifyEnabled ? (
+        <Tab.Screen
+          name="NotifyTab"
+          component={NotifyStack}
+          options={{
+            title: '通知',
+            tabBarIcon: tabIcon('bell'),
+            tabBarBadge: badgeLabel(unreadCount(history)),
+            tabBarBadgeStyle: {
+              backgroundColor: theme.badge,
+              color: theme.badgeText,
+              fontSize: 11,
+            },
+          }}
+        />
+      ) : null}
       <Tab.Screen
         name="SettingsTab"
         component={SettingsStack}
@@ -358,6 +399,50 @@ export default function Navigation() {
   useEffect(() => {
     if (error) console.warn(`[share] 共有を受け取れない: ${error}`)
   }, [error])
+
+  // 通知のタップ。そのスレ（まとめた通知なら通知タブ）を開き、履歴を既読にする。
+  // アプリが閉じていたときのタップは起動後に getLastNotificationResponseAsync で拾う
+  const notifyEnabled = useSelector((state) => !!state.settings.notifyEnabled)
+  const handledTaps = useRef(new Set())
+  useEffect(() => {
+    if (!navReady) return undefined
+    const handle = (response) => {
+      const request = response?.notification?.request
+      const id = request?.identifier
+      if (!request || (id && handledTaps.current.has(id))) return
+      if (id) handledTaps.current.add(id)
+      const data = request.content?.data || {}
+      if (Array.isArray(data.historyIds) && data.historyIds.length > 0) {
+        markHistoryRead(data.historyIds).catch((e) =>
+          console.warn(`[notify] 既読にできない: ${e?.message || e}`),
+        )
+      }
+      const { open } = data
+      if (open?.threadUrl) {
+        navRef.navigate('Thread', {
+          threadUrl: open.threadUrl,
+          boardUrl: open.boardUrl,
+          boardName: open.boardName,
+          title: open.title,
+        })
+      } else if (open?.tab === 'notify' && notifyEnabled) {
+        navRef.navigate('Tabs', { screen: 'NotifyTab' })
+      }
+    }
+    const sub = Notifications.addNotificationResponseReceivedListener(handle)
+    Notifications.getLastNotificationResponseAsync()
+      .then(async (response) => {
+        if (!response) return
+        handle(response)
+        await Notifications.clearLastNotificationResponseAsync()
+      })
+      .catch((e) =>
+        console.warn(
+          `[notify] 起動のきっかけの通知を読めない: ${e?.message || e}`,
+        ),
+      )
+    return () => sub.remove()
+  }, [navReady, navRef, notifyEnabled])
 
   // 時計やバッテリーの色を、前面に戻ったときと画面を移ったときに送り直す。
   // <StatusBar> は値が変わったときしか iOS に送らないため、共有シートやカメラなど
@@ -421,6 +506,16 @@ export default function Navigation() {
             name="Thread"
             component={ThreadForUrl}
             options={{ headerBackAccessibilityLabel: '戻る' }}
+          />
+          <RootStack.Screen
+            name="ThreadAlertEdit"
+            component={ThreadAlertEdit}
+            options={({ route }) => ({
+              title: route.params?.id
+                ? 'スレ立て通知の編集'
+                : 'スレ立て通知の追加',
+              headerBackAccessibilityLabel: '戻る',
+            })}
           />
           <RootStack.Screen
             name="Post"

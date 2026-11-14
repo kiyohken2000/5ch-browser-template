@@ -82,6 +82,8 @@ export const DEFAULTS = {
   /** 連投 ID の自動 NG のレス数しきい値。0 は無効。リストには溜めない */
   ngAutoIdCount: 0,
   ngAutoIdMode: 'hide',
+  /** 同じ本文の連投（ID を変えて同じ文を貼る荒らし）の自動 NG。'off' | 'hide' | 'abone' */
+  ngDupBodyMode: 'off',
   /** NG レスへの返信も NG にする */
   ngChainReplies: false,
   ngChainRepliesMode: 'abone',
@@ -116,6 +118,14 @@ export const DEFAULTS = {
   notifyWatch: true,
   /** 監視中のスレは新着がこの件数以上で通知する */
   notifyWatchThreshold: 1,
+  /** スレ立て通知（指定した板にワードを含むスレが立ったら通知する） */
+  notifyThreads: true,
+  /**
+   * スレ立て通知の条件（lib/notify.js の MAX_THREAD_ALERTS 件まで）。
+   * `{id, boardUrl, boardName, words: string[], updatedAt}`。`updatedAt` より後に
+   * 立ったスレだけを通知する（作り直すと起点も今に戻る）
+   */
+  threadAlerts: [],
 }
 
 export const loadSettings = createAsyncThunk('settings/load', async () =>

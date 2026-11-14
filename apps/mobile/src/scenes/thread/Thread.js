@@ -574,6 +574,7 @@ export default function Thread({ route, navigation }) {
       applyNg(parsedRows, ngFilters, {
         autoIdCount: settings.ngAutoIdCount,
         autoIdMode: settings.ngAutoIdMode,
+        dupBodyMode: settings.ngDupBodyMode,
         chainReplies: settings.ngChainReplies,
         chainRepliesMode: settings.ngChainRepliesMode,
         aiHits,
@@ -583,6 +584,7 @@ export default function Thread({ route, navigation }) {
       ngFilters,
       settings.ngAutoIdCount,
       settings.ngAutoIdMode,
+      settings.ngDupBodyMode,
       settings.ngChainReplies,
       settings.ngChainRepliesMode,
       aiHits,

@@ -25,19 +25,27 @@ import { AppState, Platform } from 'react-native'
 import { fetchDat, fetchDatDelta, fetchSubject } from './api'
 import { parseBody } from './body'
 import { setCustomUserAgent } from './http'
-import { applyNg, emptyFilters } from './ng'
+import { applyNg, emptyFilters, isNgThreadTitle } from './ng'
 import {
+  alertRecord,
   countsFromSubject,
+  findNewAlertThreads,
   findNewRepliesToMe,
   groupByBoard,
   notifyBaseline,
+  pruneAlertRecords,
   pruneNotifyRecords,
   pushRunLog,
   replyNotification,
   selectNotifyTargets,
   shouldNotifyWatch,
+  snippet,
+  threadAlertNotifications,
+  usableAlerts,
   watchNotification,
+  withHistory,
 } from './notify'
+import { appendHistory, newHistoryId } from './notifyHistory'
 import { parseDatBytes } from './parse'
 import { setCompatSitesEnabled } from './sites'
 import { KEYS, load, save } from './storage'
@@ -56,8 +64,12 @@ const SETTING_DEFAULTS = {
   notifyReplies: true,
   notifyWatch: true,
   notifyWatchThreshold: 1,
+  notifyThreads: true,
+  threadAlerts: [],
+  ngWordsInThreadTitle: true,
   ngAutoIdCount: 0,
   ngAutoIdMode: 'hide',
+  ngDupBodyMode: 'off',
   ngChainReplies: false,
   ngChainRepliesMode: 'abone',
   compatSites: false,
@@ -203,13 +215,21 @@ export async function loadNotifyDiag() {
   return diag
 }
 
-async function present({ title, body }, foreground) {
+/**
+ * 通知を出す。`open` はタップで開く先、`historyIds` はタップで既読にする履歴。
+ * どちらも Navigation.js が通知のタップで読む。
+ */
+async function present({ title, body, open, historyIds }, foreground) {
+  const data = {}
+  if (foreground) data.foreground = true
+  if (open) data.open = open
+  if (historyIds?.length) data.historyIds = historyIds
   await Notifications.scheduleNotificationAsync({
     content: {
       title,
       body,
       sound: 'default',
-      data: foreground ? { foreground: true } : {},
+      data,
     },
     trigger: Platform.OS === 'android' ? { channelId: ANDROID_CHANNEL } : null,
   })
@@ -248,6 +268,7 @@ function hiddenNumbers(entries, filters, settings) {
   const judged = applyNg(rows, filters, {
     autoIdCount: settings.ngAutoIdCount,
     autoIdMode: settings.ngAutoIdMode,
+    dupBodyMode: settings.ngDupBodyMode,
     chainReplies: settings.ngChainReplies,
     chainRepliesMode: settings.ngChainRepliesMode,
   })
@@ -270,19 +291,30 @@ async function checkReplies(target, count, record, filters, settings) {
     hidden: hiddenNumbers(entries, filters, settings),
   })
   const last = entries.length ? entries[entries.length - 1].no : count
+  const line = (r) => ({
+    ...target,
+    text: `>>${r.toNo} への返信: ${snippet(r.text)}`,
+  })
   if (replies.length > MAX_REPLY_NOTIFICATIONS_PER_THREAD) {
+    // 1 スレなのでタップで開く先はそのスレ。履歴は 1 件にまとめる
     return {
       notifications: [
-        {
-          title: target.title || '(無題)',
-          body: `自分宛ての返信 ${replies.length} 件`,
-        },
+        withHistory(
+          {
+            title: target.title || '(無題)',
+            body: `自分宛ての返信 ${replies.length} 件`,
+          },
+          'reply',
+          [{ ...target, text: undefined }],
+        ),
       ],
       next: last,
     }
   }
   return {
-    notifications: replies.map((r) => replyNotification(target, r)),
+    notifications: replies.map((r) =>
+      withHistory(replyNotification(target, r), 'reply', [line(r)]),
+    ),
     next: last,
   }
 }
@@ -362,18 +394,58 @@ async function check({ foreground = false } = {}) {
     skip,
   })
 
+  // スレ立て通知の条件。板ごとにまとめ、レスの巡回と同じ subject.txt を使う
+  const alerts = settings.notifyThreads
+    ? usableAlerts(settings.threadAlerts)
+    : []
+  const alertRecords = { ...(stored?.alerts || {}) }
+  const alertsByBoard = new Map()
+  for (const a of alerts) {
+    const list = alertsByBoard.get(a.boardUrl)
+    if (list) list.push(a)
+    else alertsByBoard.set(a.boardUrl, [a])
+  }
+  const myThreadIds = new Set((myPosts || []).map((p) => p?.threadId))
+  const isNgTitle = (title) =>
+    isNgThreadTitle(title, filters, {
+      includeWords: settings.ngWordsInThreadTitle !== false,
+    })
+
+  const byBoard = groupByBoard(targets)
+  for (const boardUrl of alertsByBoard.keys()) {
+    if (!byBoard.has(boardUrl)) byBoard.set(boardUrl, [])
+  }
+
   const notifications = []
   let checked = 0
   let failed = 0
-  for (const [boardUrl, items] of groupByBoard(targets)) {
-    let counts
+  for (const [boardUrl, items] of byBoard) {
+    let subject
     try {
-      counts = countsFromSubject(items, (await fetchSubject(boardUrl)).threads)
+      subject = (await fetchSubject(boardUrl)).threads
     } catch (e) {
       warn(`${boardUrl} の subject.txt を読めない`, e)
-      failed += items.length
+      failed += items.length + (alertsByBoard.get(boardUrl)?.length || 0)
       continue
     }
+    // 空の一覧（読めたが 0 件）では判断しない。起点も動かさない
+    if (subject.length > 0) {
+      const nowSec = Math.floor(Date.now() / 1000)
+      for (const alert of alertsByBoard.get(boardUrl) || []) {
+        checked += 1
+        const got = findNewAlertThreads({
+          alert,
+          record: alertRecord(alert, alertRecords[alert.id]),
+          threads: subject,
+          nowSec,
+          isNgTitle,
+          myThreadIds,
+        })
+        notifications.push(...threadAlertNotifications(alert, got.hits))
+        alertRecords[alert.id] = got.record
+      }
+    }
+    const counts = countsFromSubject(items, subject)
     for (const target of items) {
       const info = counts.get(target.threadId)
       if (!info) continue
@@ -388,7 +460,9 @@ async function check({ foreground = false } = {}) {
         const base = notifyBaseline(record.watch, target.seenCount, count)
         const newCount = count - base
         if (shouldNotifyWatch(newCount, settings.notifyWatchThreshold)) {
-          notifications.push(watchNotification(target, newCount))
+          notifications.push(
+            withHistory(watchNotification(target, newCount), 'watch', [target]),
+          )
           record.watch = count
         } else {
           // しきい値に届くまでは起点を動かさず、新着を溜める
@@ -420,13 +494,26 @@ async function check({ foreground = false } = {}) {
     return { notified: 0, checked, failed, skipped: 'active' }
   }
   let notified = 0
+  const shown = []
+  const now = Date.now()
   for (const n of notifications) {
+    // 履歴の id を先に振り、通知のタップから既読にできるようにする
+    const history = (n.history || []).map((h, i) => ({
+      ...h,
+      id: newHistoryId(now, shown.length + i),
+    }))
     try {
-      await present(n, foreground)
+      await present({ ...n, historyIds: history.map((h) => h.id) }, foreground)
       notified += 1
+      shown.push(...history)
     } catch (e) {
       warn('通知を出せない', e)
     }
+  }
+  try {
+    await appendHistory(shown)
+  } catch (e) {
+    warn('通知の履歴を残せない', e)
   }
 
   const keep = new Set(
@@ -434,6 +521,10 @@ async function check({ foreground = false } = {}) {
   )
   const ok = await save(KEYS.notifyRecords, {
     threads: pruneNotifyRecords(records, keep),
+    alerts: pruneAlertRecords(
+      alertRecords,
+      usableAlerts(settings.threadAlerts),
+    ),
   })
   if (!ok) console.warn('[notify] 通知の記録を保存できない')
   return { notified, checked, failed }

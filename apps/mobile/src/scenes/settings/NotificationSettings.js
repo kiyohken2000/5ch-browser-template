@@ -1,9 +1,9 @@
 /**
  * 通知の設定（§9-8）。全体のスイッチはホームのベルと同じ値。
- * 種類ごとのスイッチ、監視の「N 件以上」、テスト通知と今すぐ確認を置く。
+ * 種類ごとのスイッチ、監視の「N 件以上」、スレ立て通知の条件、テスト通知と今すぐ確認を置く。
  */
 
-import { useFocusEffect } from '@react-navigation/native'
+import { useFocusEffect, useNavigation } from '@react-navigation/native'
 import React, { useCallback, useState } from 'react'
 import {
   Linking,
@@ -27,10 +27,12 @@ import {
   describeNotifyDiag,
   describeRun,
   formatMinutes,
+  MAX_THREAD_ALERTS,
   MAX_WATCH_THRESHOLD,
   NOTIFY_POSTED_DAYS,
   NOTIFY_POSTED_MAX,
   normalizeWatchThreshold,
+  restampAlerts,
 } from 'lib/notify'
 import {
   loadNotifyDiag,
@@ -71,7 +73,11 @@ function checkResultToast(result) {
 export default function NotificationSettings() {
   const theme = useEmberTheme()
   const { settings, set } = useSettingValues()
+  const navigation = useNavigation()
   const { enabled, permission, setEnabled } = useNotifySwitch()
+  const alerts = Array.isArray(settings.threadAlerts)
+    ? settings.threadAlerts
+    : []
   const [busy, setBusy] = useState(false)
   const [runLog, setRunLog] = useState([])
   const [diag, setDiag] = useState(null)
@@ -92,7 +98,16 @@ export default function NotificationSettings() {
   const intervals = backgroundIntervals(runLog)
   const threshold = normalizeWatchThreshold(settings.notifyWatchThreshold)
   const denied = permission === 'denied'
-  const noKinds = !settings.notifyReplies && !settings.notifyWatch
+  const noKinds =
+    !settings.notifyReplies && !settings.notifyWatch && !settings.notifyThreads
+
+  const toggleThreads = (on) => {
+    set('notifyThreads', on)
+    // オフの間に立ったスレでまとめて鳴らさない
+    if (on && alerts.length > 0) {
+      set('threadAlerts', restampAlerts(alerts, Date.now()))
+    }
+  }
   const watchShown = watchEnabled(settings.homeSegmentsShown)
 
   const toggle = async (on) => {
@@ -211,6 +226,45 @@ export default function NotificationSettings() {
             ))}
           </View>
         </SettingRow>
+        <SettingRow
+          label="スレ立て"
+          hint="下の「スレ立て通知」に登録した板で、ワードを含むスレが立ったら通知します"
+        >
+          <Switch
+            accessibilityLabel="スレ立て"
+            value={settings.notifyThreads !== false}
+            onValueChange={toggleThreads}
+            trackColor={{ true: theme.accent }}
+          />
+        </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection title="スレ立て通知" theme={theme}>
+        {alerts.map((a) => (
+          <Pressable
+            key={a.id}
+            accessibilityRole="button"
+            onPress={() => navigation.navigate('ThreadAlertEdit', { id: a.id })}
+            style={[styles.row, { borderColor: theme.border }]}
+          >
+            <Text style={[styles.label, { color: theme.text }]}>
+              {a.boardName || a.boardUrl}
+            </Text>
+            <Text
+              numberOfLines={2}
+              style={[styles.alertWords, { color: theme.textFaint }]}
+            >
+              {a.words.join('、')}
+            </Text>
+          </Pressable>
+        ))}
+        {button(
+          alerts.length >= MAX_THREAD_ALERTS
+            ? `条件は ${MAX_THREAD_ALERTS} 件までです`
+            : '条件を追加',
+          () => navigation.navigate('ThreadAlertEdit', {}),
+          alerts.length >= MAX_THREAD_ALERTS,
+        )}
       </SettingsSection>
 
       <SettingsSection title="確認" theme={theme}>
@@ -282,4 +336,5 @@ const styles = StyleSheet.create({
   },
   note: { fontSize: 12, lineHeight: 18, paddingHorizontal: 20 },
   logLine: { fontSize: 12, lineHeight: 18 },
+  alertWords: { fontSize: 12, lineHeight: 18, marginTop: 2 },
 })

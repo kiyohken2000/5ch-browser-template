@@ -49,6 +49,7 @@ const MODES = [
 ]
 const STRONG_MODES = MODES.slice(0, 2)
 const AUTO_COUNTS = [0, 3, 5, 10, 20, 30, 50]
+const DUP_BODY_MODES = [{ key: 'off', label: '無効' }, ...STRONG_MODES]
 
 function Chips({ options, value, onChange, theme, label }) {
   return (
@@ -260,6 +261,23 @@ export default function NgSettings() {
               label="連投の隠し方"
             />
           ) : null}
+        </View>
+        <View style={[styles.block, { borderColor: theme.border }]}>
+          <Text style={[styles.blockTitle, { color: theme.text }]}>
+            同じ本文の連投
+          </Text>
+          <Text style={[styles.blockHint, { color: theme.textFaint }]}>
+            同じ長文（60 文字以上）が 3
+            回以上書かれたレスと、同じ文字の繰り返しばかりの長文を隠します。ID
+            を変えて同じ文を貼る荒らし向けです。リストには残りません
+          </Text>
+          <Chips
+            options={DUP_BODY_MODES}
+            value={settings.ngDupBodyMode || 'off'}
+            onChange={(v) => set('ngDupBodyMode', v)}
+            theme={theme}
+            label="同じ本文の連投"
+          />
         </View>
         <View style={[styles.block, { borderColor: theme.border }]}>
           <View style={styles.switchRow}>

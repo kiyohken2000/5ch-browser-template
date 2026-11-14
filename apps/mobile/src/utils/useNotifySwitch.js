@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AppState } from 'react-native'
 import { useDispatch, useSelector } from 'react-redux'
 
+import { restampAlerts } from 'lib/notify'
 import {
   notifyPermission,
   requestNotifyPermission,
@@ -22,6 +23,7 @@ import { setSetting } from 'slices/settings.slice'
 export default function useNotifySwitch() {
   const dispatch = useDispatch()
   const enabled = useSelector((state) => !!state.settings.notifyEnabled)
+  const threadAlerts = useSelector((state) => state.settings.threadAlerts)
   const [permission, setPermission] = useState(null)
 
   const refresh = useCallback(async () => {
@@ -46,10 +48,19 @@ export default function useNotifySwitch() {
         if (!granted) return false
       }
       dispatch(setSetting({ key: 'notifyEnabled', value: on }))
+      // オフの間に立ったスレでスレ立て通知をまとめて鳴らさない
+      if (on && threadAlerts?.length > 0) {
+        dispatch(
+          setSetting({
+            key: 'threadAlerts',
+            value: restampAlerts(threadAlerts, Date.now()),
+          }),
+        )
+      }
       await syncNotifyTask(on)
       return true
     },
-    [dispatch, refresh],
+    [dispatch, refresh, threadAlerts],
   )
 
   return { enabled, permission, setEnabled }

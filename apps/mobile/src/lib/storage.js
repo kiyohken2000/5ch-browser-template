@@ -56,6 +56,8 @@ export const KEYS = {
   notifyRuns: 'notifyRuns.v1',
   /** 巡回の登録を最後に確かめた結果。実機で登録の失敗を見るため。§9-8 */
   notifyDiag: 'notifyDiag.v1',
+  /** 出した通知の履歴（通知タブ）。§9-8 */
+  notifyHistory: 'notifyHistory.v1',
   // 端末固有（同期しない — §10-1）
   scrollPositions: 'scrollPositions.v1',
 }

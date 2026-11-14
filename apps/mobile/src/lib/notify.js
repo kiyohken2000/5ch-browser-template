@@ -218,6 +218,257 @@ export function watchNotification(thread, newCount) {
   }
 }
 
+/**
+ * 通知に「タップで開く先」と「履歴に残す行」を付ける。
+ * 開く先は 1 スレならそのスレ、まとめた通知なら通知タブ。
+ *
+ * @param {{title: string, body: string}} n 文面
+ * @param {'reply'|'watch'|'thread'} kind
+ * @param {object[]} threads 履歴に残すスレ（`threadUrl`, `boardUrl`, `boardName`,
+ *   `title`, 行ごとの本文 `text`）。まとめた通知でも 1 スレずつ残す
+ */
+export function withHistory(n, kind, threads) {
+  const history = threads.map((t) => ({
+    kind,
+    title: n.title,
+    body: t.text ?? n.body,
+    threadUrl: t.threadUrl,
+    boardUrl: t.boardUrl,
+    boardName: t.boardName || '',
+    threadTitle: t.title || '',
+  }))
+  const one = threads.length === 1 ? threads[0] : null
+  return {
+    ...n,
+    open: one?.threadUrl
+      ? {
+          threadUrl: one.threadUrl,
+          boardUrl: one.boardUrl,
+          boardName: one.boardName || '',
+          title: one.title || '',
+        }
+      : { tab: 'notify' },
+    history,
+  }
+}
+
+// ---- スレ立て通知 -----------------------------------------------------------
+
+/** スレ立て通知の条件（板）の上限と、1 条件のワードの上限。 */
+export const MAX_THREAD_ALERTS = 5
+export const MAX_ALERT_WORDS = 10
+/** 1 回の巡回で 1 板に当たったスレがこれより多いときは 1 件にまとめる */
+export const MAX_THREAD_NOTIFICATIONS_PER_BOARD = 3
+/**
+ * 「新しく立ったスレ」を見る幅（秒）。スレの番号（立った時刻）が起点より後のもの。
+ * 起点は巡回のたびに「今 − この幅」まで進める。subject.txt に載るのが遅れたスレを
+ * 取りこぼさないよう幅を持たせ、通知済みのスレは `seen` で 2 度鳴らさない
+ */
+export const ALERT_LOOKBACK_SEC = 24 * 60 * 60
+
+/** 比べるための形。全角半角・大文字小文字をそろえる。 */
+export function normalizeAlertText(text) {
+  return String(text || '')
+    .normalize('NFKC')
+    .toLowerCase()
+}
+
+/** 入力欄（1 行に 1 語）からワードを取り出す。空行と重複を落とし、上限で切る。 */
+export function parseAlertWords(text) {
+  const out = []
+  const seen = new Set()
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const word = line.trim()
+    const key = normalizeAlertText(word)
+    if (!word || seen.has(key)) continue
+    seen.add(key)
+    out.push(word)
+    if (out.length >= MAX_ALERT_WORDS) break
+  }
+  return out
+}
+
+/** スレタイにワードのどれかが入っているか（部分一致。正規表現は使わない）。 */
+export function alertMatches(title, words) {
+  const target = normalizeAlertText(title)
+  return (words || []).some((w) => {
+    const word = normalizeAlertText(w).trim()
+    return word.length > 0 && target.includes(word)
+  })
+}
+
+/**
+ * 条件ごとの記録。条件を作り直した（`updatedAt` が変わった）ら起点をその時刻に
+ * 戻す。**登録した時点で立っていたスレでは鳴らさない。**
+ *
+ * @param {{updatedAt: number}} alert
+ * @param {{base?: number, since?: number, seen?: string[]}|undefined} record
+ */
+export function alertRecord(alert, record) {
+  if (record && record.base === alert.updatedAt) {
+    return {
+      base: record.base,
+      since: Number(record.since) || 0,
+      seen: Array.isArray(record.seen) ? record.seen : [],
+    }
+  }
+  return {
+    base: alert.updatedAt,
+    since: Math.floor((alert.updatedAt || 0) / 1000),
+    seen: [],
+  }
+}
+
+/**
+ * 1 条件の新しく立ったスレ。
+ *
+ * @param {object} args
+ * @param {{words: string[]}} args.alert
+ * @param {{base, since: number, seen: string[]}} args.record `alertRecord` の値
+ * @param {Array<{threadKey: string, threadId: string, title: string}>} args.threads
+ *   その板の subject.txt を読んだもの
+ * @param {number} args.nowSec
+ * @param {(title: string) => boolean} [args.isNgTitle] スレ一覧 NG に当たるか
+ * @param {Set<string>} [args.myThreadIds] 自分が書いたスレ（立てたスレを含む）
+ * @returns {{hits: object[], record: object}} hits は立った順、record は次の記録
+ */
+export function findNewAlertThreads({
+  alert,
+  record,
+  threads,
+  nowSec,
+  isNgTitle,
+  myThreadIds,
+}) {
+  const seen = new Set(record.seen)
+  const hits = (threads || [])
+    .filter((t) => {
+      const key = Number(t.threadKey)
+      if (!Number.isFinite(key) || key <= record.since) return false
+      if (seen.has(String(t.threadKey))) return false
+      if (!alertMatches(t.title, alert.words)) return false
+      if (isNgTitle?.(t.title)) return false
+      if (myThreadIds?.has(t.threadId)) return false
+      return true
+    })
+    .sort((a, b) => Number(a.threadKey) - Number(b.threadKey))
+  for (const t of hits) seen.add(String(t.threadKey))
+  const since = Math.max(record.since, nowSec - ALERT_LOOKBACK_SEC)
+  return {
+    hits,
+    record: {
+      base: record.base,
+      since,
+      seen: [...seen].filter((k) => Number(k) > since),
+    },
+  }
+}
+
+/** スレ立て通知の文面。多ければ板ごとに 1 件にまとめる。 */
+export function threadAlertNotifications(alert, hits) {
+  const boardName = alert.boardName || '板'
+  const threads = hits.map((t) => ({
+    threadUrl: t.threadUrl,
+    boardUrl: alert.boardUrl,
+    boardName: alert.boardName,
+    title: t.title,
+    text: t.title,
+  }))
+  if (hits.length > MAX_THREAD_NOTIFICATIONS_PER_BOARD) {
+    return [
+      withHistory(
+        {
+          title: `新スレ: ${boardName}`,
+          body: `${hits.length} 件: ${snippet(hits[0].title)} ほか`,
+        },
+        'thread',
+        threads,
+      ),
+    ]
+  }
+  return threads.map((t) =>
+    withHistory(
+      { title: `新スレ: ${boardName}`, body: snippet(t.title) },
+      'thread',
+      [t],
+    ),
+  )
+}
+
+/**
+ * 起点を今に付け直した条件。通知（全体かスレ立て）をオンに戻したときに使い、
+ * オフの間に立ったスレでまとめて鳴らさない。
+ */
+export function restampAlerts(alerts, now) {
+  return (Array.isArray(alerts) ? alerts : []).map((a) => ({
+    ...a,
+    updatedAt: now,
+  }))
+}
+
+/**
+ * 条件を足す / 直す。板かワードが変わったときだけ起点（`updatedAt`）を今にする。
+ * 新しく足すときに上限を超えるなら null。
+ *
+ * @param {object[]} alerts
+ * @param {{id?: string, boardUrl: string, boardName: string, words: string[]}} input
+ * @returns {object[]|null}
+ */
+export function upsertAlert(alerts, input, now) {
+  const list = Array.isArray(alerts) ? alerts : []
+  const at = input.id ? list.findIndex((a) => a.id === input.id) : -1
+  if (at < 0) {
+    if (list.length >= MAX_THREAD_ALERTS) return null
+    return [
+      ...list,
+      {
+        id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+        boardUrl: input.boardUrl,
+        boardName: input.boardName || '',
+        words: input.words,
+        updatedAt: now,
+      },
+    ]
+  }
+  const prev = list[at]
+  const changed =
+    prev.boardUrl !== input.boardUrl ||
+    JSON.stringify(prev.words) !== JSON.stringify(input.words)
+  const next = [...list]
+  next[at] = {
+    ...prev,
+    boardUrl: input.boardUrl,
+    boardName: input.boardName || '',
+    words: input.words,
+    updatedAt: changed ? now : prev.updatedAt,
+  }
+  return next
+}
+
+/** 条件の記録を、今ある条件の分だけに絞る。 */
+export function pruneAlertRecords(records, alerts) {
+  const ids = new Set((alerts || []).map((a) => a.id))
+  const out = {}
+  for (const [id, r] of Object.entries(records || {})) {
+    if (ids.has(id)) out[id] = r
+  }
+  return out
+}
+
+/** 設定に入っている条件のうち、使えるもの（板とワードがある）だけ。上限で切る。 */
+export function usableAlerts(alerts) {
+  return (Array.isArray(alerts) ? alerts : [])
+    .filter(
+      (a) =>
+        a &&
+        a.id &&
+        a.boardUrl &&
+        Array.isArray(a.words) &&
+        a.words.some((w) => String(w).trim()),
+    )
+    .slice(0, MAX_THREAD_ALERTS)
+}
+
 // ---- 巡回の記録（実機で間隔を確かめるため）--------------------------------
 
 /** 巡回の記録を何回分持つか。 */

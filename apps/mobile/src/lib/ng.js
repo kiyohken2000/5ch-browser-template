@@ -14,6 +14,7 @@
  * そのまま持ち込む。
  */
 
+import { findDupBodyNumbers } from './dupBody'
 import { splitNameWatchoi } from './parse'
 
 /** NG の強さ。複数に一致したときは強い方を採る。 */
@@ -137,11 +138,12 @@ export function evalNg(resp, filters) {
  *   1. エントリに直接一致
  *   2. ID 連鎖: 連鎖指定のワードに当たったレスの ID とワッチョイを、同じスレの他レスへ
  *   3. 連投 ID の自動 NG: しきい値以上書いた ID。ID は日替わりなのでリストには溜めない
+ *   3.5 同じ本文の連投 NG: 同じ長文が 3 回以上 / 同じ並びの繰り返しばかりの長文（lib/dupBody.js）
  *   4. 返信の連鎖: 隠れたレスへ安価を打ったレス。昇順に回すので返信の返信にも波及する
  *
  * @param {Array} responses `{no, name, id, plainBody, parsed?}` を持つレス
  * @param {object} filters
- * @param {{autoIdCount?: number, autoIdMode?: string,
+ * @param {{autoIdCount?: number, autoIdMode?: string, dupBodyMode?: string|null,
  *          chainReplies?: boolean, chainRepliesMode?: string,
  *          aiHits?: Map<number, string>}} [options]
  */
@@ -149,6 +151,11 @@ export function applyNg(responses, filters, options = {}) {
   const { autoIdCount = 0, autoIdMode = 'hide' } = options
   const { chainReplies = false, chainRepliesMode = 'abone' } = options
   const { aiHits = null } = options
+  const { dupBodyMode = null } = options
+  const dupHits =
+    dupBodyMode === 'hide' || dupBodyMode === 'abone'
+      ? findDupBodyNumbers(responses)
+      : null
   const first = responses.map((r) => ({ resp: r, ...evalNg(r, filters) }))
   const watchoiOf = (r) => splitNameWatchoi(r.name).watchoi
 
@@ -187,6 +194,7 @@ export function applyNg(responses, filters, options = {}) {
       if (autoIdCount > 0 && id && counts.get(id) >= autoIdCount) {
         raise(autoIdMode, `連投 ID: ${id}`)
       }
+      if (dupHits && dupHits.has(no)) raise(dupBodyMode, '同じ本文の連投')
       const aiHit = aiHits ? aiHits.get(row.resp.no) : null
       if (aiHit) raise('hide', `曖昧 NG: ${aiHit}`)
     }
