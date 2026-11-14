@@ -29,6 +29,9 @@ import { useEmberTheme } from 'theme/ember'
 export default function Search({ navigation }) {
   const theme = useEmberTheme()
   const ngFilters = useSelector(selectNgFilters)
+  const ngWordsInThreadTitle = useSelector(
+    (state) => state.settings.ngWordsInThreadTitle,
+  )
 
   const [input, setInput] = useState('')
   const [result, setResult] = useState(null)
@@ -74,8 +77,13 @@ export default function Search({ navigation }) {
   )
 
   const shown = useMemo(
-    () => (result ? visibleThreads(result.items, ngFilters) : []),
-    [result, ngFilters],
+    () =>
+      result
+        ? visibleThreads(result.items, ngFilters, {
+            includeWords: ngWordsInThreadTitle !== false,
+          })
+        : [],
+    [result, ngFilters, ngWordsInThreadTitle],
   )
 
   const showHistory = !result && !busy && !error

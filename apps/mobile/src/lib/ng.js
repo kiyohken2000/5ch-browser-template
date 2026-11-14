@@ -249,11 +249,14 @@ export function shouldHideImages(row) {
 }
 
 /**
- * スレ一覧の NG。タイトルに対して `words` と `threadWords` の両方を見る
- * （デスクトップ版 `App.tsx:7015-7016` と同じ）。
+ * スレ一覧の NG。タイトルに対して `threadWords` を見る。`words` も見るのは
+ * `includeWords` が真のとき（既定。デスクトップ版の「ワードをスレタイにも適用」と同じ）。
  */
-export function isNgThreadTitle(title, filters) {
-  const lists = [...(filters?.words || []), ...(filters?.threadWords || [])]
+export function isNgThreadTitle(title, filters, { includeWords = true } = {}) {
+  const lists = [
+    ...(includeWords ? filters?.words || [] : []),
+    ...(filters?.threadWords || []),
+  ]
   for (const raw of lists) {
     const e = normalizeEntry(raw)
     if (e.disabled) continue
@@ -263,7 +266,7 @@ export function isNgThreadTitle(title, filters) {
 }
 
 /** スレ一覧から NG のスレを落とす。 */
-export function visibleThreads(threads, filters) {
+export function visibleThreads(threads, filters, options) {
   if (!filters) return threads
-  return threads.filter((t) => !isNgThreadTitle(t.title, filters))
+  return threads.filter((t) => !isNgThreadTitle(t.title, filters, options))
 }

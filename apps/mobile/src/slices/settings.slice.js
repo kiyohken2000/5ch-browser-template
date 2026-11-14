@@ -85,6 +85,8 @@ export const DEFAULTS = {
   /** NG レスへの返信も NG にする */
   ngChainReplies: false,
   ngChainRepliesMode: 'abone',
+  /** NG ワード（本文）をスレタイにも当てる。以前は常に当てていたので既定オン */
+  ngWordsInThreadTitle: true,
   /** 書き込み画面を開いたときの sage の初期値。書き込みごとに変えられる（§8-9） */
   composeSageDefault: false,
   /** 書き込んだあとも書き込み画面を閉じない（§8-9） */

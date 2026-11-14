@@ -288,6 +288,25 @@ export default function NgSettings() {
             />
           ) : null}
         </View>
+        <View style={[styles.block, { borderColor: theme.border }]}>
+          <View style={styles.switchRow}>
+            <View style={styles.flex}>
+              <Text style={[styles.blockTitle, { color: theme.text }]}>
+                NG ワードをスレタイにも使う
+              </Text>
+              <Text style={[styles.blockHint, { color: theme.textFaint }]}>
+                「NG ワード（本文）」に一致するスレをスレ一覧でも隠します。スレタイだけ隠したい語は「スレ一覧の
+                NG ワード」へ
+              </Text>
+            </View>
+            <Switch
+              accessibilityLabel="NG ワードをスレタイにも使う"
+              value={settings.ngWordsInThreadTitle !== false}
+              onValueChange={(v) => set('ngWordsInThreadTitle', v)}
+              trackColor={{ true: theme.accent }}
+            />
+          </View>
+        </View>
       </SettingsSection>
 
       {NG_LISTS.map(({ key, label, hint }) => (

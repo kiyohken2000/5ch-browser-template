@@ -160,6 +160,17 @@ describe('スレ一覧の NG', () => {
     expect(isNgThreadTitle('ふつうのスレ', filters)).toBe(false)
   })
 
+  it('includeWords: false なら words はスレタイに当てない', () => {
+    const opt = { includeWords: false }
+    expect(isNgThreadTitle('嫌儲民がまた', filters, opt)).toBe(false)
+    expect(isNgThreadTitle('【悲報】なにか', filters, opt)).toBe(true)
+    const threads = [{ title: 'ふつう' }, { title: '嫌儲' }, { title: '【悲報】x' }]
+    expect(visibleThreads(threads, filters, opt).map((t) => t.title)).toEqual([
+      'ふつう',
+      '嫌儲',
+    ])
+  })
+
   it('NG のスレを落とす', () => {
     const threads = [
       { title: 'ふつう' },

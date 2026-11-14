@@ -102,6 +102,9 @@ export default function Threads({ route, navigation }) {
   const dispatch = useDispatch()
   const boardFavorites = useSelector((state) => state.watch.boardFavorites)
   const ngFilters = useSelector(selectNgFilters)
+  const ngWordsInThreadTitle = useSelector(
+    (state) => state.settings.ngWordsInThreadTitle,
+  )
   const { titleWords } = useSelector(selectActiveHighlights)
   const watchList = useSelector((state) => state.watch.watchList)
   const favorites = useSelector((state) => state.watch.favorites)
@@ -298,11 +301,13 @@ export default function Threads({ route, navigation }) {
 
   const shown = useMemo(() => {
     // NG はどの画面でも必ず通す（不変条件 2）
-    const rows = visibleThreads(sorted, ngFilters)
+    const rows = visibleThreads(sorted, ngFilters, {
+      includeWords: ngWordsInThreadTitle !== false,
+    })
     const q = filter.trim().toLowerCase()
     if (!q) return rows
     return rows.filter((t) => t.title.toLowerCase().includes(q))
-  }, [sorted, ngFilters, filter])
+  }, [sorted, ngFilters, ngWordsInThreadTitle, filter])
 
   // ---- 長押しのメニュー（デスクトップ版のスレ一覧の右クリックに合わせる）---
 
