@@ -129,6 +129,7 @@ cd apps/desktop && npx tsc --noEmit      # TypeScript型チェック
 | `docs/DEPLOYMENT_RUNBOOK.md` | リリース・デプロイ手順 |
 | `docs/PROGRESS_TRACKER.md` | 実装進捗・未実装タスク |
 | `docs/AI_INTEGRATION_PLAN.md` | AI 統合設計・Phase 進捗・ビルド要件 |
+| `docs/SYNC_IMPLEMENTATION.md` | モバイル版とのデータ同期 (Google ドライブ) の実装仕様。経緯は `docs/SYNC_PLAN.md` |
 
 ## リリース
 
