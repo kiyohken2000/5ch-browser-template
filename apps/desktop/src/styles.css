@@ -2966,7 +2966,8 @@ button.search-history-btn:hover {
   align-items: center;
   gap: 4px 10px;
 }
-.ng-postcount-setting {
+.ng-postcount-setting,
+.ng-dupbody-setting {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2975,7 +2976,8 @@ button.search-history-btn:hover {
   color: var(--sub);
   cursor: pointer;
 }
-.ng-postcount-setting select:disabled {
+.ng-postcount-setting select:disabled,
+.ng-dupbody-setting select:disabled {
   opacity: 0.5;
   cursor: default;
 }

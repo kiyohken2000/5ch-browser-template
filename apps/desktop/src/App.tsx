@@ -781,6 +781,9 @@ const NG_ID_POST_COUNT_KEY = "desktop.ngIdPostCount.v1";
 // NG フィルタの「ワード」をスレ一覧のスレタイにも当てるか。以前は常に当てていたので既定オン。
 const NG_WORDS_IN_THREAD_LIST_KEY = "desktop.ngWordsInThreadList.v1";
 const NG_ID_POST_COUNT_MODE_KEY = "desktop.ngIdPostCountMode.v1";
+// 同じ本文の連投 (ID を変えて同じ文を貼る荒らし) を自動 NG にするか。"" = 無効 (既定)。
+// ID 連投と同じく NG リストには入れず、開いているスレの中だけで効かせる。
+const NG_DUP_BODY_MODE_KEY = "desktop.ngDupBodyMode.v1";
 // 曖昧 NG (AI ルール) の定義
 const NG_AI_RULES_KEY = "desktop.ngAiRules.v1";
 // 判定器が導入済みかを覚えておく。起動直後に Tauri へ問い合わせるまでの間タブが
@@ -887,6 +890,7 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   ngIdPostCount: NG_ID_POST_COUNT_KEY,
   ngWordsInThreadList: NG_WORDS_IN_THREAD_LIST_KEY,
   ngIdPostCountMode: NG_ID_POST_COUNT_MODE_KEY,
+  ngDupBodyMode: NG_DUP_BODY_MODE_KEY,
   hlIdExpireDays: HL_ID_EXPIRE_DAYS_KEY,
   ex0chEnabled: EX0CH_ENABLED_KEY,
   kenmoEnabled: KENMO_ENABLED_KEY,
@@ -1295,6 +1299,48 @@ const decodeHtmlEntities = (s: string) =>
       const cp = Number.parseInt(hex, 16);
       return Number.isFinite(cp) && cp > 0 ? String.fromCodePoint(cp) : _m;
     });
+// 同じ本文の連投 NG の判定。決まりは次の 2 つ (モバイルの src/lib/dupBody.js と同じ)。
+// - 同じスレで、同じ本文が DUP_BODY_MIN_COUNT 回以上。比べる前に行頭のアンカー (>>12 など) と
+//   空白を除く (同じ文を別のレスへ向けて貼るため)。DUP_BODY_MIN_LENGTH 文字未満は数えない
+//   (実況の「うおおお」「草」は別の人が同じ短文を書くので荒らしではない)
+// - REPEAT_BODY_MIN_LENGTH 文字以上で、4 文字ずつ切った並びのうち違うものが
+//   REPEAT_BODY_RATIO 未満 (同じ文字の並びの繰り返しばかり)
+const DUP_BODY_MIN_COUNT = 3;
+const DUP_BODY_MIN_LENGTH = 60;
+const REPEAT_BODY_MIN_LENGTH = 100;
+const REPEAT_BODY_RATIO = 0.25;
+const DUP_BODY_LEADING_ANCHORS = /^\s*(?:(?:>>?|＞＞?)[0-9０-９,，、\-－]+\s*)+/;
+const normalizeDupBody = (html: string): string =>
+  decodeHtmlEntities(html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, ""))
+    .split("\n")
+    .map((line) => line.replace(DUP_BODY_LEADING_ANCHORS, ""))
+    .join("")
+    .replace(/\s+/g, "");
+const distinctQuadRatio = (chars: string[]): number => {
+  if (chars.length < 4) return 1;
+  const seen = new Set<string>();
+  for (let i = 0; i + 4 <= chars.length; i++) seen.add(chars.slice(i, i + 4).join(""));
+  return seen.size / (chars.length - 3);
+};
+// 当たったレス番号の集合。>>1 はスレの説明が入るので対象にしない (数には入れる)。
+const findDupBodyResponses = (items: { id: number; text: string }[]): Set<number> => {
+  const norms = items.map((r) => normalizeDupBody(r.text));
+  const lengths = norms.map((t) => Array.from(t).length);
+  const counts = new Map<string, number>();
+  norms.forEach((t, i) => {
+    if (lengths[i] >= DUP_BODY_MIN_LENGTH) counts.set(t, (counts.get(t) ?? 0) + 1);
+  });
+  const hits = new Set<number>();
+  items.forEach((r, i) => {
+    if (r.id === 1 || lengths[i] === 0) return;
+    if ((counts.get(norms[i]) ?? 0) >= DUP_BODY_MIN_COUNT) {
+      hits.add(r.id);
+      return;
+    }
+    if (lengths[i] >= REPEAT_BODY_MIN_LENGTH && distinctQuadRatio(Array.from(norms[i])) < REPEAT_BODY_RATIO) hits.add(r.id);
+  });
+  return hits;
+};
 const escapeHtml = (s: string) =>
   s
     .replace(/&/g, "&amp;")
@@ -3321,6 +3367,18 @@ export default function App() {
   useEffect(() => {
     saveUiSetting(NG_ID_POST_COUNT_MODE_KEY, ngIdPostCountMode);
   }, [ngIdPostCountMode]);
+  // 同じ本文の連投 NG のモード。null = 無効。ID 連投と同じく画像 NG は選ばせない。
+  const [ngDupBodyMode, setNgDupBodyMode] = useState<NgMode | null>(() => {
+    try {
+      const raw = localStorage.getItem(NG_DUP_BODY_MODE_KEY);
+      return raw === "hide" || raw === "abone" ? raw : null;
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    saveUiSetting(NG_DUP_BODY_MODE_KEY, ngDupBodyMode ?? "");
+  }, [ngDupBodyMode]);
   const [hlIdExpireDays, setHlIdExpireDays] = useState<number>(() => {
     try {
       const raw = localStorage.getItem(HL_ID_EXPIRE_DAYS_KEY);
@@ -8629,6 +8687,13 @@ export default function App() {
         map.set(r.id, strongerNgMode(map.get(r.id) ?? null, ngIdPostCountMode));
       }
     }
+    // 3.5 パス目: 同じ本文の連投 (ID を変えて同じ文を貼る荒らし) と、同じ文字の繰り返しばかりの
+    // 長文。ID 連投と同じく NG リストには入れず、このスレの表示中だけ効かせる。
+    if (ngDupBodyMode) {
+      for (const no of findDupBodyResponses(responseItems)) {
+        map.set(no, strongerNgMode(map.get(no) ?? null, ngDupBodyMode));
+      }
+    }
     // 4 パス目: NG レスへの返信の連鎖。NG (非表示 / あぼーん) になったレスへ安価を打った
     // レスも NG にする。responseItems は昇順なので、返信の返信にも順に波及する。
     // >>1 への安価は対象外 (スレ主のレスが NG だと全レスが消えてしまうため)。
@@ -8644,7 +8709,7 @@ export default function App() {
       }
     }
     return map;
-  }, [responseItems, ngFilters, ngChainReplies, ngChainRepliesMode, ngChainRefMap, ngIdPostCount, ngIdPostCountMode]);
+  }, [responseItems, ngFilters, ngChainReplies, ngChainRepliesMode, ngChainRefMap, ngIdPostCount, ngIdPostCountMode, ngDupBodyMode]);
   const ngFilteredCount = ngResultMap.size;
 
   // スレッド窓に出ていないレス (NG 非表示 / 手で開いていない曖昧NG)。
@@ -15778,6 +15843,21 @@ export default function App() {
                 <option value="abone">あぼーん</option>
               </select>
             </label>
+            <label
+              className="ng-dupbody-setting"
+              title="開いているスレで、同じ本文 (60 文字以上) が 3 回以上書かれたレスと、同じ文字の並びを繰り返すだけの長文 (100 文字以上) を自動でNGにします。IDを変えて同じ文を貼る荒らし向けです。行頭のアンカーと空白は無視して比べます。NGリストには登録されず、>>1 は対象外です。"
+            >
+              同じ本文の連投を自動NG
+              <select
+                className="ng-mode-select ng-dupbody-select"
+                value={ngDupBodyMode ?? ""}
+                onChange={(e) => setNgDupBodyMode(e.target.value === "hide" || e.target.value === "abone" ? e.target.value : null)}
+              >
+                <option value="">無効</option>
+                <option value="hide">非表示</option>
+                <option value="abone">あぼーん</option>
+              </select>
+            </label>
           </div>
           {ngBulkOpen && (
             <div className="ng-panel-bulk">
@@ -17803,7 +17883,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>213項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>215項目</span></div>
               </fieldset>
               </>)}
             </div>

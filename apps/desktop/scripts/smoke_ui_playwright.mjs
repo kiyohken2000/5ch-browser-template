@@ -956,6 +956,21 @@ try {
   await page.selectOption(".ng-postcount-select", "0");
   console.log("smoke-ui: ng frequent id auto filter ok");
 
+  // 同じ本文の連投 NG: 既定は無効。プレースホルダには同じ本文が無いので、有効にしても何も消えない
+  // (当たる場合は Tauri を装ったページで後から確かめる)。
+  const dupBodySelect = await page.$(".ng-dupbody-select");
+  assert(dupBodySelect, "NG panel should have the 同じ本文の連投NG select");
+  assert((await dupBodySelect.inputValue()) === "", "同じ本文の連投NG should default to 無効");
+  await page.selectOption(".ng-dupbody-select", "hide");
+  const dupBodyPlaceholder = await page.$$eval(".response-block", (els) => els.length);
+  assert(dupBodyPlaceholder === 5, `the placeholder has no duplicated bodies, so all 5 should stay, got ${dupBodyPlaceholder}`);
+  assert(
+    (await page.evaluate(() => localStorage.getItem("desktop.ngDupBodyMode.v1"))) === "hide",
+    "同じ本文の連投NG should persist its mode",
+  );
+  await page.selectOption(".ng-dupbody-select", "");
+  console.log("smoke-ui: ng duplicate body select ok");
+
   // switch to Highlight tab, add and remove a highlight word
   await page.click(".ng-panel-tabs button:has-text('ハイライト')");
   await page.fill(".ng-panel-add input", "testhlword");
@@ -4933,6 +4948,82 @@ try {
     );
     await emptyTabs.close();
     console.log("smoke-ui: restored tabs render from the thread cache, never the placeholder ok");
+  }
+
+  // 同じ本文の連投 NG。行頭のアンカーと空白だけが違う同じ長文が 3 回 (>>2 / >>3 / >>5) と、
+  // 同じ文字の並びを繰り返すだけの長文 (>>9) が消える。>>1 は同じ文でも残り、
+  // 短い同文 (>>6〜>>8) と普通の長文 (>>10) も残る。
+  {
+    const DUP_THREAD = "https://mao.5ch.io/test/read.cgi/ngt/3333333333/";
+    const DUP_TEXT = "このスレは宣伝のためのコピペです。同じ文章を何度も貼り付けて流れを止めようとしています。読まなくて大丈夫です。気にせず話を続けてください。";
+    const LONG_TEXT = "普通の長文のレスです。昨日の試合は九回裏に逆転して、球場全体がとても盛り上がっていました。帰りの電車も混んでいて大変でしたが、良い一日でした。来週も応援に行く予定です。今度は友達も誘って、外野席で一緒に声を出したいと思っています。";
+    const rows = [
+      DUP_TEXT,
+      DUP_TEXT,
+      "&gt;&gt;2 <br> " + DUP_TEXT,
+      "普通のレス",
+      DUP_TEXT.replace("。", "。 <br> "),
+      "うおおお",
+      "うおおお",
+      "うおおお",
+      "あいうえ".repeat(30),
+      LONG_TEXT,
+    ].map((body, i) => ({
+      responseNo: i + 1,
+      name: "名無し",
+      mail: "",
+      dateAndId: `2026/11/14(土) 00:00:0${i % 10}.00 ID:dup${String(i).padStart(5, "0")}`,
+      body,
+    }));
+    const openDupPage = async (mode) => {
+      const p = await context.newPage();
+      await p.addInitScript((arg) => {
+        localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+        localStorage.setItem("desktop.layoutPrefs.v1", JSON.stringify({ restoreSession: true }));
+        localStorage.setItem("desktop.threadTabs.v1", JSON.stringify({ tabs: [{ threadUrl: arg.url, title: "同文スレ" }], activeIndex: 0 }));
+        if (arg.mode !== null) localStorage.setItem("desktop.ngDupBodyMode.v1", arg.mode);
+        window.__TAURI_INTERNALS__ = {
+          transformCallback: (cb) => cb,
+          invoke: (cmd, args) => {
+            if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+            if (cmd === "save_layout_prefs") return Promise.resolve(null);
+            if (cmd === "save_thread_cache") return Promise.resolve(null);
+            if (cmd === "load_read_status") return Promise.resolve({});
+            if (cmd === "load_thread_cache") return Promise.resolve(args.threadUrl === arg.url ? JSON.stringify(arg.rows) : null);
+            if (cmd === "fetch_thread_responses_command") return new Promise(() => {});
+            return Promise.reject(new Error("smoke stub: " + cmd));
+          },
+        };
+      }, { url: DUP_THREAD, rows, mode });
+      await p.goto(targetUrl, { waitUntil: "load" });
+      await p.waitForSelector(".row-splitter");
+      await new Promise((r) => setTimeout(r, 900));
+      return p;
+    };
+    const shownNos = (p) => p.$$eval(".response-scroll .response-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+    const aboneNos = (p) => p.$$eval(".response-scroll .response-block.abone-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
+
+    const offPage = await openDupPage(null);
+    const offShown = await shownNos(offPage);
+    assert(offShown.length === 10, `with the setting off all 10 responses should show, got ${JSON.stringify(offShown)}`);
+    await offPage.close();
+
+    const hidePage = await openDupPage("hide");
+    const hideShown = await shownNos(hidePage);
+    assert(
+      JSON.stringify(hideShown) === JSON.stringify(["1", "4", "6", "7", "8", "10"]),
+      `同じ本文の連投NG should hide >>2/>>3/>>5 and the repeated text >>9 only, got ${JSON.stringify(hideShown)}`,
+    );
+    await hidePage.close();
+
+    const abonePage = await openDupPage("abone");
+    const aboneShown = await aboneNos(abonePage);
+    assert(
+      JSON.stringify(aboneShown) === JSON.stringify(["2", "3", "5", "9"]),
+      `同じ本文の連投NG in あぼーん mode should keep the response numbers, got ${JSON.stringify(aboneShown)}`,
+    );
+    await abonePage.close();
+    console.log("smoke-ui: ng duplicate body auto filter ok");
   }
 
   // 設定「スレを開いたとき『ここまで読んだ』の位置から表示」。
