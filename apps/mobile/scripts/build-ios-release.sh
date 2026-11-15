@@ -8,6 +8,7 @@
 # 中間証明書が無いと EAS が「Distribution certificate ... hasn't been imported successfully」で落ちる。
 #
 # 追加の引数は eas build にそのまま渡す。失敗しても EAS 側の buildNumber は 1 つ進む。
+# --output を渡さなければ、リポジトリのルートの out_mobile/ember-<version>-<日時>.ipa に出す。
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -54,6 +55,21 @@ echo "[build-ios-release] WWDR 中間証明書 ${#wwdr_files[@]} 件を使い捨
 
 security list-keychains -d user -s "$PLACEHOLDER"
 
+# 出力先。--output (--output=... を含む) が渡されていればそれに従う
+OUTPUT_ARGS=()
+has_output=false
+for arg in "$@"; do
+  case "$arg" in --output | --output=*) has_output=true ;; esac
+done
+if [ "$has_output" = false ]; then
+  OUT_DIR="$(cd ../.. && pwd)/out_mobile"
+  mkdir -p "$OUT_DIR"
+  VERSION="$(node -p "require('./app.json').expo.version")"
+  OUTPUT_ARGS=(--output "$OUT_DIR/ember-$VERSION-$(date +%Y%m%d-%H%M%S).ipa")
+  echo "[build-ios-release] 出力先: ${OUTPUT_ARGS[1]}"
+fi
+
 # xcodebuild -showBuildSettings が fastlane の既定タイムアウトを超えるので延ばす
 FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT=120 \
-  eas build --profile production --platform ios --local --non-interactive "$@"
+  eas build --profile production --platform ios --local --non-interactive \
+  ${OUTPUT_ARGS[@]+"${OUTPUT_ARGS[@]}"} "$@"
