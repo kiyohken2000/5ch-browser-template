@@ -64,7 +64,12 @@ import ImageViewer from 'components/ImageViewer'
 import ResponseItem from 'components/ResponseItem'
 import GlassSheetBackground from 'components/GlassSheetBackground'
 import ResponsePopup from 'components/ResponsePopup'
-import { fetchDat, fetchDatDelta, findReportThreadUrl } from 'lib/api'
+import {
+  fetchDat,
+  fetchDatDelta,
+  fetchSubject,
+  findReportThreadUrl,
+} from 'lib/api'
 import { buildBacklinks, parseBody } from 'lib/body'
 import { longPressHaptic } from 'lib/haptics'
 import {
@@ -118,7 +123,8 @@ import { quoteReply } from 'lib/postDrafts'
 import { compatSiteOf } from 'lib/sites'
 import { CONTACT_URL, DELETION_REQUEST_URL } from 'lib/terms'
 import useIsCellular from 'lib/useIsCellular'
-import { applyNg, visibleResponses } from 'lib/ng'
+import { applyNg, visibleResponses, visibleThreads } from 'lib/ng'
+import { findNextThreadCandidates } from 'lib/nextThread'
 import { findResponses, findRowByNo } from 'lib/search'
 import {
   appendCachedThread,
@@ -317,6 +323,9 @@ export default function Thread({ route, navigation }) {
   const [aiNgProgress, setAiNgProgress] = useState(null)
   const [beMenu, setBeMenu] = useState(null)
   const beMenuRef = useRef(null)
+  /** 次スレの候補。null なら閉じている。`list` が null の間は探している */
+  const [nextThreads, setNextThreads] = useState(null)
+  const nextThreadsRef = useRef(null)
   const [autoScrolling, setAutoScrolling] = useState(false)
   /** 本文の絞り込み。null なら全レス */
   const [filterKey, setFilterKey] = useState(route.params.initialFilter ?? null)
@@ -952,6 +961,13 @@ export default function Thread({ route, navigation }) {
     if (beMenu && beMenuRef.current) beMenuRef.current.present()
   }, [beMenu])
 
+  const nextThreadsOpen = nextThreads !== null
+  useEffect(() => {
+    if (nextThreadsOpen && nextThreadsRef.current) {
+      nextThreadsRef.current.present()
+    }
+  }, [nextThreadsOpen])
+
   /** デスクトップ版と同じ 4 項目。 */
   const beActions = useMemo(() => {
     if (!beMenu) return []
@@ -1096,6 +1112,66 @@ export default function Thread({ route, navigation }) {
     [navigation, threadId],
   )
 
+  /** 板のスレ一覧から、このスレより新しくスレタイの似たスレを探す（デスクトップ版と同じ）。 */
+  const searchNextThread = useCallback(async () => {
+    dismissAll()
+    const name = title || initialTitle || ''
+    let threadKey
+    try {
+      threadKey = parseBoardLocation(threadUrl).threadKey
+    } catch (e) {
+      threadKey = undefined
+    }
+    if (!boardUrl || !threadKey || !name) {
+      showToast({ title: '次スレを探せませんでした' })
+      return
+    }
+    setNextThreads({ forId: threadId, list: null })
+    let list
+    try {
+      const { threads } = await fetchSubject(boardUrl)
+      // NG はどの画面でも必ず通す（不変条件 2）
+      const rows = visibleThreads(threads, ngFilters, {
+        includeWords: settings.ngWordsInThreadTitle !== false,
+      })
+      list = findNextThreadCandidates(rows, { threadKey, title: name })
+    } catch (e) {
+      console.warn(`[thread] 次スレを探せない: ${e?.message || e}`)
+      if (nextThreadsRef.current) nextThreadsRef.current.dismiss()
+      showToast({ title: 'スレ一覧を読み込めませんでした' })
+      return
+    }
+    if (list.length === 0) {
+      if (nextThreadsRef.current) nextThreadsRef.current.dismiss()
+      showToast({ title: '次スレは見つかりませんでした' })
+      return
+    }
+    // 探している間に閉じたり別のスレへ移ったりしたら出さない
+    setNextThreads((cur) => (cur?.forId === threadId ? { ...cur, list } : cur))
+  }, [
+    dismissAll,
+    title,
+    initialTitle,
+    threadUrl,
+    boardUrl,
+    threadId,
+    ngFilters,
+    settings.ngWordsInThreadTitle,
+  ])
+
+  const openNextThread = useCallback(
+    (t) => {
+      if (nextThreadsRef.current) nextThreadsRef.current.dismiss()
+      navigation.navigate('Thread', {
+        threadUrl: t.threadUrl,
+        boardUrl,
+        boardName,
+        title: t.title,
+      })
+    },
+    [navigation, boardUrl, boardName],
+  )
+
   /** スレタイの全文と先頭のレス。長いスレを読んでいる途中で >>1 を見返すため。 */
   const openThreadInfo = useCallback(() => {
     const nos = []
@@ -1130,9 +1206,11 @@ export default function Thread({ route, navigation }) {
             showToast({ title: '最後まで読んだことにしました' })
           },
         },
+        { label: '次スレを探す', onPress: searchNextThread },
       ],
     })
   }, [
+    searchNextThread,
     title,
     initialTitle,
     pickRows,
@@ -2335,6 +2413,60 @@ export default function Thread({ route, navigation }) {
         }
       />
 
+      {nextThreads ? (
+        <BottomSheetModal
+          animationConfigs={animationConfigs}
+          accessible={false}
+          ref={nextThreadsRef}
+          name="next-threads"
+          stackBehavior="push"
+          enablePanDownToClose
+          enableDynamicSizing
+          backdropComponent={renderMenuBackdrop}
+          backgroundComponent={GlassSheetBackground}
+          handleIndicatorStyle={{ backgroundColor: theme.textFaint }}
+          onDismiss={() => setNextThreads(null)}
+        >
+          <BottomSheetView style={styles.menu}>
+            <Text style={[styles.menuTitle, { color: theme.textDim }]}>
+              次スレの候補
+            </Text>
+            {nextThreads.list === null ? (
+              <View style={styles.extractItem}>
+                <Text style={[styles.menuText, { color: theme.textDim }]}>
+                  探しています…
+                </Text>
+                <ActivityIndicator color={theme.textDim} />
+              </View>
+            ) : (
+              nextThreads.list.map((t) => (
+                <Pressable
+                  key={t.threadKey}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${t.title} ${t.responseCount} レス`}
+                  style={styles.nextThreadItem}
+                  onPress={() => openNextThread(t)}
+                >
+                  <Text
+                    style={[
+                      styles.menuText,
+                      styles.flexShrink,
+                      { color: theme.text },
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {t.title}
+                  </Text>
+                  <Text style={{ color: theme.textDim, fontSize: 13 }}>
+                    {t.responseCount}
+                  </Text>
+                </Pressable>
+              ))
+            )}
+          </BottomSheetView>
+        </BottomSheetModal>
+      ) : null}
+
       {beMenu ? (
         <BottomSheetModal
           animationConfigs={animationConfigs}
@@ -2802,6 +2934,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   menuText: { fontSize: 15 },
+  nextThreadItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  flexShrink: { flexShrink: 1 },
   menuNg: {
     flexDirection: 'row',
     alignItems: 'center',
