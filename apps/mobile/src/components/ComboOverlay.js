@@ -20,12 +20,15 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native'
 import Animated, {
+  cancelAnimation,
   Easing,
+  interpolateColor,
   useAnimatedStyle,
   useDerivedValue,
   useFrameCallback,
   useSharedValue,
   withDelay,
+  withRepeat,
   withSequence,
   withTiming,
 } from 'react-native-reanimated'
@@ -39,8 +42,11 @@ import {
   COMBO_RESET_MS,
   rollSlotBonus,
   rollSlotOutcome,
-  SLOT_BONUS_BANNERS,
+  SLOT_BONUS_MAX,
+  SLOT_BONUS_TIERS,
+  SLOT_COIN_MARKS,
   SLOT_SYMBOLS,
+  slotBonusRounds,
   slotReelsFor,
   subscribeComboEvents,
 } from 'lib/combo'
@@ -74,8 +80,32 @@ const BADGE_TOP_RATIO = 0.36
 const BADGE_CENTER_OFFSET = 50
 const SLOT_TICK_MS = 70
 const SLOT_STOP_MS = [700, 1100, 1500]
-const SLOT_FREEZE_EXTRA_MS = 1200
+/** フリーズはリールが止まらずに回り続ける（デスクトップ版の約 3 倍の尺に合わせる） */
+const SLOT_FREEZE_EXTRA_MS = 1900
+/** 「FREEZE!!」を出すまでの間 */
+const SLOT_FREEZE_TAG_MS = 420
+/** 止まってから結果を見せるまでの間 */
+const SLOT_RESULT_MS = 200
+const SLOT_BONUS_ROUND_MS = 900
+/** カードを裏返すのは 1 枚の尺の真ん中 */
+const SLOT_CARD_FLIP_MS = SLOT_BONUS_ROUND_MS / 2
+/** 最後のカードを読む間。これを置かないと表になった直後にバナーが被さる */
+const SLOT_BONUS_FINALE_MS = 400
+const SLOT_WIN_HOLD_MS = 1800
+const SLOT_LOSE_HOLD_MS = 1500
+const SLOT_PUFF_MARKS = ['💨', '💭', '☁️']
 const BANNER_MS = 1300
+
+/** スロットの枠の色。段位が上がるほど派手にする（GOD は虹色に回す） */
+const SLOT_BORDER = {
+  base: '#c9a227',
+  freeze: '#7fd8ff',
+  lose: '#6b6b6b',
+  near: '#e0912b',
+  tier2: '#ff5ebc',
+}
+const SLOT_GOD_COLORS = ['#ff5050', '#50ff8c', '#8c78ff', '#ff5050']
+const SLOT_TIER_TAG_BG = ['#ffd54f', '#ff5ebc', '#8c78ff']
 
 const RANK_COLORS = { C: '#69f0ae', B: '#40c4ff', A: '#ffb74d', S: '#ff5252' }
 
@@ -323,18 +353,277 @@ function Banner({ banner }) {
   )
 }
 
+/** 上乗せのカード。裏で出てきて、真ん中で裏返って表（当たり 7️⃣ / 外れ ✖）になる。 */
+const SlotCard = React.memo(function SlotCard({ won }) {
+  const [open, setOpen] = useState(false)
+  const appear = useSharedValue(0)
+  const flip = useSharedValue(1)
+  const pop = useSharedValue(1)
+
+  useEffect(() => {
+    appear.value = withTiming(1, { duration: 110 })
+    // 真横を向いている間（scaleX = 0）に表を差し替える
+    flip.value = withSequence(
+      withDelay(270, withTiming(0, { duration: 108 })),
+      withDelay(144, withTiming(1, { duration: 126 })),
+    )
+    pop.value = withSequence(
+      withDelay(522, withTiming(1.22, { duration: 126 })),
+      withTiming(1, { duration: 252 }),
+    )
+    const id = setTimeout(() => setOpen(true), SLOT_CARD_FLIP_MS)
+    return () => clearTimeout(id)
+  }, [appear, flip, pop])
+
+  const style = useAnimatedStyle(() => ({
+    opacity: appear.value,
+    transform: [
+      { translateY: (1 - appear.value) * 10 },
+      { scaleX: flip.value },
+      { scale: pop.value * (0.7 + appear.value * 0.3) },
+    ],
+  }))
+
+  let face = styles.cardBack
+  let mark = '?'
+  if (open) {
+    face = won ? styles.cardHit : styles.cardOut
+    mark = won ? '7️⃣' : '✖'
+  }
+  return (
+    <Animated.View style={[styles.card, face, style]}>
+      <Animated.Text
+        style={[styles.cardText, open && !won ? styles.cardTextOut : null]}
+      >
+        {mark}
+      </Animated.Text>
+    </Animated.View>
+  )
+})
+
+/** 跳ねて出てくる小さな札（FREEZE!! や段位）。key を変えると跳ね直す。 */
+function PopTag({ style, textStyle, text, blink = false }) {
+  const t = useSharedValue(0)
+  const glow = useSharedValue(1)
+  useEffect(() => {
+    t.value = withSequence(
+      withTiming(1.3, { duration: 230, easing: Easing.out(Easing.cubic) }),
+      withTiming(1, { duration: 190 }),
+    )
+    if (blink) {
+      glow.value = withRepeat(
+        withSequence(
+          withTiming(0.45, { duration: 220 }),
+          withTiming(1, { duration: 220 }),
+        ),
+        -1,
+      )
+    }
+    return () => cancelAnimation(glow)
+  }, [t, glow, blink])
+  const animated = useAnimatedStyle(() => ({
+    opacity: Math.min(1, t.value) * glow.value,
+    transform: [{ scale: t.value }],
+  }))
+  return (
+    <Animated.View pointerEvents="none" style={[style, animated]}>
+      <Animated.Text style={textStyle}>{text}</Animated.Text>
+    </Animated.View>
+  )
+}
+
+/**
+ * スロット本体。枠の色・揺れ・札・カードで結果と段位を見せる。
+ * 中身（絵柄や結果）は親の state をそのまま描くだけで、時間の進行は親が持つ。
+ */
+function SlotMachine({ slot, top }) {
+  const pulse = useSharedValue(1)
+  const shake = useSharedValue(0)
+  const rainbow = useSharedValue(0)
+  const cardsOut = useSharedValue(1)
+  const glowing = slot.frozen && slot.phase === 'spin'
+
+  useEffect(() => {
+    cancelAnimation(pulse)
+    if (glowing) {
+      pulse.value = withRepeat(
+        withSequence(
+          withTiming(1.04, { duration: 220 }),
+          withTiming(1, { duration: 220 }),
+        ),
+        -1,
+      )
+    } else if (slot.phase === 'win') {
+      pulse.value = withRepeat(
+        withSequence(
+          withTiming(1.08, { duration: 260 }),
+          withTiming(1, { duration: 260 }),
+        ),
+        2,
+      )
+    } else {
+      pulse.value = withTiming(1, { duration: 120 })
+    }
+  }, [pulse, glowing, slot.phase])
+
+  useEffect(() => {
+    if (slot.phase === 'lose') {
+      shake.value = withSequence(
+        withTiming(-4, { duration: 110 }),
+        withTiming(4, { duration: 160 }),
+        withTiming(0, { duration: 110 }),
+      )
+    } else if (slot.phase === 'near') {
+      // 「おしい」は大きく 3 回震える
+      shake.value = withRepeat(
+        withSequence(
+          withTiming(-8, { duration: 75 }),
+          withTiming(8, { duration: 150 }),
+          withTiming(0, { duration: 75 }),
+        ),
+        3,
+      )
+    }
+  }, [shake, slot.phase])
+
+  useEffect(() => {
+    if (slot.tier < SLOT_BONUS_MAX) return undefined
+    rainbow.value = withRepeat(
+      withTiming(1, { duration: 900, easing: Easing.linear }),
+      -1,
+    )
+    return () => cancelAnimation(rainbow)
+  }, [rainbow, slot.tier])
+
+  useEffect(() => {
+    // 最後のバナーと重なって読みにくいので、カードは引き上げる
+    if (slot.cardsDone) cardsOut.value = withTiming(0, { duration: 260 })
+  }, [cardsOut, slot.cardsDone])
+
+  let border = SLOT_BORDER.base
+  if (glowing) border = SLOT_BORDER.freeze
+  else if (slot.phase === 'lose') border = SLOT_BORDER.lose
+  else if (slot.phase === 'near') border = SLOT_BORDER.near
+  else if (slot.tier === 2) border = SLOT_BORDER.tier2
+  const god = slot.tier >= SLOT_BONUS_MAX
+
+  const boxStyle = useAnimatedStyle(() => {
+    const color = god
+      ? interpolateColor(rainbow.value, [0, 0.33, 0.66, 1], SLOT_GOD_COLORS)
+      : border
+    return {
+      borderColor: color,
+      shadowColor: color,
+      transform: [
+        { translateX: shake.value },
+        { rotate: `${shake.value * 0.35}deg` },
+        { scale: pulse.value },
+      ],
+    }
+  })
+  const cardsStyle = useAnimatedStyle(() => ({
+    opacity: cardsOut.value,
+    transform: [{ translateY: (1 - cardsOut.value) * -12 }],
+  }))
+
+  const dim = slot.phase === 'lose'
+  return (
+    <View pointerEvents="none" style={[styles.slotWrap, { top }]}>
+      <Animated.View
+        style={[
+          styles.slot,
+          glowing || slot.tier > 0 || slot.phase === 'near'
+            ? styles.slotGlow
+            : null,
+          boxStyle,
+        ]}
+      >
+        <View style={styles.slotReels}>
+          {slot.cells.map((symbol, i) => (
+            // eslint-disable-next-line react/no-array-index-key
+            <Animated.Text key={i} style={[styles.slotCell, dim && styles.dim]}>
+              {symbol}
+            </Animated.Text>
+          ))}
+        </View>
+        {slot.label ? (
+          <PopTag
+            style={styles.slotLabel}
+            textStyle={[
+              styles.slotLabelText,
+              slot.phase === 'near' ? styles.slotLabelNear : null,
+            ]}
+            text={slot.label}
+          />
+        ) : null}
+        {glowing && slot.freezeTag ? (
+          <PopTag
+            style={styles.freezeTag}
+            textStyle={styles.freezeTagText}
+            text="FREEZE!!"
+            blink
+          />
+        ) : null}
+        {slot.tier > 0 ? (
+          <PopTag
+            key={slot.tier}
+            style={[
+              styles.tierTag,
+              { backgroundColor: SLOT_TIER_TAG_BG[slot.tier - 1] },
+            ]}
+            textStyle={[
+              styles.tierTagText,
+              slot.tier >= 2 ? styles.tierTagTextLight : null,
+            ]}
+            text={SLOT_BONUS_TIERS[slot.tier - 1].tag}
+          />
+        ) : null}
+      </Animated.View>
+      {slot.cards.length > 0 ? (
+        // 1 枚ずつ入れ替えず横に並べて、連勝の経過を残す
+        <Animated.View style={[styles.cards, cardsStyle]}>
+          {slot.cards.map((card) => (
+            <SlotCard key={card.id} won={card.won} />
+          ))}
+        </Animated.View>
+      ) : null}
+    </View>
+  )
+}
+
+/** 最上位の段位だけ画面全体を一瞬白く飛ばす。 */
+function Flash({ flash }) {
+  const t = useSharedValue(0)
+  useEffect(() => {
+    t.value = withSequence(
+      withTiming(0.85, { duration: 60 }),
+      withTiming(0, { duration: 840, easing: Easing.out(Easing.cubic) }),
+    )
+  }, [t, flash])
+  const style = useAnimatedStyle(() => ({ opacity: t.value }))
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[StyleSheet.absoluteFill, styles.flash, style]}
+    />
+  )
+}
+
 export default function ComboOverlay() {
   const { width, height } = useWindowDimensions()
   const [pieces, setPieces] = useState([])
   const [badge, setBadge] = useState(null)
   const [banner, setBanner] = useState(null)
   const [slot, setSlot] = useState(null)
+  const [flash, setFlash] = useState(null)
   const [sparksAlive, setSparksAlive] = useState(false)
   const timers = useRef(new Set())
   const slotBusy = useRef(false)
   // 演出の中心。キーボードに隠れない高さに置く
   const centerY = height * 0.26
   const badgeTop = height * BADGE_TOP_RATIO
+  // スロットはバナーより上に置き、下にカードを並べる
+  const slotTop = Math.max(48, centerY - 120)
 
   const sparks = useSharedValue([])
   const clock = useSharedValue(0)
@@ -442,49 +731,152 @@ export default function ComboOverlay() {
     [later, emoji, burst, fireworks, confetti, width, centerY],
   )
 
+  /** コインを画面の上から降らせる。 */
+  const rain = useCallback(
+    (marks, count) => {
+      const made = []
+      for (let i = 0; i < count; i += 1) {
+        made.push({
+          id: nextId,
+          text: marks[i % marks.length],
+          x: random(10, width - 30),
+          y: random(-140, -30),
+          dx: random(-60, 60),
+          dy: height * random(0.75, 1.05),
+          fall: 0,
+          rot: random(-360, 360),
+          scale: random(0.9, 1.6),
+          duration: random(1100, 1900),
+          delay: random(0, 500),
+        })
+        nextId += 1
+      }
+      setPieces((list) => [...list, ...made].slice(-MAX_PIECES))
+    },
+    [width, height],
+  )
+
+  /** 上乗せ。カードを 1 枚ずつめくり、当たっている間だけ段位を上げる。終わる時刻を返す。 */
+  const runSlotBonus = useCallback(
+    (start, tiers) => {
+      const rounds = slotBonusRounds(tiers)
+      for (let i = 0; i < rounds; i += 1) {
+        const won = i < tiers
+        const at = start + i * SLOT_BONUS_ROUND_MS
+        const id = nextId
+        nextId += 1
+        later(() => {
+          setSlot((s) => s && { ...s, cards: [...s.cards, { id, won }] })
+        }, at)
+        if (won) {
+          // 段位は表になったときに上げる
+          later(() => {
+            setSlot((s) => s && { ...s, tier: i + 1 })
+          }, at + SLOT_CARD_FLIP_MS)
+        }
+      }
+      let end = start + rounds * SLOT_BONUS_ROUND_MS
+      if (tiers <= 0) return end
+      end += SLOT_BONUS_FINALE_MS
+      // 段位ごとにバナーを出すと重なるので、到達した段位のぶんを最後に 1 回だけ
+      const top = SLOT_BONUS_TIERS[tiers - 1]
+      later(() => {
+        setSlot((s) => s && { ...s, cardsDone: true })
+        showBanner(top.banner, 'jackpot')
+        rain(top.coins, 20)
+        if (tiers >= SLOT_BONUS_MAX) setFlash(Date.now())
+      }, end)
+      return end
+    },
+    [later, showBanner, rain],
+  )
+
   const spinSlot = useCallback(() => {
     // 待ち行列に積むと数字と演出がずれるので、回っている間は 1 つだけ
     if (slotBusy.current) return
     slotBusy.current = true
     const outcome = rollSlotOutcome()
     const reels = slotReelsFor(outcome)
-    const extra = outcome === 'freeze' ? SLOT_FREEZE_EXTRA_MS : 0
+    const frozen = outcome === 'freeze'
+    // 上乗せの抽選も回し始めに済ませる（演出の尺を先に決めるため）
+    const tiers = outcome === 'triple' ? rollSlotBonus() : 0
+    const extra = frozen ? SLOT_FREEZE_EXTRA_MS : 0
     const stops = SLOT_STOP_MS.map((ms) => ms + extra)
+    const anySymbol = () =>
+      SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]
+    setSlot({
+      id: nextId,
+      cells: reels.map(anySymbol),
+      frozen,
+      freezeTag: false,
+      phase: 'spin',
+      label: null,
+      cards: [],
+      tier: 0,
+      cardsDone: false,
+    })
+    nextId += 1
     const started = Date.now()
     const tick = setInterval(() => {
       const elapsed = Date.now() - started
       setSlot(
-        reels.map((symbol, i) =>
-          elapsed >= stops[i]
-            ? SLOT_SYMBOLS[symbol]
-            : SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)],
-        ),
+        (s) =>
+          s && {
+            ...s,
+            cells: reels.map((symbol, i) =>
+              elapsed >= stops[i] ? SLOT_SYMBOLS[symbol] : anySymbol(),
+            ),
+          },
       )
     }, SLOT_TICK_MS)
     timers.current.add(tick)
+    if (frozen) {
+      later(() => {
+        setSlot((s) => s && { ...s, freezeTag: true })
+      }, SLOT_FREEZE_TAG_MS)
+    }
 
+    const settled = stops[2] + SLOT_TICK_MS
     later(() => {
       clearInterval(tick)
       timers.current.delete(tick)
-      setSlot(reels.map((s) => SLOT_SYMBOLS[s]))
-      let finishAt = 700
-      if (outcome === 'freeze' || outcome === 'jackpot') {
-        const tiers = rollSlotBonus()
-        for (let t = 0; t <= tiers; t += 1) {
-          later(() => showBanner(SLOT_BONUS_BANNERS[t], 'jackpot'), t * 1100)
-        }
-        finishAt = (tiers + 1) * 1100
+      setSlot((s) => s && { ...s, cells: reels.map((r) => SLOT_SYMBOLS[r]) })
+    }, settled)
+
+    const slotY = slotTop + 40
+    const result = settled + SLOT_RESULT_MS
+    later(() => {
+      if (frozen || outcome === 'jackpot') {
+        setSlot((s) => s && { ...s, phase: 'win' })
+        showBanner(frozen ? 'FREEZE 777!!' : '777 JACKPOT!!', 'jackpot')
+        rain(SLOT_COIN_MARKS, 20)
       } else if (outcome === 'triple') {
-        showBanner('SLOT HIT!', 'mega')
+        // SLOT HIT! は必ず出す。上乗せが外れてもこれは消さない
+        setSlot((s) => s && { ...s, phase: 'win' })
+        showBanner('SLOT HIT!', 'fire')
       } else if (outcome === 'near') {
-        emoji(width / 2, centerY, ['💨', '💭', '☁️'], 8, 80)
+        setSlot((s) => s && { ...s, phase: 'near', label: 'おしい！' })
+        emoji(width / 2, slotY, SLOT_PUFF_MARKS, 8, 90)
+      } else {
+        setSlot((s) => s && { ...s, phase: 'lose', label: 'ハズレ' })
+        emoji(width / 2, slotY, SLOT_PUFF_MARKS, 4, 70)
       }
-      later(() => {
-        setSlot(null)
-        slotBusy.current = false
-      }, finishAt)
-    }, stops[2] + SLOT_TICK_MS)
-  }, [later, showBanner, emoji, width, centerY])
+    }, result)
+
+    let finishAt
+    if (outcome === 'triple') {
+      // SLOT HIT! のバナーが引いてからカードを出す（同じ高さで重なるため）
+      finishAt = runSlotBonus(result + BANNER_MS, tiers) + SLOT_WIN_HOLD_MS
+    } else if (frozen || outcome === 'jackpot') {
+      finishAt = result + SLOT_WIN_HOLD_MS
+    } else {
+      finishAt = result + SLOT_LOSE_HOLD_MS
+    }
+    later(() => {
+      setSlot(null)
+      slotBusy.current = false
+    }, finishAt)
+  }, [later, showBanner, emoji, rain, runSlotBonus, width, slotTop])
 
   const handle = useCallback(
     (events) => {
@@ -549,7 +941,14 @@ export default function ComboOverlay() {
 
   useEffect(() => subscribeComboEvents(handle), [handle])
 
-  if (pieces.length === 0 && !sparksAlive && !badge && !banner && !slot) {
+  if (
+    pieces.length === 0 &&
+    !sparksAlive &&
+    !badge &&
+    !banner &&
+    !slot &&
+    !flash
+  ) {
     return null
   }
 
@@ -563,16 +962,8 @@ export default function ComboOverlay() {
           <Piece key={p.id} piece={p} onDone={removePiece} />
         ))}
         {badge ? <ComboBadge badge={badge} top={badgeTop} /> : null}
-        {slot ? (
-          <View style={[styles.slot, { top: centerY - 70 }]}>
-            {slot.map((symbol, i) => (
-              // eslint-disable-next-line react/no-array-index-key
-              <Animated.Text key={i} style={styles.slotCell}>
-                {symbol}
-              </Animated.Text>
-            ))}
-          </View>
-        ) : null}
+        {flash ? <Flash key={flash} flash={flash} /> : null}
+        {slot ? <SlotMachine key={slot.id} slot={slot} top={slotTop} /> : null}
         {banner ? (
           <View style={[styles.bannerSlot, { top: centerY - 40 }]}>
             <Banner banner={banner} />
@@ -615,14 +1006,72 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderColor: '#ffb74d',
   },
-  slot: {
+  slotWrap: {
     position: 'absolute',
-    alignSelf: 'center',
-    flexDirection: 'row',
-    gap: 6,
-    backgroundColor: 'rgba(0,0,0,0.75)',
-    borderRadius: 10,
-    padding: 8,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
+  slot: {
+    alignItems: 'center',
+    backgroundColor: '#1d1712',
+    borderRadius: 10,
+    borderWidth: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    shadowOpacity: 0,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  slotGlow: { shadowOpacity: 0.85 },
+  slotReels: { flexDirection: 'row', gap: 6 },
   slotCell: { fontSize: 34, width: 46, textAlign: 'center' },
+  dim: { opacity: 0.45 },
+  slotLabel: { marginTop: 2 },
+  slotLabelText: {
+    color: '#bdbdbd',
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 2,
+  },
+  slotLabelNear: { color: '#ffb74d' },
+  freezeTag: { position: 'absolute', top: -26, alignSelf: 'center' },
+  freezeTagText: {
+    color: '#7fd8ff',
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: 2,
+    textShadowColor: '#2979ff',
+    textShadowRadius: 10,
+  },
+  tierTag: {
+    position: 'absolute',
+    top: -11,
+    right: -10,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: 9,
+  },
+  tierTagText: {
+    color: '#241a06',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  tierTagTextLight: { color: '#fff' },
+  cards: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  card: {
+    width: 44,
+    height: 62,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
+    borderWidth: 2,
+  },
+  cardBack: { backgroundColor: '#2a2118', borderColor: '#c9a227' },
+  cardHit: { backgroundColor: '#c62828', borderColor: '#ff6a6a' },
+  cardOut: { backgroundColor: '#1e1e1e', borderColor: '#4a4a4a' },
+  cardText: { color: '#fff', fontSize: 24, fontWeight: '900' },
+  cardTextOut: { color: '#8f8f8f' },
+  flash: { backgroundColor: '#fff' },
 })

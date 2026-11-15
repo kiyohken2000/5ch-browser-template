@@ -225,8 +225,17 @@ export function advanceCombo(state, prev, next, now) {
 // ---- スロット ---------------------------------------------------------------
 
 export const SLOT_SYMBOLS = ['7️⃣', '🍒', '🔔', '⭐', '🍉', '🍋']
+export const SLOT_COIN_MARKS = ['💰', '🪙', '✨', '💎']
+/**
+ * ゾロ目（777 以外）のあとの上乗せ。カードをめくり、当たりが続く限り段位が上がる。
+ * 777 とフリーズは最もレアなので対象外（デスクトップ版と同じ）。
+ */
 export const SLOT_BONUS_MAX = 3
-export const SLOT_BONUS_BANNERS = ['777 JACKPOT!!', 'MEGA 777!!', 'GOD 777!!!']
+export const SLOT_BONUS_TIERS = [
+  { tag: '777', banner: '777 JACKPOT!!', coins: SLOT_COIN_MARKS },
+  { tag: 'MEGA', banner: 'MEGA 777!!', coins: ['💎', '👑', '💰', '✨'] },
+  { tag: 'GOD', banner: 'GOD 777!!!', coins: ['👑', '💎', '🌟', '💰'] },
+]
 
 /** 当たり / おしい / ハズレ を 1/3 ずつ。当たりの内訳はフリーズ 3%、777 8%。 */
 export function rollSlotOutcome(random = Math.random) {
@@ -254,11 +263,18 @@ export function slotReelsFor(outcome, random = Math.random) {
   return [a, b, c]
 }
 
-/** 当たりのあとの上乗せ。続く限り段位が上がる。 */
+/**
+ * 上乗せで当たった段数（0〜SLOT_BONUS_MAX）。回し始めにまとめて決める。
+ */
 export function rollSlotBonus(random = Math.random) {
   let tiers = 0
-  while (tiers < SLOT_BONUS_MAX - 1 && random() < 0.5) tiers += 1
+  while (tiers < SLOT_BONUS_MAX && random() < 0.5) tiers += 1
   return tiers
+}
+
+/** めくるカードの枚数。外れた 1 枚も見せるので段数 + 1（上限あり）。 */
+export function slotBonusRounds(tiers) {
+  return Math.min(tiers + 1, SLOT_BONUS_MAX)
 }
 
 // ---- 描画への受け渡し ----------------------------------------------------------

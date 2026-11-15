@@ -9,6 +9,7 @@ import {
   rollSlotOutcome,
   shouldSpinSlot,
   SLOT_BONUS_MAX,
+  slotBonusRounds,
   slotReelsFor,
   trailingWara,
 } from 'lib/combo'
@@ -175,7 +176,14 @@ describe('スロット', () => {
   })
 
   it('上乗せは上限で止まる', () => {
-    expect(rollSlotBonus(fixed(0))).toBe(SLOT_BONUS_MAX - 1)
+    expect(rollSlotBonus(fixed(0))).toBe(SLOT_BONUS_MAX)
     expect(rollSlotBonus(fixed(0.9))).toBe(0)
+  })
+
+  it('カードは外れの 1 枚を足して上限まで', () => {
+    expect(slotBonusRounds(0)).toBe(1)
+    expect(slotBonusRounds(1)).toBe(2)
+    expect(slotBonusRounds(2)).toBe(3)
+    expect(slotBonusRounds(3)).toBe(3)
   })
 })
