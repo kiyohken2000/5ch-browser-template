@@ -10,19 +10,13 @@ eas build --profile preview --platform android
 eas build --profile production --platform ios
 eas build --profile production --platform android
 
-// build: production (ローカルビルド。EAS のビルド枠を使わない。apps/mobile で実行)
-// 成果物はリポジトリのルートの out_mobile/ に出す (.gitignore 済み)。
-// 提出は eas submit --platform <ios|android> --path <ファイル>
-// iOS はスクリプト経由で実行する。ログインキーチェーンの別の配布用証明書を Xcode が選んで署名に失敗するのを避け、
-// fastlane のタイムアウトも延ばす (詳細はスクリプト冒頭のコメント)
-./scripts/build-ios-release.sh
-// リポジトリのルートから (スクリプトが apps/mobile に移ってから動くので結果は同じ)
+// build: production (ローカルビルド。EAS のビルド枠を使わない。リポジトリのルートで実行)
+// 成果物はルートの out_mobile/ember-<version>-<日時>.ipa / .aab (.gitignore 済み)。
+// 出力先を変えるなら --output <ファイル> を付ける。iOS をスクリプト経由にするのは、
+// ログインキーチェーンの別の配布用証明書を Xcode が選んで署名に失敗するのを避け、
+// fastlane のタイムアウトも延ばすため (詳細はスクリプト冒頭のコメント)
 ./apps/mobile/scripts/build-ios-release.sh
-// 出力先は既定で out_mobile/ember-<version>-<日時>.ipa。変えるなら --output <ファイル> を付ける
-// Android (--output は無いと apps/mobile に build-*.aab ができる)
-mkdir -p ../../out_mobile && eas build --profile production --platform android --local --output ../../out_mobile/ember-$(node -p "require('./app.json').expo.version")-$(date +%Y%m%d-%H%M%S).aab
-eas submit --platform android --path ../../out_mobile/<ファイル>.aab
-eas submit --platform ios --path ../../out_mobile/<ファイル>.ipa
+./apps/mobile/scripts/build-android-release.sh
 
 // build: develop (iOS Simulator, ローカルビルド。EAS のビルド枠を使わない)
 // 成果物は build-*.tar.gz。展開した Ember.app を xcrun simctl install でインストール
