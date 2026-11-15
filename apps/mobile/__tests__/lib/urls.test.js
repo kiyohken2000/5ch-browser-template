@@ -5,6 +5,7 @@ import {
   normalizeExternalUrl,
   parseBoardLocation,
   splitUrl,
+  threadLinkParams,
 } from 'lib/urls'
 
 describe('normalize5chUrl — デスクトップ版と同じ規則', () => {
@@ -147,5 +148,27 @@ describe('normalizeExternalUrl', () => {
     expect(normalizeExternalUrl('data:text/html,<script>1</script>')).toBeNull()
     expect(normalizeExternalUrl('blob:https://example.com/x')).toBeNull()
     expect(normalizeExternalUrl('file:///etc/passwd')).toBeNull()
+  })
+})
+
+describe('threadLinkParams — レスに貼られたスレのリンク', () => {
+  it('スレ URL ならスレビューの引数を返す（レス番号つき・5ch.net も寄せる）', () => {
+    expect(
+      threadLinkParams(
+        'https://egg.5ch.net/test/read.cgi/software/1792988326/5',
+      ),
+    ).toEqual({
+      threadUrl: 'https://egg.5ch.io/test/read.cgi/software/1792988326/',
+      boardUrl: 'https://egg.5ch.io/software/',
+      boardName: 'software',
+    })
+  })
+
+  it('板 URL・外部サイト・読めない URL は null', () => {
+    expect(threadLinkParams('https://egg.5ch.io/software/')).toBeNull()
+    expect(
+      threadLinkParams('https://example.com/test/read.cgi/a/1/'),
+    ).toBeNull()
+    expect(threadLinkParams('not a url')).toBeNull()
   })
 })

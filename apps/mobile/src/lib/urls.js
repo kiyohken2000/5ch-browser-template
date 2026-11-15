@@ -248,3 +248,25 @@ export function normalizeExternalUrl(input) {
     u.query
   }${u.hash}`
 }
+
+/**
+ * レスに貼られたリンクが対応ホストのスレなら、スレビューを開くときの引数を返す。
+ * 板 URL・外部サイト・読めない URL は null（呼び出し側がブラウザで開く）。
+ *
+ * @returns {{threadUrl: string, boardUrl: string, boardName: string}|null}
+ */
+export function threadLinkParams(url) {
+  let location
+  try {
+    location = parseBoardLocation(url)
+  } catch (e) {
+    // 外部サイトの URL は毎回ここに来るので、ログは出さない
+    return null
+  }
+  if (!location.threadKey) return null
+  return {
+    threadUrl: location.threadUrl(),
+    boardUrl: location.boardUrl(),
+    boardName: location.board,
+  }
+}

@@ -125,7 +125,11 @@ import {
   getCachedThread,
   putCachedThread,
 } from 'lib/threadCache'
-import { normalizeExternalUrl, parseBoardLocation } from 'lib/urls'
+import {
+  normalizeExternalUrl,
+  parseBoardLocation,
+  threadLinkParams,
+} from 'lib/urls'
 import { addHighlight, selectActiveHighlights } from 'slices/highlight.slice'
 import { addImageNg } from 'slices/imageNg.slice'
 import { addNg, selectNgFilters } from 'slices/ng.slice'
@@ -134,6 +138,7 @@ import {
   markSeen,
   clearReadMarker,
   setReadMarker,
+  removeRecentThread,
   setDatDropped,
   touchRecentThread,
   touchThread,
@@ -443,6 +448,11 @@ export default function Thread({ route, navigation }) {
       console.warn(`[thread] スレの取得に失敗: ${e?.message || e}`)
       if (isDatDropped(e)) {
         noteDatDropped(true)
+        // 読めないスレを「最近開いた」に残さない。前スレのリンクから来ると、
+        // タイトルも 0 レスのままの行がホームに溜まる
+        if (stateRef.current.entryCount === 0) {
+          dispatch(removeRecentThread(threadId))
+        }
         return
       }
       setError(e?.message || 'スレを取得できませんでした')
@@ -450,7 +460,15 @@ export default function Thread({ route, navigation }) {
       setLoading(false)
       setRefreshing(false)
     }
-  }, [threadUrl, boardUrl, boardName, initialTitle, threadId, dispatch])
+  }, [
+    threadUrl,
+    boardUrl,
+    boardName,
+    initialTitle,
+    threadId,
+    dispatch,
+    noteDatDropped,
+  ])
 
   /** 更新は差分取得（§9-6）。416 や縮小を検知したら全体を取り直す。 */
   const readDelta = useCallback(async () => {
@@ -1055,14 +1073,28 @@ export default function Thread({ route, navigation }) {
     [treeSheet, pushSheet],
   )
 
-  const openUrl = useCallback((url) => {
-    const safe = normalizeExternalUrl(url)
-    if (!safe) {
-      console.warn(`[thread] 開けない URL: ${url}`)
-      return
-    }
-    openInAppBrowser(safe)
-  }, [])
+  const openUrl = useCallback(
+    (url) => {
+      const safe = normalizeExternalUrl(url)
+      if (!safe) {
+        console.warn(`[thread] 開けない URL: ${url}`)
+        return
+      }
+      // 5ch のスレのリンクは Web 版ではなくスレビューで開く。
+      // 同時に開くスレは 1 つだけなので、今のスレと入れ替わる
+      const linked = threadLinkParams(safe)
+      if (!linked) {
+        openInAppBrowser(safe)
+        return
+      }
+      if (parseBoardLocation(linked.threadUrl).threadId() === threadId) {
+        showToast({ title: 'このスレのリンクです' })
+        return
+      }
+      navigation.navigate('Thread', linked)
+    },
+    [navigation, threadId],
+  )
 
   /** スレタイの全文と先頭のレス。長いスレを読んでいる途中で >>1 を見返すため。 */
   const openThreadInfo = useCallback(() => {
@@ -1993,6 +2025,21 @@ export default function Thread({ route, navigation }) {
               ? 'dat 落ちしました。保存した本文を表示しています。書き込みはできません。'
               : 'dat 落ちしたスレです。保存した本文がありません。'}
           </Text>
+          {entries.length === 0 ? (
+            // 過去ログは Web 版で読めることがある
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={() => openInAppBrowser(threadUrl)}
+              style={styles.datBarAction}
+            >
+              <Text
+                style={{ color: theme.accent, fontSize: 13, fontWeight: '700' }}
+              >
+                ブラウザで開く
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
@@ -2745,6 +2792,7 @@ const styles = StyleSheet.create({
   },
   filterText: { fontSize: 13, fontWeight: '600' },
   datBar: { paddingHorizontal: 16, paddingVertical: 9 },
+  datBarAction: { alignSelf: 'flex-start', marginTop: 6 },
   autoScrollButtons: { flexDirection: 'row', gap: 18 },
   extractItem: {
     flexDirection: 'row',
