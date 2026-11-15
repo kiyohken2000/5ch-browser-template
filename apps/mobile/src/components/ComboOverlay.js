@@ -78,10 +78,18 @@ const PRUNE_MS = 500
 /** コンボの数字を置く高さ（画面の高さに対する割合） */
 const BADGE_TOP_RATIO = 0.36
 const BADGE_CENTER_OFFSET = 50
-const SLOT_TICK_MS = 70
-const SLOT_STOP_MS = [700, 1100, 1500]
-/** フリーズはリールが止まらずに回り続ける（デスクトップ版の約 3 倍の尺に合わせる） */
-const SLOT_FREEZE_EXTRA_MS = 1900
+/** リールの 1 コマの高さ */
+const SLOT_CELL = 46
+/** 止まるまでに帯を何周させるか。フリーズは長く回すぶん周回も増やす */
+const SLOT_LOOPS = 6
+const SLOT_FREEZE_LOOPS = SLOT_LOOPS * 3
+/** 止まる直前に行き過ぎて戻る量（コマ）。停止がカツンと決まる */
+const SLOT_OVERSHOOT = 12 / SLOT_CELL
+/** 「おしい」の 3 本目はこのコマ数だけ手前で止め、1 コマずつ落とす */
+const SLOT_NEAR_STEPS = 3
+const SLOT_STEP_LEAD_MS = 260
+const SLOT_STEP_GAP_MS = 340
+const SLOT_STEP_MS = 240
 /** 「FREEZE!!」を出すまでの間 */
 const SLOT_FREEZE_TAG_MS = 420
 /** 止まってから結果を見せるまでの間 */
@@ -353,6 +361,101 @@ function Banner({ banner }) {
   )
 }
 
+/** 帯は絵柄 1 周ぶん＋先頭の繰り返し。位置をコマ数で持ち、周回は剰余で畳む */
+const REEL_STRIP = [...SLOT_SYMBOLS, SLOT_SYMBOLS[0]]
+
+/** リールが回る時間。右のリールほど遅く止まる。フリーズは約 3 倍 */
+function slotSpinMs(reel, frozen) {
+  return frozen ? 2800 + reel * 280 : 900 + reel * 260
+}
+
+/** リールが止まりきる時刻。「おしい」の 3 本目はコマ送りのぶん遅い */
+function slotSettleMs(reel, frozen, stepped) {
+  const spin = slotSpinMs(reel, frozen)
+  if (!stepped) return spin
+  return spin + SLOT_STEP_LEAD_MS + SLOT_NEAR_STEPS * SLOT_STEP_GAP_MS
+}
+
+/** 1 本のリール。絵柄の帯を縦に送り、決めておいた絵柄で止める。 */
+const SlotReel = React.memo(function SlotReel({
+  reel,
+  stop,
+  frozen,
+  stepped,
+  dim,
+}) {
+  const pos = useSharedValue(0)
+
+  useEffect(() => {
+    const loops = frozen ? SLOT_FREEZE_LOOPS : SLOT_LOOPS
+    const last = loops * SLOT_SYMBOLS.length + stop
+    const end = stepped ? last - SLOT_NEAR_STEPS : last
+    const dur = slotSpinMs(reel, frozen)
+    const steps = []
+    if (stepped) {
+      for (let step = 1; step <= SLOT_NEAR_STEPS; step += 1) {
+        steps.push(
+          withDelay(
+            (step === 1
+              ? SLOT_STEP_LEAD_MS + SLOT_STEP_GAP_MS
+              : SLOT_STEP_GAP_MS) - (step === 1 ? 0 : SLOT_STEP_MS),
+            withTiming(end + step, {
+              duration: SLOT_STEP_MS,
+              easing: Easing.bezier(0.2, 0.9, 0.3, 1),
+            }),
+          ),
+        )
+      }
+    }
+    if (frozen) {
+      // フリーズは終盤まで等速。普通に減速させると早々に止まりかけて間延びする
+      pos.value = withSequence(
+        withTiming(end * 0.84, { duration: dur * 0.72, easing: Easing.linear }),
+        withTiming(end + SLOT_OVERSHOOT, {
+          duration: dur * 0.22,
+          easing: Easing.bezier(0.25, 0.6, 0.2, 1),
+        }),
+        withTiming(end, {
+          duration: dur * 0.06,
+          easing: Easing.out(Easing.quad),
+        }),
+      )
+    } else {
+      pos.value = withSequence(
+        withTiming(end + SLOT_OVERSHOOT, {
+          duration: dur * 0.86,
+          easing: Easing.bezier(0.22, 0.62, 0.2, 1),
+        }),
+        withTiming(end, {
+          duration: dur * 0.14,
+          easing: Easing.out(Easing.quad),
+        }),
+        ...steps,
+      )
+    }
+    return () => cancelAnimation(pos)
+  }, [pos, reel, stop, frozen, stepped])
+
+  const stripStyle = useAnimatedStyle(() => {
+    const n = SLOT_SYMBOLS.length
+    const wrapped = ((pos.value % n) + n) % n
+    return { transform: [{ translateY: -wrapped * SLOT_CELL }] }
+  })
+
+  return (
+    <View style={[styles.reel, dim ? styles.dim : null]}>
+      <Animated.View style={stripStyle}>
+        {REEL_STRIP.map((symbol, i) => (
+          // eslint-disable-next-line react/no-array-index-key
+          <Animated.Text key={i} style={styles.reelCell}>
+            {symbol}
+          </Animated.Text>
+        ))}
+      </Animated.View>
+    </View>
+  )
+})
+
 /** 上乗せのカード。裏で出てきて、真ん中で裏返って表（当たり 7️⃣ / 外れ ✖）になる。 */
 const SlotCard = React.memo(function SlotCard({ won }) {
   const [open, setOpen] = useState(false)
@@ -539,11 +642,16 @@ function SlotMachine({ slot, top }) {
         ]}
       >
         <View style={styles.slotReels}>
-          {slot.cells.map((symbol, i) => (
-            // eslint-disable-next-line react/no-array-index-key
-            <Animated.Text key={i} style={[styles.slotCell, dim && styles.dim]}>
-              {symbol}
-            </Animated.Text>
+          {slot.reels.map((stop, i) => (
+            <SlotReel
+              // eslint-disable-next-line react/no-array-index-key
+              key={i}
+              reel={i}
+              stop={stop}
+              frozen={slot.frozen}
+              stepped={slot.near && i === slot.reels.length - 1}
+              dim={dim}
+            />
           ))}
         </View>
         {slot.label ? (
@@ -800,14 +908,12 @@ export default function ComboOverlay() {
     const frozen = outcome === 'freeze'
     // 上乗せの抽選も回し始めに済ませる（演出の尺を先に決めるため）
     const tiers = outcome === 'triple' ? rollSlotBonus() : 0
-    const extra = frozen ? SLOT_FREEZE_EXTRA_MS : 0
-    const stops = SLOT_STOP_MS.map((ms) => ms + extra)
-    const anySymbol = () =>
-      SLOT_SYMBOLS[Math.floor(Math.random() * SLOT_SYMBOLS.length)]
+    const near = outcome === 'near'
     setSlot({
       id: nextId,
-      cells: reels.map(anySymbol),
+      reels,
       frozen,
+      near,
       freezeTag: false,
       phase: 'spin',
       label: null,
@@ -816,33 +922,18 @@ export default function ComboOverlay() {
       cardsDone: false,
     })
     nextId += 1
-    const started = Date.now()
-    const tick = setInterval(() => {
-      const elapsed = Date.now() - started
-      setSlot(
-        (s) =>
-          s && {
-            ...s,
-            cells: reels.map((symbol, i) =>
-              elapsed >= stops[i] ? SLOT_SYMBOLS[symbol] : anySymbol(),
-            ),
-          },
-      )
-    }, SLOT_TICK_MS)
-    timers.current.add(tick)
     if (frozen) {
       later(() => {
         setSlot((s) => s && { ...s, freezeTag: true })
       }, SLOT_FREEZE_TAG_MS)
     }
 
-    const settled = stops[2] + SLOT_TICK_MS
-    later(() => {
-      clearInterval(tick)
-      timers.current.delete(tick)
-      setSlot((s) => s && { ...s, cells: reels.map((r) => SLOT_SYMBOLS[r]) })
-    }, settled)
-
+    // リールの動きは各リールが自分で持つ。ここでは止まりきる時刻だけを計算する
+    const settled = Math.max(
+      ...reels.map((_, r) =>
+        slotSettleMs(r, frozen, near && r === reels.length - 1),
+      ),
+    )
     const slotY = slotTop + 40
     const result = settled + SLOT_RESULT_MS
     later(() => {
@@ -1024,8 +1115,23 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   slotGlow: { shadowOpacity: 0.85 },
-  slotReels: { flexDirection: 'row', gap: 6 },
-  slotCell: { fontSize: 34, width: 46, textAlign: 'center' },
+  slotReels: { flexDirection: 'row', gap: 4 },
+  reel: {
+    width: SLOT_CELL,
+    height: SLOT_CELL,
+    overflow: 'hidden',
+    borderRadius: 5,
+    backgroundColor: '#f5ecd6',
+  },
+  reelCell: {
+    width: SLOT_CELL,
+    height: SLOT_CELL,
+    lineHeight: SLOT_CELL,
+    fontSize: 30,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    includeFontPadding: false,
+  },
   dim: { opacity: 0.45 },
   slotLabel: { marginTop: 2 },
   slotLabelText: {
