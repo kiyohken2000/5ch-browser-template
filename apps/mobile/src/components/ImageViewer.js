@@ -37,9 +37,14 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useSelector } from 'react-redux'
 import { scheduleOnRN } from 'react-native-worklets'
 
-import { PhotoPermissionError, saveImageToLibrary } from 'lib/saveImage'
+import {
+  PhotoPermissionError,
+  SAVE_FOLDER_ERROR,
+  saveImage,
+} from 'lib/saveImage'
 import useImageNg from 'lib/useImageNg'
 import Icon from './Icon'
 
@@ -225,6 +230,7 @@ export default function ImageViewer({
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(null)
   const messageTimer = useRef(null)
+  const saveFolder = useSelector((state) => state.settings.imageSaveFolder)
 
   const current = images[index] || images[0]
 
@@ -238,22 +244,24 @@ export default function ImageViewer({
     if (saving || !current) return
     setSaving(true)
     try {
-      await saveImageToLibrary(current.url)
-      showMessage('写真に保存しました')
+      await saveImage(current.url, { folderUri: saveFolder })
+      showMessage(saveFolder ? 'フォルダに保存しました' : '写真に保存しました')
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         (e) => console.warn(`[viewer] 触覚を返せない: ${e?.message || e}`),
       )
     } catch (e) {
       console.warn(`[viewer] 画像を保存できない: ${e?.message || e}`)
-      showMessage(
-        e instanceof PhotoPermissionError
-          ? '写真への保存を設定から許可してください'
-          : '保存できませんでした',
-      )
+      let text = '保存できませんでした'
+      if (e instanceof PhotoPermissionError) {
+        text = '写真への保存を設定から許可してください'
+      } else if (e?.name === SAVE_FOLDER_ERROR) {
+        text = '保存先のフォルダに書き込めません。設定で選び直してください'
+      }
+      showMessage(text)
     } finally {
       setSaving(false)
     }
-  }, [saving, current, showMessage])
+  }, [saving, current, showMessage, saveFolder])
 
   const renderItem = useCallback(
     ({ item }) => (

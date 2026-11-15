@@ -75,7 +75,12 @@ describe('saveAllImages', () => {
       onProgress: (done) => seen.push(done),
     })
     warn.mockRestore()
-    expect(got).toEqual({ saved: 2, failed: 1, permissionDenied: false })
+    expect(got).toEqual({
+      saved: 2,
+      failed: 1,
+      permissionDenied: false,
+      folderError: false,
+    })
     expect(seen).toEqual([1, 2, 3])
   })
 

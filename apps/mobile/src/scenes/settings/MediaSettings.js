@@ -6,14 +6,28 @@ import React from 'react'
 
 import {
   SettingChoices,
+  SettingLink,
   SettingsScreen,
   SettingToggle,
+  useSettingValues,
 } from 'components/SettingsRows'
 import SettingsSection from 'components/SettingsSection'
+import {
+  canPickSaveFolder,
+  pickSaveFolder,
+  saveFolderLabel,
+} from 'lib/saveImage'
 import { useEmberTheme } from 'theme/ember'
 
 export default function MediaSettings() {
   const theme = useEmberTheme()
+  const { settings, set } = useSettingValues()
+  const saveFolder = settings.imageSaveFolder
+
+  const chooseSaveFolder = async () => {
+    const uri = await pickSaveFolder()
+    if (uri) set('imageSaveFolder', uri)
+  }
 
   return (
     <SettingsScreen>
@@ -50,6 +64,22 @@ export default function MediaSettings() {
           hint="タップで読み込みます。リンクのカードも出しません"
         />
       </SettingsSection>
+
+      {canPickSaveFolder ? (
+        <SettingsSection title="画像の保存先" theme={theme}>
+          <SettingLink
+            label="保存先のフォルダ"
+            value={saveFolder ? saveFolderLabel(saveFolder) : '写真（標準）'}
+            onPress={chooseSaveFolder}
+          />
+          {saveFolder ? (
+            <SettingLink
+              label="写真（標準）に戻す"
+              onPress={() => set('imageSaveFolder', null)}
+            />
+          ) : null}
+        </SettingsSection>
+      ) : null}
 
       <SettingsSection title="リンク" theme={theme}>
         <SettingToggle

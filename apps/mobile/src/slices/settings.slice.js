@@ -26,6 +26,11 @@ export const DEFAULTS = {
   thumbSize: 96,
   /** これより大きい画像はタップで読み込む（KB）。0 は制限なし */
   imageMaxKb: 0,
+  /**
+   * 画像の保存先フォルダ（Android の SAF のツリー URI）。null は端末の写真に保存する。
+   * iOS は写真の保存先を選べないので使わない
+   */
+  imageSaveFolder: null,
   /** YouTube のサムネイル（§8-4） */
   youtubeThumbs: true,
   /** 外部リンクの OGP カード（§8-4） */
