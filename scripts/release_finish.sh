@@ -86,7 +86,9 @@ fi
 echo ""
 echo "[2/4] Generate latest.json"
 
-RELEASED_AT="$(date -u +%Y-%m-%dT%H:%M:%S+09:00)"
+# 日本時間で書く。以前は UTC の時刻に +09:00 を付けていて 9 時間早く出ていた。
+# Git Bash の date は TZ=Asia/Tokyo を解釈しないので、UTC に 9 時間足す。
+RELEASED_AT="$(date -u -d '+9 hours' +%Y-%m-%dT%H:%M:%S+09:00)"
 DOWNLOAD_URL="https://github.com/kiyohken2000/5ch-browser-template/releases/tag/${TAG}"
 
 python "$ROOT_DIR/scripts/prepare_release_metadata.py" \
