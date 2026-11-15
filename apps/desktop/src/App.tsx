@@ -9334,7 +9334,7 @@ export default function App() {
         return parts[parts.length - 1] || "";
       } catch { return ""; }
     };
-    invoke<[string, string, number][]>("load_all_cached_threads").then((list) => {
+    invoke<[string, string, number][]>("load_all_cached_threads").then(async (list) => {
       const currentBoard = extractBoardName(threadUrl);
       const activeUrls = new Set(fetchedThreads.map((t) => t.threadUrl));
       const target = allBoards
@@ -9354,6 +9354,26 @@ export default function App() {
         const board = allBoards ? extractBoardName(threadUrl) : "";
         return { threadUrl, title: board ? `[${board}] ${displayTitle}` : displayTitle, resCount: count };
       }));
+      // 既読の ● と既読数の表は「一覧での index + 1」がキーなので、この一覧の並びで作り直す
+      // (スレタイ検索と同じ)。板のスレ一覧の表を残したままだと、キャッシュ削除で行を
+      // 詰めたときに板の表のほうがずれ、板に戻ると開いていないスレに既読が付いていた。
+      let allReadStatus: Record<string, Record<string, number>> = {};
+      try {
+        allReadStatus = await invoke<Record<string, Record<string, number>>>("load_read_status");
+      } catch (e) {
+        console.warn("load_read_status failed for cache list", e);
+      }
+      const readMap: Record<number, boolean> = {};
+      const lastReadMap: Record<number, number> = {};
+      target.forEach(([url], i) => {
+        const id = i + 1;
+        const lastRead = allReadStatus[getBoardUrlFromThreadUrl(url)]?.[getThreadKeyFromThreadUrl(url)] ?? 0;
+        readMap[id] = lastRead > 0;
+        lastReadMap[id] = lastRead;
+      });
+      setThreadReadMap(readMap);
+      setThreadLastReadCount(lastReadMap);
+      setThreadReadMapToken(`cache\n${target.map(([url]) => url).join("\n")}`);
       setCacheListAllBoards(allBoards);
       setShowCachedOnly(true);
       setShowThreadSearchOnly(false);
@@ -9365,6 +9385,15 @@ export default function App() {
       console.warn("load_all_cached_threads failed", e);
       setStatus("保存ログの一覧取得に失敗しました");
     });
+  };
+
+  // 保存ログ一覧 (dat落ちキャッシュ) を閉じて板のスレ一覧に戻る。既読の表は一覧の
+  // 並びで作り直しているので、板の並びで読み直す (exitThreadSearch と同じ)。
+  // 別の板を開き直す経路はそちらの取得で表が作り直されるので、これを通さなくてよい。
+  const exitCacheList = () => {
+    setShowCachedOnly(false);
+    setCachedThreadList([]);
+    reloadFetchedThreadsReadStatus();
   };
 
   // 全板スレタイ検索。検索欄の語をそのまま ff5ch に投げ、結果をスレ一覧に表示する。
@@ -13509,7 +13538,7 @@ export default function App() {
             className={`title-action-btn title-split-main ${(showThreadSearchOnly || showCachedOnly || showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly) ? "active-toggle" : ""}`}
             onClick={() => {
               if (showThreadSearchOnly) { exitThreadSearch(); }
-              else if (showCachedOnly) { setShowCachedOnly(false); setCachedThreadList([]); }
+              else if (showCachedOnly) { exitCacheList(); }
               else if (showFavoritesOnly || showRecentOpenedOnly || showRecentPostedOnly) {
                 setShowFavoritesOnly(false); setShowRecentOpenedOnly(false); setShowRecentPostedOnly(false);
                 reloadFetchedThreadsReadStatus();
@@ -13529,12 +13558,12 @@ export default function App() {
             <div className="title-split-menu">
               <button onClick={() => {
                 setThreadFilterMenuOpen(false);
-                if (showCachedOnly && !cacheListAllBoards) { setShowCachedOnly(false); setCachedThreadList([]); return; }
+                if (showCachedOnly && !cacheListAllBoards) { exitCacheList(); return; }
                 openCacheList(false);
               }}>{showCachedOnly && !cacheListAllBoards ? "\u2713 " : ""}dat落ちキャッシュ</button>
               <button onClick={() => {
                 setThreadFilterMenuOpen(false);
-                if (showCachedOnly && cacheListAllBoards) { setShowCachedOnly(false); setCachedThreadList([]); return; }
+                if (showCachedOnly && cacheListAllBoards) { exitCacheList(); return; }
                 openCacheList(true);
               }}>{showCachedOnly && cacheListAllBoards ? "\u2713 " : ""}保存ログ一覧 (全板)</button>
               <button disabled={threadSearching} onClick={() => {
@@ -17883,7 +17912,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>215項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>216項目</span></div>
               </fieldset>
               </>)}
             </div>

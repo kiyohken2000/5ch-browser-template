@@ -7514,6 +7514,141 @@ try {
     console.log("smoke-ui: opening a thread from 最近開いたスレ keeps every row's 既読 and the selected row ok");
   }
 
+  // --- dat落ちキャッシュ: 削除してから板に戻っても、板のスレ一覧の既読がずれない ---
+  // 既読の ● と既読数の表は「今表示している一覧での index + 1」がキー。キャッシュ一覧を
+  // 開いても板の表を作り直さず、削除で行を詰める処理が板の表をずらしていたため、板に戻ると
+  // 開いたことのないスレに既読数が付いていた (報告)。開く前と戻った後で各行が同じことを見る。
+  {
+    const DC_BOARD = "https://mao.5ch.io/ngt/";
+    const DC_COUNT = 12;
+    const dcKey = (i) => String(3300000000 + i);
+    const dcUrl = (i) => "https://mao.5ch.io/test/read.cgi/ngt/" + dcKey(i) + "/";
+    const dcPage = await context.newPage();
+    await dcPage.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+      localStorage.setItem("desktop.threadSortPersistEnabled.v1", "false");
+      // 前の検査が残したフィルタ (最近開いたスレ) を持ち込まず、板のスレ一覧から始める
+      localStorage.removeItem("desktop.threadFilterMode.v1");
+      localStorage.removeItem("desktop.recentOpenedThreads.v1");
+      const rows = [];
+      const readStatus = {};
+      for (let i = 1; i <= arg.count; i += 1) {
+        const key = String(3300000000 + i);
+        rows.push({ threadKey: key, title: "D" + String(i).padStart(2, "0"), responseCount: 100 + i, threadUrl: "https://mao.5ch.io/test/read.cgi/ngt/" + key + "/" });
+        // 3 の倍数のスレだけ既読。削除でずれると隣の未読のスレに数字が移る
+        if (i % 3 === 0) readStatus[key] = i;
+      }
+      // dat落ち (板の一覧に無い) スレを 3 つ。うち 1 つは既読
+      const cached = [];
+      for (let j = 1; j <= 3; j += 1) {
+        const key = String(3299999900 + j);
+        cached.push(["https://mao.5ch.io/test/read.cgi/ngt/" + key + "/", "落ちたスレ" + j, 50 + j]);
+      }
+      readStatus["3299999902"] = 52;
+      window.__smokeDeleted = [];
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd, args) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "save_ui_json") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({ [arg.board]: readStatus });
+          if (cmd === "save_read_status") return Promise.resolve(null);
+          if (cmd === "fetch_thread_list") return Promise.resolve(rows);
+          if (cmd === "load_all_cached_threads") {
+            return Promise.resolve(cached.filter(([u]) => !window.__smokeDeleted.includes(u)));
+          }
+          if (cmd === "delete_thread_cache") {
+            window.__smokeDeleted.push(args && args.threadUrl);
+            return Promise.resolve(null);
+          }
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, {
+      prefs: JSON.stringify({ restoreSession: true, lastBoard: { boardName: "ngt", url: DC_BOARD } }),
+      board: DC_BOARD,
+      count: DC_COUNT,
+    });
+    await dcPage.goto(targetUrl, { waitUntil: "load" });
+    await dcPage.waitForFunction(
+      (want) => document.querySelectorAll(".pane.threads tbody tr").length === want,
+      DC_COUNT,
+      { timeout: 15000 },
+    );
+    const dcHeaderIndex = (label) => dcPage.$$eval(".pane.threads thead th", (els, want) => {
+      for (let i = 0; i < els.length; i += 1) {
+        if ((els[i].textContent || "").replace(/[\s▲▼]/g, "") === want) return i;
+      }
+      return -1;
+    }, label);
+    const dcIdx = { title: await dcHeaderIndex("タイトル"), read: await dcHeaderIndex("既読") };
+    assert(dcIdx.title >= 0 && dcIdx.read >= 0, `the thread list should show タイトル / 既読, got ${JSON.stringify(dcIdx)}`);
+    // 行ごとの [タイトル, 既読, 行全体の文字] (● の有無も行の文字に入る)
+    const dcRows = () => dcPage.$$eval(".pane.threads tbody tr", (trs, idx) => trs.map((tr) => {
+      const tds = tr.querySelectorAll("td");
+      const cell = (i) => (tds[i] ? (tds[i].textContent || "").trim() : "");
+      return { title: cell(idx.title), read: cell(idx.read), all: Array.from(tds).map((td) => (td.textContent || "").trim()).join("|") };
+    }), dcIdx);
+    const dcWaitRows = async (pred, label) => {
+      for (let i = 0; i < 80; i += 1) {
+        const rows = await dcRows();
+        if (pred(rows)) return rows;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      const rows = await dcRows();
+      assert(pred(rows), `${label}, got ${JSON.stringify(rows)}`);
+      return rows;
+    };
+    const boardBefore = await dcWaitRows(
+      (rows) => rows.length === DC_COUNT && rows.find((r) => r.title === "D03")?.read === "3",
+      "the board list should load its read counts",
+    );
+    for (const r of boardBefore) {
+      const n = Number(r.title.slice(1));
+      const want = n % 3 === 0 ? String(n) : null;
+      if (want) assert(r.read === want, `row ${r.title} should show 既読 ${want} before opening the cache list, got ${JSON.stringify(r)}`);
+      else assert(!/^\d+$/.test(r.read) || r.read === "0", `unread row ${r.title} should not show a read count, got ${JSON.stringify(r)}`);
+    }
+
+    const openDcCacheList = async () => {
+      await dcPage.click(".title-split-toggle");
+      const btn = dcPage.locator(".title-split-menu button", { hasText: "dat落ちキャッシュ" });
+      await btn.click();
+      await dcWaitRows((rows) => rows.length >= 1 && rows.every((r) => r.title.startsWith("落ちたスレ")), "the dat落ち cache list should show only the dropped threads");
+    };
+    await openDcCacheList();
+    const cacheRows = await dcRows();
+    assert(cacheRows.length === 3, `the dat落ち cache list should show 3 threads, got ${JSON.stringify(cacheRows)}`);
+
+    // 先頭の行をキャッシュから削除する
+    const firstCacheRow = dcPage.locator(".pane.threads tbody tr").first();
+    await firstCacheRow.click({ button: "right" });
+    await dcPage.locator("button", { hasText: "キャッシュから削除" }).first().click();
+    await dcWaitRows((rows) => rows.length === 2 && !rows.some((r) => r.title === "落ちたスレ1"), "deleting should remove the row from the cache list");
+
+    // 板に戻る (フィルタボタンで解除)
+    await dcPage.click(".title-split-main");
+    const boardAfter = await dcWaitRows((rows) => rows.length === DC_COUNT && rows.every((r) => r.title.startsWith("D")), "closing the cache list should bring back the board list");
+    // 読み直しは非同期なので、開く前と同じになるまで待ってから比べる
+    const same = (rows) => rows.length === boardBefore.length && rows.every((r, i) => r.title === boardBefore[i].title && r.read === boardBefore[i].read && r.all === boardBefore[i].all);
+    let settled = boardAfter;
+    for (let i = 0; i < 30 && !same(settled); i += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+      settled = await dcRows();
+    }
+    for (let i = 0; i < boardBefore.length; i += 1) {
+      assert(
+        settled[i] && settled[i].title === boardBefore[i].title && settled[i].read === boardBefore[i].read && settled[i].all === boardBefore[i].all,
+        `after deleting a dat落ち cache and returning, row ${boardBefore[i].title} should look the same as before (${JSON.stringify(boardBefore[i])}), got ${JSON.stringify(settled[i])}`,
+      );
+    }
+
+    await dcPage.close();
+    console.log("smoke-ui: deleting a dat落ち cache and returning to the board keeps every row's 既読 ok");
+  }
+
   // kenmo.org / 00c.org (5ch 互換の別サイト) の板一覧を EXおろちつねると同じ扱いで
   // 出せること。既定は非表示なので、起動時の取得で kenmo が要求されないこと、
   // 板メニューのトグルでカテゴリが出入りすること、設定が残ることを見る。
