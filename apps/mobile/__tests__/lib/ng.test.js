@@ -30,8 +30,8 @@ describe('ngMatch — デスクトップ版と同じ規則', () => {
   })
 
   it('正規表現の ^ と $ は行ごとに効く', () => {
-    expect(ngMatch('/^二行目$/', '一行目' + String.fromCharCode(10) + '二行目')).toBe(true)
-    expect(ngMatch('/^二行目$/', '一行目' + String.fromCharCode(10) + '二行目です')).toBe(false)
+    expect(ngMatch('/^二行目$/', `一行目\n二行目`)).toBe(true)
+    expect(ngMatch('/^二行目$/', `一行目\n二行目です`)).toBe(false)
   })
 
   it('正規表現が壊れていても落ちない', () => {
