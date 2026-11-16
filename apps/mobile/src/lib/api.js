@@ -1,6 +1,6 @@
 /**
- * 5ch の取得経路。すべて専ブラ向けに用意されたものだけを使う（§11-2）。
- * HTML のスクレイピングはしない。
+ * 5ch の取得経路。専ブラ向けに用意されたものを使う（§11-2）。
+ * HTML を読むのは、dat落ちして dat が取れないスレの過去ログだけ。
  *
  * | 用途 | 経路 |
  * |---|---|
@@ -8,11 +8,14 @@
  * | スレ一覧 | `<board>/subject.txt` |
  * | スレ本文 | `<board>/dat/<key>.dat` |
  * | 投稿 | `test/bbs.cgi`（M2） |
+ * | 過去ログ | `test/read.cgi` の HTML（dat が 404 のときだけ。`readCgi.js`） |
  */
 
 import { concatBytes, endsWithTruncatedChar } from './bytes'
 import { getBytes, getJson, HttpError } from './http'
 import { parseDatBytes, parseSubjectBytes } from './parse'
+import { parseReadCgiHtml, readCgiToDat } from './readCgi'
+import { decodeSjis, decodeUtf8, encodeSjis } from './sjis'
 import { enabledCompatSites } from './sites'
 import { parseBoardLocation } from './urls'
 
@@ -187,10 +190,31 @@ export async function findThreadBySubject(boardUrl, subject, options = {}) {
  *
  * @returns {{location, entries, title, byteLength, raw}}
  */
+/**
+ * スレ本文を丸ごと取る。
+ *
+ * `archive: true` なら、dat が 404（dat落ち）のとき read.cgi の HTML から過去ログを読む。
+ * HTML は dat より重いので、スレを開いたときだけに使う（通知の巡回などでは使わない）。
+ * 過去ログから読めたときは `archived: true` を返す。読めなければ dat の 404 をそのまま投げる。
+ *
+ * @param {string} threadUrl
+ * @param {{archive?: boolean}} [options] ほかは `getBytes` に渡す
+ */
 export async function fetchDat(threadUrl, options = {}) {
+  const { archive = false, ...rest } = options
   const location = parseBoardLocation(threadUrl)
   if (!location.threadKey) throw new Error(`スレ URL ではない: ${threadUrl}`)
-  const { bytes, headers } = await read5chBytes(location.datUrl(), options)
+  let got
+  try {
+    got = await read5chBytes(location.datUrl(), rest)
+  } catch (e) {
+    if (archive && e instanceof HttpError && e.status === 404) {
+      const old = await fetchArchive(location, rest)
+      if (old) return old
+    }
+    throw e
+  }
+  const { bytes, headers } = got
   const { entries, title } = parseDatBytes(bytes, 1)
   return {
     location,
@@ -199,6 +223,39 @@ export async function fetchDat(threadUrl, options = {}) {
     byteLength: bytes.length,
     raw: bytes,
     lastModified: readLastModified(headers),
+  }
+}
+
+/**
+ * 過去ログを read.cgi の HTML から読み、dat の形に直して返す。読めなければ null。
+ * 戻り値の `raw` は dat の形なので、そのままキャッシュに入れられる。
+ */
+async function fetchArchive(location, options) {
+  let html
+  try {
+    const { bytes, headers } = await read5chBytes(location.threadUrl(), options)
+    const type = headers?.get?.('content-type') || ''
+    html = /utf-?8/i.test(type) ? decodeUtf8(bytes) : decodeSjis(bytes)
+  } catch (e) {
+    console.warn(`[api] 過去ログを取得できない: ${e?.message || e}`)
+    return null
+  }
+  const dat = readCgiToDat(parseReadCgiHtml(html))
+  if (!dat) {
+    console.warn('[api] 過去ログの HTML からレスを取り出せない')
+    return null
+  }
+  const raw = encodeSjis(dat)
+  const { entries, title } = parseDatBytes(raw, 1)
+  if (entries.length === 0) return null
+  return {
+    location,
+    entries,
+    title,
+    byteLength: raw.length,
+    raw,
+    lastModified: null,
+    archived: true,
   }
 }
 

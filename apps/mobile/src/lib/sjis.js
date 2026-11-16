@@ -38,6 +38,19 @@ export function decodeSjis(bytes) {
 }
 
 /**
+ * UTF-8 のバイト列を文字列にする。Hermes の TextDecoder に頼らないためのもの
+ * （過去ログの HTML を UTF-8 で返す互換サイト向け）。
+ *
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+export function decodeUtf8(bytes) {
+  if (!bytes || bytes.length === 0) return ''
+  const unicode = Encoding.convert(bytes, { to: 'UNICODE', from: 'UTF8' })
+  return Encoding.codeToString(unicode)
+}
+
+/**
  * 文字列を Shift_JIS のバイト列にする。投稿（§11-5）で使う。
  *
  * @param {string} text

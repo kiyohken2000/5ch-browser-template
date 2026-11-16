@@ -186,6 +186,14 @@ function extractItemColor(theme, selected, count) {
   return count === 0 ? theme.textFaint : theme.text
 }
 
+/** dat落ちの帯の文言。 */
+function datBarMessage(hasEntries, fromArchive) {
+  if (!hasEntries) return 'dat 落ちしたスレです。過去ログも読めませんでした。'
+  if (fromArchive)
+    return 'dat 落ちしたスレです。過去ログを表示しています。書き込みはできません。'
+  return 'dat 落ちしました。保存した本文を表示しています。書き込みはできません。'
+}
+
 /** dat が無くなった応答か。一時的な失敗と分けて、再試行を勧めない。 */
 function isDatDropped(e) {
   return e instanceof HttpError && e.status === 404
@@ -333,6 +341,8 @@ export default function Thread({ route, navigation }) {
   const noBeforeFilter = useRef(null)
   /** dat が 404 を返した。保存した本文があれば見せ続ける */
   const [datDropped, setDatDrop] = useState(false)
+  /** dat落ちしたスレを過去ログ（read.cgi の HTML）から読んだ */
+  const [fromArchive, setFromArchive] = useState(false)
   const extractRef = useRef(null)
 
   const threadId = useMemo(() => {
@@ -428,7 +438,8 @@ export default function Thread({ route, navigation }) {
   const readFull = useCallback(async () => {
     setError(null)
     try {
-      const got = await fetchDat(threadUrl)
+      // dat落ちしていたら過去ログから読む（一度も開いていないスレでも読める）
+      const got = await fetchDat(threadUrl, { archive: true })
       stateRef.current = {
         byteLength: got.byteLength,
         entryCount: got.entries.length,
@@ -452,7 +463,8 @@ export default function Thread({ route, navigation }) {
         }),
       )
       dispatch(markSeen({ threadId, totalCount: got.entries.length }))
-      noteDatDropped(false)
+      setFromArchive(!!got.archived)
+      noteDatDropped(!!got.archived)
     } catch (e) {
       console.warn(`[thread] スレの取得に失敗: ${e?.message || e}`)
       if (isDatDropped(e)) {
@@ -2099,9 +2111,7 @@ export default function Thread({ route, navigation }) {
       {datDropped ? (
         <View style={[styles.datBar, { backgroundColor: theme.accentDim }]}>
           <Text style={{ color: theme.text, fontSize: 13 }}>
-            {entries.length > 0
-              ? 'dat 落ちしました。保存した本文を表示しています。書き込みはできません。'
-              : 'dat 落ちしたスレです。保存した本文がありません。'}
+            {datBarMessage(entries.length > 0, fromArchive)}
           </Text>
           {entries.length === 0 ? (
             // 過去ログは Web 版で読めることがある

@@ -1386,9 +1386,9 @@ Monazilla/1.00 Ember/<version>
 | スレ一覧 | `subject.txt` |
 | スレ本文 | `/dat/<id>.dat` |
 | 投稿 | `test/bbs.cgi` |
-| HTML の読み取りページ | `/test/read.cgi`（URL の扱いと Referer 用） |
+| HTML の読み取りページ | `/test/read.cgi`（URL の扱いと Referer 用。dat落ちしたスレの過去ログもここから読む） |
 
-**いずれも 5ch が専ブラ向けに用意している経路。** HTML のスクレイピングはしない（デスクトップ版で HTML をパースしているのは `parse_ogp()` の 1 箇所だけで、これは外部リンクの OGP カード生成用）。
+**dat・subject.txt・bbs.cgi は 5ch が専ブラ向けに用意している経路。** HTML を読むのは、dat が 404 になったスレ（dat落ち）を開いたときだけ。read.cgi の HTML を dat の形に直して（`apps/mobile/src/lib/readCgi.js`）、表示とキャッシュは dat と同じ道を通す。デスクトップ版も同じく `core-fetch` の `fetch_thread_responses_with` で read.cgi の HTML に落ちている。HTML は dat より重いので、通知の巡回のような一括取得では使わない。
 
 ### 11-3. 文字コード
 
@@ -1685,9 +1685,9 @@ NG 判定。方式は M0 のベンチで決定済みであること。モデル�
 | | BakuSoku / スキキラ | Ember |
 |---|---|---|
 | クライアントの識別 | 通常のブラウザ UA | **`Monazilla/1.00 Ember/<ver>`** |
-| コンテンツ取得 | **HTML のスクレイピング** | **5ch が専ブラ向けに提供する機械可読エンドポイント**（`subject.txt` / `/dat/*.dat` / `bbsmenu.json`） |
+| コンテンツ取得 | **HTML のスクレイピング** | **5ch が専ブラ向けに提供する機械可読エンドポイント**（`subject.txt` / `/dat/*.dat` / `bbsmenu.json`）。dat落ちしたスレを開いたときだけ read.cgi の HTML（デスクトップ版と同じ） |
 | 投稿 | HTML フォームの模倣 | `test/bbs.cgi`（公式の投稿経路） |
-| HTML パース | 取得処理の本体 | `parse_ogp()` の 1 箇所のみ（外部リンクの OGP） |
+| HTML パース | 取得処理の本体 | 外部リンクの OGP と、dat落ちしたスレの過去ログ（dat が 404 のときだけ） |
 | 運営の収益機構 | 関与しない | **BE / どんぐり / UPLIFT に対応** |
 | クライアント生態系 | 存在しない | **約 25 年の専ブラ文化** |
 

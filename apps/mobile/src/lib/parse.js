@@ -2,8 +2,8 @@
  * dat / subject.txt のパーサ。
  *
  * デスクトップ版 `crates/core-parse/src/lib.rs`（184 行・外部依存なし）の移植。
- * `read.cgi` の HTML パーサは**移植しない** — モバイルは dat 経路だけを使う
- * （§11-2。HTML のスクレイピングはしない）。
+ * `read.cgi` の HTML（過去ログ）は `readCgi.js` が dat の形に直してから
+ * ここへ渡す。
  *
  * **入口がバイト列であることが本体との違い。** Rust 版は呼ぶ側が
  * `encoding_rs` でデコードしてから `&str` を渡すが、こちらは

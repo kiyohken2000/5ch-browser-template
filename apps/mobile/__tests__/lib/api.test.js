@@ -119,6 +119,53 @@ describe('dat の取得', () => {
   })
 })
 
+describe('dat落ちしたスレ（過去ログ）', () => {
+  const realFetch = global.fetch
+  afterEach(() => {
+    global.fetch = realFetch
+  })
+
+  const ARCHIVE_HTML = encodeSjis(
+    '<title>過去スレ</title><div class="clear post"><span class="postid">1</span>' +
+      '<span class="postusername"><b>名無し</b></span><span style="width:100%;">' +
+      '<span class="date">2024/03/01(金) 09:21:35.07</span><span class="uid">ID:abc</span></span></div>' +
+      '<div class="post-content"> 本文 </div></div>',
+  )
+
+  it('archive なら dat の 404 で read.cgi の HTML から読む', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(respond(404))
+      .mockResolvedValueOnce(respond(200, ARCHIVE_HTML))
+    const got = await fetchDat(URL, { archive: true })
+    expect(global.fetch.mock.calls[1][0]).toBe(URL)
+    expect(got.archived).toBe(true)
+    expect(got.title).toBe('過去スレ')
+    expect(got.entries).toHaveLength(1)
+    expect(got.entries[0]).toMatchObject({ no: 1, body: '本文', id: 'abc' })
+    expect(got.lastModified).toBeNull()
+    expect(got.byteLength).toBe(got.raw.length)
+  })
+
+  it('archive でなければ HTML を取りに行かない', async () => {
+    global.fetch = jest.fn(async () => respond(404))
+    await expect(fetchDat(URL)).rejects.toMatchObject({ status: 404 })
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('HTML も読めなければ dat の 404 を返す', async () => {
+    jest.spyOn(console, 'warn').mockImplementation(() => {})
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(respond(404))
+      .mockResolvedValueOnce(respond(200, encodeSjis('<html>なし</html>')))
+    await expect(fetchDat(URL, { archive: true })).rejects.toMatchObject({
+      status: 404,
+    })
+    console.warn.mockRestore()
+  })
+})
+
 describe('接続を拒否されたとき', () => {
   const BOARD = 'https://mao.5ch.io/ngt/'
   const reads = [
