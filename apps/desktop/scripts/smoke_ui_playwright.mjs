@@ -5888,6 +5888,82 @@ try {
     console.log("smoke-ui: the new-response separator survives an NG-hidden first new response ok");
   }
 
+  // NG の正規表現で ^ $ \n > が効かないという報告の回帰用。本文は dat のまま
+  // (行頭と行末の空白、<br> 由来の改行、<a> タグ、&gt;) なので、正規表現は表示どおりの
+  // プレーンテキストに、行ごとの ^ $ (m フラグ) で当てる。名前も </b> などのタグを外す。
+  {
+    const BOARD = "https://mao.5ch.io/ngt/";
+    const THREAD = "https://mao.5ch.io/test/read.cgi/ngt/7777777777/";
+    const p = await context.newPage();
+    await p.addInitScript((arg) => {
+      localStorage.setItem("desktop.uiJsonMigrated.v1", "1");
+      localStorage.setItem("desktop.layoutPrefs.v1", arg.prefs);
+      localStorage.setItem("desktop.boardCategories.v1", arg.boards);
+      localStorage.setItem("desktop.expandedCategories.v1", JSON.stringify(["テスト"]));
+      localStorage.removeItem("desktop.threadFilterMode.v1");
+      const row = (no, body, name = "名無し") => ({
+        responseNo: no, name, mail: "", dateAndId: "2026/11/16(月) 00:00:00.00 ID:Rx" + no, body,
+      });
+      const rows = [
+        row(1, " スレ立て "),
+        row(2, " え "),
+        row(3, " 一行目 \n 二行目 "),
+        row(4, ' <a href="../test/read.cgi/ngt/7777777777/1" rel="noopener noreferrer" target="_blank">&gt;&gt;1</a> \n 返信です '),
+        row(5, " えーと "),
+        row(6, " 普通のレス ", "名無し </b>◆Trip <b>"),
+      ];
+      window.__TAURI_INTERNALS__ = {
+        transformCallback: (cb) => cb,
+        invoke: (cmd) => {
+          if (cmd === "load_layout_prefs") return Promise.resolve(localStorage.getItem("desktop.layoutPrefs.v1") || "");
+          if (cmd === "save_layout_prefs") return Promise.resolve(null);
+          if (cmd === "load_thread_cache") return Promise.resolve(null);
+          if (cmd === "save_thread_cache") return Promise.resolve(null);
+          if (cmd === "load_read_status") return Promise.resolve({});
+          if (cmd === "save_read_status") return Promise.resolve(null);
+          if (cmd === "load_ui_json") return Promise.resolve("");
+          if (cmd === "save_ui_json") return Promise.resolve(null);
+          if (cmd === "load_ng_filters") {
+            return Promise.resolve({
+              words: [
+                { value: "/^え$/", mode: "hide" },
+                { value: "/一行目\n二行目/", mode: "hide" },
+                { value: "/^>>1$/", mode: "hide" },
+              ],
+              ids: [],
+              names: [{ value: "/^名無し ◆Trip$/", mode: "hide" }],
+              thread_words: [],
+            });
+          }
+          if (cmd === "save_ng_filters") return Promise.resolve(null);
+          if (cmd === "fetch_thread_list") {
+            return Promise.resolve([
+              { threadKey: "7777777777", title: "NG正規表現検査スレ", responseCount: 6, threadUrl: arg.thread },
+            ]);
+          }
+          if (cmd === "fetch_thread_responses_command") return Promise.resolve({ responses: rows, title: null });
+          return Promise.reject(new Error("smoke stub: " + cmd));
+        },
+      };
+    }, {
+      prefs: JSON.stringify({ restoreSession: true, lastBoard: { boardName: "ngt", url: BOARD } }),
+      boards: JSON.stringify([{ categoryName: "テスト", boards: [{ boardName: "ngt", url: BOARD }] }]),
+      thread: THREAD,
+    });
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector(".pane.threads tbody tr");
+    await (await p.$$(".pane.threads tbody tr"))[0].click();
+    await p.waitForSelector('.response-scroll .response-block[data-response-no="5"]');
+    await new Promise((r) => setTimeout(r, 400));
+    const shown = await p.$$eval(".response-scroll .response-block[data-response-no]", (els) => els.map((el) => Number(el.dataset.responseNo)));
+    assert(
+      JSON.stringify(shown) === JSON.stringify([1, 5]),
+      `NG regex should match the displayed text line by line (^ $ \n >>) and the tag-free name, shown ${JSON.stringify(shown)}`,
+    );
+    await p.close();
+    console.log("smoke-ui: NG regex matches the displayed text line by line ok");
+  }
+
   // レスナビバー右端の「>>」(レス番号を入れて Enter) の回帰用。たびたび壊れる経路なので
   // 「選択が変わった」ではなく「対象レスが実際に画面の先頭へ来た」ところまで毎回見る。
   //  - scrollToResponseNo は 50ms〜2 秒かけて再アンカーし続け、実入力 (wheel / touchmove /

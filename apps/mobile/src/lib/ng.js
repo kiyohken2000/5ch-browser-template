@@ -45,7 +45,8 @@ export function ngMatch(pattern, target, match = 'partial') {
   if (!pattern || target === undefined || target === null) return false
   if (pattern.startsWith('/') && pattern.endsWith('/') && pattern.length > 2) {
     try {
-      return new RegExp(pattern.slice(1, -1), 'i').test(target)
+      // m: ^ と $ を各行の先頭と末尾に一致させる（デスクトップ版と同じ）
+      return new RegExp(pattern.slice(1, -1), 'im').test(target)
     } catch (e) {
       // 不正な正規表現はユーザーの打ち間違い。落とさず「一致しない」とする
       return false

@@ -1347,6 +1347,9 @@ const escapeHtml = (s: string) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+// NG の値が /.../ で囲まれた正規表現か
+const isNgRegex = (pattern: string): boolean =>
+  pattern.startsWith("/") && pattern.endsWith("/") && pattern.length > 2;
 const responseHtmlToPlainText = (html: string): string => {
   return decodeHtmlEntities(
     html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")
@@ -5208,9 +5211,10 @@ export default function App() {
   };
 
   const ngMatch = (pattern: string, target: string, match: "partial" | "exact" = "partial"): boolean => {
-    if (pattern.startsWith("/") && pattern.endsWith("/") && pattern.length > 2) {
+    if (isNgRegex(pattern)) {
       try {
-        return new RegExp(pattern.slice(1, -1), "i").test(target);
+        // m: ^ と $ を各行の先頭と末尾に一致させる
+        return new RegExp(pattern.slice(1, -1), "im").test(target);
       } catch {
         return false;
       }
@@ -5237,8 +5241,9 @@ export default function App() {
       if (ngEntryDisabled(w)) continue;
       if (isNo1 && ngEntryExcludeNo1(w)) continue;
       const wMatch = ngEntryMatch(w);
-      // exact-mode 本文NGはプレーンテキスト同士で比較 (resp.text は HTML のため)
-      const wTarget = wMatch === "exact"
+      // 完全一致と正規表現は表示どおりのプレーンテキストに当てる (resp.text は dat の HTML で、
+      // 行頭と行末の空白・&gt;・<a> タグが残っており ^ $ \n > などが効かないため)
+      const wTarget = wMatch === "exact" || isNgRegex(ngVal(w))
         ? (plainBody ??= responseHtmlToPlainText(resp.text))
         : resp.text;
       if (ngMatch(ngVal(w), wTarget, wMatch)) {
@@ -5253,7 +5258,8 @@ export default function App() {
     for (const n of ngFilters.names) {
       if (ngEntryDisabled(n)) continue;
       if (isNo1 && ngEntryExcludeNo1(n)) continue;
-      if (ngMatch(ngVal(n), resp.name)) {
+      const nVal = ngVal(n);
+      if (ngMatch(nVal, isNgRegex(nVal) ? responseHtmlToPlainText(resp.name) : resp.name)) {
         const m = ngEntryMode(n);
         if (m === "hide") return { mode: "hide", chainMode };
         result = strongerNgMode(result, m);
@@ -17912,7 +17918,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>216項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>217項目</span></div>
               </fieldset>
               </>)}
             </div>
