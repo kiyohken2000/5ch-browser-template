@@ -20,7 +20,7 @@ import shotXCard from "./assets/images/mobile/xcard.jpg";
 const GITHUB_URL = "https://github.com/kiyohken2000/5ch-browser-template";
 const SUPPORT_EMAIL = "retwpay@gmail.com";
 /** 法的文書の最終更新日。文面を変えたらここも変える */
-const LEGAL_UPDATED = "2026年11月8日";
+const LEGAL_UPDATED = "2026年11月16日";
 /** 公開されたら入れる。空のあいだはバッジに「準備中」と出す */
 const APP_STORE_URL = "https://apps.apple.com/jp/app/id6831091040";
 const GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=net.votepurchase.ember";
@@ -359,6 +359,7 @@ function PrivacyPage() {
         <li>スレッドと画像のキャッシュ</li>
         <li>書き込み履歴、名前とメール欄の履歴、画像のアップロード履歴</li>
         <li>NG、画像 NG、強調表示、アプリの設定</li>
+        <li>通知の設定と、届いた通知の履歴</li>
         <li>AI のモデルと、曖昧 NG のルール</li>
         <li>BE / UPLIFT のログイン情報（OS の安全な保管領域に保存）</li>
       </ul>
@@ -406,8 +407,9 @@ function PrivacyPage() {
       <ul>
         <li><strong>写真</strong>: 画像の保存と、投稿する画像の選択に使います。</li>
         <li><strong>カメラ</strong>: 投稿する写真の撮影に使います。</li>
+        <li><strong>通知</strong>: 自分宛てのレス、監視中のスレの新着、スレ立てをお知らせするのに使います。通知のための巡回は、アプリが端末の中で行います。</li>
       </ul>
-      <p>いずれも操作したときにだけ使い、拒否してもそれ以外の機能は使えます。</p>
+      <p>写真とカメラは操作したときにだけ使います。どの権限も拒否でき、拒否してもそれ以外の機能は使えます。</p>
 
       <h2>データの削除</h2>
       <p>
