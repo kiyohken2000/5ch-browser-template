@@ -8,6 +8,9 @@ import shotBoard from "./assets/images/mobile/board.jpg";
 import shotCombo from "./assets/images/mobile/combo.jpg";
 import shotFonts from "./assets/images/mobile/fonts.jpg";
 import shotMenu from "./assets/images/mobile/menu.jpg";
+import shotNotifyHistory from "./assets/images/mobile/notify-history.jpg";
+import shotNotifyLock from "./assets/images/mobile/notify-lock.jpg";
+import shotNotifySettings from "./assets/images/mobile/notify-settings.jpg";
 import shotPopup from "./assets/images/mobile/popup.jpg";
 import shotSummary from "./assets/images/mobile/summary.jpg";
 import shotThread from "./assets/images/mobile/thread.jpg";
@@ -195,6 +198,21 @@ const FEATURES: Feature[] = [
       "画像のアップロードに対応。位置情報は取り除いて送ります（GIF を除く）",
     ],
     shots: [{ src: shotXCard, alt: "X のポストのカードと動画を表示した画面" }],
+  },
+  {
+    kicker: "Notify",
+    title: "見逃さない、通知",
+    body: "自分宛てのレス、監視中のスレの新着、気になるスレ立てを通知でお知らせします。巡回はアプリが端末の中で行い、届いた通知は「通知」タブでまとめて見返せます。",
+    points: [
+      "書き込んでから 7 日以内のスレへの返信をお知らせ",
+      "監視中のスレは、新着が何件からで通知するかを選べます",
+      "板とワードを登録すると、条件に合うスレが立ったときにお知らせ",
+    ],
+    shots: [
+      { src: shotNotifyLock, alt: "ロック画面に届いた通知" },
+      { src: shotNotifyHistory, alt: "通知の履歴の画面" },
+      { src: shotNotifySettings, alt: "通知の設定画面" },
+    ],
   },
   {
     kicker: "On-device AI",
