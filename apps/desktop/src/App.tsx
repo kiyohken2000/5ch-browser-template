@@ -662,8 +662,8 @@ const DEFAULT_GESTURE_BINDINGS: Record<string, GestureActionId> = {
 };
 // ON/OFF を切り替えられるショートカット。修飾キー無しで発火して通常操作 (単語選択のダブルクリックなど)
 // と衝突しうるものだけを対象にする。Ctrl 系は誤爆しにくいので固定。
-type ToggleableShortcutId = "dblclick-quote" | "key-r-quote" | "key-a-autoscroll" | "key-arrow-refs";
-const TOGGLEABLE_SHORTCUT_IDS: ToggleableShortcutId[] = ["dblclick-quote", "key-r-quote", "key-a-autoscroll", "key-arrow-refs"];
+type ToggleableShortcutId = "dblclick-quote" | "key-r-quote" | "key-a-autoscroll" | "key-arrow-refs" | "key-delete-back";
+const TOGGLEABLE_SHORTCUT_IDS: ToggleableShortcutId[] = ["dblclick-quote", "key-r-quote", "key-a-autoscroll", "key-arrow-refs", "key-delete-back"];
 // レス行のダブルクリックに割り当てる動作。既定は従来どおり引用して書き込み。
 type DblClickAction = "quote" | "read-marker";
 const DBL_CLICK_ACTIONS: DblClickAction[] = ["quote", "read-marker"];
@@ -10004,6 +10004,17 @@ export default function App() {
     return () => window.removeEventListener("keydown", suppressWebViewSearch, true);
   }, []);
 
+  // 戻る (マウスの第4ボタン / Delete キー) で、自動開閉が畳んだスレ一覧を出し直す。
+  const restoreThreadPaneFromBack = () => {
+    setThreadPaneHidden(false);
+    // スレを開く操作の裏返しなので、スレッド窓も畳む。出したままだと板一覧と
+    // 合わせて3ペインになり、スレ一覧もスレッド窓も狭くて読めない。
+    // スレを開き直せば (openThreadInTab で) スレッド窓は戻る。
+    setResponsePaneHidden(true);
+    setFocusedPane("threads");
+    threadListScrollRef.current?.focus({ preventScroll: true });
+  };
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -10182,11 +10193,20 @@ export default function App() {
         if (isShortcutDisabled("key-a-autoscroll")) return;
         e.preventDefault();
         setAutoScrollEnabled((v) => !v);
+        return;
+      }
+      // 戻るボタンの無いマウス向けに、Delete キーでも同じようにスレ一覧へ戻す。
+      // 設定は戻るボタンと共用。入力欄の中では上の isTypingTarget で素通しになる。
+      if (e.key === "Delete" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        if (!threadPaneAutoToggle || !threadPaneBackRestore) return;
+        if (isShortcutDisabled("key-delete-back")) return;
+        e.preventDefault();
+        restoreThreadPaneFromBack();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedThread, selectedResponse, visibleThreadItems, responseItems, activeTabIndex, threadTabs, responseReloadMenuOpen, threadFilterMenuOpen, focusedPane, tabList, responseNavBarForced]);
+  }, [selectedThread, selectedResponse, visibleThreadItems, responseItems, activeTabIndex, threadTabs, responseReloadMenuOpen, threadFilterMenuOpen, focusedPane, tabList, responseNavBarForced, threadPaneAutoToggle, threadPaneBackRestore]);
 
   useEffect(() => {
     // レイアウトを切り替えると行の位置も列幅も変わるので、出しっぱなしのポップアップは畳む
@@ -11421,13 +11441,7 @@ export default function App() {
       // 既定の「戻る」を止める。履歴は1件なので実際には何も起きないが、
       // WebView 側の実装に任せない。
       e.preventDefault();
-      setThreadPaneHidden(false);
-      // スレを開く操作の裏返しなので、スレッド窓も畳む。出したままだと板一覧と
-      // 合わせて3ペインになり、スレ一覧もスレッド窓も狭くて読めない。
-      // スレを開き直せば (openThreadInTab で) スレッド窓は戻る。
-      setResponsePaneHidden(true);
-      setFocusedPane("threads");
-      threadListScrollRef.current?.focus({ preventScroll: true });
+      restoreThreadPaneFromBack();
     };
     window.addEventListener("mouseup", onMouseUp);
     return () => window.removeEventListener("mouseup", onMouseUp);
@@ -17159,6 +17173,7 @@ export default function App() {
                 ["R", "選択レスを引用して書き込み", "key-r-quote"],
                 ["A", "オートスクロールのオン/オフ", "key-a-autoscroll"],
                 ["←/→", "← 選択レスが参照しているレス / → 選択レスを参照しているレス をポップアップ", "key-arrow-refs"],
+                ["Delete", "スレ一覧に戻る (設定「マウスの戻るボタン / Delete キーでスレ一覧に戻る」が有効なとき)", "key-delete-back"],
                 ["Escape", "ポップアップ/ライトボックス/ダイアログを閉じる"],
                 ["ダブルクリック (レス行)", "引用して書き込み", "dblclick-quote"],
               ] as [string, string, ToggleableShortcutId?][]).map(([key, desc, toggleId]) => (
@@ -17446,7 +17461,7 @@ export default function App() {
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={threadPaneBackRestore} disabled={!threadPaneAutoToggle} onChange={(e) => setThreadPaneBackRestore(e.target.checked)} />
-                  <span title="自動開閉で隠れたスレ一覧を、マウスの戻るボタンで出し直します。スレッド窓は畳みます">マウスの戻るボタンでスレ一覧に戻る</span>
+                  <span title="自動開閉で隠れたスレ一覧を、マウスの戻るボタンか Delete キーで出し直します。スレッド窓は畳みます">マウスの戻るボタン / Delete キーでスレ一覧に戻る</span>
                   <span className="settings-hint">自動開閉が有効なときだけ</span>
                 </label>
                 <label className="settings-row">
@@ -17918,7 +17933,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>217項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>218項目</span></div>
               </fieldset>
               </>)}
             </div>

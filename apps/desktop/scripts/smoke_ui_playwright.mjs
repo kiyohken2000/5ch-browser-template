@@ -1451,9 +1451,11 @@ try {
   assert(shortcutsPanel, "shortcuts panel should be visible");
   const kbds = await page.$$eval(".shortcut-row kbd", (els) => els.length);
   assert(kbds >= 10, `shortcuts should list at least 10 keys, got ${kbds}`);
-  // 誤爆しやすいショートカット (ダブルクリック引用 / R / A / ←→) だけチェックボックスで ON/OFF できる
+  // 誤爆しやすいショートカット (ダブルクリック引用 / R / A / ←→ / Delete) だけチェックボックスで ON/OFF できる
   const toggles = await page.$$eval(".shortcut-row .shortcut-toggle", (els) => els.length);
-  assert(toggles === 4, `shortcuts panel should have 4 toggles, got ${toggles}`);
+  assert(toggles === 5, `shortcuts panel should have 5 toggles, got ${toggles}`);
+  const deleteRow = await page.$('.shortcut-row:has(kbd:text-is("Delete"))');
+  assert(deleteRow && (await deleteRow.$(".shortcut-toggle")), "the Delete key shortcut should be listed with a toggle");
   // Ctrl+←/→ の行も "←/→" を含むので、kbd が丸ごと一致する行だけを見る
   const arrowRow = await page.$('.shortcut-row:has(kbd:text-is("←/→"))');
   assert(arrowRow, "the arrow-key reference popup shortcut should be listed");
@@ -3114,13 +3116,13 @@ try {
   assert(composeDockPref === true, `compose docking should persist, got ${composeDockPref}`);
   console.log("smoke-ui: compose dock setting ok");
 
-  // マウスの戻るボタンでスレ一覧に戻る設定 (既定 OFF、自動開閉が ON のときだけ触れる)
+  // マウスの戻るボタン / Delete キーでスレ一覧に戻る設定 (既定 OFF、自動開閉が ON のときだけ触れる)
   await showSetting(page, '.settings-body label.settings-row:has-text("スレ一覧を自動で開閉する")');
   const autoToggleBox = page
     .locator(".settings-body label.settings-row", { hasText: "スレ一覧を自動で開閉する" })
     .locator('input[type="checkbox"]');
   const backRestoreBox = page
-    .locator(".settings-body label.settings-row", { hasText: "マウスの戻るボタンでスレ一覧に戻る" })
+    .locator(".settings-body label.settings-row", { hasText: "マウスの戻るボタン / Delete キーでスレ一覧に戻る" })
     .locator('input[type="checkbox"]');
   assert((await backRestoreBox.count()) === 1, "settings should have a back-button restore toggle");
   assert(!(await backRestoreBox.isChecked()), "back-button restore should default to off");
@@ -4648,8 +4650,8 @@ try {
   await new Promise((r) => setTimeout(r, 100));
   await boardPage.click('.menu-dropdown button:has-text("設定")');
   await new Promise((r) => setTimeout(r, 200));
-  await showSetting(boardPage, '.settings-body label:has-text("マウスの戻るボタンでスレ一覧に戻る")');
-  const backRestore = await boardPage.$('.settings-body label:has-text("マウスの戻るボタンでスレ一覧に戻る") input[type="checkbox"]');
+  await showSetting(boardPage, '.settings-body label:has-text("マウスの戻るボタン / Delete キーでスレ一覧に戻る")');
+  const backRestore = await boardPage.$('.settings-body label:has-text("マウスの戻るボタン / Delete キーでスレ一覧に戻る") input[type="checkbox"]');
   assert(backRestore, "settings should have a back-button restore toggle");
   await backRestore.check();
   await boardPage.click('.settings-header button:has-text("閉じる")');
@@ -4680,6 +4682,29 @@ try {
   await new Promise((r) => setTimeout(r, 200));
   assert((await threadPaneDisplay()) === "none", "a left click should still hide the thread pane");
   console.log("smoke-ui: thread pane back-button restore ok");
+
+  // 戻るボタンの無いマウス向けに、Delete キーでも同じように戻る。
+  await boardPage.keyboard.press("Delete");
+  await new Promise((r) => setTimeout(r, 150));
+  assert((await threadPaneDisplay()) !== "none", "the Delete key should bring the thread pane back");
+  assert((await responsePaneDisplay()) === "none", "the Delete key should hide the responses pane");
+  // 入力欄の中の Delete は文字を消すだけで、スレ一覧には戻らない。
+  await boardPage.click('button[aria-label="スレッド窓表示切替"]');
+  await new Promise((r) => setTimeout(r, 150));
+  await boardPage.click(".pane.responses");
+  await new Promise((r) => setTimeout(r, 200));
+  assert((await threadPaneDisplay()) === "none", "a left click should hide the thread pane before the typing check");
+  await boardPage.evaluate(() => {
+    const input = document.createElement("input");
+    input.id = "smoke-delete-typing";
+    document.body.appendChild(input);
+    input.focus();
+  });
+  await boardPage.keyboard.press("Delete");
+  await new Promise((r) => setTimeout(r, 150));
+  assert((await threadPaneDisplay()) === "none", "Delete inside a text field should not go back to the thread list");
+  await boardPage.evaluate(() => document.getElementById("smoke-delete-typing")?.remove());
+  console.log("smoke-ui: Delete key returns to the thread list ok");
 
   // 自動開閉をオンにしたまま使うと、境界線の位置が再起動で既定に戻るという報告の回帰用。
   // px と比率の両方が復元されること (比率は px がある側の分岐で読み捨てられていた)。
