@@ -110,8 +110,10 @@ import {
   TRANSLATION_SAMPLING,
   translationMessages,
 } from 'ai/prompts'
+import { regexCountText } from 'ai/regexSuggest'
 import useAiTask from 'ai/useAiTask'
 import AiResultPanel from 'components/AiResultPanel'
+import AiRegexSuggestSheet from 'components/AiRegexSuggestSheet'
 import AiRuleSuggestSheet from 'components/AiRuleSuggestSheet'
 import { addAiRule } from 'slices/ai.slice'
 import CopySheet from 'components/CopySheet'
@@ -366,6 +368,7 @@ export default function Thread({ route, navigation }) {
   const [newFromNo, setNewFromNo] = useState(null)
   const [copyTarget, setCopyTarget] = useState(null)
   const [ruleSuggestTarget, setRuleSuggestTarget] = useState(null)
+  const [regexSuggestTarget, setRegexSuggestTarget] = useState(null)
 
   // 開いたスレを「最近開いた」へ。取得に失敗しても開いたことは残す
   useEffect(() => {
@@ -1366,6 +1369,13 @@ export default function Thread({ route, navigation }) {
     [dispatch, closeMenu],
   )
 
+  // 正規表現を入れたら、このスレで何件に当たるかを出す（デスクトップ版と同じ）。
+  // NG で隠れたレスも含めたスレ全体で数える
+  const ngDraftCount = useMemo(
+    () => regexCountText(ngDraft, ngRows, 'body'),
+    [ngDraft, ngRows],
+  )
+
   const addDraftNg = useCallback(() => {
     const word = ngDraft.trim()
     if (word) addNgAndClose({ list: 'words', value: word }, word)
@@ -1487,6 +1497,13 @@ export default function Thread({ route, navigation }) {
         run: () => {
           closeMenu()
           setRuleSuggestTarget({ no })
+        },
+      })
+      aiItems.push({
+        label: 'AI: このレスから正規表現 NG を作る',
+        run: () => {
+          closeMenu()
+          setRegexSuggestTarget({ no })
         },
       })
     }
@@ -2442,6 +2459,22 @@ export default function Thread({ route, navigation }) {
         />
       ) : null}
 
+      {regexSuggestTarget ? (
+        <AiRegexSuggestSheet
+          target={regexSuggestTarget}
+          // 件数はデスクトップ版と同じく、NG で隠れたレスも含めたスレ全体で数える
+          rows={ngRows}
+          generalModel={ai.generalModel}
+          theme={theme}
+          onAdd={(payload) => {
+            dispatch(addNg(payload))
+            setRegexSuggestTarget(null)
+            showToast({ title: 'NG に追加しました', body: payload.value })
+          }}
+          onClose={() => setRegexSuggestTarget(null)}
+        />
+      ) : null}
+
       <CopySheet
         target={copyTarget}
         theme={theme}
@@ -2907,6 +2940,11 @@ export default function Thread({ route, navigation }) {
                 </Pressable>
               </View>
             ) : null}
+            {menuGroup === 'ng' && ngDraftCount ? (
+              <Text style={[styles.menuNgCount, { color: theme.textDim }]}>
+                {ngDraftCount}
+              </Text>
+            ) : null}
           </BottomSheetView>
         </BottomSheetModal>
       ) : null}
@@ -3085,4 +3123,5 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   menuInput: { flex: 1, fontSize: 14, paddingVertical: 6 },
+  menuNgCount: { fontSize: 12, paddingHorizontal: 18, paddingVertical: 6 },
 })
