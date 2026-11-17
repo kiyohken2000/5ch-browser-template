@@ -4770,6 +4770,11 @@ export default function App() {
   };
 
   const persistFavorites = async (next: FavoritesData) => {
+    // お気に入りスレ一覧を表示中にスレの並びが変わったら (解除・並べ替え)、位置で持っている
+    // 既読数・●・選択行を新しい位置へ引き直す。引き直さないと解除した行より下が 1 行ずれる。
+    if (showFavoritesOnly && next.threads !== favorites.threads) {
+      remapSavedThreadCounts(favorites.threads, next.threads);
+    }
     setFavorites(next);
     if (!isTauriRuntime()) return;
     try {
@@ -7169,7 +7174,7 @@ export default function App() {
   // 位置インデックスで持っている既読マップ・既読数・選択行を新しい位置へ引き直す。
   // setState は関数形で渡す — 同じ tick で先にキューされた更新 (スレ一覧の行をクリック
   // したときの「既読にする」) を描画時クロージャの古い値で踏み潰さないため。
-  const remapSavedThreadCounts = (prev: RecentThread[], next: RecentThread[]) => {
+  const remapSavedThreadCounts = (prev: Array<{ threadUrl: string }>, next: Array<{ threadUrl: string }>) => {
     const newIndexByUrl = new Map<string, number>();
     next.forEach((t, i) => newIndexByUrl.set(t.threadUrl, i));
     const remap = <T,>(cur: Record<number, T>): Record<number, T> => {
