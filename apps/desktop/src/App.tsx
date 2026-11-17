@@ -10174,7 +10174,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", suppressWebViewSearch, true);
   }, []);
 
-  // 戻る (マウスの第4ボタン / Delete キー) で、自動開閉が畳んだスレ一覧を出し直す。
+  // 戻る (マウスの第4ボタン / Backspace・Delete キー) で、自動開閉が畳んだスレ一覧を出し直す。
   const restoreThreadPaneFromBack = () => {
     setThreadPaneHidden(false);
     // スレを開く操作の裏返しなので、スレッド窓も畳む。出したままだと板一覧と
@@ -10365,9 +10365,10 @@ export default function App() {
         setAutoScrollEnabled((v) => !v);
         return;
       }
-      // 戻るボタンの無いマウス向けに、Delete キーでも同じようにスレ一覧へ戻す。
+      // 戻るボタンの無いマウス向けに、Backspace / Delete キーでも同じようにスレ一覧へ戻す。
+      // Backspace はエクスプローラーの「戻る」と同じで、Mac の delete キーもこれになる。
       // 設定は戻るボタンと共用。入力欄の中では上の isTypingTarget で素通しになる。
-      if (e.key === "Delete" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      if ((e.key === "Backspace" || e.key === "Delete") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         if (!threadPaneAutoToggle || !threadPaneBackRestore) return;
         if (isShortcutDisabled("key-delete-back")) return;
         e.preventDefault();
@@ -17439,7 +17440,7 @@ export default function App() {
                 ["R", "選択レスを引用して書き込み", "key-r-quote"],
                 ["A", "オートスクロールのオン/オフ", "key-a-autoscroll"],
                 ["←/→", "← 選択レスが参照しているレス / → 選択レスを参照しているレス をポップアップ", "key-arrow-refs"],
-                ["Delete", "スレ一覧に戻る (設定「マウスの戻るボタン / Delete キーでスレ一覧に戻る」が有効なとき)", "key-delete-back"],
+                ["Backspace / Delete", "スレ一覧に戻る (設定「マウスの戻るボタン / Backspace・Delete キーでスレ一覧に戻る」が有効なとき)", "key-delete-back"],
                 ["Escape", "ポップアップ/ライトボックス/ダイアログを閉じる"],
                 ["ダブルクリック (レス行)", "引用して書き込み", "dblclick-quote"],
               ] as [string, string, ToggleableShortcutId?][]).map(([key, desc, toggleId]) => (
@@ -17727,7 +17728,7 @@ export default function App() {
                 </label>
                 <label className="settings-row">
                   <input type="checkbox" checked={threadPaneBackRestore} disabled={!threadPaneAutoToggle} onChange={(e) => setThreadPaneBackRestore(e.target.checked)} />
-                  <span title="自動開閉で隠れたスレ一覧を、マウスの戻るボタンか Delete キーで出し直します。スレッド窓は畳みます">マウスの戻るボタン / Delete キーでスレ一覧に戻る</span>
+                  <span title="自動開閉で隠れたスレ一覧を、マウスの戻るボタンか Backspace / Delete キーで出し直します。スレッド窓は畳みます">マウスの戻るボタン / Backspace・Delete キーでスレ一覧に戻る</span>
                   <span className="settings-hint">自動開閉が有効なときだけ</span>
                 </label>
                 <label className="settings-row">
@@ -18199,7 +18200,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>220項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>221項目</span></div>
               </fieldset>
               </>)}
             </div>
