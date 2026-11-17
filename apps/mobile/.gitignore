@@ -23,6 +23,8 @@ dist/
 /ios/
 /android/
 Podfile.lock
+# ローカルモジュール (modules/) の Android ビルド成果物。run:android で出る
+/modules/*/android/build/
 
 # eas build --local の成果物 (iOS: build-*.tar.gz, *.ipa / Android: build-*.apk, *.aab)
 build-*.tar.gz

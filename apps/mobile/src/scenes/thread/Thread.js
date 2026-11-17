@@ -62,6 +62,7 @@ import Icon from 'components/Icon'
 import ImageGallery from 'components/ImageGallery'
 import ImageViewer from 'components/ImageViewer'
 import ResponseItem from 'components/ResponseItem'
+import FastScroller from 'components/FastScroller'
 import GlassSheetBackground from 'components/GlassSheetBackground'
 import ResponsePopup from 'components/ResponsePopup'
 import {
@@ -78,6 +79,7 @@ import {
   setReadPosition,
 } from 'lib/readPosition'
 import { buildReplyTree } from 'lib/replyTree'
+import { isLongEnough, seekTarget, thumbFraction } from 'lib/fastScroll'
 import { watchEnabled } from 'lib/homeSegments'
 import {
   isAtBottom,
@@ -180,6 +182,8 @@ function hitsFrom(judged) {
 const TOP_SETTLE_MAX_TICKS = 12
 /** スレタイのタップで出す先頭のレス数。 */
 const HEAD_RES_COUNT = 20
+/** つまみを離してから、最後の行へもう一度送るまでの間 */
+const SEEK_SETTLE_MS = 120
 
 function extractItemColor(theme, selected, count) {
   if (selected) return theme.accent
@@ -1769,6 +1773,105 @@ export default function Thread({ route, navigation }) {
     if (top) setReadPosition(threadId, top.no)
   }, [threadId])
 
+  // ---- つかめるスクロールバー ------------------------------------------------
+
+  const scrollerRef = useRef(null)
+  /** 一画面に見えている行の数と、ドラッグで最後に送った行 */
+  const seekRef = useRef({ visibleCount: 1, last: -1, atEnd: false })
+
+  /** スクロールの状態から、つまみの位置（0〜1）を出す。短いスレでは null */
+  const scrollerFraction = useCallback(
+    ({ contentOffset, layoutMeasurement, contentSize }) => {
+      const list = listRef.current
+      const { rows } = visibleEnvRef.current
+      if (
+        !list ||
+        !rows ||
+        !isLongEnough({
+          content: contentSize.height,
+          viewport: layoutMeasurement.height,
+        })
+      ) {
+        return null
+      }
+      const range = list.computeVisibleIndices?.()
+      if (!range || range.startIndex < 0) return null
+      const visibleCount = range.endIndex - range.startIndex + 1
+      seekRef.current.visibleCount = visibleCount
+      const first = list.getLayout?.(range.startIndex)
+      const within =
+        first && first.height > 0
+          ? (contentOffset.y - first.y) / first.height
+          : 0
+      return thumbFraction({
+        startIndex: range.startIndex,
+        endIndex: range.endIndex,
+        within,
+        rowCount: rows.length,
+        atBottom: isAtBottom({
+          offset: contentOffset.y,
+          viewport: layoutMeasurement.height,
+          content: contentSize.height,
+        }),
+      })
+    },
+    [],
+  )
+
+  const onSeekStart = useCallback(() => {
+    seekRef.current.last = -1
+    seekRef.current.atEnd = false
+    stopSettlingTop()
+    setAutoScrolling(false)
+  }, [stopSettlingTop])
+
+  /**
+   * 離したら、最後の行へもう一度送る。Android では位置を立て続けに飛ばすとスクロールの
+   * 通知が落ち、FlashList が前の位置のつもりで止まった先の行を描かず白くなる
+   * （エミュレーターで再現）。同じ位置へ送り直しても通知が出ないので、1px ずらしてから送る。
+   */
+  const seekEndTimerRef = useRef(null)
+  const onSeekEnd = useCallback(() => {
+    clearTimeout(seekEndTimerRef.current)
+    seekEndTimerRef.current = setTimeout(() => {
+      const list = listRef.current
+      const { last, atEnd } = seekRef.current
+      if (!list || last < 0) return
+      const nudge = atEnd
+        ? Math.max(0, scrollRef.current.offset - 1)
+        : (list.getLayout?.(last)?.y ?? scrollRef.current.offset) + 1
+      list.scrollToOffset({ offset: nudge, animated: false })
+      requestAnimationFrame(() => {
+        if (!listRef.current) return
+        if (atEnd) listRef.current.scrollToEnd({ animated: false })
+        else scrollToRow(last, false, 0)
+      })
+    }, SEEK_SETTLE_MS)
+  }, [scrollToRow])
+  useEffect(() => () => clearTimeout(seekEndTimerRef.current), [])
+
+  /** つまみの位置へ送り、吹き出しに出すレス番号を返す */
+  const seekFraction = useCallback(
+    (fraction) => {
+      const { rows } = visibleEnvRef.current
+      if (!rows || !listRef.current) return null
+      const { index, atEnd } = seekTarget(fraction, {
+        rowCount: rows.length,
+        visibleCount: seekRef.current.visibleCount,
+      })
+      if (index < 0) return null
+      const seek = seekRef.current
+      if (index !== seek.last || atEnd !== seek.atEnd) {
+        seek.last = index
+        seek.atEnd = atEnd
+        if (atEnd) listRef.current.scrollToEnd({ animated: false })
+        else scrollToRow(index, false, 0)
+      }
+      return `${rows[index].no} / ${rows[rows.length - 1].no}`
+    },
+    [scrollToRow],
+  )
+
   const rememberTimerRef = useRef(null)
   const scheduleRemember = useCallback(() => {
     if (rememberTimerRef.current) return
@@ -2233,9 +2336,13 @@ export default function Thread({ route, navigation }) {
             keyExtractor={(r) => String(r.no)}
             keyboardShouldPersistTaps="handled"
             scrollEventThrottle={64}
-            onScrollBeginDrag={() => {
+            onScrollBeginDrag={(e) => {
               stopSettlingTop()
               setAutoScrolling(false)
+              const f = scrollerFraction(e.nativeEvent)
+              if (f != null && scrollerRef.current) {
+                scrollerRef.current.reveal(f)
+              }
             }}
             onScroll={(e) => {
               const { contentOffset, layoutMeasurement, contentSize } =
@@ -2247,6 +2354,12 @@ export default function Thread({ route, navigation }) {
                 viewport: layoutMeasurement.height,
                 content: contentSize.height,
               })
+              const f = scrollerFraction(e.nativeEvent)
+              const scroller = scrollerRef.current
+              if (scroller) {
+                if (f == null) scroller.hideNow()
+                else scroller.update(f)
+              }
             }}
             ListFooterComponent={listFooter}
             refreshControl={
@@ -2262,6 +2375,16 @@ export default function Thread({ route, navigation }) {
             renderItem={renderItem}
             contentContainerStyle={{ paddingBottom: footerHeight }}
             scrollIndicatorInsets={{ bottom: footerHeight }}
+            showsVerticalScrollIndicator={false}
+          />
+          <FastScroller
+            ref={scrollerRef}
+            top={4}
+            bottom={footerHeight + 4}
+            theme={theme}
+            onSeekStart={onSeekStart}
+            onSeekEnd={onSeekEnd}
+            onSeek={seekFraction}
           />
         </View>
       </View>
