@@ -64,6 +64,12 @@ export function emptyFilters() {
   return { words: [], ids: [], names: [], threadWords: [] }
 }
 
+/** 理由に出す NG 項目。長い正規表現は 1 行に収まるよう切る（デスクトップ版と同じ 40 文字） */
+const reasonValue = (value) => {
+  const chars = Array.from(String(value))
+  return chars.length > 40 ? `${chars.slice(0, 40).join('')}…` : value
+}
+
 /**
  * 1 レスの NG 判定。
  *
@@ -85,14 +91,20 @@ export function evalNg(resp, filters) {
   let mode = null
   let chainMode = null
   let by = null
+  // より強いモードに上がったときだけ理由を差し替える。同じ強さなら最初に当たった項目のまま。
+  // あぼーんを開いたときに出す理由が、いまのモードを決めた項目になるように
+  const raise = (next, label) => {
+    const stronger = strongerMode(mode, next)
+    if (stronger !== mode || by === null) by = label
+    mode = stronger
+  }
 
   for (const raw of words) {
     const w = normalizeEntry(raw)
     if (w.disabled) continue
     if (isNo1 && w.excludeNo1) continue
     if (ngMatch(w.value, resp.plainBody, w.match)) {
-      mode = strongerMode(mode, w.mode)
-      if (by === null) by = `ワード: ${w.value}`
+      raise(w.mode, `ワード: ${reasonValue(w.value)}`)
       if (w.chainId) chainMode = strongerMode(chainMode, w.mode)
       if (mode === 'hide' && chainMode === 'hide') break
     }
@@ -104,9 +116,8 @@ export function evalNg(resp, filters) {
     if (n.disabled) continue
     if (isNo1 && n.excludeNo1) continue
     if (ngMatch(n.value, resp.name, n.match)) {
-      if (by === null) by = `名前: ${n.value}`
-      if (n.mode === 'hide') return { mode: 'hide', chainMode, by }
-      mode = strongerMode(mode, n.mode)
+      raise(n.mode, `名前: ${reasonValue(n.value)}`)
+      if (mode === 'hide') return { mode, chainMode, by }
     }
   }
 
@@ -117,9 +128,8 @@ export function evalNg(resp, filters) {
       if (isNo1 && e.excludeNo1) continue
       // ID は部分一致させない。完全一致だけ（デスクトップ版と同じ）
       if (resp.id === e.value) {
-        if (by === null) by = `ID: ${e.value}`
-        if (e.mode === 'hide') return { mode: 'hide', chainMode, by }
-        mode = strongerMode(mode, e.mode)
+        raise(e.mode, `ID: ${e.value}`)
+        if (mode === 'hide') return { mode, chainMode, by }
       }
     }
   }
@@ -248,12 +258,27 @@ export function parseNgLines(text) {
   return out
 }
 
-/** 画像を隠すか。`hide-images` と `abone` のどちらでも隠す。 */
+/**
+ * あぼーんのうち、ユーザーが手で開いたレスに `ngRevealed` を付ける。
+ * `ngMode` は変えないので、検索や抽出や画像一覧では隠れたままになる。
+ * 開いて見せるのは本文リストと参照ポップアップだけ（デスクトップ版 v0.0.341 と同じ）。
+ */
+export function revealAbone(rows, revealed) {
+  if (!revealed || revealed.size === 0) return rows
+  return rows.map((r) =>
+    r.ngMode === 'abone' && revealed.has(r.no) ? { ...r, ngRevealed: true } : r,
+  )
+}
+
+/** 本文をあぼーんとして伏せるか。手で開いたレスは伏せない。 */
+export function isAboneMasked(row) {
+  return row.ngMode === 'abone' && !row.ngRevealed
+}
+
+/** 画像を隠すか。`hide-images` と `abone` のどちらでも隠す（手で開いたあぼーんは出す）。 */
 export function shouldHideImages(row) {
   return (
-    row.ngMode === 'hide-images' ||
-    row.ngMode === 'abone' ||
-    row.ngMode === 'hide'
+    row.ngMode === 'hide-images' || isAboneMasked(row) || row.ngMode === 'hide'
   )
 }
 

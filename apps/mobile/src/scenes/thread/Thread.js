@@ -127,7 +127,7 @@ import { quoteReply } from 'lib/postDrafts'
 import { compatSiteOf } from 'lib/sites'
 import { CONTACT_URL, DELETION_REQUEST_URL } from 'lib/terms'
 import useIsCellular from 'lib/useIsCellular'
-import { applyNg, visibleResponses, visibleThreads } from 'lib/ng'
+import { applyNg, revealAbone, visibleResponses, visibleThreads } from 'lib/ng'
 import { findNextThreadCandidates } from 'lib/nextThread'
 import { findResponses, findRowByNo } from 'lib/search'
 import {
@@ -647,7 +647,23 @@ export default function Thread({ route, navigation }) {
       aiHits,
     ],
   )
-  const shown = useMemo(() => visibleResponses(ngRows), [ngRows])
+  // あぼーんのうち「表示」で手で開いたレス。スレを移ると忘れる（保存はしない）
+  const [aboneRevealed, setAboneRevealed] = useState(() => new Set())
+  useEffect(() => {
+    setAboneRevealed(new Set())
+  }, [threadId])
+  const toggleAbone = useCallback((no) => {
+    setAboneRevealed((prev) => {
+      const next = new Set(prev)
+      if (next.has(no)) next.delete(no)
+      else next.add(no)
+      return next
+    })
+  }, [])
+  const shown = useMemo(
+    () => revealAbone(visibleResponses(ngRows), aboneRevealed),
+    [ngRows, aboneRevealed],
+  )
   const idSeqs = useMemo(() => idSequences(parsedRows), [parsedRows])
 
   // 自分のレスは本文と時刻の照合で求める（lib/extract.js）
@@ -2085,6 +2101,7 @@ export default function Thread({ route, navigation }) {
         onBe={setBeMenu}
         onUrl={openUrl}
         onLongPress={openRowMenu}
+        onToggleAbone={toggleAbone}
       />
     ),
     [
@@ -2108,6 +2125,7 @@ export default function Thread({ route, navigation }) {
       openBacklinks,
       openUrl,
       openRowMenu,
+      toggleAbone,
     ],
   )
 

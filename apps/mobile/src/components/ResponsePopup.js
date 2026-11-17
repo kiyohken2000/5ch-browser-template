@@ -26,7 +26,7 @@ import {
 } from 'react-native'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 
-import { shouldHideImages } from 'lib/ng'
+import { isAboneMasked, shouldHideImages } from 'lib/ng'
 import Icon from './Icon'
 import ResponseBody from './ResponseBody'
 import ResponseHeader from './ResponseHeader'
@@ -80,7 +80,8 @@ function PopupLayer({
 
   const renderItem = useCallback(
     ({ item }) => {
-      if (item.ngMode === 'abone') {
+      // 本文リストで「表示」を押したレスは、ポップアップでも中身を出す
+      if (isAboneMasked(item)) {
         return (
           <View style={[styles.row, { borderColor: theme.border }]}>
             <Text style={{ color: theme.textFaint, fontSize: fontSize - 2 }}>

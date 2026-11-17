@@ -4,6 +4,8 @@
  * **NG はここで判定しない。** 呼ぶ側が lib/ng.js の `applyNg` を通した行を渡す
  * （不変条件 2: すべての描画経路で効かせるため、判定を 1 箇所に寄せる）。
  * ここがやるのは「`ngMode` が `abone` なら 1 行で出す」だけ。
+ * あぼーんの行はタップで開ける（デスクトップ版 v0.0.341 の「表示」）。開いたレスは
+ * 呼ぶ側が `ngRevealed` を付けて渡し、ここでは隠れた理由を 1 行添えて普通に描く。
  *
  * 折りたたみ（§8-4）は **AA ブロックを含むレスには掛けない**（§9-2 必須）。
  */
@@ -11,7 +13,7 @@
 import React, { memo, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 
-import { shouldHideImages } from 'lib/ng'
+import { isAboneMasked, shouldHideImages } from 'lib/ng'
 import ResponseBody from './ResponseBody'
 import ResponseHeader from './ResponseHeader'
 import ResponseMedia from './ResponseMedia'
@@ -39,16 +41,36 @@ function ResponseItem({
   onBe,
   onUrl,
   onLongPress,
+  onToggleAbone,
 }) {
   const [expanded, setExpanded] = useState(false)
 
-  if (row.ngMode === 'abone') {
+  if (isAboneMasked(row)) {
+    // 誤爆の確認用。押したレスだけ中身を出し、もう一度押すと伏せる
     return (
-      <View style={[styles.abone, { borderColor: theme.border }]}>
-        <Text style={{ color: theme.textFaint, fontSize: fontSize - 2 }}>
-          あぼーん（{row.ngBy || 'NG'}）
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`>>${row.no} のあぼーんを表示する`}
+        accessibilityHint={row.ngBy || 'NG'}
+        disabled={!onToggleAbone}
+        onPress={() => onToggleAbone && onToggleAbone(row.no)}
+        style={[styles.abone, { borderColor: theme.border }]}
+      >
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.flex,
+            { color: theme.textFaint, fontSize: fontSize - 2 },
+          ]}
+        >
+          {row.no} あぼーん（{row.ngBy || 'NG'}）
         </Text>
-      </View>
+        {onToggleAbone ? (
+          <Text style={{ color: theme.accent, fontSize: fontSize - 3 }}>
+            表示
+          </Text>
+        ) : null}
+      </Pressable>
     )
   }
 
@@ -97,6 +119,28 @@ function ResponseItem({
           },
         ]}
       >
+        {row.ngRevealed ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`>>${row.no} をあぼーんに戻す`}
+            hitSlop={6}
+            onPress={() => onToggleAbone && onToggleAbone(row.no)}
+            style={styles.aboneReason}
+          >
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.flex,
+                { color: theme.textFaint, fontSize: fontSize - 3 },
+              ]}
+            >
+              あぼーん（{row.ngBy || 'NG'}）
+            </Text>
+            <Text style={{ color: theme.accent, fontSize: fontSize - 3 }}>
+              伏せる
+            </Text>
+          </Pressable>
+        ) : null}
         {mine || replyToMe ? (
           <View
             style={[
@@ -187,11 +231,16 @@ const styles = StyleSheet.create({
   ownBar: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4 },
   collapsed: { overflow: 'hidden' },
   more: { marginTop: 4 },
+  flex: { flex: 1 },
   abone: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  aboneReason: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   readLineWrap: {
     flexDirection: 'row',
     alignItems: 'center',

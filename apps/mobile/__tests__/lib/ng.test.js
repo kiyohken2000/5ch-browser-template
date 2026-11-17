@@ -2,9 +2,11 @@ import {
   applyNg,
   emptyFilters,
   evalNg,
+  isAboneMasked,
   isNgThreadTitle,
   ngMatch,
   parseNgLines,
+  revealAbone,
   shouldHideImages,
   visibleResponses,
   visibleThreads,
@@ -97,6 +99,26 @@ describe('evalNg', () => {
   it('何に当たったかを返す', () => {
     const f = { ...emptyFilters(), words: ['うんこ'] }
     expect(evalNg(resp(2, 'n', 'i', 'うんこ'), f).by).toBe('ワード: うんこ')
+  })
+
+  it('理由はいまのモードを決めた項目。強さが同じなら最初の項目', () => {
+    const f = {
+      ...emptyFilters(),
+      words: [
+        { value: 'あ', mode: 'hide-images' },
+        { value: 'い', mode: 'abone' },
+        { value: 'う', mode: 'abone' },
+      ],
+    }
+    expect(evalNg(resp(2, 'n', 'i', 'あいう'), f).by).toBe('ワード: い')
+  })
+
+  it('長い項目は理由に 40 文字まで出す', () => {
+    const long = `/${'あ'.repeat(50)}/`
+    const f = { ...emptyFilters(), words: [{ value: long, mode: 'abone' }] }
+    expect(evalNg(resp(2, 'n', 'i', 'あ'.repeat(50)), f).by).toBe(
+      `ワード: /${'あ'.repeat(39)}…`,
+    )
   })
 })
 
@@ -262,5 +284,30 @@ describe('applyNg — ワッチョイの連鎖', () => {
 describe('parseNgLines', () => {
   it('1 行 1 項目で、空行と重複を除く', () => {
     expect(parseNgLines(' a \n\nb\r\na\n')).toEqual(['a', 'b'])
+  })
+})
+
+describe('あぼーんを手で開く', () => {
+  const rows = [
+    { no: 1, ngMode: null },
+    { no: 2, ngMode: 'abone', ngBy: 'ワード: x' },
+    { no: 3, ngMode: 'abone' },
+    { no: 4, ngMode: 'hide-images' },
+  ]
+
+  it('開いたあぼーんにだけ印を付け、モードは変えない', () => {
+    const got = revealAbone(rows, new Set([2, 4]))
+    expect(got[1]).toMatchObject({ ngMode: 'abone', ngRevealed: true })
+    expect(got[2].ngRevealed).toBeUndefined()
+    expect(got[3].ngRevealed).toBeUndefined()
+    expect(revealAbone(rows, new Set())).toBe(rows)
+  })
+
+  it('開いたレスは伏せず、画像も出す', () => {
+    const [, opened, closed] = revealAbone(rows, new Set([2]))
+    expect(isAboneMasked(opened)).toBe(false)
+    expect(shouldHideImages(opened)).toBe(false)
+    expect(isAboneMasked(closed)).toBe(true)
+    expect(shouldHideImages(closed)).toBe(true)
   })
 })
