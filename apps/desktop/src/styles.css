@@ -3021,6 +3021,77 @@ button.search-history-btn:hover {
   justify-content: flex-end;
 }
 
+.ng-regex-preview {
+  padding: 3px 8px 5px;
+  font-size: 11px;
+  color: var(--sub);
+  border-bottom: 1px solid #d0d0d0;
+}
+.ng-regex-preview-warn {
+  color: #b45309;
+}
+.ng-regex-preview-nos {
+  margin-left: 6px;
+}
+.ng-regex-gen {
+  padding: 5px 8px;
+  border-bottom: 1px solid #d0d0d0;
+  font-size: 11px;
+}
+.ng-regex-gen-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ng-regex-gen-head input {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  padding: 3px 6px;
+  border: 1px solid #c0c0c0;
+}
+.ng-regex-gen-note {
+  margin-top: 4px;
+  color: var(--sub);
+}
+.ng-regex-gen-list {
+  list-style: none;
+  margin: 5px 0 0;
+  padding: 0;
+}
+.ng-regex-gen-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d8d8d8;
+  border-radius: 3px;
+  padding: 4px 6px;
+  margin-bottom: 4px;
+}
+.ng-regex-gen-list code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ng-regex-gen-list span {
+  color: var(--sub);
+  white-space: nowrap;
+}
+.ng-regex-gen-list button {
+  font-size: 10px;
+  padding: 1px 6px;
+}
+.dark .ng-regex-preview,
+.dark .ng-regex-gen {
+  border-color: #3c3c3c;
+}
+.dark .ng-regex-preview-warn {
+  color: #f0b35a;
+}
+.dark .ng-regex-gen-list li {
+  border-color: #4a4a52;
+}
+
 .ng-panel-lists {
   overflow-y: auto;
   padding: 6px 8px;
@@ -3336,6 +3407,18 @@ button.search-history-btn:hover {
 
 .thread-ng-panel {
   grid-template-rows: auto auto 1fr;
+}
+
+/* NGフィルタ本体は項目が多いので、ほかの小パネルより一回り大きくする。 */
+.ng-filter-panel {
+  width: min(680px, calc(100vw - 28px));
+  max-height: min(600px, calc(100vh - 56px));
+}
+/* 追加欄のボタンは「AIで作る」の有無で数が変わるので、列数を決め打ちせず横に並べる。 */
+.ng-filter-panel .ng-panel-add {
+  grid-template-columns: auto 1fr;
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
 }
 
 .thread-ng-panel .ng-panel-add {

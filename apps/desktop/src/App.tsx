@@ -1350,6 +1350,26 @@ const escapeHtml = (s: string) =>
 // NG の値が /.../ で囲まれた正規表現か
 const isNgRegex = (pattern: string): boolean =>
   pattern.startsWith("/") && pattern.endsWith("/") && pattern.length > 2;
+// 正規表現 NG の件数プレビューと AI 候補の確認で、スレに当てる前に弾く条件。
+// JS の正規表現は途中で止められないので、固まりやすい形 (繰り返しの中の繰り返し) と
+// 長すぎるものは実行しない。登録そのものは止めない (照合側は従来どおり)。
+const NG_REGEX_MAX_LENGTH = 200;
+const NG_REGEX_NESTED_QUANTIFIER = /[+*}]\)(?:[+*]|\{\d+,\d*\})/;
+type NgRegexCheck = { ok: true; re: RegExp } | { ok: false; reason: string };
+// body は /.../ の中身。フラグは照合側 (ngMatch) と同じ im。
+const checkNgRegex = (body: string): NgRegexCheck => {
+  if (body.length > NG_REGEX_MAX_LENGTH) {
+    return { ok: false, reason: `長すぎるので件数を数えません (${NG_REGEX_MAX_LENGTH}文字まで)` };
+  }
+  if (NG_REGEX_NESTED_QUANTIFIER.test(body)) {
+    return { ok: false, reason: "繰り返しの中に繰り返しがあり、固まるおそれがあるので件数を数えません" };
+  }
+  try {
+    return { ok: true, re: new RegExp(body, "im") };
+  } catch {
+    return { ok: false, reason: "正規表現の書き方が正しくありません" };
+  }
+};
 const responseHtmlToPlainText = (html: string): string => {
   return decodeHtmlEntities(
     html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")
@@ -8109,6 +8129,156 @@ export default function App() {
     setStatus("述語欄に入れました。必要なら直してから追加してください");
   };
 
+  // --- 正規表現 NG: 件数プレビューと AI 候補 ---------------------------------
+  // 照合対象は evalNg と同じ: ワードは表示どおりの本文、名前はタグを除いた名前。
+  // パネルを閉じている間は作らない (スレを開くたびに全レスを変換しないように)。
+  const ngRegexTargets = useMemo(
+    () =>
+      ngPanelOpen
+        ? responseItems.map((r) => ({
+            no: r.id,
+            body: responseHtmlToPlainText(r.text),
+            name: responseHtmlToPlainText(r.name),
+          }))
+        : [],
+    [ngPanelOpen, responseItems],
+  );
+  const ngRegexPreview = useMemo(() => {
+    if (ngInputType === "ids") return null;
+    const v = ngInput.trim();
+    if (!isNgRegex(v)) return null;
+    const check = checkNgRegex(v.slice(1, -1));
+    if (!check.ok) return { error: check.reason, nos: [] as number[], total: 0 };
+    const nos = ngRegexTargets
+      .filter((t) => check.re.test(ngInputType === "names" ? t.name : t.body))
+      .map((t) => t.no);
+    return { error: null, nos, total: ngRegexTargets.length };
+  }, [ngInput, ngInputType, ngRegexTargets]);
+
+  // AI 候補は、例レスにすべて一致し、例以外のレスへの一致がこの割合以下のものだけ見せる。
+  const NG_REGEX_GEN_MAX_RATE = 0.3;
+  // 実測 (Gemma 4 E2B): 「1 行に 1 つ書く」と頼むと例を 1 件ずつ書き写すだけで、
+  // 例のすべてに一致する候補は 0 件だった。答えを 1 行に絞り、共通語を拾う形と
+  // 表記揺れを ( | ) で並べる形のお手本を見せると、9 例中 8 例で使える候補が出た。
+  const NG_REGEX_GEN_INSTRUCTION = [
+    "掲示板で、隠したい書き込みの例から、それらすべてに一致する JavaScript の正規表現を 1 つ作ります。",
+    "例を 1 件ずつ書き写すのではなく、すべての例に共通して含まれる短い語句を見つけて使います。",
+    "共通する語句が書き方だけ違うとき (カタカナ / ひらがな / 半角カナなど) は ( | ) で並べます。",
+    "",
+    "お手本:",
+    "隠したい書き込みの例:",
+    "例3: 激安ブランド品はこちら https://bit.ly/aaa",
+    "例9: ブランド品が今だけ激安！ https://bit.ly/bbb",
+    "答え: /bit\\.ly|激安/",
+    "",
+    "隠したい書き込みの例:",
+    "例2: ﾈﾄｳﾖ乙",
+    "例7: ネトウヨ必死だな",
+    "例8: ねとうよがまた来た",
+    "答え: /(ネトウヨ|ﾈﾄｳﾖ|ねとうよ)/",
+    "",
+    "答えの 1 行だけを書いてください。説明は書かない。",
+  ].join("\n");
+
+  const [ngRegexGenOpen, setNgRegexGenOpen] = useState(false);
+  const [ngRegexGenInput, setNgRegexGenInput] = useState("");
+  const [ngRegexGenBusy, setNgRegexGenBusy] = useState<string | null>(null);
+  const [ngRegexGenCandidates, setNgRegexGenCandidates] = useState<
+    { pattern: string; target: "words" | "names"; hits: number; total: number }[]
+  >([]);
+  const [ngRegexGenMessage, setNgRegexGenMessage] = useState<string | null>(null);
+  // 例のレス番号はスレごとのものなので、スレを替えたら候補は捨てる。
+  useEffect(() => {
+    setNgRegexGenCandidates([]);
+    setNgRegexGenMessage(null);
+  }, [activeThreadUrl]);
+
+  const generateNgRegexCandidates = async () => {
+    if (!isTauriRuntime()) {
+      setStatus("候補の生成はアプリ版でのみ動きます");
+      return;
+    }
+    if (!aiStatus?.activeModelId) {
+      setStatus("候補の生成にはチャット用モデルの有効化が必要です");
+      return;
+    }
+    if (ngInputType === "ids") {
+      setStatus("IDには正規表現を使えません。種類を「ワード」か「名前」にしてください");
+      return;
+    }
+    const target = ngInputType;
+    const nos = ngRegexGenInput
+      .split(/[^0-9]+/)
+      .map((v) => Number(v))
+      .filter((v) => Number.isFinite(v) && v > 0);
+    if (nos.length === 0) {
+      setStatus("例にするレス番号を入力してください (例: 12 34 56)");
+      return;
+    }
+    const exampleSet = new Set(nos);
+    const examples = ngRegexTargets.filter((t) => exampleSet.has(t.no) && (target === "names" ? t.name : t.body).trim() !== "");
+    if (examples.length === 0) {
+      setStatus("指定されたレスがこのスレに見つかりません");
+      return;
+    }
+    const pick = (t: { body: string; name: string }) => (target === "names" ? t.name : t.body);
+    const exampleText = examples
+      .map((t) => `例${t.no}: ${pick(t).trim().slice(0, 200)}`)
+      .join("\n");
+    const subject = target === "names" ? "名前欄" : "本文";
+
+    const template = aiActiveTemplate();
+    const drafts: string[] = [];
+    setNgRegexGenCandidates([]);
+    setNgRegexGenMessage(null);
+    try {
+      setNgRegexGenBusy("候補を生成中…");
+      const content = `${NG_REGEX_GEN_INSTRUCTION}\n\n隠したい書き込みの${subject}の例:\n${exampleText}\n`;
+      // お手本と同じ「答え: /」まで先に置いて、続きの正規表現だけを書かせる。
+      const prompt = aiWrapTurn(template, "user", content) + aiOpenAssistantTurn(template) + "答え: /";
+      const raw = await invoke<string>("ai_complete_once", {
+        prompt,
+        maxTokens: 64,
+        backend: aiInferenceBackend,
+      });
+      const first = `/${raw}`.split("\n")[0].replace(/`/g, "").trim();
+      const m = first.match(/^\/(.+)\/[a-z]*$/);
+      if (m) drafts.push(m[1]);
+    } catch (error) {
+      setStatus(`候補の生成に失敗しました: ${String(error)}`);
+      setNgRegexGenBusy(null);
+      return;
+    }
+    setNgRegexGenBusy(null);
+
+    // 生成した候補を手元で実際に当てて、条件を満たすものだけ残す。
+    const others = ngRegexTargets.filter((t) => !exampleSet.has(t.no));
+    const passed: { pattern: string; target: "words" | "names"; hits: number; total: number }[] = [];
+    for (const pattern of drafts) {
+      const check = checkNgRegex(pattern);
+      if (!check.ok) continue;
+      if (!examples.every((t) => check.re.test(pick(t)))) continue;
+      const otherHits = others.filter((t) => check.re.test(pick(t))).length;
+      if (others.length > 0 && otherHits / others.length > NG_REGEX_GEN_MAX_RATE) continue;
+      passed.push({ pattern, target, hits: examples.length + otherHits, total: ngRegexTargets.length });
+    }
+    setNgRegexGenCandidates(passed);
+    const message = passed.length > 0
+      ? null
+      : drafts.length > 0
+      ? `AIの答え /${drafts[0]}/ は、例のすべてに一致しないか広すぎるので出していません。例を変えて試してください`
+      : "候補を作れませんでした。例を変えて試してください";
+    setNgRegexGenMessage(message);
+    setStatus(message ?? "候補を作りました");
+  };
+
+  // 候補を入力欄へ入れる。登録はプレビューの件数を見てから「追加」で行う。
+  const applyNgRegexCandidate = (c: { pattern: string; target: "words" | "names" }) => {
+    setNgInputType(c.target);
+    setNgInput(`/${c.pattern}/`);
+    setStatus("入力欄に入れました。件数を確かめてから追加してください");
+  };
+
   const toggleNgAiRevealed = (no: number) => {
     setNgAiRevealed((prev) => {
       const next = new Set(prev);
@@ -11923,6 +12093,29 @@ export default function App() {
       container.removeEventListener("wheel", onWheel);
     };
   }, [autoScrollEnabled, autoScrollSpeed, activeTabIndex]);
+
+  // 浮動パネル (.ng-panel: NGフィルタ / スレ一覧NG / AIルールなど) の上のホイールを
+  // 裏のペインへ流さない。パネルの中に、その向きへまだ動ける欄があればそちらに任せ、
+  // 無ければ (端に着いた・動く欄が無い) 既定のスクロールを止める。直前まで裏のペインを
+  // スクロールしていると、パネルへ移ってもそのペインに吸い付いたまま動くことがある。
+  useEffect(() => {
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.deltaY === 0) return;
+      const target = event.target instanceof Element ? event.target : null;
+      const panel = target?.closest(".ng-panel");
+      if (!target || !panel) return;
+      for (let el: Element | null = target; el; el = el === panel ? null : el.parentElement) {
+        if (el.scrollHeight <= el.clientHeight + 1) continue;
+        if (!/(auto|scroll)/.test(getComputedStyle(el).overflowY)) continue;
+        const canUp = el.scrollTop > 0;
+        const canDown = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+        if ((event.deltaY < 0 && canUp) || (event.deltaY > 0 && canDown)) return;
+      }
+      event.preventDefault();
+    };
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => window.removeEventListener("wheel", onWheel);
+  }, []);
 
   // スレ一覧のホイールスクロールを行単位に揃える (設定 OFF のときは何もせず OS 既定のまま)。
   // OS 既定のホイール量は「Windowsのスクロール行数 x 固定px」でペイン高さと無関係なため、
@@ -15792,7 +15985,7 @@ export default function App() {
         </section>
       )}
       {ngPanelOpen && (
-        <section className="ng-panel" role="dialog" aria-label="NGフィルタ" style={panelPosStyle("ng")}>
+        <section className="ng-panel ng-filter-panel" role="dialog" aria-label="NGフィルタ" style={panelPosStyle("ng")}>
           <header className="ng-panel-header ng-panel-drag-header" onPointerDown={startPanelDrag("ng")}>
             <strong>{ngPanelTab === "ng" ? "NGフィルタ" : "ハイライト"}</strong>
             <span className="ng-panel-count">
@@ -15843,7 +16036,80 @@ export default function App() {
             </select>
             <button onClick={() => { addNgEntry(ngInputType, ngInput); setNgInput(""); }}>追加</button>
             <button className={ngBulkOpen ? "active-toggle" : ""} onClick={() => setNgBulkOpen(v => !v)}>一括</button>
+            {isTauriRuntime() && aiStatus?.activeModelId && (
+              <button
+                className={`ng-regex-gen-toggle${ngRegexGenOpen ? " active-toggle" : ""}`}
+                onClick={() => setNgRegexGenOpen((v) => !v)}
+                title="隠したいレスの例から、AIに正規表現の候補を作らせます"
+              >AIで作る</button>
+            )}
           </div>
+          {ngRegexPreview && (
+            <div
+              className={`ng-regex-preview${
+                ngRegexPreview.error || (ngRegexPreview.total >= 4 && ngRegexPreview.nos.length / ngRegexPreview.total > 0.5)
+                  ? " ng-regex-preview-warn"
+                  : ""
+              }`}
+            >
+              {ngRegexPreview.error
+                ? ngRegexPreview.error
+                : ngRegexPreview.total === 0
+                ? "スレを開くと、一致する件数を確かめられます"
+                : (
+                  <>
+                    このスレで {ngRegexPreview.nos.length}/{ngRegexPreview.total} 件に一致
+                    {ngRegexPreview.nos.length > 0 && (
+                      <span className="ng-regex-preview-nos">
+                        {ngRegexPreview.nos.slice(0, 5).map((n) => `>>${n}`).join(" ")}
+                        {ngRegexPreview.nos.length > 5 ? " …" : ""}
+                      </span>
+                    )}
+                    {ngRegexPreview.total >= 4 && ngRegexPreview.nos.length / ngRegexPreview.total > 0.5 && (
+                      <span> — スレの半分以上に一致しています。広すぎないか確かめてください</span>
+                    )}
+                  </>
+                )}
+            </div>
+          )}
+          {ngRegexGenOpen && isTauriRuntime() && aiStatus?.activeModelId && (
+            <div className="ng-regex-gen">
+              <div className="ng-regex-gen-head">
+                <span>例にするレス番号</span>
+                <input
+                  value={ngRegexGenInput}
+                  onChange={(e) => setNgRegexGenInput(e.target.value)}
+                  placeholder="12 34 56"
+                  title="「こういうレスを隠したい」という例のレス番号。開いているスレから探します。上の種類が「名前」なら名前欄から作ります"
+                />
+                <button onClick={() => void generateNgRegexCandidates()} disabled={ngRegexGenBusy !== null || ngInputType === "ids"}>
+                  候補を作る
+                </button>
+              </div>
+              {ngInputType === "ids" && (
+                <div className="ng-regex-gen-note">IDには正規表現を使えません。種類を「ワード」か「名前」にしてください</div>
+              )}
+              {ngRegexGenBusy && <div className="ng-regex-gen-note">{ngRegexGenBusy}</div>}
+              {!ngRegexGenBusy && ngRegexGenMessage && <div className="ng-regex-gen-note ng-regex-preview-warn">{ngRegexGenMessage}</div>}
+              {ngRegexGenCandidates.length > 0 && (
+                <ul className="ng-regex-gen-list">
+                  {ngRegexGenCandidates.map((c) => (
+                    <li key={c.pattern}>
+                      <code>/{c.pattern}/</code>
+                      <span title="例のレスを含めて、このスレで一致したレスの数">このスレ {c.hits}/{c.total} 件</span>
+                      <button onClick={() => applyNgRegexCandidate(c)}>使う</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {ngRegexGenCandidates.length > 0 && (
+                <div className="ng-regex-gen-note">
+                  例のすべてに一致し、ほかのレスにはあまり一致しない候補だけを出しています。
+                  「使う」で入力欄に入るので、件数を見てから追加してください。
+                </div>
+              )}
+            </div>
+          )}
           <div className="ng-panel-options">
             <label
               className="ng-chain-setting"
@@ -17933,7 +18199,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>218項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>220項目</span></div>
               </fieldset>
               </>)}
             </div>

@@ -812,6 +812,42 @@ try {
   await page.selectOption(".ng-panel-add .ng-mode-select", "hide");
   console.log("smoke-ui: ng abone mode ok");
 
+  // 正規表現 NG の件数プレビュー: 入力中に今のスレで何件に一致するかを出す
+  const regexPreviewText = async () =>
+    page.$eval(".ng-regex-preview", (el) => el.textContent ?? "").catch(() => null);
+  await page.fill(".ng-panel-add input", "/確認(済み|完了)$/");
+  const previewHit = await regexPreviewText();
+  assert(previewHit && previewHit.includes("2/5") && previewHit.includes(">>2 >>5"),
+    `regex preview should count >>2 and >>5, got ${previewHit}`);
+  await page.fill(".ng-panel-add input", "/[/");
+  const previewBad = await regexPreviewText();
+  assert(previewBad && previewBad.includes("書き方が正しくありません"), `broken regex should be reported, got ${previewBad}`);
+  await page.fill(".ng-panel-add input", "/(a+)+$/");
+  const previewNested = await regexPreviewText();
+  assert(previewNested && previewNested.includes("固まるおそれ"), `nested quantifiers should not be run, got ${previewNested}`);
+  await page.fill(".ng-panel-add input", "/./");
+  const previewWide = await regexPreviewText();
+  assert(previewWide && previewWide.includes("半分以上"), `a regex matching everything should warn, got ${previewWide}`);
+  const wideWarn = await page.$(".ng-regex-preview.ng-regex-preview-warn");
+  assert(wideWarn, "a wide regex preview should use the warning style");
+  await page.fill(".ng-panel-add input", "plainword");
+  assert((await page.$(".ng-regex-preview")) === null, "plain words should not show the regex preview");
+  // チャット用モデルが無い (ブラウザ版) ときは AI 候補の入口を出さない
+  assert((await page.$(".ng-regex-gen-toggle")) === null, "the AI regex button should be hidden without a chat model");
+  await page.fill(".ng-panel-add input", "");
+  console.log("smoke-ui: ng regex preview ok");
+
+  // NG パネルの上のホイールは裏のペインへ流さない (動ける欄が無ければ既定動作を止める)
+  const wheelPrevented = (sel) =>
+    page.$eval(sel, (el) => {
+      const ev = new WheelEvent("wheel", { deltaY: 100, bubbles: true, cancelable: true });
+      el.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    });
+  assert(await wheelPrevented("section[aria-label='NGフィルタ'] .ng-panel-header"), "a wheel over the NG panel header should not scroll the panes behind it");
+  assert(!(await wheelPrevented(".response-scroll")), "a wheel over the responses pane should still scroll it");
+  console.log("smoke-ui: the NG panel keeps the wheel to itself ok");
+
   // NG ID の自動削除: セレクタは ID セクションのヘッダーにあり、有効にすると
   // 各エントリに残り日数バッジが出る
   const ngExpireSelect = await page.$(".ng-expire-select");
