@@ -1,14 +1,23 @@
 # Ember
 
-5ch.io 専用ブラウザ（Tauri + React デスクトップアプリ）。
+5ch.io 専用ブラウザ。デスクトップ版（Tauri + React）と、iOS / Android のモバイル版（React Native + Expo）があります。
 
 ## ダウンロード
+
+### デスクトップ版
 
 [GitHub Releases](https://github.com/kiyohken2000/5ch-browser-template/releases) から最新版のZIPをダウンロードして展開するだけで使えます。
 
 - **Windows**: `ember-win-x64.zip`
 - **macOS**: `ember-mac-arm64.zip`
 - **Linux**: AppImage / deb / rpm（x86_64 / AArch64）
+
+### モバイル版
+
+- **iOS**: [App Store](https://apps.apple.com/jp/app/id6831091040)
+- **Android**: [Google Play](https://play.google.com/store/apps/details?id=net.votepurchase.ember)
+
+モバイル版の紹介: https://ember-5ch.pages.dev/mobile.html
 
 公式サイト: https://ember-5ch.pages.dev
 
