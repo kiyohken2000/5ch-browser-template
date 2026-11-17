@@ -476,6 +476,11 @@ const NG_MODE_HINTS: Record<NgMode, string> = {
 };
 // あぼーんしたレスの本文・名前・日時の代わりに出す文字列
 const ABONE_TEXT = "あぼーん";
+// あぼーんを開いたときに出す「隠した理由」の NG 項目。長い正規表現は 1 行に収まるよう切る
+const ngReasonValue = (value: string): string => {
+  const chars = Array.from(value);
+  return chars.length > 40 ? `${chars.slice(0, 40).join("")}…` : value;
+};
 const ngEntryExcludeNo1 = (e: string | NgEntry): boolean => typeof e === "string" ? false : (e.excludeNo1 ?? false);
 const ngEntryDisabled = (e: string | NgEntry): boolean => typeof e === "string" ? false : (e.disabled ?? false);
 const ngEntryMatch = (e: string | NgEntry): "partial" | "exact" => typeof e === "string" ? "partial" : (e.match ?? "partial");
@@ -3846,6 +3851,8 @@ export default function App() {
   });
   // 曖昧 NG で畳んだレスのうち、ユーザーが手で開いたもの (スレを移ると忘れる)
   const [ngAiRevealed, setNgAiRevealed] = useState<Set<number>>(new Set());
+  // あぼーんのうち「表示」で手で開いたレス (スレを移ると忘れる。保存はしない)
+  const [aboneRevealed, setAboneRevealed] = useState<Set<number>>(new Set());
   // 判定結果の候補。ルール ID -> (レス番号 -> 確率)。スレを移ると捨てる。
   const [ngAiCandidates, setNgAiCandidates] = useState<Map<string, Map<number, number>>>(new Map());
   const [ngAiJudging, setNgAiJudging] = useState<{ ruleId: string; done: number; total: number; index?: number; count?: number } | null>(null);
@@ -5256,12 +5263,21 @@ export default function App() {
 
   // mode: このレス自身の NG 判定。chainMode: 「ID連鎖」付きワードに一致したときのそのモード
   // (呼び出し側がこのレスの ID / ワッチョイを同スレ内の他レスへ広げる)。
-  const evalNg = (resp: { name: string; time: string; text: string; responseNo?: number }): { mode: NgMode | null; chainMode: NgMode | null } => {
-    if (ngFilters.words.length === 0 && ngFilters.ids.length === 0 && ngFilters.names.length === 0) return { mode: null, chainMode: null };
+  // reason: mode を決めた NG 項目 (あぼーんを開いたときに「なぜ隠れたか」として出す)。
+  const evalNg = (resp: { name: string; time: string; text: string; responseNo?: number }): { mode: NgMode | null; chainMode: NgMode | null; reason: string | null } => {
+    if (ngFilters.words.length === 0 && ngFilters.ids.length === 0 && ngFilters.names.length === 0) return { mode: null, chainMode: null, reason: null };
     const isNo1 = resp.responseNo === 1;
-    let result: NgMode | null = null;
+    // raise() の中で書き換えるので、宣言時の null に絞り込まれないよう型を明示しておく
+    let result = null as NgMode | null;
+    let reason = null as string | null;
     let chainMode: NgMode | null = null;
     let plainBody: string | null = null;
+    // より強いモードに上がったときだけ理由を差し替える (同じ強さなら最初に当たった項目のまま)
+    const raise = (m: NgMode, why: string) => {
+      const next = strongerNgMode(result, m);
+      if (next !== result) reason = why;
+      result = next;
+    };
     for (const w of ngFilters.words) {
       if (ngEntryDisabled(w)) continue;
       if (isNo1 && ngEntryExcludeNo1(w)) continue;
@@ -5273,21 +5289,22 @@ export default function App() {
         : resp.text;
       if (ngMatch(ngVal(w), wTarget, wMatch)) {
         const m = ngEntryMode(w);
-        result = strongerNgMode(result, m);
+        raise(m, `NGワード「${ngReasonValue(ngVal(w))}」`);
         if (ngEntryChainId(w)) chainMode = strongerNgMode(chainMode, m);
         // hide かつ連鎖も hide なら、これ以上見ても結果は変わらない
         if (result === "hide" && chainMode === "hide") break;
       }
     }
-    if (result === "hide") return { mode: "hide", chainMode };
+    if (result === "hide") return { mode: "hide", chainMode, reason };
     for (const n of ngFilters.names) {
       if (ngEntryDisabled(n)) continue;
       if (isNo1 && ngEntryExcludeNo1(n)) continue;
       const nVal = ngVal(n);
       if (ngMatch(nVal, isNgRegex(nVal) ? responseHtmlToPlainText(resp.name) : resp.name)) {
         const m = ngEntryMode(n);
-        if (m === "hide") return { mode: "hide", chainMode };
-        result = strongerNgMode(result, m);
+        const why = `NG名前「${ngReasonValue(nVal)}」`;
+        if (m === "hide") return { mode: "hide", chainMode, reason: why };
+        raise(m, why);
       }
     }
     if (ngFilters.ids.length > 0) {
@@ -5298,13 +5315,14 @@ export default function App() {
           if (isNo1 && ngEntryExcludeNo1(entry)) continue;
           if (idMatch[1] === ngVal(entry)) {
             const m = ngEntryMode(entry);
-            if (m === "hide") return { mode: "hide", chainMode };
-            result = strongerNgMode(result, m);
+            const why = `NG ID「${ngVal(entry)}」`;
+            if (m === "hide") return { mode: "hide", chainMode, reason: why };
+            raise(m, why);
           }
         }
       }
     }
-    return { mode: result, chainMode };
+    return { mode: result, chainMode, reason };
   };
   const getNgResult = (resp: { name: string; time: string; text: string; responseNo?: number }): NgMode | null => evalNg(resp).mode;
   const isNgFiltered = (resp: { name: string; time: string; text: string }): boolean => getNgResult(resp) !== null;
@@ -7963,6 +7981,7 @@ export default function App() {
   // スレを移ったら「手で開いた」状態も忘れる
   useEffect(() => {
     setNgAiRevealed(new Set());
+    setAboneRevealed(new Set());
   }, [activeThreadUrl]);
 
   // 閾値以上で、かつ有効なルールに引っかかったレス。レス番号 -> 理由。
@@ -8282,6 +8301,15 @@ export default function App() {
     setNgInputType(c.target);
     setNgInput(`/${c.pattern}/`);
     setStatus("入力欄に入れました。件数を確かめてから追加してください");
+  };
+
+  const toggleAboneRevealed = (no: number) => {
+    setAboneRevealed((prev) => {
+      const next = new Set(prev);
+      if (next.has(no)) next.delete(no);
+      else next.add(no);
+      return next;
+    });
   };
 
   const toggleNgAiRevealed = (no: number) => {
@@ -8825,19 +8853,34 @@ export default function App() {
   }, [responseItems]);
 
   // evalNg が見るのは ngFilters だけなので、依存はそれと各パスが読む設定で足りる。
-  const ngResultMap = useMemo(() => {
+  const { ngResultMap, ngReasonMap } = useMemo(() => {
     const map = new Map<number, NgMode>();
+    // 隠した理由。あぼーんを「表示」で開いたときに 1 行で出す。モードがより強く
+    // なったときだけ差し替えるので、出ている理由はいまのモードを決めたもの。
+    const reasons = new Map<number, string>();
+    const apply = (no: number, mode: NgMode, reason: string) => {
+      const prev = map.get(no) ?? null;
+      const next = strongerNgMode(prev, mode);
+      if (next !== prev || !reasons.has(no)) reasons.set(no, reason);
+      map.set(no, next);
+    };
     // 1 パス目: エントリに直接一致したレス。「ID連鎖」付きワードに当たったレスの
     // ID / ワッチョイを集めておく (スレ内だけの一時的な連鎖で、NG リストには追加しない)。
-    const chainIds = new Map<string, NgMode>();
-    const chainWatchois = new Map<string, NgMode>();
+    // 連鎖元のレス番号も持っておき、理由に「>>N と同じ ID」と出す。
+    const chainIds = new Map<string, { mode: NgMode; from: number }>();
+    const chainWatchois = new Map<string, { mode: NgMode; from: number }>();
+    const addChain = (m: Map<string, { mode: NgMode; from: number }>, key: string, mode: NgMode, from: number) => {
+      const cur = m.get(key);
+      if (!cur) m.set(key, { mode, from });
+      else if (strongerNgMode(cur.mode, mode) !== cur.mode) m.set(key, { mode, from });
+    };
     for (const r of responseItems) {
-      const { mode, chainMode } = evalNg({ name: r.name, time: r.time, text: r.text, responseNo: r.id });
-      if (mode) map.set(r.id, mode);
+      const { mode, chainMode, reason } = evalNg({ name: r.name, time: r.time, text: r.text, responseNo: r.id });
+      if (mode) apply(r.id, mode, reason ?? "NG");
       if (!chainMode) continue;
       const id = extractId(r.time);
-      if (id && id !== "???") chainIds.set(id, strongerNgMode(chainIds.get(id) ?? null, chainMode));
-      if (r.watchoi) chainWatchois.set(r.watchoi, strongerNgMode(chainWatchois.get(r.watchoi) ?? null, chainMode));
+      if (id && id !== "???") addChain(chainIds, id, chainMode, r.id);
+      if (r.watchoi) addChain(chainWatchois, r.watchoi, chainMode, r.id);
     }
     // 2 パス目: 同じ ID / ワッチョイのレスにも同じモードを適用する (>>1 は除く)
     if (chainIds.size > 0 || chainWatchois.size > 0) {
@@ -8846,9 +8889,8 @@ export default function App() {
         const id = extractId(r.time);
         const byId = id ? chainIds.get(id) : undefined;
         const byWatchoi = r.watchoi ? chainWatchois.get(r.watchoi) : undefined;
-        let m: NgMode | null = byId ?? null;
-        if (byWatchoi) m = strongerNgMode(m, byWatchoi);
-        if (m) map.set(r.id, strongerNgMode(map.get(r.id) ?? null, m));
+        if (byId && byId.from !== r.id) apply(r.id, byId.mode, `ID連鎖 (>>${byId.from} と同じ ID)`);
+        if (byWatchoi && byWatchoi.from !== r.id) apply(r.id, byWatchoi.mode, `ワッチョイ連鎖 (>>${byWatchoi.from} と同じワッチョイ)`);
       }
     }
     // 3 パス目: 連投 ID の自動 NG。スレ内でしきい値以上書いた ID のレスをまとめて NG に
@@ -8864,15 +8906,16 @@ export default function App() {
         if (r.id === 1) continue;
         const id = extractId(r.time);
         if (!id || id === "???") continue;
-        if ((counts.get(id) ?? 0) < ngIdPostCount) continue;
-        map.set(r.id, strongerNgMode(map.get(r.id) ?? null, ngIdPostCountMode));
+        const count = counts.get(id) ?? 0;
+        if (count < ngIdPostCount) continue;
+        apply(r.id, ngIdPostCountMode, `連投ID (このスレで ${count} 回)`);
       }
     }
     // 3.5 パス目: 同じ本文の連投 (ID を変えて同じ文を貼る荒らし) と、同じ文字の繰り返しばかりの
     // 長文。ID 連投と同じく NG リストには入れず、このスレの表示中だけ効かせる。
     if (ngDupBodyMode) {
       for (const no of findDupBodyResponses(responseItems)) {
-        map.set(no, strongerNgMode(map.get(no) ?? null, ngDupBodyMode));
+        apply(no, ngDupBodyMode, "同じ本文の連投・同じ文字の繰り返し");
       }
     }
     // 4 パス目: NG レスへの返信の連鎖。NG (非表示 / あぼーん) になったレスへ安価を打った
@@ -8885,13 +8928,16 @@ export default function App() {
         if (mode !== "hide" && mode !== "abone") continue;
         for (const from of ngChainRefMap.get(r.id) ?? []) {
           if (from === r.id || from === 1) continue;
-          map.set(from, strongerNgMode(map.get(from) ?? null, ngChainRepliesMode));
+          apply(from, ngChainRepliesMode, `NGレスへの返信 (>>${r.id})`);
         }
       }
     }
-    return map;
+    return { ngResultMap: map, ngReasonMap: reasons };
   }, [responseItems, ngFilters, ngChainReplies, ngChainRepliesMode, ngChainRefMap, ngIdPostCount, ngIdPostCountMode, ngDupBodyMode]);
   const ngFilteredCount = ngResultMap.size;
+  // あぼーん指定で、まだ「表示」で開いていないレス。本文欄とポップアップで中身を伏せる。
+  const isAboneMasked = (responseNo: number): boolean =>
+    ngResultMap.get(responseNo) === "abone" && !aboneRevealed.has(responseNo);
 
   // スレッド窓に出ていないレス (NG 非表示 / 手で開いていない曖昧NG)。
   // あぼーんは枠が残るので「出ている」扱いで、中身だけ伏せる。
@@ -9278,8 +9324,8 @@ export default function App() {
   };
 
   const renderPopupHeader = (resp: typeof responseItems[number]) => {
-    // あぼーん指定のレスは、ポップアップでも本文欄と同じく中身を伏せる
-    const abone = ngResultMap.get(resp.id) === "abone";
+    // あぼーん指定のレスは、ポップアップでも本文欄と同じく中身を伏せる (「表示」で開いたものは出す)
+    const abone = isAboneMasked(resp.id);
     const id = abone ? null : extractId(resp.time);
     const date = abone ? ABONE_TEXT : formatResponseDate(resp.time);
     const refs = displayBackRefMap.get(resp.id);
@@ -9327,7 +9373,7 @@ export default function App() {
   // NG モードが「画像」のレスは本文欄と同じく画像だけ落とす (以前は画像が出ていた)。
   // NG 非表示と曖昧NGのレスはポップアップの一覧自体から外してある。
   const renderPopupBody = (resp: typeof responseItems[number]) =>
-    ngResultMap.get(resp.id) === "abone"
+    isAboneMasked(resp.id)
       ? <div className="anchor-popup-body abone-body">{ABONE_TEXT}</div>
       : <div className="anchor-popup-body" dangerouslySetInnerHTML={renderResponseBody(resp.text, { hideImages: ngResultMap.get(resp.id) === "hide-images", youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, idColor: idColorEnabled, darkMode, imgurAlbums, imgurAlbumsRevealed })} />;
 
@@ -14978,7 +15024,7 @@ export default function App() {
                     </Fragment>
                   );
                 }
-                if (ngResultMap.get(r.id) === "abone") {
+                if (isAboneMasked(r.id)) {
                   return (
                     <Fragment key={r.id}>
                       {isFirstNew && (
@@ -14996,6 +15042,14 @@ export default function App() {
                             {r.id}
                           </span>
                           <span className="response-name">{ABONE_TEXT}</span>
+                          {/* 誤爆の確認用。押したレスだけ中身を出し、もう一度押すと伏せる */}
+                          <button
+                            className="ng-ai-hidden-toggle abone-reveal-toggle"
+                            onClick={(e) => { e.stopPropagation(); toggleAboneRevealed(r.id); }}
+                            title={`このレスを表示する (${ngReasonMap.get(r.id) ?? "NG"})`}
+                          >
+                            表示
+                          </button>
                           <span className="response-header-right">
                             {isNew && <span className="response-new-marker">New!</span>}
                             <span className="response-date">{ABONE_TEXT}</span>
@@ -15040,6 +15094,19 @@ export default function App() {
                         >
                           曖昧NG / 隠す
                         </button>
+                      )}
+                      {/* あぼーんを手で開いたレス。隠した理由を出し、押すと伏せ直す */}
+                      {aboneRevealed.has(r.id) && ngResultMap.get(r.id) === "abone" && (
+                        <>
+                          <button
+                            className="ng-ai-revealed-label"
+                            title="あぼーんの対象 — 押すと伏せます"
+                            onClick={(e) => { e.stopPropagation(); toggleAboneRevealed(r.id); }}
+                          >
+                            あぼーん / 隠す
+                          </button>
+                          <span className="abone-reason">{ngReasonMap.get(r.id) ?? "NG"}</span>
+                        </>
                       )}
                       <span
                         className="response-name"
@@ -17340,7 +17407,7 @@ export default function App() {
                   {replyCount > 0 && (
                     <span className="id-popup-reply-count" title={`${replyCount}件のレスがついています`}>▼{replyCount}</span>
                   )}
-                  {ngResultMap.get(r.id) === "abone"
+                  {isAboneMasked(r.id)
                     ? <span className="id-popup-text abone-body">{ABONE_TEXT}</span>
                     : <span className="id-popup-text" dangerouslySetInnerHTML={renderResponseBody(r.text, { youtubeThumbs: youtubeThumbsEnabled, thumbAutoLoad: thumbAutoLoadEnabled, knownIds: idCountMap, idColor: idColorEnabled, darkMode, imgurAlbums, imgurAlbumsRevealed })} />}
                 </div>
@@ -18205,7 +18272,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>221項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>222項目</span></div>
               </fieldset>
               </>)}
             </div>

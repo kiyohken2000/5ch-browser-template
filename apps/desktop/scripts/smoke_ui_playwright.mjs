@@ -796,6 +796,16 @@ try {
   // レス番が飛ばないこと (あぼーんの狙い) — >>2 が一覧に残っている
   const aboneNos = await page.$$eval(".response-block", (els) => els.map((el) => el.getAttribute("data-response-no")));
   assert(aboneNos.includes("2"), `abone should keep the response number in place, got ${JSON.stringify(aboneNos)}`);
+  // 「表示」で中身を開くと、隠した理由 (当たった NG ワード) が出る。もう一度押すと伏せ直す
+  await page.$eval('.response-block.abone-block[data-response-no="2"] .abone-reveal-toggle', (el) => el.click()); // NG パネルが重なっているので DOM から押す
+  assert(!(await page.$('.response-block.abone-block[data-response-no="2"]')), "表示 should reveal the abone response");
+  const aboneRevealedBody = await page.$eval('.response-block[data-response-no="2"] .response-body', (el) => el.textContent ?? "");
+  assert(aboneRevealedBody.includes("UPLIFT"), `revealed abone should show the original body, got ${aboneRevealedBody}`);
+  const aboneReason = await page.$eval('.response-block[data-response-no="2"] .abone-reason', (el) => el.textContent);
+  assert(aboneReason === "NGワード「UPLIFT」", `revealed abone should show the matched NG word, got ${aboneReason}`);
+  await page.$eval('.response-block[data-response-no="2"] .ng-ai-revealed-label', (el) => el.click()); // NG パネルが重なっているので DOM から押す
+  assert(await page.$('.response-block.abone-block[data-response-no="2"]'), "あぼーん / 隠す should mask the response again");
+  console.log("smoke-ui: abone reveal ok");
   // バッジをクリックすると あぼーん → 非表示 → 画像 → あぼーん と回る
   await page.click(".ng-list li .ng-mode-label");
   const ngModeHide = await page.$eval(".ng-list li .ng-mode-label", (el) => el.textContent);
@@ -898,6 +908,11 @@ try {
       && !aboneAfterChain.includes("1") && !aboneAfterChain.includes("3"),
     `ID連鎖 should abone the same-ID responses only, got ${JSON.stringify(aboneAfterChain)}`,
   );
+  // 連鎖で付いたあぼーんは、開くと連鎖元のレス番を理由に出す
+  await page.$eval('.response-block.abone-block[data-response-no="4"] .abone-reveal-toggle', (el) => el.click()); // NG パネルが重なっているので DOM から押す
+  const chainReason = await page.$eval('.response-block[data-response-no="4"] .abone-reason', (el) => el.textContent);
+  assert(chainReason === "ID連鎖 (>>2 と同じ ID)", `chained abone should name its source, got ${chainReason}`);
+  await page.$eval('.response-block[data-response-no="4"] .ng-ai-revealed-label', (el) => el.click()); // NG パネルが重なっているので DOM から押す
   await page.click(".ng-remove");
   console.log("smoke-ui: ng word id chain ok");
 

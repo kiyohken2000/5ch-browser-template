@@ -1297,6 +1297,21 @@ li.fav-drag-over {
   color: var(--sub);
   font-style: italic;
 }
+/* あぼーんの「表示」ボタンと、開いたあとに出す隠した理由 */
+.abone-reveal-toggle {
+  margin-left: 6px;
+}
+.abone-reason {
+  margin: 0 6px 0 4px;
+  font-size: 11px;
+  color: var(--sub);
+  max-width: 40ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  display: inline-block;
+}
 
 .response-body.aa {
   font-family: "Saitamaar", "IPAMonaPGothic", "Mona", "MS PGothic", "ＭＳ Ｐゴシック", monospace;
