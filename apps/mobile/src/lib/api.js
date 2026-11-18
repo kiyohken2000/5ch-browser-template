@@ -279,11 +279,16 @@ function readLastModified(headers) {
  * 304 が返り、転送量は 0 になる（§9-6）。
  *
  * @param {object} prev 前回の状態 `{ byteLength, entryCount, lastModified }`
+ * @param {{archive?: boolean}} [options] `archive: true` なら、dat が 404（dat落ち）の
+ *   とき read.cgi の過去ログを読む。手元と同じかそれ以上レスが読めたときだけ `mode: 'full'`・
+ *   `archived: true` で返し、そうでなければ dat の 404 をそのまま投げる。
+ *   過去ログは HTML から作り直した dat なので、バイト位置が合わず継ぎ足しはできない
  * @returns {{mode: 'full'|'append'|'nochange', entries, title, byteLength,
  *   appended, raw, chunk, lastModified}} `full` は `raw` が全体、`append` は
  *   `chunk` が確定した追記分（途中で切れた最終行は含まない）。
  */
 export async function fetchDatDelta(threadUrl, prev, options = {}) {
+  const { archive = false, ...rest } = options
   const location = parseBoardLocation(threadUrl)
   if (!location.threadKey) throw new Error(`スレ URL ではない: ${threadUrl}`)
 
@@ -300,9 +305,9 @@ export async function fetchDatDelta(threadUrl, prev, options = {}) {
   let result
   try {
     result = await read5chBytes(location.datUrl(), {
-      ...options,
+      ...rest,
       headers: {
-        ...(options.headers || {}),
+        ...(rest.headers || {}),
         ...(prev?.lastModified
           ? { 'If-Modified-Since': prev.lastModified }
           : {}),
@@ -313,6 +318,12 @@ export async function fetchDatDelta(threadUrl, prev, options = {}) {
     if (e instanceof HttpError && e.status === 416) {
       const full = await fetchDat(threadUrl, options)
       return { ...full, mode: 'full', appended: full.entries.length }
+    }
+    if (archive && e instanceof HttpError && e.status === 404) {
+      const old = await fetchArchive(location, rest)
+      if (old && old.entries.length >= haveCount) {
+        return { ...old, mode: 'full', appended: old.entries.length }
+      }
     }
     throw e
   }

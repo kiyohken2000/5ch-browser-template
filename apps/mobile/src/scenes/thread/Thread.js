@@ -504,7 +504,9 @@ export default function Thread({ route, navigation }) {
     setError(null)
     try {
       const before = stateRef.current
-      const got = await fetchDatDelta(threadUrl, before)
+      // dat落ちしていたら過去ログから続きを読む。手元以上に読めたときだけ置き換わる
+      const got = await fetchDatDelta(threadUrl, before, { archive: true })
+      const archived = got.mode === 'full' && !!got.archived
       if (got.mode === 'full') {
         stateRef.current = {
           byteLength: got.byteLength,
@@ -542,7 +544,8 @@ export default function Thread({ route, navigation }) {
           : null,
       )
       dispatch(markSeen({ threadId, totalCount: stateRef.current.entryCount }))
-      noteDatDropped(false)
+      setFromArchive(archived)
+      noteDatDropped(archived)
       return true
     } catch (e) {
       console.warn(`[thread] 差分取得に失敗: ${e?.message || e}`)

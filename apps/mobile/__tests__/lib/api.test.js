@@ -153,6 +153,48 @@ describe('dat落ちしたスレ（過去ログ）', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1)
   })
 
+  it('差分取得でも archive なら dat の 404 で過去ログを全体として返す', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(respond(404))
+      .mockResolvedValueOnce(respond(200, ARCHIVE_HTML))
+    const got = await fetchDatDelta(
+      URL,
+      { byteLength: 10, entryCount: 1, lastModified: 'LM1' },
+      { archive: true },
+    )
+    expect(got.mode).toBe('full')
+    expect(got.archived).toBe(true)
+    expect(got.entries).toHaveLength(1)
+    expect(got.byteLength).toBe(got.raw.length)
+    // 過去ログの HTML には Range も If-Modified-Since も付けない
+    const htmlHeaders = global.fetch.mock.calls[1][1]?.headers || {}
+    expect(htmlHeaders.Range).toBeUndefined()
+    expect(htmlHeaders['If-Modified-Since']).toBeUndefined()
+  })
+
+  it('過去ログが手元よりレスが少なければ dat の 404 を返す', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(respond(404))
+      .mockResolvedValueOnce(respond(200, ARCHIVE_HTML))
+    await expect(
+      fetchDatDelta(
+        URL,
+        { byteLength: 100, entryCount: 5, lastModified: null },
+        { archive: true },
+      ),
+    ).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('差分取得で archive でなければ過去ログを取りに行かない', async () => {
+    global.fetch = jest.fn(async () => respond(404))
+    await expect(
+      fetchDatDelta(URL, { byteLength: 10, entryCount: 1, lastModified: null }),
+    ).rejects.toMatchObject({ status: 404 })
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+  })
+
   it('HTML も読めなければ dat の 404 を返す', async () => {
     jest.spyOn(console, 'warn').mockImplementation(() => {})
     global.fetch = jest
