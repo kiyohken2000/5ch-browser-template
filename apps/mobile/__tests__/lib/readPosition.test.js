@@ -1,4 +1,4 @@
-import { rememberPosition, rowIndexForNo } from 'lib/readPosition'
+import { noToRemember, rememberPosition, rowIndexForNo } from 'lib/readPosition'
 
 jest.mock('lib/storage', () => ({
   KEYS: { scrollPositions: 'x' },
@@ -44,5 +44,54 @@ describe('rowIndexForNo', () => {
   it('無ければ -1', () => {
     expect(rowIndexForNo(rows, 99)).toBe(-1)
     expect(rowIndexForNo(rows, null)).toBe(-1)
+  })
+})
+
+describe('noToRemember', () => {
+  const rows = [{ no: 1 }, { no: 2 }, { no: 5 }, { no: 9 }]
+  it('ふだんは画面の一番上のレス', () => {
+    expect(
+      noToRemember(rows, {
+        startIndex: 1,
+        skipFirst: false,
+        atBottom: false,
+        offset: 300,
+      }),
+    ).toBe(2)
+  })
+  it('一番上がほとんど見えていなければ次のレス', () => {
+    expect(
+      noToRemember(rows, {
+        startIndex: 1,
+        skipFirst: true,
+        atBottom: false,
+        offset: 300,
+      }),
+    ).toBe(5)
+  })
+  it('一番下まで読んでいたら最後のレス', () => {
+    expect(
+      noToRemember(rows, {
+        startIndex: 1,
+        skipFirst: false,
+        atBottom: true,
+        offset: 300,
+      }),
+    ).toBe(9)
+  })
+  it('動かしていない短いスレは最下部でも一番上のレス', () => {
+    expect(
+      noToRemember(rows, {
+        startIndex: 0,
+        skipFirst: false,
+        atBottom: true,
+        offset: 0,
+      }),
+    ).toBe(1)
+  })
+  it('行が無ければ null', () => {
+    expect(
+      noToRemember([], { startIndex: 0, atBottom: true, offset: 100 }),
+    ).toBe(null)
   })
 })

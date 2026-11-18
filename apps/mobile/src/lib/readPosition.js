@@ -30,6 +30,23 @@ export function rowIndexForNo(rows, no) {
   return rows.findIndex((r) => r.no >= no)
 }
 
+/** これより下へ動かしていなければ「一番下まで読んだ」と見なさない（短いスレで常に最下部になるため） */
+export const SCROLLED_MIN_PT = 8
+
+/**
+ * 覚えておくレス番号。一番下まで読んでいたら最後のレスを覚える（デスクトップ版と同じ）。
+ * 画面の一番上のレスを覚えると、新着が付いたときに約 1 画面ぶん手前から始まってしまう。
+ * それ以外は画面の一番上のレス。`skipFirst` は一番上の行がほとんど見えていないとき。
+ */
+export function noToRemember(
+  rows,
+  { startIndex, skipFirst, atBottom, offset },
+) {
+  if (!rows || rows.length === 0) return null
+  if (atBottom && offset > SCROLLED_MIN_PT) return rows[rows.length - 1].no
+  return rows[startIndex + (skipFirst ? 1 : 0)]?.no ?? null
+}
+
 let positions = null
 let loading = null
 let timer = null

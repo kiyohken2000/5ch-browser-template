@@ -75,6 +75,7 @@ import { buildBacklinks, parseBody } from 'lib/body'
 import { longPressHaptic } from 'lib/haptics'
 import {
   getReadPosition,
+  noToRemember,
   rowIndexForNo,
   setReadPosition,
 } from 'lib/readPosition'
@@ -1739,7 +1740,7 @@ export default function Thread({ route, navigation }) {
   // 番号は動かす瞬間の列で引き直す
   const restoreEnvRef = useRef({})
   const openMarkerIndex = settings.openAtReadMarker ? markerRow : -1
-  restoreEnvRef.current = { shown, savedNo, markerIndex, openMarkerIndex }
+  restoreEnvRef.current = { shown, savedNo, openMarkerIndex }
   /** 復元が終わるまでは位置を記録しない。先頭のまま上書きしてしまうため */
   const positionReadyRef = useRef(false)
   const restoreTimersRef = useRef([])
@@ -1757,15 +1758,13 @@ export default function Thread({ route, navigation }) {
     restoredRef.current = true
     const moveToSaved = () => {
       const env = restoreEnvRef.current
+      // 読んでいた位置が無ければ先頭のまま。「ここまで読んだ」へ飛ぶのは設定がオンのときだけ
+      // （デスクトップ版と同じ）
       const saved = rowIndexForNo(env.shown, env.savedNo)
-      const fallback = saved >= 0 ? saved : env.markerIndex
-      const target = env.openMarkerIndex >= 0 ? env.openMarkerIndex : fallback
+      const target = env.openMarkerIndex >= 0 ? env.openMarkerIndex : saved
       if (target >= 0) scrollToRow(target, false, 0)
     }
-    const hasTarget =
-      rowIndexForNo(shown, savedNo) >= 0 ||
-      markerIndex >= 0 ||
-      openMarkerIndex >= 0
+    const hasTarget = rowIndexForNo(shown, savedNo) >= 0 || openMarkerIndex >= 0
     // 絞り込みで開いたときは、そちらを優先する
     if (filterKey || !hasTarget) {
       positionReadyRef.current = true
@@ -1779,15 +1778,7 @@ export default function Thread({ route, navigation }) {
         positionReadyRef.current = true
       }, RESTORE_SECOND_MS),
     ]
-  }, [
-    loading,
-    savedNo,
-    markerIndex,
-    openMarkerIndex,
-    shown,
-    scrollToRow,
-    filterKey,
-  ])
+  }, [loading, savedNo, openMarkerIndex, shown, scrollToRow, filterKey])
 
   /** 読んでいる位置を記録する。次に開くときに、ここから続ける。 */
   const rememberVisible = useCallback(() => {
@@ -1802,8 +1793,13 @@ export default function Thread({ route, navigation }) {
     const barelyVisible =
       first &&
       first.y + first.height - scrollRef.current.offset < BARELY_VISIBLE_PT
-    const top = rows[range.startIndex + (barelyVisible ? 1 : 0)]
-    if (top) setReadPosition(threadId, top.no)
+    const no = noToRemember(rows, {
+      startIndex: range.startIndex,
+      skipFirst: barelyVisible,
+      atBottom: scrollRef.current.atBottom,
+      offset: scrollRef.current.offset,
+    })
+    if (no) setReadPosition(threadId, no)
   }, [threadId])
 
   // ---- つかめるスクロールバー ------------------------------------------------
