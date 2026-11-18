@@ -66,6 +66,7 @@
       "policy": "appVersion"
     },
     "plugins": [
+      "./plugins/withGradleHeap",
       "expo-font",
       "expo-asset",
       [
