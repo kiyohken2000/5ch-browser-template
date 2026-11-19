@@ -147,6 +147,22 @@ export function watchoiParts(watchoi) {
   return m ? { front: m[1], back: m[2] } : null
 }
 
+/**
+ * ワッチョイの括弧の中に出る IP。IP を表示する板・スレでは
+ * `ﾜｯﾁｮｲ 73b6-g2As [118.241.104.16]` の形になる。IPv6 は
+ * `[2400:4153:f4a1:1e00:*]` のように後ろが伏せてあるので、`:*` を落として
+ * 前半だけ返す（名前の NG は部分一致なので、それで同じ回線に当たる）。
+ * IP が無ければ空文字。
+ */
+export function ipOfWatchoi(watchoi) {
+  const m = /\[([0-9A-Fa-f.:*]+)\]/.exec(watchoi || '')
+  if (!m) return ''
+  const ip = m[1].replace(/:?\*+$/, '')
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return ip
+  if (ip.includes(':') && /^[0-9A-Fa-f:]+$/.test(ip)) return ip
+  return ''
+}
+
 const ID_RE = /\bID:([^\s<>]+)/
 const BE_RE = /BE:(\d+)-/
 const DATE_RE = /^(\d{4}\/\d{2}\/\d{2}\([^)]*\)\s*\d{2}:\d{2}:\d{2}(?:\.\d+)?)/

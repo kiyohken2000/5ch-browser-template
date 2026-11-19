@@ -1,4 +1,4 @@
-import { splitNameWatchoi, watchoiParts } from 'lib/parse'
+import { ipOfWatchoi, splitNameWatchoi, watchoiParts } from 'lib/parse'
 
 describe('splitNameWatchoi', () => {
   it('末尾のワッチョイを分ける', () => {
@@ -35,5 +35,25 @@ describe('watchoiParts', () => {
 
   it('形が違えば null', () => {
     expect(watchoiParts('東京都')).toBeNull()
+  })
+})
+
+describe('ipOfWatchoi', () => {
+  it('IPv4 を取り出す', () => {
+    expect(ipOfWatchoi('ﾜｯﾁｮｲ 73b6-g2As [118.241.104.16]')).toBe(
+      '118.241.104.16',
+    )
+  })
+
+  it('IPv6 は伏せ字の :* を落とす', () => {
+    expect(ipOfWatchoi('ﾜｯﾁｮｲ f7b7-MLPR [2400:4153:f4a1:1e00:*]')).toBe(
+      '2400:4153:f4a1:1e00',
+    )
+  })
+
+  it('IP が無ければ空', () => {
+    expect(ipOfWatchoi('ﾜｯﾁｮｲW 0b6b-v/9N')).toBe('')
+    expect(ipOfWatchoi('ﾜｯﾁｮｲ 0b6b-v/9N [東京]')).toBe('')
+    expect(ipOfWatchoi(undefined)).toBe('')
   })
 })

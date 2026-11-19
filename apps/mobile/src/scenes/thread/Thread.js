@@ -99,7 +99,12 @@ import {
   idSequences,
 } from 'lib/extract'
 import { HttpError } from 'lib/http'
-import { parseDatBytes, splitNameWatchoi, watchoiParts } from 'lib/parse'
+import {
+  ipOfWatchoi,
+  parseDatBytes,
+  splitNameWatchoi,
+  watchoiParts,
+} from 'lib/parse'
 import { findModel } from 'ai/catalog'
 import { isModelInstalled } from 'ai/download'
 import { isStopRequested, runExclusive, stopAi } from 'ai/engine'
@@ -1494,6 +1499,19 @@ export default function Thread({ route, navigation }) {
           label: `ワッチョイ後半を NG に追加（${parts.back}）`,
           run: () =>
             addNgAndClose({ list: 'names', value: parts.back }, parts.back),
+        })
+      }
+      // IP を表示するスレでは括弧の中に IP がある。ワッチョイは変わっても IP は
+      // 残るので、IP だけを名前の NG（部分一致）に入れられるようにする
+      const ip = ipOfWatchoi(watchoi)
+      if (ip) {
+        ngItems.push({
+          label: `IP を NG に追加（${ip}）`,
+          run: () => addNgAndClose({ list: 'names', value: ip }, ip),
+        })
+        ngItems.push({
+          label: `IP を強調表示（${ip}）`,
+          run: () => addHighlightAndClose('names', ip, ip),
         })
       }
     }
