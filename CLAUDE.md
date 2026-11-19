@@ -33,7 +33,7 @@ Tauri App (ember)
 
 ## 開発コマンド
 
-**事前要件 (core-ai のビルドに必要)**: LLVM (libclang) + CMake が PATH 通っていること。Windows: `winget install LLVM.LLVM Kitware.CMake` + 環境変数 `LIBCLANG_PATH=C:/Program Files/LLVM/bin`。macOS: `brew install llvm cmake` + `LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib`。詳細は `docs/AI_INTEGRATION_PLAN.md` 参照。
+**事前要件 (core-ai のビルドに必要)**: LLVM (libclang) + CMake が PATH 通っていること。Windows: `winget install LLVM.LLVM Kitware.CMake` + 環境変数 `LIBCLANG_PATH=C:/Program Files/LLVM/bin`。macOS: `brew install llvm cmake` + `LIBCLANG_PATH=/opt/homebrew/opt/llvm/lib`。詳細は `docs/DEVELOPER_GUIDE.md` の「開発環境セットアップ」参照。
 
 **Vulkan GPU バックエンド (Windows / Linux)**: `llama-cpp-2` の vulkan feature を有効化済み。追加要件:
 - **Windows**: `winget install KhronosGroup.VulkanSDK` (~600 MB DL) + Long Path 有効化 (`reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f` を admin で実行) + 必要に応じて `CARGO_TARGET_DIR=C:\t` で MAX_PATH 超え回避
@@ -104,7 +104,7 @@ cd apps/desktop && npx tsc --noEmit      # TypeScript型チェック
 - **エラー処理**: Tauriコマンドは `Result<T, String>`、ライブラリcrateは `thiserror` カスタム型
 - **5ch固有**: レスポンスは Shift_JIS デコード必須、URLは `normalize_5ch_url()` を通す
 - **永続化**: localStorage (`desktop.*` プレフィックス) + JSON/SQLite (core-store 経由)
-- **AI**: モデルカタログは `apps/desktop/src-tauri/ai-models.json` に同梱、`include_str!` でバイナリ埋め込み。モデルファイルは `<app_data_dir>/models/` に DL、SHA256 検証必須。詳細は [`docs/AI_INTEGRATION_PLAN.md`](docs/AI_INTEGRATION_PLAN.md)
+- **AI**: モデルカタログは `apps/desktop/src-tauri/ai-models.json` に同梱、`include_str!` でバイナリ埋め込み。モデルファイルは `<app_data_dir>/models/` に DL、SHA256 検証必須。AI コマンド一覧と設計判断は `docs/DEVELOPER_GUIDE.md`
 
 ## コード規約
 
@@ -128,8 +128,12 @@ cd apps/desktop && npx tsc --noEmit      # TypeScript型チェック
 | `docs/DEVELOPER_GUIDE.md` | 技術仕様・アーキテクチャ・開発手順 |
 | `docs/DEPLOYMENT_RUNBOOK.md` | リリース・デプロイ手順 |
 | `docs/PROGRESS_TRACKER.md` | 実装進捗・未実装タスク |
-| `docs/AI_INTEGRATION_PLAN.md` | AI 統合設計・Phase 進捗・ビルド要件 |
 | `docs/SYNC_IMPLEMENTATION.md` | モバイル版とのデータ同期 (Google ドライブ) の実装仕様。経緯は `docs/SYNC_PLAN.md` |
+| `docs/BRUSHUP_PLAN.md` | 改善案の採否の記録 (却下案を再提案しないための参照先) |
+| `docs/MOBILE_FEASIBILITY_STUDY.md` | モバイル版 (`apps/mobile`) の設計と決定事項の正典 |
+| `docs/MOBILE_FEATURE_PARITY.md` | デスクトップ機能のモバイル移植対応表 |
+| `docs/STORE_METADATA.md` | モバイル版のストア掲載文面・審査の記録 |
+| `docs/commands.txt` | モバイル版のビルド・シミュレーター操作コマンド集 |
 
 ## リリース
 

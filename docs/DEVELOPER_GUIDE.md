@@ -189,6 +189,14 @@ Ember の技術仕様・アーキテクチャ・開発手順をまとめたド�
 | `ai_list_backend_devices` | — | GPU バックエンドが検出したデバイス一覧 (ステータスタブで表示)。**注意: 旧 Kepler GPU 等で ICD 列挙クラッシュを起こす経路** — startup useEffect から呼ばないこと |
 | `ai_cache_state` | — | コンテキストキャッシュ使用量・トークン数のスナップショット |
 
+**AI の設計判断と実測 (旧 AI_INTEGRATION_PLAN.md から移したもの):**
+
+- **GPU バックエンドは Windows / Linux が Vulkan、macOS が Metal。** CUDA は NVIDIA 限定で runtime DLL 同梱により配布が数百 MB 増え、hipBLAS / ROCm は AMD 限定で成熟度にも懸念があるため不採用。「動かない GPU を出さない」を優先した
+- **CPU / GPU はビルドを分けず実行時に切り替える** (`InferenceBackend::Auto / Gpu / Cpu`、`desktop.aiPrefs.v1.inferenceBackend`)。`auto` / `gpu` は `n_gpu_layers = 999`、`cpu` は `0`。弱い GPU、GPU を他と取り合いたくない、ドライバが不安定、出力の差分検証 (CPU は決定的) のときに `cpu` を選べる。配布 ZIP の本数は増やさない
+- **実測 (2026-07-08、Windows 11 / Radeon RX 550 2GB / LFM2.5-1.2B-JP Q4_K_M、128 tok 生成):** CPU 67.5 tok/s、Vulkan 6.7 tok/s。弱い GPU では CPU が約 10 倍速い。`Auto` は GPU があれば常に GPU を選ぶので、この級の環境では最速にならない (設定で `cpu` を選べば足りるので対応していない)。計測は `cargo test -p core-ai --release -- --ignored bench_backend --nocapture` (`EMBER_AI_MODEL_PATH` と `EMBER_AI_BACKEND=auto|gpu|cpu` で指定)
+- **起動時に Vulkan を初期化しない。** `LlamaBackend::init` は `OnceLock` で遅延化してあり、古い GPU (Kepler 世代など) はデバイス列挙でプロセスごと落ちるため
+- Vulkan 非対応環境での CPU フォールバックは llama.cpp 内部の挙動に任せている (該当する実機が無く未検証)
+
 ---
 
 ## 開発環境セットアップ
@@ -219,6 +227,7 @@ Ember の技術仕様・アーキテクチャ・開発手順をまとめたド�
   reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
   ```
   - それでも MAX_PATH に引っかかる場合は `CARGO_TARGET_DIR=C:\t` のように短いパスを target に指定
+  - `llama-cpp-sys-2` の初回ビルドが vulkan-shaders-gen の install 段階で失敗することがある (タイミング問題)。再実行すれば通る
 - **OS**: Windows 10/11 (x64) / macOS 13+ (Apple Silicon) / Linux x86_64 + AArch64
 
 ### 初回セットアップ

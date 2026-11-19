@@ -304,6 +304,9 @@ sudo dnf install webkit2gtk4.1-devel gtk3-devel openssl-devel libxdo-devel libap
 | [docs/PROGRESS_TRACKER.md](docs/PROGRESS_TRACKER.md) | 実装進捗・未実装タスク |
 | [docs/MOBILE_FEASIBILITY_STUDY.md](docs/MOBILE_FEASIBILITY_STUDY.md) | モバイル版の実装計画・画面仕様 |
 | [docs/MOBILE_FEATURE_PARITY.md](docs/MOBILE_FEATURE_PARITY.md) | 上の機能一覧をモバイル版へどう運ぶかの対応表 |
+| [docs/STORE_METADATA.md](docs/STORE_METADATA.md) | モバイル版のストア掲載文面・審査の記録 |
+| [docs/BRUSHUP_PLAN.md](docs/BRUSHUP_PLAN.md) | 改善案の採否の記録 |
+| [docs/SYNC_IMPLEMENTATION.md](docs/SYNC_IMPLEMENTATION.md) | モバイル版とのデータ同期の実装仕様（経緯は [docs/SYNC_PLAN.md](docs/SYNC_PLAN.md)） |
 
 ## 既定方針
 

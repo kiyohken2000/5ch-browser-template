@@ -107,7 +107,7 @@
 
 スレ要約とチャット (および将来のレス返信案生成) を、ローカル LLM 推論 (llama-cpp-2) で実現する。Ollama 等の外部依存なしで完結し、ユーザーは AI 設定ダイアログからモデルをダウンロード・有効化することで AI 機能を解禁する。
 
-詳細設計: [docs/AI_INTEGRATION_PLAN.md](AI_INTEGRATION_PLAN.md)
+コマンド一覧と設計判断: [docs/DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)
 
 **実装済 Phase**
 - ✅ Phase 1 PoC (commit `82001a1`) — llama-cpp-2 Win ビルド、TinyLlama / Gemma3-1B 推論検証
@@ -118,7 +118,7 @@
 **残タスク**
 - ❌ Phase 4 レス返信案 — 却下 (2026-07-07、実装済みの投稿レビュー機能で足りると判断)
 - ❌ Phase 5 仕上げ — 却下 (2026-07-07。リモートカタログ fetch は v0.0.159 で実装済み)
-- ✅ Phase 6 Vulkan GPU 推論 — Win/Linux 用 Vulkan バックエンド + CPU/GPU 実行時切替 (`InferenceBackend::Auto / Gpu / Cpu`、`desktop.aiPrefs.v1`)。動作検証済み (2026-07-08、詳細は AI_INTEGRATION_PLAN.md Phase 6)
+- ✅ Phase 6 Vulkan GPU 推論 — Win/Linux 用 Vulkan バックエンド + CPU/GPU 実行時切替 (`InferenceBackend::Auto / Gpu / Cpu`、`desktop.aiPrefs.v1`)。動作検証済み (2026-07-08、実測値は DEVELOPER_GUIDE.md の AI の節)
 
 **新規 crate**
 - `crates/core-ai/` — llama-cpp-2 ラップ、モデル管理、ストリーミング推論
@@ -295,11 +295,7 @@ Phase 4（任意）: 自動同期
 
 **Variant 4（フェイクガラス）採用理由**
 
-WebView2 透過に依存しない実装方針として、`.shell` 内に静的なカラフルグラデーションを焼き込み、内部要素を `backdrop-filter` でブラーする方式に切替。壁紙は透けないが、視覚的な「奥行き感・ガラス感」は約 80% 再現でき、両OS で確実に動作する。デザイン確認用に `docs/glass-mockup.html` の Variant 4 を併設。
-
-**残してある成果物**
-
-- `docs/glass-mockup.html` — 4バリエーションのスタンドアロンHTMLモックアップ（Variant 1-3 は参考用、Variant 4 が実装版）
+WebView2 透過に依存しない実装方針として、`.shell` 内に静的なカラフルグラデーションを焼き込み、内部要素を `backdrop-filter` でブラーする方式に切替。壁紙は透けないが、視覚的な「奥行き感・ガラス感」は約 80% 再現でき、両OS で確実に動作する。
 
 **今後 Variant 3（真ガラス）を再挑戦する場合の方針候補**
 

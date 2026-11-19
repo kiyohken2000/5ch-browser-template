@@ -381,6 +381,7 @@ Play Console で理由を求められる可能性がある権限。
 
 - **通報への対応:** 開発者への報告は 24 時間以内に確認し、必要に応じて 5ch.io へ削除を申請すると、規約とサポートページと審査メモに書いた。`retwpay@gmail.com` を 24 時間以内に確認できる状態にしておく
 - **アプリ内の問い合わせ導線:** 設定の項目は外したので、今は報告画面からだけ。審査で指摘されたら設定に戻す
+- **未確認:** kenmo.org / 00c.org に国外の回線や VPN から届くか。届かないと分かったら、審査メモと下の返信文から切り替えボタンの段落を消す
 
 ### 再審査の依頼文（App Store Connect の返信欄）
 
@@ -394,46 +395,6 @@ This build now explains the refusal in the app instead of showing only "403 forb
 If the review device uses a VPN, please turn it off and try again. If the message remains, please review from a network in Japan if possible. If that is not possible, please let me know, and I will provide a demo video recorded on a real device in Japan.
 ```
 
-**5ch.io に拒否されたときの代替（2026-11-08 に実装）:** 板一覧が 403 で取れないと、エラーの下に「kenmo.org / 00c.org の板を使う」ボタンが出る。審査端末を見分けて挙動を変えるのではなく、国外の回線などで誰にでも同じ画面が出る（Guideline 2.3.1 に触れないため）。上の返信文、審査メモ、プライバシーの申告（App Store / データセーフティ / ランディングのプライバシーポリシー）は 2026-11-08 にこのボタンを前提に書き直した。**このボタンが入っていない古いビルドに返信するときは、返信文の 2 段落目の後半（"Below the explanation" 以降）を消す。** kenmo.org に国外から届くかは未確認なので、出す前に VPN などで確かめる。
+**使い回すときの注意:** 板一覧が 403 で取れないと「kenmo.org / 00c.org の板を使う」ボタンが出る（2026-11-08 に実装。審査端末を見分けず誰にでも同じ画面を出す。Guideline 2.3.1 対策）。このボタンが無い古いビルドに返信するなら、2 段落目の "Below the explanation" 以降を消す。
 
 **デモ動画:** 最初は付けない。審査側から求められたら、日本の回線の実機で撮って送る。映すものは、初回の同意画面、板一覧、板の絞り込み、スレ一覧、スレ本文、長押しメニュー（NG、報告）、投稿画面。
-
-## 提出前チェックリスト
-
-- [x] ランディングを公開し、上の URL がすべて開く（2026-11-08 に確認。`.html` は拡張子なしの URL へ転送される）
-- [ ] `apps/mobile/eas.json` の本番ビルドが通る（iOS、Android とも）
-- [ ] Android の本番ビルドの権限を確認する（開発用の権限が残っていないか）
-- [ ] Android の動作確認を終える
-- [ ] スクリーンショットを撮る
-- [ ] フィーチャーグラフィックを作る
-- [ ] 同じ内容で App のプライバシーとデータセーフティを入力する
-- [ ] kenmo.org / 00c.org に国外の回線や VPN から届くかを確かめる（届かなければ審査メモと返信文から切り替えボタンの段落を消す）
-- [ ] ランディングを `npm run deploy` で反映する（プライバシーポリシーに kenmo.org / 00c.org を足した。2026-11-08）
-- [ ] Google Play: 個人アカウントのクローズドテスト要件に該当するか確認する
-
----
-
-## 公開後にやること（ランディング）
-
-ストアが開いたら、ランディングを「準備中」から「配信中」へ切り替える。
-**いまのトップページは依然として Windows / macOS / Linux のアプリとして自己紹介している**ので、
-ここを直すまで検索結果や SNS のカードの時点で PC 専用アプリとして扱われる。
-該当箇所には同じ趣旨のコードコメントも置いてある。
-
-- [x] `apps/landing/src/MobilePages.tsx` の `APP_STORE_URL` / `GOOGLE_PLAY_URL` にストアの URL を入れる。空のあいだストアバッジは「準備中」と出る
-- [x] `apps/landing/src/App.tsx` 対応プラットフォームの帯にある iOS / Android チップから「準備中」バッジ (`.platform-chip-note`) を外す
-- [x] 同 `.mobile-teaser` の告知カードを、ストアバッジ付きの正式なセクションへ格上げする。「App Store / Google Play 準備中」の pill は外す
-- [x] 同ヒーローの pill「v0.0.xxx · Windows / macOS / Linux」にモバイルを足す
-- [x] `apps/landing/index.html` の 6 か所を直す — `<title>` (7 行目)、`meta description` (10)、`og:description` (18)、`twitter:description` (29)、JSON-LD の `operatingSystem` (39) と `description` (40)
-- [x] `cd apps/landing && npm run deploy` で反映する。**アプリのリリースではないので `scripts/release.sh` / `release_finish.sh` は通さない**（バージョン更新も `latest.json` の差し替えも不要）
-
-### 経緯
-
-2026-11-08、「トップページにモバイル版の言及がまったくないので、モバイル版が存在することに
-気づいてもらえないのでは」という指摘があった。当時トップから `/mobile.html` への導線は
-ナビとフッタの裸のリンク 2 本だけで、他の全箇所 (title / description / OG / JSON-LD /
-ヒーローの pill / 対応プラットフォームの帯 / ダウンロード) はデスクトップ専用だと明記していた。
-
-同日、導線を 6 本へ増やした (iOS / Android チップ 2 本、告知カードの見出し・ボタン・スクショ)。
-ストアがまだ開いていないため、いずれも「準備中」と明記する形に留めてある。上のチェックリストは
-その「準備中」を外す作業。
