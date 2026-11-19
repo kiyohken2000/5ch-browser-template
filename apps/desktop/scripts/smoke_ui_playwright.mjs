@@ -1775,6 +1775,60 @@ try {
   assert(linkHref === "https://example.com/page", `body-link href should be the URL, got ${linkHref}`);
   console.log("smoke-ui: body link rendering ok");
 
+  // --- レス内の他のスレのリンクは、対応している掲示板ならタブで開く ---
+  {
+    const linkTabTitles = () => page.$$eval(".thread-tab-title", (els) => els.map((el) => el.textContent?.trim() ?? ""));
+    const linkTabCount = () => page.$$eval(".thread-tab:not(.placeholder)", (els) => els.length);
+    const clickBodyLink = async (href) => {
+      await page.evaluate((h) => {
+        const body = document.querySelector(".response-scroll .response-body");
+        if (!body) return;
+        const a = document.createElement("a");
+        a.className = "body-link smoke-injected-link";
+        a.setAttribute("href", h);
+        a.textContent = h;
+        body.appendChild(a);
+        a.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+        a.remove();
+      }, href);
+      await new Promise((r) => setTimeout(r, 200));
+    };
+    const cases = [
+      ["https://kenmo.org/test/read.cgi/poverty/1700000001/", "poverty/1700000001"],
+      ["https://bbs.eddibb.cc/test/read.cgi/liveedge/1795077169/", "liveedge/1795077169"],
+      ["https://mao.5ch.io/test/read.cgi/ngt/1700000002/l50", "ngt/1700000002"],
+    ];
+    for (const [href, name] of cases) {
+      const before = await linkTabCount();
+      await clickBodyLink(href);
+      const titles = await linkTabTitles();
+      assert(titles.includes(name), `clicking a body link to ${href} should open tab ${name}, got ${JSON.stringify(titles)}`);
+      assert((await linkTabCount()) === before + 1, `clicking ${href} should add exactly one tab`);
+    }
+    // 同じスレの別表記 (l50 なし) は同じタブを使う
+    const beforeSame = await linkTabCount();
+    await clickBodyLink("https://mao.5ch.io/test/read.cgi/ngt/1700000002/");
+    assert((await linkTabCount()) === beforeSame, "a body link to an already open thread should reuse its tab");
+    // 対応していない掲示板のスレ URL はタブを作らない (外部ブラウザへ)
+    const beforeOther = await linkTabCount();
+    await clickBodyLink("https://evil5ch.io/test/read.cgi/ngt/1700000003/");
+    assert((await linkTabCount()) === beforeOther, "a body link to an unsupported host should not open a tab");
+    for (const name of ["poverty/1700000001", "liveedge/1795077169", "ngt/1700000002"]) {
+      const handles = await page.$$(".thread-tab:not(.placeholder)");
+      for (const handle of handles) {
+        const title = await handle.$eval(".thread-tab-title", (el) => el.textContent?.trim() ?? "").catch(() => "");
+        if (title !== name) continue;
+        const close = await handle.$(".thread-tab-close");
+        if (close) {
+          await close.click();
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        break;
+      }
+    }
+    console.log("smoke-ui: body links to kenmo / eddibb / 5ch threads open in a tab ok");
+  }
+
   // --- NG thread title menu ---
   // right-click first thread row to get context menu
   await page.evaluate(() => {

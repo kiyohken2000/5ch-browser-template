@@ -53,6 +53,7 @@
 | 4 | `src/lib/post.js` `authUrlOf` | 「認証が必要」と `href="…"` の形しか拾わない | 「以下のURLから」の後ろの最初の `http(s)://…` も拾う。**`isSameSite` の確認はそのまま通す**（別サイトへ誘導されないため） |
 | 5 | `src/scenes/post/Post.js` | 認証 URL があれば「ブラウザで開く」を出す | コードを含む文言に、デスクトップ版と同じ補足（「ブラウザで認証を開く」からコードを入れ、終わったらもう一度書き込む）を足す |
 | 6 | `src/lib/urls.js` `parseBoardLocation` | `/<板>/<キー>` は「板 URL」として読む（キーが板名になる） | エッヂのホストでだけ、`/<板>/<9〜11 桁の数字>` をスレとして読む。レスに貼られたリンク（`threadLinkParams`）と URL を貼って開く経路もこれで直る |
+| 6b | `src/scenes/thread/Thread.js` `openUrl` | レス内のエッヂのスレのリンクは `openInAppBrowser`（Web ページ）で開く | **ユーザーの要望（2026-11-19）: エッヂの表示が ON のときは、レス内のエッヂのスレのリンクを Ember のスレ画面で開く。** OFF のときは今までどおり `openInAppBrowser`。kenmo.org / 00c.org はすでにこの動き（設定 ON ならスレ画面）なので、エッヂを `sites.js` に載せて #6 を直せば同じ経路に乗るはず。短い形（`/liveedge/<キー>`）と read.cgi 形の両方のリンクで確かめる。スレを開くと今のスレと入れ替わる動きは変えない（戻れなくてよい、とユーザー確認済み） |
 | 7 | `src/scenes/settings/ReadingSettings.js` / `src/slices/settings.slice.js` | 「kenmo.org / 00c.org の板を表示」の 1 つだけ | 決めること 1 に合わせて項目を足す。既定は OFF |
 | 8 | `src/scenes/thread/Thread.js`（「このレスを報告」） | 互換サイトはそのサイトの削除依頼スレへ案内する | エッヂの窓口を調べて決める（決めること 2） |
 | 9 | `src/lib/terms.js` / `docs/STORE_METADATA.md` / ランディングのプライバシーポリシー | 書き込みの送り先は 5ch.io と kenmo.org / 00c.org | bbs.eddibb.cc を足す（決めること 3） |

@@ -1535,6 +1535,23 @@ const parseThreadPath = (url: string): { board: string; key: string; mountPath: 
   }
   return null;
 };
+// レス本文のリンクをアプリ内のタブで開く掲示板。ここに無いホストのスレ URL は外部ブラウザで開く。
+// 末尾一致はドット区切りで見る (evil5ch.io を通さない)。板一覧の表示切り替えとは関係なく、
+// 利用者がリンクを押したときだけ開く。
+const IN_APP_THREAD_HOSTS = ["5ch.io", "5ch.net", "bbspink.com", "bbspink.org", "kenmo.org", "00c.org", ...EDDIST_HOSTS];
+const inAppThreadUrl = (url: string): string | null => {
+  let host: string;
+  try {
+    const u = new URL(rewrite5chNet(url));
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    host = u.hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!IN_APP_THREAD_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))) return null;
+  if (!parseThreadPath(url)) return null;
+  return normalizeThreadUrl(url);
+};
 const normalizeThreadUrl = (url: string): string => {
   try {
     const u = new URL(rewrite5chNet(url));
@@ -14806,14 +14823,17 @@ export default function App() {
               }}
               onClick={(e) => {
                 const target = e.target as HTMLElement;
-                // body-link: open 5ch thread URLs in tab, others in external browser
+                // body-link: 対応している掲示板 (5ch / bbspink / kenmo / エッヂ) のスレはタブで、
+                // それ以外は外部ブラウザで開く。URL はアドレスバーと同じく正規化し、
+                // l50 付きなどでも一覧から開いたタブと同じタブになるようにする
                 const bodyLink = target.closest<HTMLAnchorElement>("a.body-link");
                 if (bodyLink) {
                   e.preventDefault();
                   const url = bodyLink.getAttribute("href");
-                  if (url && /^https?:\/\/[^/]*\.5ch\.(net|io)\/test\/read\.cgi\//.test(url)) {
-                    const title = url.split("/").pop() || url;
-                    openThreadInTab(url, title);
+                  const inAppUrl = url ? inAppThreadUrl(url) : null;
+                  const parsedLink = inAppUrl ? parseThreadPath(inAppUrl) : null;
+                  if (inAppUrl && parsedLink) {
+                    openThreadInTab(inAppUrl, `${parsedLink.board}/${parsedLink.key}`);
                     return;
                   }
                   // タッチではホバーで出せないので、画像URLのタップをプレビューに割り当てる。
@@ -18308,7 +18328,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>222項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>223項目</span></div>
               </fieldset>
               </>)}
             </div>
