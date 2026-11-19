@@ -1,14 +1,12 @@
 # Ember モバイル版 実装計画
 
 作成日: 2026-11-03
-最終更新: 2026-11-08
+最終更新: 2026-11-19
 対象: Ember (5ch.io 専用ブラウザ) の iOS / Android 版
-ステータス: **ストア提出の段階。** 2026-11-05 に通知を入れる前に App Store と Google Play へ
-出すと決めた（§14 の #13）。App Store は 2026-11-06 に 1 度却下されていて、
-審査の経過と提出物は `docs/STORE_METADATA.md` にまとめている。
+ステータス: **App Store と Google Play で公開中（2026-11-19 時点で 1.0.14）。** 以後は機能を足しながら版を上げている。
+ストアの掲載文面と審査の記録は `docs/STORE_METADATA.md`、デスクトップ版の機能をどう運ぶかは `docs/MOBILE_FEATURE_PARITY.md`。
 
-**今あるもの:** `apps/mobile/` に Expo SDK 58 のアプリ。読む、書く、AI まで動いていて、
-ユニットテストは 629 件 / 42 スイート。**現在地と残りのタスクは §12 の冒頭。**
+**今あるもの:** `apps/mobile/` に Expo SDK 58 のアプリ。読む、書く、AI、通知まで動いている。**現在地と残りのタスクは §12 の冒頭。**
 この文書には 2026-11-04 時点の計画と記録が多く残っているので、日付のある記述はその時点の話として読むこと。
 
 ---
@@ -16,7 +14,7 @@
 ## 0. この文書の読み方
 
 - **本文書は実装の承認ではない。** 作るかどうかはユーザーの判断。承認が出るまで着手しない
-- 数字はすべて 2026-11-03 の実測値。出所は巻末の付録にまとめてある。推測で書いた箇所は「推測」と明記した
+- 数字はすべて 2026-11-03 の実測値。推測で書いた箇所は「推測」と明記した（出所をまとめた付録は 2026-11-19 に削除）
 - **§2 の不変条件は機能より優先される。** 機能を削ってもこれは削らない
 - 実装者はまず §1 → §2 → §3 → §12 を読めば、何をどの順で作るか分かる。画面の詳細は §8
 - **デスクトップ版の機能をどう運ぶかの対応表は [`MOBILE_FEATURE_PARITY.md`](MOBILE_FEATURE_PARITY.md)。**デスクトップの機能 153 行に「済 / M2 / M3 / M4 / 未決 / 持っていかない」を振ったもので、本文書の §6-2（対応概念の変換）と §12（マイルストーン）を機能単位に展開したもの。**新しい決定はあちらでは行わない** — 判断はすべて本文書を参照している
@@ -32,15 +30,10 @@
 | 2 | **§14 の「再提案しないこと」** | 却下済みの案とその理由。**ここにある案は提案しない** |
 | 3 | **§2 不変条件** | 機能より優先される。機能を削ってもこれは削らない |
 | 4 | §1 → §3 → §12 | 何をどの順で作るか |
-| 5 | **§5 の資産表** | **流用元のリポジトリと、実測した版のコミット。** 別 PC でクローンしたらまずこれと突き合わせる |
-| 6 | §8 以降 | 画面と横断仕様の詳細 |
-| 7 | **[`MOBILE_FEATURE_PARITY.md`](MOBILE_FEATURE_PARITY.md)** | **次に何を実装するかはここで引く。** デスクトップ版の全機能に移植判断が振ってあり、残っている 9 件（M4 5 / M3 2 / 未決 2）の内訳もある |
+| 5 | §8 以降 | 画面と横断仕様の詳細 |
+| 6 | **[`MOBILE_FEATURE_PARITY.md`](MOBILE_FEATURE_PARITY.md)** | **次に何を実装するかはここで引く。** デスクトップ版の全機能に移植判断が振ってあり、残っている 9 件（M4 5 / M3 2 / 未決 2）の内訳もある |
 
-**着手の線引き（重要）:**
-
-- **§12-0 の M0 は承認不要。** 調査・計測・使い捨てのプロトタイプの範囲で、成果は本文書への追記。ユーザーの確認を取らずに進めてよい
-- **M1 以降（§12-1〜）は承認が必須。** §14 の #1「作るかどうか自体」が未決のまま。**`apps/mobile/` にファイルを作る行為は着手にあたる。** 置き場所が §3-7 で決まっていることは、作ってよいこととは別
-- ユーザーの打診（「〜はどうだろう」「できる？」「調べて」「必要だろうか」）は**承認ではない**。調査と原因分析は自由
+**着手の線引き:** 作ること自体（§14 の #1）は決まり、公開も済んだ。ただし新しい機能や仕様の変更は、今も**ユーザーの承認を取ってから**着手する。ユーザーの打診（「〜はどうだろう」「できる？」「調べて」「必要だろうか」）は**承認ではない**。調査と原因分析は自由。
 
 **決定を追記するときの作法:** §14 の未決表から該当行を消し、「決定済み」表に `#<元の番号>` 付きで日付と根拠を入れる。**未決の # は安定 ID なので番号を詰めない。** 欠番のまま残す（既存の `§14-N` 参照がずれるため）。却下した案は「再提案しないこと」へ、理由と日付つきで足す。
 
@@ -281,77 +274,11 @@ Ember モバイル版は Skia + llama.rn を含むため**基本サイズは 50�
 
 ## 4. デスクトップ版の棚卸し
 
-### 4-1. コード規模
-
-| 対象 | 行数 |
-|---|---|
-| `apps/desktop/src/App.tsx` | **17,664** |
-| `apps/desktop/src/styles.css` | **8,725** |
-| `apps/desktop/src-tauri/src/lib.rs` | 4,173 |
-| `crates/core-fetch/src/lib.rs` | 2,766 |
-| `crates/core-ai/src/lib.rs` | 1,359 |
-| `crates/updater/src/lib.rs` | 1,046 |
-| `crates/core-store/src/lib.rs` | 705 |
-| `crates/core-auth/src/lib.rs` | 395 |
-| `crates/core-parse/src/lib.rs` | **184（外部依存ゼロ）** |
-
-### 4-2. Tauri IPC 97 本の内訳
-
-| 領域 | 本数 | モバイルでの扱い |
-|---|---|---|
-| store（永続化・お気に入り・既読・NG） | 35 | AsyncStorage / SQLite に置換 |
-| fetch / その他 | 23 | 再実装 |
-| ai | 20 | FeedOwn の基盤に置換 |
-| auth（BE / UPLIFT / どんぐり） | 17 | 再実装 |
-| updater | 2 | 不要（ストア + `expo-updates`） |
-
-うち `probe_*` 系 9 本は開発用プローブなので移植対象外。
-
-### 4-3. UI が運べない理由（数字）
-
-| 指標 | 実測 | 意味 |
-|---|---|---|
-| `:hover` ルール | **195** | タッチに存在しない操作 |
-| `@media` | **2**（1 つは `prefers-reduced-motion`） | 実質レスポンシブ非対応 |
-| レイアウト | `grid-template-columns: 20% 6px 1fr` / `420px 6px 1fr` | 3 カラム固定 |
-| `onKeyDown` | 22 | モバイルでは不要 |
-| `backdrop-filter` 宣言 | 98 | ガラス効果（作り直し） |
-| ガラス関連 CSS 参照 | 423 | 同上 |
-| `onMouseEnter/Over/Out/Leave` | 32 | ホバー依存 |
-| `onContextMenu` | 6 | 右クリック |
-
-### 4-4. モバイルに効く既存資産
-
-| 指標 | 実測 | 意味 |
-|---|---|---|
-| `touchMode` 参照 | **68** | タッチ操作の分岐が既にある |
-| `gesture` 参照 | **93** | ジェスチャの設計がある（§9-1） |
-| `notif` 参照 | **96** | 通知の土台（§9-8） |
-| `ogp` 参照 | **217** | OGP プレビュー。スマホで最も映える |
-| `invoke(` | 75 | IPC 呼び出し箇所 |
-| `localStorage` | 114 | 永続化箇所 |
-
----
+（2026-11-19 の整理で本文を削除した。削除前の版は `git show dc124b9:docs/MOBILE_FEASIBILITY_STUDY.md` で読める。節番号は他の文書からの参照のために残している）
 
 ## 5. 流用できる外部資産
 
-**流用元はすべて GitHub にある**（ユーザー自身のリポジトリ）。**実装は本文書を書いたマシンとは別の PC で行う**ので、下の「実測した版」を控えてある。クローンしたらまずこのコミットと突き合わせること — 本文書の数字はすべてこの版での実測値。
-
-| 資産 | リポジトリ | 実測した版 | 扱い |
-|---|---|---|---|
-| **FeedOwn** | `kiyohken2000/feedown` | `e32b4c5`（2026-10-29） | **雛形 + AI 基盤。** `apps/mobile/src/ai/` を丸ごと使う（§5-2）。Expo `^58.0.20` / RN `0.88.0` で、**版が揃っている唯一の資産**（§3-2） |
-| **ボイラープレート** | `kiyohken2000/ReactNativeExpoBoilerplate` | `eb0c74f`（2026-10-17、Expo SDK 58 へ上げたコミット） | **雛形。使用済み** — 2026-11-04 に `apps/mobile/` へ展開した。Expo `^58.0.12` / RN `0.88.0` / React `19.3.0`。**展開後に SDK 58 系の最新へ上げてあるので、現在の版は §3-2 の表を見ること** |
-| BakuSoku | `kiyohken2000/BakuSoku` | `b403fde`（2026-07-12） | **参照しない**（§5-1）。**クローンする必要もない** |
-| sukikira | `kiyohken2000/sukikira` | `03f66c8`（2026-10-31） | **参照しない**（§5-1）。**クローンする必要もない** |
-| Ember デスクトップ版 | **このリポジトリ** の `apps/desktop` / `crates/` | — | 移植元（§4）。`core-parse` の TS 移植元は `crates/core-parse/src/lib.rs`（184 行） |
-
-**バージョンがずれていたときは §3-2 を読み直す。** FeedOwn と Ember モバイル版の Expo / RN が揃っていることが、`src/ai/` をネイティブモジュールの再ビルドなしに持ち込める唯一の根拠なので、ここがずれたら前提が崩れる。
-
-**版は必ず GitHub の HEAD で確認すること。** 手元のクローンは古くなっている可能性がある — 本文書を書いた環境では、**ボイラープレートのローカルクローンが 1 コミット古く SDK 57 のままで、一度それを書いて間違えた**（2026-11-04 に修正）。確認は次が速い:
-
-```bash
-node -e "fetch('https://raw.githubusercontent.com/kiyohken2000/ReactNativeExpoBoilerplate/HEAD/package.json').then(r=>r.json()).then(j=>console.log(j.dependencies.expo, j.dependencies['react-native']))"
-```
+流用元の一覧（FeedOwn / ボイラープレートの実測した版）と §5-2（FeedOwn の AI 基盤）・§5-3（5ch プロトコルの知識）は、実装が済んだので 2026-11-19 に削除した。削除前の版は `git show dc124b9:docs/MOBILE_FEASIBILITY_STUDY.md` で読める。§5-1 の決定は今も有効。
 
 ### 5-1. BakuSoku / sukikira — 参照しない（2026-11-04 決定）
 
@@ -367,28 +294,6 @@ node -e "fetch('https://raw.githubusercontent.com/kiyohken2000/ReactNativeExpoBo
 残るのは画面の殻だけで、それは §8 に 14 画面として既に書き下してある。**雛形は FeedOwn + ボイラープレートを使う。** 同系の kenmo reader（ネイティブビューでレンダリング）も同様に参照しない。
 
 非公開化の経緯は §13-1 / §13-4。
-
-### 5-2. FeedOwn — ローカル LLM 基盤
-
-`kiyohken2000/feedown` の `apps/mobile/src/ai/` が丸ごと使える。
-
-| ファイル | 中身 |
-|---|---|
-| `ai/llama/judge.js` | **SemIf 方式の意味分類**（1 トークン生成 + ラベル確率読み） |
-| `ai/llama/models.js` | モデルカタログ + **端末 RAM による可否判定** |
-| `ai/llama/download.js` | モデル DL |
-| `ai/models.js` | executorch 側カタログ |
-| `ai/prompts.js` / `ai/jsonOutput.js` | プロンプト・構造化出力 |
-| `ai/benchmark.js` + `scenes/profile/Benchmark.js` | ベンチ計測画面 |
-| `ai/useArticleTranslation.js` | 翻訳 |
-| `scenes/profile/AiSettings.js` / `contexts/AiContext.js` | 設定 UI・状態管理 |
-| `docs/llama-rn-pr-drafts/` | llama.rn 本体への PR 草案（cmake / podspec / bootstrap） |
-
-### 5-3. 5ch プロトコルの知識
-
-`core-parse`（184 行・外部依存ゼロ）は**ほぼそのまま TypeScript に書き写せる**。`core-fetch`（2,766 行）と `core-auth`（395 行）はロジックを再利用し実装は作り直す。
-
----
 
 ## 6. アプリの性格
 
@@ -1443,29 +1348,23 @@ Ronin（浪人）/ BE / どんぐり / UPLIFT。デスクトップ版は `core-a
 
 **ただし M4 のうち LAN 直接同期（§9-7）と実況モード（§8-4）は、入れるかどうか自体が未決**（§14-11）。
 
-### 現在地と残りのタスク（2026-11-08）
+### 現在地と残りのタスク（2026-11-19）
 
-**段階ごとの状況:** M1（読む）と M2（書く）はほぼ済み。M3（AI）は曖昧 NG の精度が残る。M4 は画像アップロードやスレ作成（2026-11-08。実際に立てての確認はまだ）などが入り、通知だけ未着手。
+**段階ごとの状況:** M1（読む）・M2（書く）・M3（AI）・M4 の主な機能は入り、App Store と Google Play で公開した（2026-11-19 時点で 1.0.14）。通知（§9-8）も入っている。
 
-**リリース（順番どおり）:**
-
-1. 再審査に出すビルドを決める。1 回目の提出より後の変更を含めるかどうかの判断
-2. Android の動作確認。2026-11-04 のエミュレーターでの確認より後の機能は未確認
-3. Android の本番ビルドと権限の確認
-4. ストア提出物の準備（スクリーンショット、フィーチャーグラフィック、プライバシーの申告など）
-
-**未実装（初版に必須ではない）:**
+**残っているもの:**
 
 | 項目 | 備考 |
 |---|---|
-| 通知 | 手順 1〜5 を実装（2026-11-11、§9-8）。`lib/notify.js`（判定）/ `lib/notifyTask.js`（巡回）/ 設定の「通知」/ ホームのベル。**実機での確認（手順 6）がまだ** |
 | 曖昧 NG の精度 | 判定と候補生成は動くが、精度が足りない（移植表 §7）。原因の候補と手段は §9-9 に調べてある（2026-11-11、変更はしていない） |
 | 自動更新 / 実況モード | 入れるかどうかから未決（#11） |
+| デスクトップ版との同期 | 利用者の Google ドライブを使う方式に決まり、仕様は `docs/SYNC_IMPLEMENTATION.md`。未着手 |
+| エッヂ掲示板（bbs.eddibb.cc） | デスクトップ版 v0.0.342 で対応。モバイル版は未対応 |
 | **kenmo.org / 00c.org の実機確認** | シミュレーターでは読み取り・認証・書き込みまで確認済み。実機（iPhone / Android）は未確認（§12-6） |
 
-**直した不具合（実機で未確認）:** 板の絞り込みで、キーボードを開いたまま候補を押すと 2 回タップが必要だった。板一覧の `SectionList` に `keyboardShouldPersistTaps="handled"` が無かったため（2026-11-11 に修正）。
+**直した不具合（2026-11-11 時点で実機未確認）:** 板の絞り込みで、キーボードを開いたまま候補を押すと 2 回タップが必要だった。板一覧の `SectionList` に `keyboardShouldPersistTaps="handled"` が無かったため（2026-11-11 に修正）。
 
-**実機で未確認:** スレ一覧の行の配置と並べ替えボタンの設定、レスの長押しメニューとライトモードのシート。
+**2026-11-11 時点で実機未確認:** スレ一覧の行の配置と並べ替えボタンの設定、レスの長押しメニューとライトモードのシート。
 
 **保留・見送り:** QR 同期は保留（§9-7）。どんぐりのログインは見送り（2026-11-11）。Expo UI の全面モードは見送り（§3）。翻訳用モデル PLaMo 3 Translate は見送り（2026-11-09）。PLaMo コミュニティライセンスでは無料配布の製品でも「商業目的」に入り、PFN への事前登録・「Built with PLaMo」の表記・ライセンス本文の同梱・利用者 18 歳以上の要件が付くため（全文 https://plamo.preferredai.jp/info/plamo-community-license-ja）。
 
@@ -1883,117 +1782,7 @@ NG 判定。方式は M0 のベンチで決定済みであること。モデル�
 
 ## 15. 参考: 既存のモバイル専ブラ
 
-ユーザーが参考として挙げたのは **Twinkle / chMate / Geschar / したらばStorm** の 4 本（2026-11-03）と、**bbs-browser**（2026-11-04。PC 版のみだが、スマホ版を準備中と公言している。§15-6）。
-
-### 15-1. ストアでの現況
-
-**iOS（App Store / JP）**
-
-| アプリ | 開発者 | レーティング | 評価数 / 平均 | 最終更新 | サイズ | minOS |
-|---|---|---|---|---|---|---|
-| **Geschar** | Hiroyuki Nobe | 17+ | 2,614 / **4.42** | **2026-11-02** | 38MB | 16.4 |
-| **twinkle** | Kazuhiro Hamatani | 17+ | 5,101 / **1.68** | 2026-03-12 | 26MB | 12 |
-| ThreadMaster | Kazumasa Shimomura | 17+ | 4,077 / 4.35 | 2026-10-26 | — | — |
-| Channeler | Yasuo Hirooka | 17+ | 1,069 / 3.67 | 2026-09-23 | — | — |
-| threadpd | Kazuki Nakashima | 17+ | 452 / 4.07 | 2026-03-12 | — | — |
-| mae2ch | SOHEI KUNIHIRO | 17+ | — | 2026-09-14 | — | — |
-| JaneStyle for Talk | Jane LLC. | 17+ | 102,934 / 3.88 | 2025-02-26 | — | — |
-| ５ちゃんねる | Synic Inc. | 17+ | — | 2026-08-25 | — | — |
-| 最強2ch'er | Hirokazu Niimoto | 17+ | — | 2026-08-30 | — | — |
-
-**Android（Google Play）**
-
-| アプリ | パッケージ | 開発者 | 評価 / レビュー数 | DL | 最終更新 | 収益化 |
-|---|---|---|---|---|---|---|
-| **chMate** | `jp.co.airfront.android.a2chMate` | AIRFRONT, Inc. | **1.8 / 2.33 万件** | **100 万+** | 2026/03/12 | **広告 + アプリ内購入** |
-| **したらばStorm** | `jp.everystorm.shitarabastorm` | EveryStorm | **4.3 / 1,280 件** | 1 万+ | **2026/11/03** | — |
-
-chMate と したらばStorm は **Android 専用**（iOS には無い）。したらばStorm は「したらば掲示板、5ちゃんねる、2ちゃんねる、おーぷん2ちゃんねる、まちBBS に対応」。
-
-### 15-2. 評価の分布 — 老舗が低く、現役が高い
-
-**最大手 2 本（chMate 1.8 / twinkle 1.68）が、規模の小さい現役勢（Geschar 4.42 / したらばStorm 4.3）に大きく負けている。** 機能数でも歴史でもなく別の要因で決まっている。
-
-chMate のレビューに原因が書かれている:
-
-> 広告の挙動によるフリーズが頻発するようになり、それと並行して**NG レスがアンカで見えてしまったり未読スレのソートが勝手に弄られる等の UI 改悪**があまりに酷くなり乗り換えるはめに。もはや星1の価値もないです。昔はこれがあるから Android を使ってるってぐらいのアプリで、**有料オプションもサブスクも払ってた**
-
-さらに Play のページには開発者による返金告知が出ている（「この期間の注文をすべてキャンセルし、払い戻しの手続きを行いますので、購入された方はそのままお待ちください」）。
-
-**twinkle 側の原因は確認できていないので推測しない。** chMate については「収益化が閲覧体験を劣化させ、金を払っていた中核ユーザーが離反した」という筋がレビューから読み取れる。**→ §2 の不変条件。**
-
-### 15-3. Geschar — ジェスチャ中心という設計
-
-App Store の説明文は 1 行だけ。
-
-> ジェスチャ操作を特色とした、掲示板を効率的に閲覧するための専用ブラウザです。
-
-**機能を並べずジェスチャだけを名乗って評価 4.42 / 2,614 件。** → §9-1。
-
-### 15-4. twinkle — 機能の網羅性と Ember に無い機能
-
-対応掲示板は Talk / 5ch / まちBBS / したらば / その他の互換掲示板。
-
-| twinkle の機能 | Ember | 扱い |
-|---|---|---|
-| ID ごとの書き込みをワンタッチ抽出 | あり | — |
-| アンカーをつけられた書き込みを抽出 | あり | — |
-| NG ネーム / ワード / ID + 連鎖あぼーん | あり | — |
-| **NG スレッド** | **なし** | **借用（M4）** |
-| キーワード分類 / 板ごとの分類 | あり | — |
-| **タップスクロール** / オートスクロール | 一部 | **借用（M1）** |
-| 画像サムネイル | あり | — |
-| **スレッド内の画像一覧** | **なし** | **借用（M4）** |
-| 夜用の黒ベース表示 | あり | — |
-| しおり / マーキング | あり | — |
-| 類似スレッド / 次スレッド検索 | なし | **借用しない**（Ember 側で着手しない判断済み） |
-| 名前 / メール欄の記憶と候補保存 | あり | — |
-| スレッド作成 | あり | — |
-| 自分の書き込みを自動判定 / 返信も自動判定 | あり | — |
-| **アスキーアートを自動判別して画面にフィット表示** | **なし** | **借用（M1、§9-2）** |
-
-### 15-5. 借りないもの
-
-- **機能の網羅そのものを目的にすること。** §15-2 の通り、評価と機能数は結びついていない
-- 類似スレッド / 次スレッド検索（Ember 側で着手しない判断済みの項目）
-- **LINE 風（吹き出し）表示（§15-6）。採らない。** 理由は 3 つ:
-  1. **構図が成立しない。** 吹き出し UI は「自分 vs 相手」の二者を前提にする。スレは数百人の多者で、右寄せになるのは自分のレスだけ。実際のスクリーンショットでも 99% が左寄せの吹き出しで、**LINE の構図が持つ情報量がゼロになる**
-  2. **横幅を捨てる。** 吹き出しは内容に合わせて縮む。PC 版のスクリーンショットの時点ですでに「髪さえあれば人生変わったの／に…」と不自然に折り返している。幅 390px の端末でアイコン溝と吹き出し余白を引かれれば悪化する。**そして §9-2 の AA（全幅・等幅・横スクロール）と完全に両立しない**
-  3. **レス番号と ID の置き場がない。** スクリーンショットでは吹き出しの外に `#4 19:11` を小さく添えている。`>>` ジャンプ（毎リリース検査 3、§16-3）のタップ目標として小さすぎる
-
-### 15-6. bbs-browser — 2026-11-02 に現れた新顔
-
-ユーザーが 2026-11-04 に見つけたもの。<https://contentsview08.github.io/bbs-browser/>
-
-| 項目 | 実測 |
-|---|---|
-| リポジトリ | `contentsview08/bbs-browser`。**作成 2026-11-02**、Apache-2.0、star 0、`CLAUDE.md` あり（Claude Code 製） |
-| リリース | **v0.1.0（2026-11-03）のみ。** 資産は `-setup.exe` 121MB / `.msi` 123MB / `portable.zip` 122MB |
-| 構成 | モノレポ。`apps/desktop`（Tauri v2 + React + Tailwind、`src/components/` に分割）、`apps/android`（Gradle）、`packages/{connectors,logstore,presets}` |
-| 言語比 | TypeScript 1.80MB / Kotlin 858KB / CSS 107KB / **Rust 40KB**（ロジックはほぼ TS 側） |
-| 対応板 | 5ch・エッヂ・したらば・まちBBS・ふたば・**kenmo.org** |
-| 配布 | **Windows のみ。Android は「準備中」、iOS は言及のみ** |
-
-**持っている機能:** vim 風キー（J/K、`?` で一覧）、Ctrl+K コマンドパレット、タブと履歴、**AI NG（日本語で条件を書いて端末内で判定）**、同一本文の連投を畳む自動 NG、13 配色 + 差し色、**同梱 16 書体**（インストーラが 121MB ある理由）、画像アップロード 6 サービス（imgur / catbox / imgbb 等）+ **EXIF 除去**、通知センター、Web 版が同じ画面。
-
-**レスの見た目 5 モード:** カード / **Discord 風** / **LINE 風** / 専ブラ風 / まとめ風。採否は §8-4「表示密度」（Discord 風の density だけ採る）と §15-5（LINE 風は採らない）。
-
-**スマホ版の方針**（`docs/mobile.md` より）:
-
-> PC 版と同じソース(Tauri v2)から作る。画面と操作だけを、スマホのときに変える(`src/utils/platform.ts` の `isMobile`)。
-
-- 2 画面 → 常に 1 画面、サイドバーは左端からのドロワー、アンカーポップアップは常にタップ
-- **スワイプにキー操作を割り当てる方式。** `utils/keymap.ts` の `keyEventsOf` で「そのキーを押したことにして渡す」ため、キーでできる操作はすべてスワイプに割り当てられる。既定は → 戻る / ← 進む / →↑ 先頭へ / →↓ 更新 / ←↑ 書き込み欄 / ←↓ 末尾へ
-- iOS は「同じソースで動くが Mac（Xcode）と Apple の開発者登録が要る」とだけ書かれている
-
-**Ember にとっての意味:**
-
-1. ~~Tauri v2 モバイルの反証候補~~ → **決着済み**（§3-1）。iOS / Android 同時リリースの決定により、iOS で `core-ai` が壊れる Tauri は選べなくなった。向こうが APK を出しても判断は変わらない
-2. **ジェスチャをキー操作に正規化する発想は筋が良い。** Ember デスクトップ版も 17 アクションをジェスチャとキーの両方に割り当てている（§9-1）ので、同じ正規化はそのまま効く
-3. **kenmo.org に対応している。** Ember もデスクトップ版は v0.0.315 で対応済みで、モバイル版も対応する（#15、§12-6）。ただし**運営のボット対策（Turnstile + fingerprint）を専ブラ側で突破しない**方針は変えない（§13-3）
-4. **2 日でここまで出してきている。** 機能数で競う土俵には乗らない（§15-2 / §15-5）
-
----
+（2026-11-19 の整理で本文を削除した。削除前の版は `git show dc124b9:docs/MOBILE_FEASIBILITY_STUDY.md` で読める。節番号は他の文書からの参照のために残している）
 
 ## 16. テスト戦略
 
@@ -2033,8 +1822,6 @@ AA を含むレス、1000 レス到達済みのスレ、あぼーんで縮んだ
 ### 16-5. CI（2026-11-04 に設置）
 
 `.github/workflows/mobile.yml` を追加した。**`apps/mobile/**` が変わったときだけ回し、既存の `ci.yml` / `release.yml` には触っていない**（§3-7）。中身は `eslint src/ --quiet` → `jest --ci` → `expo export --platform android`（Hermes バイトコードまで通すのでバンドルの壊れを捕まえる）。
-
-
 
 **ボイラープレートの `.github/workflows/main.yml` はそのまま使えない。** 現状は `actions/checkout@v1` / `setup-node@v1` で **node 12.x**、`expo/expo-github-action@v5` に `expo-version: 4.x`、コマンドは **`expo publish`（classic updates、現在は EAS Update に置き換わっている）**、トリガーは `sub` ブランチ。**書き直す。**
 
@@ -2121,8 +1908,6 @@ OTA で直せないもの: 依存の追加、権限の変更、ネイティブ�
 
 **未着手:** iOS 18 のアイコン変種（`ios.icon` の `dark` / `tinted`）は作っていない。単一アイコンでも問題なく出せるが、入れると iOS 18 のホーム画面で馴染みがよくなる。
 
-
-
 **決定済み**（すべて 2026-11-04、§14 の「決定済み」表）:
 
 | 項目 | 値 |
@@ -2147,34 +1932,4 @@ OTA で直せないもの: 依存の追加、権限の変更、ネイティブ�
 
 ## 付録: 調査の出所
 
-すべて 2026-11-03 の実測（§13-3 / §13-4 / §15-6 のみ 2026-11-04）。
-
-| 対象 | 方法 |
-|---|---|
-| コード規模 / 参照数 | `wc -l`、`grep -o ... \| wc -l`（`apps/desktop/src/App.tsx`、`apps/desktop/src/styles.css`、`crates/*/src/lib.rs`、`apps/desktop/src-tauri/src/lib.rs`） |
-| IPC 97 本 | `grep -A1 '#[tauri::command]' apps/desktop/src-tauri/src/lib.rs` と関数名の分類 |
-| 設定 6 タブ 67 項目 | `settingsTab === "..."` の各区間から `<span>` を抽出 |
-| ジェスチャ 17 アクション × 12 パターン | `App.tsx:590-664`（`GestureActionId` / `GESTURE_ACTIONS` / `GESTURE_PATTERNS` / `DEFAULT_GESTURE_BINDINGS`） |
-| コンボ演出の実装 | `App.tsx:10820` 付近、`styles.css:5586` 付近 |
-| データ形状 | `App.tsx:354`（`FavoriteThread`）、`App.tsx:362`（`MyPostEntry`）、`App.tsx:672`（`SCROLL_POS_KEY`） |
-| Discord 通知 | `apps/desktop/src-tauri/src/lib.rs:2174`（`NotifyConfig`）、IPC `load_notify_config` / `save_notify_config` / `send_notify_items` / `send_notify_test` |
-| データフォルダ同期 | `crates/core-store/src/lib.rs:135-300`（`LocationPointer` / `data_dir_pointer_target()` / `dir_is_usable()` / `models_base_dir()`）、UI 文言は `App.tsx:16953`、IPC は `get_data_dir_info` / `set_data_dir` / `clear_data_dir` / `reveal_data_dir` |
-| User-Agent | `crates/core-fetch/src/lib.rs:1180` |
-| HTML パースの用途 | `crates/core-fetch/src/lib.rs:404`（`parse_ogp()` のみ） |
-| AI モデルカタログ | `apps/desktop/src-tauri/ai-models.json` を直接パース |
-| ボイラープレート | GitHub API 経由で `kiyohken2000/ReactNativeExpoBoilerplate` の `package.json` と `src/` 以下の構成 |
-| FeedOwn | GitHub API 経由で `kiyohken2000/feedown` の `apps/mobile/package.json`、`apps/mobile/src/ai/llama/models.js`、`apps/mobile/src/ai/llama/judge.js`、`apps/mobile/src/ai/models.js` |
-| iOS の参考専ブラ | iTunes Lookup / Search API（`artistId` 1504847753、各アプリ ID、`/search?term=...&country=jp&entity=software`） |
-| Android の参考専ブラ | Google Play の検索ページから package id を特定し、各詳細ページ（`?hl=ja&gl=JP`）の HTML から評価・レビュー数・DL 数・最終更新・収益化表示・レビュー本文を抽出 |
-| ユーザーのストア配信状況 | iTunes Lookup API（App Store 9 本）、各プロジェクト LP（`*.pages.dev`）のバンドルから store リンクを抽出 |
-| 運営からの申し立て | 2026-11-03 のユーザーの説明（§13-1 に引用）と、**2026-11-04 にユーザーが提供した Apple からの IP 申立て通知 2 通**（参照番号 APP263952 / APP272850）。日付・申立て元・申立ての種別・経過のみ §13-4 に記録し、通知の文面と当事者の連絡先は載せない |
-| bbs-browser（§15-6） | 公開ページの HTML とスクリーンショット画像、GitHub API（`/repos` / `/languages` / `/releases` / `/contents`）、`raw.githubusercontent.com` の `docs/mobile.md` |
-| 5ch.io 現運営の規約（§13-3） | `5ch.io` / `info.5ch.io` / `agree.5ch.io` / `5ch.io/faq.html` / `www.5ch.io/matome.html` / `menu.5ch.io/bbsmenu.json` を取得。`info.5ch.net/index.php/利用規約` と `agree.5ch.io/agree.html` は 404 を確認 |
-| ID 色の決定ロジック（§8-4） | `apps/desktop/src/App.tsx:2327-2349`（`ID_COLORS` / `ID_COLORS_DARK` 各 20 色、`getIdColor()`）と `App.tsx:6062`（`idColorMap.clear()`） |
-| FeedOwn の HTTP 実装（§3-4） | `kiyohken2000/feedown` の `apps/mobile/src/` を `axios` / `fetch` で全検索。`axios` の import は 0 件 |
-| **Shift_JIS デコーダの検証（§11-3、2026-11-04）** | `menu.5ch.io/bbsmenu.json`、`mevius.5ch.io/aastory` と `hayabusa9.5ch.io/news` の `subject.txt` と最大スレの `dat` を取得（計 1.08MB）。`encoding-japanese` 2.5.0 の出力を Python の `cp932` と比較。さらに単バイト 256 + 2 バイト 23,436 の全ケースを `encoding-japanese` / Python `cp932` / `encoding_rs 0.8`（スクラッチパッドに作った Rust の小プログラム）の 3 者で突き合わせ |
-| **Range による差分取得（§12-0 / §9-6、2026-11-04）** | `mevius.5ch.io/aastory/dat/1528608396.dat` に対し `Range: bytes=<total-5000>-` と `bytes=<total+10>-` を送り、ステータス・`Content-Range`・実バイト数を確認 |
-| **AA 検出の閾値（§12-0 / §9-2、2026-11-04）** | AA 長編板の 972 レス（14,089 行）とニュース速報の 888 レスを `apps/mobile/src/lib/aa.js` に通し、検出率・ブロック数・幅の分布を測定 |
-| **追加した依存の実測版（§3-4、2026-11-04）** | `npx expo install` が解決した版をそのまま記録。`npx expo config --type prebuild` で `ios.deploymentTarget: '17.0'` が効いていることを確認 |
-| **Expo の最新版（§3-2、2026-11-04）** | `https://registry.npmjs.org/expo` を取得して `dist-tags.latest` と全版一覧を確認（`latest` = `58.0.23`、59 系は 0 件）。更新後に `npx expo install --fix` が「Dependencies are up to date」を返すこと、`yarn jest`（160 件）、`expo export` の android / ios 両方、`yarn test:live`（実 5ch）が通ることを確認 |
-| **ボイラープレートの実態（2026-11-04）** | `apps/mobile/` に置かれたボイラープレートの `package.json` / `app.json` / `src/` を直接確認（Expo `^58.0.12` / RN `0.88.0` / React `19.3.0`、`@reduxjs/toolkit ^1.5.1`、`axios ^0.21.2`、`redux-logger`、`react-test-renderer@16`）。`jest` 本体と `@react-native/jest-preset` は未導入でテストが実行できない状態だった |
+（2026-11-19 の整理で本文を削除した。削除前の版は `git show dc124b9:docs/MOBILE_FEASIBILITY_STUDY.md` で読める。節番号は他の文書からの参照のために残している）
