@@ -1320,12 +1320,42 @@ struct FavoritesData {
     threads: Vec<FavoriteThread>,
 }
 
+/// お気に入り・NG・既読などの JSON を読む。
+///
+/// - ファイルが無い (初回起動) ときは既定値。
+/// - 壊れているときは `<name>.bak` へ退避してログに残し、既定値で続ける。
+/// - それ以外で読めない (OneDrive の同期中・ウイルス対策ソフトの検査中などで
+///   ファイルが掴まれている) ときは**エラーを返す**。既定値を返すと、次の保存が
+///   「空 + 新しく足した分」で全体を上書きして中身が消えるため。core-store も
+///   読み直せるまでそのファイルへの保存を断る。
+fn load_store<T: serde::de::DeserializeOwned + Default>(file: &str) -> Result<T, String> {
+    match core_store::load_json::<T>(file) {
+        Ok(data) => Ok(data),
+        Err(core_store::StoreError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(T::default())
+        }
+        Err(core_store::StoreError::Json(e)) => {
+            let moved = core_store::quarantine_broken_json(file);
+            let _ = core_store::append_log(&format!(
+                "load {}: broken json ({}) -> {}",
+                file,
+                e,
+                moved
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "quarantine failed".into()),
+            ));
+            Ok(T::default())
+        }
+        Err(e) => {
+            let _ = core_store::append_log(&format!("load {}: unreadable ({})", file, e));
+            Err(format!("{} を読み込めませんでした: {}", file, e))
+        }
+    }
+}
+
 #[tauri::command]
 fn load_favorites() -> Result<FavoritesData, String> {
-    match core_store::load_json::<FavoritesData>("favorites.json") {
-        Ok(data) => Ok(data),
-        Err(_) => Ok(FavoritesData::default()),
-    }
+    load_store::<FavoritesData>("favorites.json")
 }
 
 #[tauri::command]
@@ -1374,10 +1404,7 @@ struct NgFilters {
 
 #[tauri::command]
 fn load_ng_filters() -> Result<NgFilters, String> {
-    match core_store::load_json::<NgFilters>("ng_filters.json") {
-        Ok(data) => Ok(data),
-        Err(_) => Ok(NgFilters::default()),
-    }
+    load_store::<NgFilters>("ng_filters.json")
 }
 
 #[tauri::command]
@@ -1397,10 +1424,7 @@ struct OgpDomainFilters {
 
 #[tauri::command]
 fn load_ogp_domain_filters() -> Result<OgpDomainFilters, String> {
-    match core_store::load_json::<OgpDomainFilters>("ogp_domain_filters.json") {
-        Ok(data) => Ok(data),
-        Err(_) => Ok(OgpDomainFilters::default()),
-    }
+    load_store::<OgpDomainFilters>("ogp_domain_filters.json")
 }
 
 #[tauri::command]
@@ -1504,10 +1528,7 @@ async fn build_ng_image_entry(url: String) -> Result<NgImageEntry, String> {
 
 #[tauri::command]
 fn load_ng_image_filter() -> Result<NgImageFilter, String> {
-    match core_store::load_json::<NgImageFilter>("ng_image_filter.json") {
-        Ok(data) => Ok(data),
-        Err(_) => Ok(NgImageFilter::default()),
-    }
+    load_store::<NgImageFilter>("ng_image_filter.json")
 }
 
 #[tauri::command]
@@ -1522,25 +1543,7 @@ type ReadStatusMap = HashMap<String, HashMap<String, u32>>;
 
 #[tauri::command]
 fn load_read_status() -> Result<ReadStatusMap, String> {
-    match core_store::load_json::<ReadStatusMap>("read_status.json") {
-        Ok(data) => Ok(data),
-        // JSON が壊れていた場合。ここで黙って空マップを返すと、次にスレを読んだ
-        // ときの保存が「空 + 1 件」で全体を上書きし、全板の既読が二度と戻らない。
-        // 壊れたファイルを退避してから空で続行し、ログに残す。
-        Err(core_store::StoreError::Json(e)) => {
-            let moved = core_store::quarantine_broken_json("read_status.json");
-            let _ = core_store::append_log(&format!(
-                "load_read_status: broken json ({}) -> {}",
-                e,
-                moved
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "quarantine failed".into()),
-            ));
-            Ok(HashMap::new())
-        }
-        // 未作成 (初回起動) など。これは異常ではないので触らない。
-        Err(_) => Ok(HashMap::new()),
-    }
+    load_store::<ReadStatusMap>("read_status.json")
 }
 
 #[tauri::command]
@@ -1556,10 +1559,7 @@ type ReadMarkerMap = HashMap<String, HashMap<String, u32>>;
 
 #[tauri::command]
 fn load_read_marker() -> Result<ReadMarkerMap, String> {
-    match core_store::load_json::<ReadMarkerMap>("read_marker.json") {
-        Ok(data) => Ok(data),
-        Err(_) => Ok(HashMap::new()),
-    }
+    load_store::<ReadMarkerMap>("read_marker.json")
 }
 
 #[tauri::command]
@@ -1600,10 +1600,7 @@ struct HighlightFilters {
 
 #[tauri::command]
 fn load_highlight_filters() -> Result<HighlightFilters, String> {
-    match core_store::load_json::<HighlightFilters>("highlight_filters.json") {
-        Ok(data) => Ok(data),
-        Err(_) => Ok(HighlightFilters::default()),
-    }
+    load_store::<HighlightFilters>("highlight_filters.json")
 }
 
 #[tauri::command]
@@ -1626,10 +1623,7 @@ struct AuthConfig {
 
 #[tauri::command]
 fn load_auth_config() -> Result<AuthConfig, String> {
-    match core_store::load_json::<AuthConfig>("auth_config.json") {
-        Ok(data) => Ok(data),
-        Err(_) => Ok(AuthConfig::default()),
-    }
+    load_store::<AuthConfig>("auth_config.json")
 }
 
 #[tauri::command]
@@ -2223,10 +2217,7 @@ struct UploadHistory {
 
 #[tauri::command]
 fn load_upload_history() -> Result<UploadHistory, String> {
-    match core_store::load_json::<UploadHistory>("upload_history.json") {
-        Ok(data) => Ok(data),
-        Err(_) => Ok(UploadHistory::default()),
-    }
+    load_store::<UploadHistory>("upload_history.json")
 }
 
 #[tauri::command]
@@ -2263,10 +2254,7 @@ impl Default for NotifyConfig {
 
 #[tauri::command]
 fn load_notify_config() -> Result<NotifyConfig, String> {
-    match core_store::load_json::<NotifyConfig>("notify_config.json") {
-        Ok(data) => Ok(data),
-        Err(_) => Ok(NotifyConfig::default()),
-    }
+    load_store::<NotifyConfig>("notify_config.json")
 }
 
 #[tauri::command]

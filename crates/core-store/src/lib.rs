@@ -302,13 +302,47 @@ pub fn init_portable_layout() -> Result<PathBuf, StoreError> {
 ///  ディスクフラッシュは体感に響くため。)
 pub fn save_json<T: Serialize>(relative_path: &str, value: &T) -> Result<(), StoreError> {
     let path = portable_data_dir()?.join(relative_path);
+    save_json_at(&path, value)
+}
+
+fn save_json_at<T: Serialize>(path: &Path, value: &T) -> Result<(), StoreError> {
+    // 読み込みに失敗したファイルは、読み直せるまで書かない。呼び出し側は読めないと
+    // 空のデータで続けるので、ここで書くと「空 + 新しく足した分」で全体を上書きし、
+    // 中身が消える (OneDrive の同期中やウイルス対策ソフトの検査中に起きる)。
+    if load_failed(path) {
+        return Err(StoreError::Other(format!(
+            "{} を読み込めなかったので、上書きしないよう保存を止めています。アプリを再起動してください",
+            path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+        )));
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
 
     let bytes = serde_json::to_vec_pretty(value)?;
-    write_atomic(&path, &bytes)
+    write_atomic(path, &bytes)
 }
+
+/// 読み込みに失敗した (ファイルはあるのに読めなかった) JSON のパス。読み直せたら外す。
+static LOAD_FAILED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+fn load_failed(path: &Path) -> bool {
+    let guard = LOAD_FAILED.lock().unwrap_or_else(|e| e.into_inner());
+    guard.iter().any(|p| p == path)
+}
+
+fn set_load_failed(path: &Path, failed: bool) {
+    let mut guard = LOAD_FAILED.lock().unwrap_or_else(|e| e.into_inner());
+    guard.retain(|p| p != path);
+    if failed {
+        guard.push(path.to_path_buf());
+    }
+}
+
+/// 読み込みを何回まで試すか。同期ソフトや検査ソフトがファイルを掴んでいるのは
+/// 一瞬のことが多いので、少し待って読み直す。
+const LOAD_ATTEMPTS: u32 = 3;
+const LOAD_RETRY_WAIT: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// 一時ファイル名を書き込みごとに変えるための連番。
 static WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -365,9 +399,36 @@ fn quarantine_path(path: &Path) -> Option<PathBuf> {
     }
 }
 
+/// JSON を読む。ファイルが無いときは `Io(NotFound)`、壊れているときは `Json` を返す。
+///
+/// それ以外の I/O エラー (ファイルが掴まれている、クラウド上にしか実体が無い等) は
+/// 少し待って読み直し、それでも読めなければエラーを返す。そのときは読み直せるまで
+/// `save_json` がそのファイルへの保存を断る (空のデータで上書きしないため)。
 pub fn load_json<T: DeserializeOwned>(relative_path: &str) -> Result<T, StoreError> {
     let path = portable_data_dir()?.join(relative_path);
-    let content = fs::read(path)?;
+    load_json_at(&path)
+}
+
+fn load_json_at<T: DeserializeOwned>(path: &Path) -> Result<T, StoreError> {
+    let mut attempt = 1;
+    let content = loop {
+        match fs::read(path) {
+            Ok(bytes) => break bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                set_load_failed(path, false);
+                return Err(e.into());
+            }
+            Err(e) => {
+                if attempt >= LOAD_ATTEMPTS {
+                    set_load_failed(path, true);
+                    return Err(e.into());
+                }
+                attempt += 1;
+                std::thread::sleep(LOAD_RETRY_WAIT);
+            }
+        }
+    };
+    set_load_failed(path, false);
     Ok(serde_json::from_slice(&content)?)
 }
 
@@ -684,6 +745,38 @@ mod tests {
         // 本体が残っていると、次の保存で空データが上書きされたことに気づけない
         assert!(!path.exists());
         assert_eq!(fs::read_to_string(&moved).unwrap(), "{ broken");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn unreadable_file_blocks_save_until_it_reads_again() {
+        // 読めない (NotFound 以外の I/O エラー) ファイルを、空のデータで上書きしないこと。
+        // ディレクトリを fs::read すると NotFound 以外のエラーになるので、それで再現する
+        let dir = temp_dir("load_failed");
+        let path = dir.join("favorites.json");
+        fs::create_dir_all(&path).unwrap();
+        let err = load_json_at::<serde_json::Value>(&path).expect_err("a directory must not read");
+        assert!(matches!(&err, StoreError::Io(e) if e.kind() != std::io::ErrorKind::NotFound));
+        let refused = save_json_at(&path, &serde_json::json!({ "boards": [] }));
+        assert!(matches!(refused, Err(StoreError::Other(_))), "save must be refused after a failed load");
+
+        // 読めるようになれば保存も通る
+        fs::remove_dir_all(&path).unwrap();
+        fs::write(&path, b"{\"boards\":[1]}").unwrap();
+        let value = load_json_at::<serde_json::Value>(&path).unwrap();
+        assert_eq!(value["boards"][0], 1);
+        save_json_at(&path, &serde_json::json!({ "boards": [1, 2] })).unwrap();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_file_does_not_block_save() {
+        let dir = temp_dir("load_missing");
+        let path = dir.join("favorites.json");
+        let err = load_json_at::<serde_json::Value>(&path).expect_err("missing file");
+        assert!(matches!(&err, StoreError::Io(e) if e.kind() == std::io::ErrorKind::NotFound));
+        save_json_at(&path, &serde_json::json!({})).unwrap();
+        assert!(path.exists());
         let _ = fs::remove_dir_all(&dir);
     }
 

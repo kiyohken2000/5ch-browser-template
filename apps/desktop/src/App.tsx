@@ -4767,8 +4767,8 @@ export default function App() {
       const data = await invoke<Record<string, Record<string, number>>>("load_read_marker");
       setReadMarker(data);
       return data;
-    } catch {
-      // no saved markers yet
+    } catch (e) {
+      reportStoreLoadFailure("「ここまで読んだ」", e);
       return {};
     }
   };
@@ -4818,13 +4818,21 @@ export default function App() {
     }
   };
 
+  // お気に入り・NG などのファイルが「あるのに読めなかった」とき (OneDrive の同期中や
+  // ウイルス対策ソフトの検査中)。ファイルが無いだけなら Rust 側が既定値を返すので
+  // ここには来ない。保存は Rust 側が止めるので、利用者には再起動を促すだけにする。
+  const reportStoreLoadFailure = (label: string, error: unknown) => {
+    console.warn(`${label} の読み込みに失敗`, error);
+    setStatus(`${label}を読み込めませんでした。消えないよう保存を止めています。アプリを再起動してください (${String(error)})`);
+  };
+
   const loadFavorites = async () => {
     if (!isTauriRuntime()) return;
     try {
       const data = await invoke<FavoritesData>("load_favorites");
       setFavorites(data);
-    } catch {
-      // no saved favorites yet
+    } catch (e) {
+      reportStoreLoadFailure("お気に入り", e);
     }
   };
 
@@ -4928,8 +4936,8 @@ export default function App() {
     try {
       const data = await invoke<NgFilters>("load_ng_filters");
       setNgFilters({ ...data, thread_words: data.thread_words ?? [] });
-    } catch {
-      // no saved NG filters yet
+    } catch (e) {
+      reportStoreLoadFailure("NG", e);
     }
   };
 
@@ -4972,8 +4980,8 @@ export default function App() {
     try {
       const data = await invoke<OgpDomainFilters>("load_ogp_domain_filters");
       setOgpDomainFilters({ allow: data.allow ?? [], block: data.block ?? [] });
-    } catch {
-      // no saved OGP domain filters yet
+    } catch (e) {
+      reportStoreLoadFailure("OGP のドメイン設定", e);
     }
   };
 
@@ -5007,8 +5015,8 @@ export default function App() {
     try {
       const data = await invoke<HighlightFilters>("load_highlight_filters");
       setHighlightFilters({ words: data.words ?? [], ids: data.ids ?? [], names: data.names ?? [] });
-    } catch {
-      // no saved highlight filters yet
+    } catch (e) {
+      reportStoreLoadFailure("強調表示", e);
     }
   };
 
@@ -5074,8 +5082,8 @@ export default function App() {
     try {
       const data = await invoke<NgImageFilter>("load_ng_image_filter");
       setNgImageFilter({ entries: data.entries ?? [], threshold: typeof data.threshold === "number" ? data.threshold : 10 });
-    } catch {
-      // no saved image NG yet
+    } catch (e) {
+      reportStoreLoadFailure("画像 NG", e);
     }
   };
 
@@ -10956,7 +10964,7 @@ export default function App() {
             setStatus(`auto-login: ${results.map((r) => `${r.provider}:${r.success ? "OK" : "NG"}`).join(", ")}`);
           }).catch(() => {});
         }
-      }).catch(() => {});
+      }).catch((e) => reportStoreLoadFailure("認証設定", e));
       // Load upload history
       invoke<{ entries: { sourceUrl: string; thumbnail: string; pageUrl: string; fileName: string; uploadedAt: string }[] }>("load_upload_history").then((data) => {
         setUploadHistory(data.entries);
