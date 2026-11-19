@@ -31,3 +31,6 @@ build-*.tar.gz
 build-*.ipa
 build-*.apk
 build-*.aab
+
+# Gradle cache created inside local native modules during Android builds
+modules/*/android/.gradle/
