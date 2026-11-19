@@ -67,6 +67,7 @@
     },
     "plugins": [
       "./plugins/withGradleHeap",
+      "./plugins/withOptionalHardwareFeatures",
       "expo-font",
       "expo-asset",
       [
