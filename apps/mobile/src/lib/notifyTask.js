@@ -47,7 +47,7 @@ import {
 } from './notify'
 import { appendHistory, newHistoryId } from './notifyHistory'
 import { parseDatBytes } from './parse'
-import { setCompatSitesEnabled } from './sites'
+import { applySiteSettings } from './sites'
 import { KEYS, load, save } from './storage'
 import { getCachedThread } from './threadCache'
 
@@ -73,6 +73,7 @@ const SETTING_DEFAULTS = {
   ngChainReplies: false,
   ngChainRepliesMode: 'abone',
   compatSites: false,
+  eddibbSites: false,
   customUserAgent: '',
 }
 
@@ -371,7 +372,7 @@ async function check({ foreground = false } = {}) {
     return { notified: 0, checked: 0, failed: 0, skipped: 'active' }
   }
   // タスクだけで起きたときは、起動時の設定の反映が済んでいない
-  setCompatSitesEnabled(settings.compatSites)
+  applySiteSettings(settings)
   setCustomUserAgent(settings.customUserAgent)
 
   const [watchList, myPosts, filters, stored] = await Promise.all([

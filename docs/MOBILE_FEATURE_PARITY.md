@@ -290,6 +290,7 @@
 | `5ch.net` → `5ch.io` 自動リダイレクト | **済** | `urls.js` の `normalize5chUrl` |
 | EXおろちつねる（bbspink.org/ex0ch）対応 | **×** | **ドメインを `5ch.io` / `5ch.net` / `2ch.net` に絞る決定（§3 の決定 #3）。** bbspink を外したのはストア審査の文脈（§13-4） |
 | kenmo.org / 00c.org 対応 | **済** | **2026-11-08 に × から対応に変えて実装した**（§14 の決定 #15）。iOS シミュレーターで読み取りと書き込み（Safari での認証を経由）まで確認済み。既定 OFF、設定で ON にしたときだけ板一覧に出す。書き込みの認証（Turnstile）は突破せず、認証 URL を外部ブラウザで開く。計画は `MOBILE_FEASIBILITY_STUDY.md` §12-6 |
+| エッヂ掲示板（bbs.eddibb.cc）対応 | **済** | 2026-11-19 に実装（§14 の決定 #17、`MOBILE_FEASIBILITY_STUDY.md` §12-7）。kenmo とは別の設定で、既定 OFF。板は固定（エッヂ・試験板）。短いスレ URL もスレとして開く。iOS シミュレーターで読み取り・報告の画面・書き込みまで確認（2026-11-19） |
 | URL 欄に貼ったスレ URL から直接開く | **形 / 済** | URL 欄ではなく**共有シート**から（ブラウザの 5ch URL → 共有 → Ember。§6-3）。`scheme: "ember"` だけでは共有先に出ないので `expo-share-intent` を入れた。受け取りは `lib/shareTarget.js` |
 | アプリ内更新チェック（latest.json） | **×** | **OS が担う。** ストア + `expo-updates` の OTA（§17-3） |
 | Windows `updater.exe` / macOS の自動アップデータ | **×** | 同上 |

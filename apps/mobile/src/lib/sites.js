@@ -5,8 +5,11 @@
  * 取得（`api.js`）、通報先（`Thread.js`）はすべてこの表を引く。申し立てが来たら
  * 表から行を消せば、そのサイトへの通信も画面上の入口もまとめて消える（§13-3）。
  *
- * **既定は OFF。** 設定の `compatSites` が ON のときだけ有効になる。OFF のあいだは
+ * **既定は OFF。** サイトごとに、行の `settingKey` の設定が ON のときだけ有効になる
+ * （kenmo.org / 00c.org は `compatSites`、エッヂ掲示板は `eddibbSites`）。OFF のあいだは
  * どのホスト検査も通らないので、5ch.io だけに通信する挙動と同じになる。
+ *
+ * 板一覧は `bbsmenuUrl` から取るか、bbsmenu の無いサイトは `boards` の固定の表から作る。
  *
  * bbspink / EXおろちつねる は入れない（決定 #3 のまま）。
  */
@@ -14,6 +17,8 @@
 export const COMPAT_SITES = [
   {
     id: 'kenmo',
+    /** 有効・無効を決める設定のキー（`settings.slice.js`） */
+    settingKey: 'compatSites',
     /** ドット区切りの末尾一致で見る。00c.org の板も kenmo.org の bbsmenu に載っている */
     hosts: ['kenmo.org', '00c.org'],
     bbsmenuUrl: 'https://kenmo.org/bbsmenu.json',
@@ -24,18 +29,53 @@ export const COMPAT_SITES = [
     /** 通報先のスレ。キーは次スレで変わるのでタイトルで探す */
     reportThreadTitle: '削除依頼',
   },
+  {
+    /** エッヂ掲示板（eddist、https://github.com/edginer/eddist） */
+    id: 'eddibb',
+    settingKey: 'eddibbSites',
+    hosts: ['bbs.eddibb.cc'],
+    /** bbsmenu が無い（json も html も 404）。板は固定で持つ（デスクトップ版と同じ） */
+    categoryName: 'エッヂ掲示板',
+    boards: [
+      ['エッヂ', 'https://bbs.eddibb.cc/liveedge/'],
+      ['試験板', 'https://bbs.eddibb.cc/experiment/'],
+    ],
+    /**
+     * スレのブラウザ向け URL が `/<板>/<キー>` の短い形。read.cgi はそこへ転送するだけ
+     * なので、短い形もスレとして読む（`urls.js`）
+     */
+    shortThreadUrls: true,
+    /**
+     * 削除依頼の板やスレは無い。利用規約のページに運営の問い合わせ先（abuse 窓口の
+     * メール）が書いてあるので、そこへ案内する
+     */
+    reportUrl: 'https://bbs.eddibb.cc/terms',
+  },
 ]
 
-let enabled = false
+/** 有効なサイトの id */
+const enabledIds = new Set()
 
-/** 設定の変化に合わせて呼ぶ（`settings.slice.js`）。 */
+/** サイトの有効・無効を切り替える。設定の変化に合わせて呼ぶ（`applySiteSettings`）。 */
+export function setSiteEnabled(id, value) {
+  if (value) enabledIds.add(id)
+  else enabledIds.delete(id)
+}
+
+/** kenmo.org / 00c.org の有効・無効（設定の `compatSites`）。 */
 export function setCompatSitesEnabled(value) {
-  enabled = Boolean(value)
+  setSiteEnabled('kenmo', Boolean(value))
 }
 
-export function compatSitesEnabled() {
-  return enabled
+/** 設定の値を全サイトへ写す。`settings` は保存した設定か Redux の state。 */
+export function applySiteSettings(settings) {
+  for (const site of COMPAT_SITES) {
+    setSiteEnabled(site.id, Boolean(settings?.[site.settingKey]))
+  }
 }
+
+/** 互換サイトの有効・無効を決める設定のキー。 */
+export const SITE_SETTING_KEYS = COMPAT_SITES.map((site) => site.settingKey)
 
 function hostMatches(host, suffix) {
   const h = host.toLowerCase()
@@ -43,20 +83,21 @@ function hostMatches(host, suffix) {
 }
 
 /**
- * ホストが属する互換サイト。設定が OFF のときは常に null。
+ * ホストが属する互換サイト。そのサイトの設定が OFF のときは null。
  * @returns {object|null}
  */
 export function compatSiteOf(host) {
-  if (!enabled || !host) return null
+  if (!host) return null
   return (
-    COMPAT_SITES.find((site) => site.hosts.some((h) => hostMatches(host, h))) ||
-    null
+    enabledCompatSites().find((site) =>
+      site.hosts.some((h) => hostMatches(host, h)),
+    ) || null
   )
 }
 
-/** 板一覧に足すサイト。設定が OFF なら空。 */
+/** 板一覧に足すサイト。設定が OFF のサイトは入らない。 */
 export function enabledCompatSites() {
-  return enabled ? COMPAT_SITES : []
+  return COMPAT_SITES.filter((site) => enabledIds.has(site.id))
 }
 
 /**

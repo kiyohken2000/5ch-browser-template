@@ -1531,32 +1531,43 @@ export default function Thread({ route, navigation }) {
       label: 'このレスを報告',
       run: () => {
         closeMenu()
-        // kenmo.org / 00c.org のレスは 5ch の削除要請板では扱えない。そのサイトの窓口へ
+        // kenmo.org / 00c.org やエッヂ掲示板のレスは 5ch の削除要請板では扱えない。そのサイトの窓口へ
         let site = null
         try {
           site = compatSiteOf(parseBoardLocation(threadUrl).host)
         } catch (e) {
           site = null
         }
+        const tail =
+          '下のレスの URL を添えてください。見たくない場合は、ID や名前を NG にして隠せます。'
+        let lead = `問題のある書き込みは、5ch の削除要請板へ申請できます。${tail}`
+        let open = {
+          label: '削除要請板を開く',
+          onPress: () => openInAppBrowser(DELETION_REQUEST_URL),
+        }
+        if (site?.reportUrl) {
+          // エッヂ掲示板には削除依頼の板が無い。規約のページに問い合わせ先がある
+          lead = `問題のある書き込みは、この掲示板の運営へ連絡できます。利用規約のページの末尾に問い合わせ先が書かれています。${tail}`
+          open = {
+            label: '利用規約と問い合わせ先を開く',
+            onPress: () => openInAppBrowser(site.reportUrl),
+          }
+        } else if (site) {
+          lead = `問題のある書き込みは、この掲示板の削除依頼スレッドへ申請できます。${tail}`
+          open = {
+            label: '削除依頼スレッドを開く',
+            onPress: () => {
+              findReportThreadUrl(site).then(openInAppBrowser)
+            },
+          }
+        }
         pushSheet({
           title: `>>${no} を報告`,
-          lead: site
-            ? '問題のある書き込みは、この掲示板の削除依頼スレッドへ申請できます。下のレスの URL を添えてください。見たくない場合は、ID や名前を NG にして隠せます。'
-            : '問題のある書き込みは、5ch の削除要請板へ申請できます。下のレスの URL を添えてください。見たくない場合は、ID や名前を NG にして隠せます。',
+          lead,
           rows: pickRows([no]),
           actions: [
             { label: 'URL をコピー', onPress: () => copy(resUrl(no), 'URL') },
-            site
-              ? {
-                  label: '削除依頼スレッドを開く',
-                  onPress: () => {
-                    findReportThreadUrl(site).then(openInAppBrowser)
-                  },
-                }
-              : {
-                  label: '削除要請板を開く',
-                  onPress: () => openInAppBrowser(DELETION_REQUEST_URL),
-                },
+            open,
             {
               label: 'Ember に問い合わせ',
               onPress: () => openInAppBrowser(CONTACT_URL),

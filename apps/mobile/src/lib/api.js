@@ -77,6 +77,21 @@ function categoriesOf(json, prefix = '') {
   return categories
 }
 
+/** 固定の板の表を bbsmenu.json と同じ形にする（`categoriesOf` に通すため）。 */
+function staticMenuOf(site) {
+  return {
+    menu_list: [
+      {
+        category_content: (site.boards || []).map(([name, url]) => ({
+          board_name: name,
+          category_name: site.categoryName,
+          url,
+        })),
+      },
+    ],
+  }
+}
+
 /**
  * 板一覧。`bbsmenu.json` は **UTF-8 の JSON** で Shift_JIS ではない
  * （M0 で実測。183KB / 49 カテゴリ）。
@@ -94,7 +109,12 @@ export async function fetchBbsmenu(options = {}) {
   const sites = enabledCompatSites()
   const [main, ...extras] = await Promise.allSettled([
     read5chJson(BBSMENU_URL, options),
-    ...sites.map((site) => read5chJson(site.bbsmenuUrl, options)),
+    // bbsmenu の無いサイト（エッヂ掲示板）は通信せず、固定の表から作る
+    ...sites.map((site) =>
+      site.bbsmenuUrl
+        ? read5chJson(site.bbsmenuUrl, options)
+        : Promise.resolve(staticMenuOf(site)),
+    ),
   ])
   const json = main.status === 'fulfilled' ? main.value : null
   const categories = json ? categoriesOf(json) : []

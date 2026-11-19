@@ -84,12 +84,20 @@ function titleOf(html) {
   return html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? ''
 }
 
-/** bbs.cgi が人向けの文言を入れる `<b>` の中身。タグを落として空白を畳む。 */
+/**
+ * bbs.cgi が人向けの文言を入れる `<b>` の中身。タグを落として空白を畳む。
+ * エッヂ掲示板（eddist）のエラーは `<b>` が無く `<body>` に地の文で書くので、
+ * `2ch_X:error` があるときは `<body>` を読む（デスクトップ版 `extract_post_server_message` と同じ）。
+ */
 export function serverMessage(html) {
-  const m = html.match(/<b>([\s\S]*?)(?:<\/b>|$)/i)
-  if (!m) return null
+  const raw =
+    html.match(/<b>([\s\S]*?)(?:<\/b>|$)/i)?.[1] ??
+    (html.includes('2ch_X:error')
+      ? html.match(/<body[^>]*>([\s\S]*?)(?:<\/body>|$)/i)?.[1]
+      : undefined)
+  if (raw === undefined) return null
   const text = decodeEntities(
-    m[1].replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]*>/g, ''),
+    raw.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]*>/g, ''),
   )
     .replace(/\s+/g, ' ')
     .trim()
@@ -101,12 +109,19 @@ export function serverMessage(html) {
  *
  * kenmo.org / 00c.org の実運用板は、書き込みのたびに使い捨ての認証 URL を
  * 返してくる（Turnstile。専ブラ側では通さず、利用者にブラウザで開いてもらう）。
+ * エッヂ掲示板は初回の書き込みで認証コードを返し、`/auth-code` でそのコードを入れてもらう。
  * `postUrl` を渡したときは、**投稿先と同じ掲示板の URL だけ**を返す（`isSameSite`）。
  * 別のサイトへ誘導されないように。
  */
 export function authUrlOf(html, postUrl = null) {
-  if (!html.includes('認証が必要')) return null
-  const url = html.match(/href\s*=\s*"([^"]+)"/i)?.[1]
+  let url
+  const lead = html.indexOf('以下のURLから')
+  if (lead >= 0) {
+    // エッヂ掲示板は「認証コード'…'を用いて、以下のURLから…」の後ろに地の文で URL を書く
+    url = html.slice(lead).match(/https?:\/\/[^\s<"']+/i)?.[0]
+  } else if (html.includes('認証が必要')) {
+    url = html.match(/href\s*=\s*"([^"]+)"/i)?.[1]
+  }
   if (!url || !/^https?:\/\//i.test(url)) return null
   if (postUrl) {
     if (!isSameSite(splitUrl(url)?.host, splitUrl(postUrl)?.host)) return null
@@ -440,6 +455,10 @@ export function resultText(result) {
       // 連続投稿の制限が明けていないときの文言。kenmo.org では 10 秒（デスクトップ版と同じ補足）
       if (result.message.includes('もう一度やり直してください')) {
         return `${result.message}\n少し待ってからもう一度送信してください。`
+      }
+      // エッヂ掲示板の初回の書き込み（デスクトップ版と同じ補足）
+      if (result.message.includes('認証コード')) {
+        return `${result.message}\n「ブラウザで認証する」から認証ページを開いてこのコードを入力し、終わったらもう一度送信してください。`
       }
       return result.message
     case 'uncertain':

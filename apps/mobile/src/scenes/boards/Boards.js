@@ -47,6 +47,7 @@ export default function Boards({ navigation }) {
   const recentBoards = useSelector((state) => state.watch.recentBoards)
   // sites.js の有効・無効は settings.slice が合わせる。ここでは取り直しのきっかけに使う
   const compatSites = useSelector((state) => state.settings.compatSites)
+  const eddibbSites = useSelector((state) => state.settings.eddibbSites)
   const settingsLoaded = useSelector((state) => state.settings.loaded)
   // 板名がこの大きさ。見出しは既定（15）のときの差のまま小さくする
   const boardFontSize = useSelector((state) => state.settings.boardListFontSize)
@@ -124,7 +125,7 @@ export default function Boards({ navigation }) {
   useEffect(() => {
     if (!settingsLoaded) return
     read(false)
-  }, [read, settingsLoaded, compatSites])
+  }, [read, settingsLoaded, compatSites, eddibbSites])
 
   const toggleCategory = useCallback((name) => {
     setExpanded((prev) => {

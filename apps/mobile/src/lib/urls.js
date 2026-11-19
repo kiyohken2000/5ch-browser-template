@@ -8,7 +8,7 @@
  * （決定、§14 の決定済み #3）。5ch 系列の許可ホストは 3 つ（`5ch.io` / `5ch.net` /
  * `2ch.net`）で、デスクトップ版の 5 つより厳しい。
  *
- * kenmo.org / 00c.org は設定で ON にしたときだけ通す（決定 #15、`sites.js`）。
+ * kenmo.org / 00c.org とエッヂ掲示板は設定で ON にしたときだけ通す（決定 #15、`sites.js`）。
  *
  * RN の `URL` 実装は不完全なので**使わない。** 正規表現で分解する。
  */
@@ -210,6 +210,23 @@ export function parseBoardLocation(input) {
       mountPath: buildMountPath(segs.slice(0, segs.length - 3)),
       board,
       threadKey,
+    })
+  }
+
+  // /<board>/<key>（エッヂ掲示板のブラウザ向けのスレ URL。後ろに `/<レス番>` が付くことがある）。
+  // ほかのホストでは `/<a>/<b>/` は板 URL なので、短い形を持つサイトでだけ読む
+  if (
+    compatSiteOf(u.host)?.shortThreadUrls &&
+    segs.length >= 2 &&
+    segs[0] !== 'test' &&
+    /^\d{9,11}$/.test(segs[1])
+  ) {
+    return new BoardLocation({
+      scheme: u.scheme,
+      host: u.host,
+      mountPath: '/',
+      board: segs[0],
+      threadKey: segs[1],
     })
   }
 

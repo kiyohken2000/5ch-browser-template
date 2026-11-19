@@ -42,6 +42,11 @@ export default function ReadingSettings() {
           label="kenmo.org / 00c.org の板を表示"
           hint="5ch とは別の掲示板です。書き込みには、最初の 1 回だけブラウザでの認証が要る板があります"
         />
+        <SettingToggle
+          settingKey="eddibbSites"
+          label="エッヂ掲示板の板を表示"
+          hint="5ch とは別の掲示板（bbs.eddibb.cc）です。最初の書き込みで認証コードが出たら、ブラウザで認証してからもう一度書き込みます"
+        />
       </SettingsSection>
 
       <SettingsSection title="操作" theme={theme}>
