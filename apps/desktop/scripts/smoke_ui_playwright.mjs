@@ -1278,6 +1278,28 @@ try {
       `pasting an ex0ch thread url should open a tab, got ${JSON.stringify(titles)}`,
     );
 
+    // エッヂ掲示板はブラウザで見る URL が /<板>/<キー> の短い形。read.cgi の形に直して
+    // スレとして開き、同じスレの read.cgi 形 URL とは同じタブになること
+    await gotoUrl("https://bbs.eddibb.cc/liveedge/1795077168");
+    titles = await tabTitles();
+    assert(
+      titles.includes("liveedge/1795077168"),
+      `pasting an eddibb short thread url should open a tab, got ${JSON.stringify(titles)}`,
+    );
+    const afterEddibb = await tabCount();
+    await gotoUrl("https://bbs.eddibb.cc/test/read.cgi/liveedge/1795077168/");
+    assert(
+      (await tabCount()) === afterEddibb,
+      "the read.cgi form of the same eddibb thread should reuse its tab",
+    );
+    // エッヂの板 URL はスレとして開かない
+    const beforeEddibbBoard = await tabCount();
+    await gotoUrl("https://bbs.eddibb.cc/liveedge");
+    assert(
+      (await tabCount()) === beforeEddibbBoard,
+      "an eddibb board url should not open a thread tab",
+    );
+
     // 板 URL はタブを作らずスレ一覧側へ流す (スレ URL と混ぜない)
     const beforeBoard = await tabCount();
     await gotoUrl("https://phoebe.bbspink.com/hgame/");
@@ -1285,7 +1307,7 @@ try {
     assert(afterBoard === beforeBoard, `a board url should not open a thread tab, got ${beforeBoard} -> ${afterBoard}`);
 
     // 後続の検査に影響を残さないようここで開いたタブを閉じる
-    for (const name of ["hgame/1792908668", "operate/1775635309"]) {
+    for (const name of ["hgame/1792908668", "operate/1775635309", "liveedge/1795077168"]) {
       const handles = await page.$$(".thread-tab:not(.placeholder)");
       for (const handle of handles) {
         const title = await handle.$eval(".thread-tab-title", (el) => el.textContent?.trim() ?? "").catch(() => "");
@@ -7839,6 +7861,7 @@ try {
       localStorage.setItem("desktop.boardPaneTab.v1", "boards");
       localStorage.setItem("desktop.ex0chEnabled.v1", "true");
       localStorage.removeItem("desktop.kenmoEnabled.v1");
+      localStorage.removeItem("desktop.eddibbEnabled.v1");
       localStorage.removeItem("desktop.boardCategories.v1");
       // 呼び出しごとの enabledSources と、保存された ui json を覚えておく
       const sourceCalls = [];
@@ -7864,6 +7887,12 @@ try {
               // core-fetch のユニットテストで見ている
               { boardName: "テスト", url: "https://kenmo.org/test/" },
             ],
+          });
+        }
+        if (sources.includes("eddibb")) {
+          cats.push({
+            categoryName: "エッヂ掲示板",
+            boards: [{ boardName: "エッヂ", url: "https://bbs.eddibb.cc/liveedge/" }],
           });
         }
         return cats;
@@ -7990,6 +8019,40 @@ try {
     assert(
       !afterOff.includes("kenmo") && afterOff.includes("ex0ch"),
       `turning kenmo.org off must leave ex0ch alone, got ${JSON.stringify(afterOff)}`,
+    );
+
+    // エッヂ掲示板 (bbsmenu を持たないので Rust 側の固定表から出す) も既定は非表示で、
+    // 板メニューから同じように出し入れできること
+    assert(
+      !firstCall.includes("eddibb"),
+      `エッヂ掲示板 should be off by default, got ${JSON.stringify(firstCall)}`,
+    );
+    await openBoardMenu();
+    const eddibbShow = await kenmoPage.$('.menu-dropdown button:has-text("エッヂ掲示板を表示")');
+    assert(eddibbShow, "the 板 menu should offer エッヂ掲示板 while it is hidden");
+    await eddibbShow.click();
+    await kenmoPage.waitForFunction(
+      () => [...document.querySelectorAll(".board-tree .category-toggle")].some((el) => (el.textContent || "").includes("エッヂ掲示板")),
+      null,
+      { timeout: 15000 },
+    );
+    const eddibbOn = await kenmoPage.evaluate(() => window.__smokeKenmo.sourceCalls().at(-1));
+    assert(
+      eddibbOn.includes("eddibb") && eddibbOn.includes("ex0ch") && !eddibbOn.includes("kenmo"),
+      `turning エッヂ掲示板 on must not change the other sites, got ${JSON.stringify(eddibbOn)}`,
+    );
+    assert(
+      (await kenmoPage.evaluate(() => localStorage.getItem("desktop.eddibbEnabled.v1"))) === "true",
+      "turning エッヂ掲示板 on should persist to localStorage",
+    );
+    await openBoardMenu();
+    const eddibbHide = await kenmoPage.$('.menu-dropdown button:has-text("エッヂ掲示板を非表示")');
+    assert(eddibbHide, "the 板 menu should offer to hide エッヂ掲示板 while it is shown");
+    await eddibbHide.click();
+    await kenmoPage.waitForFunction(
+      () => ![...document.querySelectorAll(".board-tree .category-toggle")].some((el) => (el.textContent || "").includes("エッヂ掲示板")),
+      null,
+      { timeout: 15000 },
     );
     await kenmoPage.close();
     console.log("smoke-ui: the kenmo.org board list is off by default and toggles from the 板 menu ok");

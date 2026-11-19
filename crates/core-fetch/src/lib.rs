@@ -1429,14 +1429,33 @@ pub fn is_post_error_page(html: &str) -> bool {
 /// 2ch 系の bbs.cgi はエラーの理由をここに入れる慣習で、kenmo.org の自前
 /// クライアントも同じ場所を読んでいる。「あと 6 秒お待ちください」のように
 /// 利用者が次にどうすればいいか分かる文が入るので、そのまま画面に出す。
+///
+/// エッヂ掲示板 (eddist) は `<b>` を使わず、`2ch_X:error` のページの `<body>` に
+/// 「エラー！<br>理由」をそのまま書く。`<b>` が無いエラーページはそちらを読む。
 pub fn extract_post_server_message(html: &str) -> Option<String> {
-    let start = html.find("<b>").or_else(|| html.find("<B>"))? + 3;
-    let rest = &html[start..];
-    let end = rest
-        .find("</b>")
-        .or_else(|| rest.find("</B>"))
-        .unwrap_or(rest.len());
-    let text = rest[..end]
+    let bold = html.find("<b>").or_else(|| html.find("<B>"));
+    let raw = match bold {
+        Some(pos) => {
+            let rest = &html[pos + 3..];
+            let end = rest
+                .find("</b>")
+                .or_else(|| rest.find("</B>"))
+                .unwrap_or(rest.len());
+            &rest[..end]
+        }
+        None if html.contains("2ch_X:error") => {
+            let open = html.find("<body").or_else(|| html.find("<BODY"))?;
+            let rest = &html[open..];
+            let rest = &rest[rest.find('>')? + 1..];
+            let end = rest
+                .find("</body>")
+                .or_else(|| rest.find("</BODY>"))
+                .unwrap_or(rest.len());
+            &rest[..end]
+        }
+        None => return None,
+    };
+    let text = raw
         .replace("<br>", " ")
         .replace("<br/>", " ")
         .replace("<br />", " ");
@@ -1471,10 +1490,24 @@ pub fn is_post_cookie_notice(html: &str) -> bool {
 /// URL を文言の中の `<a href>` で渡してくる。その先は Cloudflare Turnstile と
 /// ブラウザのフィンガープリントを使う作りなので、専ブラ側では通せない。
 /// 利用者にブラウザで開いてもらうため URL だけ取り出す。
+///
+/// エッヂ掲示板 (eddist) はリンクにせず「認証コード'123456'を用いて、以下のURLから
+/// 認証を行ってください \n https://…/auth-code」と地の文で書く (再認証・ユーザー登録も
+/// 同じ書き方)。認証の結果は書き込みで受け取った `edge-token` クッキーに結び付くので、
+/// 利用者がブラウザでコードを入力すれば、保存してある同じクッキーで次から書き込める。
 pub fn extract_post_auth_url(html: &str) -> Option<String> {
+    if let Some(pos) = html.find("以下のURLから") {
+        let rest = &html[pos..];
+        let start = rest.find("https://").or_else(|| rest.find("http://"))?;
+        let url: String = rest[start..]
+            .chars()
+            .take_while(|c| !c.is_whitespace() && !matches!(c, '<' | '"' | '\''))
+            .collect();
+        return Some(url);
+    }
     if !html.contains("認証が必要") {
         return None;
-        }
+    }
     let start = html.find("href=\"")? + 6;
     let rest = &html[start..];
     let end = rest.find('"')?;
@@ -1497,6 +1530,8 @@ pub fn post_server_message_with_hint(html: &str) -> Option<String> {
     let message = extract_post_server_message(html)?;
     let hint = if message.contains("認証が必要") {
         Some("この掲示板は書き込みに認証が必要です。上の URL をブラウザで開いて認証してください")
+    } else if message.contains("認証コード") {
+        Some("「ブラウザで認証を開く」から認証ページを開いてこのコードを入力し、終わったらもう一度書き込んでください")
     } else if is_post_cookie_notice(html) {
         Some("この掲示板は最初の書き込みだけ 2 回に分かれます。10 秒ほど待ってもう一度書き込んでください (次からは 1 回で通ります)")
     } else if message.contains("もう一度やり直してください") {
@@ -2514,6 +2549,34 @@ mod tests {
         assert!(is_5ch_family_host("MAO.5CH.IO"));
         assert!(is_5ch_family_host("bbspink.org"));
         assert!(is_5ch_family_host("mercury.bbspink.com"));
+    }
+
+    #[test]
+    fn eddist_unauthenticated_page_gives_message_and_auth_url() {
+        // bbs.eddibb.cc の bbs.cgi が実際に返す形 (eddist-server/src/error.rs)。<b> が無い
+        let html = "<html><!-- 2ch_X:error -->\n<head>\n    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=x-sjis\">\n    <meta name=\"error_code\" content=\"E-Unauthenticated\">\n    <title>ＥＲＲＯＲ</title>\n</head>\n<body>\n    エラー！<br>\n    認証コード'209332'を用いて、以下のURLから認証を行ってください \n https://bbs.eddibb.cc/auth-code\n</body>\n</html>";
+        assert!(is_post_error_page(html));
+        assert_eq!(
+            extract_post_auth_url(html).as_deref(),
+            Some("https://bbs.eddibb.cc/auth-code")
+        );
+        let msg = extract_post_server_message(html).expect("message");
+        assert!(msg.starts_with("エラー！ 認証コード'209332'を用いて"), "{msg}");
+        assert!(!msg.contains("ＥＲＲＯＲ"), "{msg}");
+        let hinted = post_server_message_with_hint(html).expect("hinted");
+        assert!(hinted.contains("209332") && hinted.contains("ブラウザで認証を開く"), "{hinted}");
+    }
+
+    #[test]
+    fn eddist_other_errors_read_from_body_without_auth_url() {
+        let html = "<html><!-- 2ch_X:error --><head><title>ＥＲＲＯＲ</title></head><body>\n    エラー！<br>\n    NGワードが含まれています\n</body></html>";
+        assert_eq!(
+            extract_post_server_message(html).as_deref(),
+            Some("エラー！ NGワードが含まれています")
+        );
+        assert_eq!(extract_post_auth_url(html), None);
+        // エラーの印が無いページは本文を拾わない (成功ページ等を理由として出さない)
+        assert_eq!(extract_post_server_message("<html><body>書き込みました</body></html>"), None);
     }
 
     #[test]

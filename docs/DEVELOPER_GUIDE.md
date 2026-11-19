@@ -576,6 +576,7 @@ React の描画前に呼ぶ）がファイルの内容を流し込む。
 | `tabWidth` | `desktop.tabWidth.v1` | タブの幅（`normal` / `narrow`、既定 `normal`） |
 | `ex0chEnabled` | `desktop.ex0chEnabled.v1` | ex0ch の板を一覧に含めるか（既定 ON） |
 | `kenmoEnabled` | `desktop.kenmoEnabled.v1` | kenmo.org / 00c.org の板を一覧に含めるか（既定 OFF） |
+| `eddibbEnabled` | `desktop.eddibbEnabled.v1` | エッヂ掲示板（bbs.eddibb.cc）の板を一覧に含めるか（既定 OFF） |
 | `aiPrefs` | `desktop.aiPrefs.v1` | 推論バックエンド、翻訳の有効/無効 |
 
 ファイル単位ではなくフィールド単位で有無を見る。フィールドを消すとその設定だけ既定値に戻る。

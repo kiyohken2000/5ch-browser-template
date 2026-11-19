@@ -1229,6 +1229,40 @@ const EXTRA_BBSMENU_SOURCES: &[(&str, &str, &str)] = &[
     ("kenmo", KENMO_BBSMENU_URL, "kenmo.org / "),
 ];
 
+/// bbsmenu を公開していない 5ch 互換サイト。板をここに直接書く。
+/// `(識別子, カテゴリ名, [(板名, 板 URL)])`。
+///
+/// エッヂ掲示板 (bbs.eddibb.cc) は subject.txt / dat / SETTING.TXT / bbs.cgi を
+/// 5ch と同じ形で持つが、bbsmenu.json / bbsmenu.html は 404 を返す。
+/// 申し立てが来たら行を消せば板一覧から消える。
+type StaticBoardSource = (&'static str, &'static str, &'static [(&'static str, &'static str)]);
+
+const STATIC_BOARD_SOURCES: &[StaticBoardSource] = &[(
+    "eddibb",
+    "エッヂ掲示板",
+    &[
+        ("エッヂ", "https://bbs.eddibb.cc/liveedge/"),
+        ("試験板", "https://bbs.eddibb.cc/experiment/"),
+    ],
+)];
+
+fn static_board_categories(enabled: &[String]) -> Vec<BoardCategory> {
+    STATIC_BOARD_SOURCES
+        .iter()
+        .filter(|(id, _, _)| enabled.iter().any(|s| s == id))
+        .map(|(_, category_name, boards)| BoardCategory {
+            category_name: category_name.to_string(),
+            boards: boards
+                .iter()
+                .map(|(board_name, url)| BoardEntry {
+                    board_name: board_name.to_string(),
+                    url: url.to_string(),
+                })
+                .collect(),
+        })
+        .collect()
+}
+
 #[tauri::command]
 async fn fetch_board_categories(
     enabled_sources: Option<Vec<String>>,
@@ -1258,6 +1292,7 @@ async fn fetch_board_categories(
             Err(e) => eprintln!("fetch_board_categories: {id} bbsmenu fetch failed: {e}"),
         }
     }
+    categories.extend(static_board_categories(&enabled));
 
     Ok(categories)
 }
@@ -3931,7 +3966,48 @@ mod tests {
         embed_char_cost, notify_batches, response_permalink, scrub_webhook_url, strip_html_to_text,
         truncate_chars, ui_json_relative_path, ff5ch_items_to_search_items, Ff5chResponse,
         HighlightFilters, NgFilters, NotifyItem, NOTIFY_CHUNK, NOTIFY_MESSAGE_CHARS,
+        static_board_categories,
     };
+
+    #[test]
+    fn static_board_categories_only_include_enabled_sources() {
+        assert!(static_board_categories(&[]).is_empty());
+        assert!(static_board_categories(&["kenmo".to_string()]).is_empty());
+
+        let cats = static_board_categories(&["eddibb".to_string()]);
+        assert_eq!(cats.len(), 1);
+        assert_eq!(cats[0].category_name, "エッヂ掲示板");
+        let urls: Vec<&str> = cats[0].boards.iter().map(|b| b.url.as_str()).collect();
+        assert_eq!(
+            urls,
+            ["https://bbs.eddibb.cc/liveedge/", "https://bbs.eddibb.cc/experiment/"]
+        );
+    }
+
+    #[test]
+    fn static_board_urls_resolve_to_5ch_compatible_locations() {
+        for cat in static_board_categories(&["eddibb".to_string()]) {
+            for board in cat.boards {
+                let loc = core_fetch::parse_board_location(&board.url).expect("location");
+                assert_eq!(loc.host, "bbs.eddibb.cc");
+                assert_eq!(
+                    loc.subject_url(),
+                    format!("{}subject.txt", board.url),
+                    "{}",
+                    board.board_name
+                );
+            }
+        }
+        let loc = core_fetch::parse_board_location(
+            "https://bbs.eddibb.cc/test/read.cgi/liveedge/1795077168/",
+        )
+        .expect("thread location");
+        assert_eq!(loc.board, "liveedge");
+        assert_eq!(
+            loc.dat_url("1795077168"),
+            "https://bbs.eddibb.cc/liveedge/dat/1795077168.dat"
+        );
+    }
 
     // ff5ch の実レスポンス (2026-09 取得) の抜粋。板が null の行、末尾空白付きタイトル、
     // http:// の URL がそのまま来るので、アプリ内の形に揃っていることを確認する。

@@ -680,6 +680,7 @@ const BOARD_CACHE_KEY = "desktop.boardCategories.v1";
 const EXPANDED_CATS_KEY = "desktop.expandedCategories.v1";
 const EX0CH_ENABLED_KEY = "desktop.ex0chEnabled.v1";
 const KENMO_ENABLED_KEY = "desktop.kenmoEnabled.v1";
+const EDDIBB_ENABLED_KEY = "desktop.eddibbEnabled.v1";
 const LANDING_PAGE_URL = "https://ember-5ch.pages.dev";
 const BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/votepurchase";
 const BOARD_TREE_SCROLL_KEY = "desktop.boardTreeScrollTop.v1";
@@ -899,6 +900,7 @@ const UI_JSON_SETTINGS_FIELDS: Record<string, string> = {
   hlIdExpireDays: HL_ID_EXPIRE_DAYS_KEY,
   ex0chEnabled: EX0CH_ENABLED_KEY,
   kenmoEnabled: KENMO_ENABLED_KEY,
+  eddibbEnabled: EDDIBB_ENABLED_KEY,
   aiPrefs: AI_PREFS_KEY,
   uiZoom: UI_ZOOM_KEY,
   tabWidth: TAB_WIDTH_KEY,
@@ -1498,7 +1500,22 @@ const highlightEntriesPreservingTags = (html: string, entries: { value: string; 
   }
   return out;
 };
-const rewrite5chNet = (url: string): string => url.replace(/\.5ch\.net\b/gi, ".5ch.io");
+// エッヂ掲示板 (eddist) はブラウザ向けのスレ URL が `/<板>/<キー>` の短い形で、
+// read.cgi はそこへリダイレクトするだけ。短い形のままだと板 URL と見分けが付かず、
+// 貼ってもスレが開かないので、5ch と同じ read.cgi の形に直してから扱う。
+const EDDIST_HOSTS = ["bbs.eddibb.cc"];
+const rewriteEddistThreadUrl = (url: string): string => {
+  try {
+    const u = new URL(url);
+    if (!EDDIST_HOSTS.includes(u.hostname.toLowerCase())) return url;
+    const m = u.pathname.match(/^\/([A-Za-z0-9_-]+)\/(\d{9,11})(?:\/.*)?$/);
+    if (!m || m[1] === "test") return url;
+    return `${u.origin}/test/read.cgi/${m[1]}/${m[2]}/`;
+  } catch {
+    return url;
+  }
+};
+const rewrite5chNet = (url: string): string => rewriteEddistThreadUrl(url.replace(/\.5ch\.net\b/gi, ".5ch.io"));
 // マウントパス対応: 5ch.io 系は `/test/read.cgi/<board>/<key>/`, bbspink.org/ex0ch/ は
 // `/ex0ch/test/read.cgi/<board>/<key>/` のように `test/read.cgi` がパスの途中に
 // 出現することがある。パス先頭固定で判定すると ex0ch のスレ URL が誤判定され、
@@ -3324,6 +3341,14 @@ export default function App() {
       return false;
     }
   });
+  // エッヂ掲示板 (bbs.eddibb.cc) も kenmo.org と同じく既定では出さない。
+  const [eddibbEnabled, setEddibbEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(EDDIBB_ENABLED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   const [favorites, setFavorites] = useState<FavoritesData>({ boards: [], threads: [] });
   const [ngFilters, setNgFilters] = useState<NgFilters>({ words: [], ids: [], names: [], thread_words: [] });
   const [ngIdExpireDays, setNgIdExpireDays] = useState<number>(() => {
@@ -4628,7 +4653,7 @@ export default function App() {
   // 5ch.io 本体以外の板一覧 (独自 bbsmenu を持つ 5ch 互換サイト) のうち、
   // 表示する設定になっているものの識別子を Rust 側へ渡す。トグルの直後は state が
   // まだ古いので、押した側の新しい値を override で受ける。
-  const fetchBoardCategories = async (override?: { ex0ch?: boolean; kenmo?: boolean }) => {
+  const fetchBoardCategories = async (override?: { ex0ch?: boolean; kenmo?: boolean; eddibb?: boolean }) => {
     if (!isTauriRuntime()) {
       setStatus("board fetch requires tauri runtime");
       return;
@@ -4638,6 +4663,7 @@ export default function App() {
       const enabledSources: string[] = [];
       if (override?.ex0ch ?? ex0chEnabled) enabledSources.push("ex0ch");
       if (override?.kenmo ?? kenmoEnabled) enabledSources.push("kenmo");
+      if (override?.eddibb ?? eddibbEnabled) enabledSources.push("eddibb");
       const cats = await invoke<BoardCategory[]>("fetch_board_categories", {
         enabledSources,
       });
@@ -4663,6 +4689,15 @@ export default function App() {
       const next = !prev;
       saveUiSetting(KENMO_ENABLED_KEY, String(next));
       void fetchBoardCategories({ kenmo: next });
+      return next;
+    });
+  };
+
+  const toggleEddibbEnabled = () => {
+    setEddibbEnabled((prev) => {
+      const next = !prev;
+      saveUiSetting(EDDIBB_ENABLED_KEY, String(next));
+      void fetchBoardCategories({ eddibb: next });
       return next;
     });
   };
@@ -13533,6 +13568,7 @@ export default function App() {
             { text: "sep" },
             { text: ex0chEnabled ? "EXおろちつねるを非表示" : "EXおろちつねるを表示", action: toggleEx0chEnabled },
             { text: kenmoEnabled ? "kenmo.org を非表示" : "kenmo.org を表示", action: toggleKenmoEnabled },
+            { text: eddibbEnabled ? "エッヂ掲示板を非表示" : "エッヂ掲示板を表示", action: toggleEddibbEnabled },
             { text: "sep" },
             { text: "板一覧タブ", action: () => setBoardPaneTab("boards") },
             { text: "お気に入りタブ", action: () => setBoardPaneTab("fav-threads") },
