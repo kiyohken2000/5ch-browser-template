@@ -80,16 +80,14 @@ export function Thumb({
 
   if (failed) {
     // 本文ではリンク切れ（期限切れの一時アップローダーなど）とアイコンで示す。
-    // ビューアは開いても何も出ないので開かない。確かめたいときは本文のリンクから
+    // ビューアは開いても何も出ないので開かない。確かめたいときは本文のリンクから。
+    // 枠は読み込み前と同じ大きさのまま。縮むと上のレスほど読んでいる位置がずれる
     if (!square) {
       return (
         <View
           accessible
           accessibilityLabel="画像を読み込めませんでした（リンク切れ）"
-          style={[
-            styles.broken,
-            { borderColor: theme.border, backgroundColor: theme.surfaceAlt },
-          ]}
+          style={[boxStyle, styles.broken, { borderColor: theme.border }]}
         >
           <Icon name="imageOff" size={20} color={theme.textFaint} />
         </View>
@@ -454,9 +452,6 @@ const styles = StyleSheet.create({
   deferredText: { fontSize: 10, textAlign: 'center' },
   moreText: { fontSize: 14, fontWeight: '600' },
   broken: {
-    width: 40,
-    height: 40,
-    borderRadius: 6,
     borderWidth: StyleSheet.hairlineWidth,
     borderStyle: 'dashed',
     alignItems: 'center',
