@@ -76,8 +76,20 @@ export default function ResponseHeader({
           )}
         </Text>
         {watchoi ? (
+          // 名前の強調はワッチョイ（IP 表示スレでは IP も入る）にも当てる。
+          // 名前の NG がワッチョイ込みの名前欄で照合するのと揃える
           <Text style={{ color: theme.textDim, fontSize: small }}>
-            ({watchoi})
+            (
+            {splitHighlights(watchoi, highlights?.names).map((part, i) =>
+              part.color ? (
+                <Text key={i} style={highlightStyle(part.color)}>
+                  {part.text}
+                </Text>
+              ) : (
+                part.text
+              ),
+            )}
+            )
           </Text>
         ) : null}
         {row.mail ? (
