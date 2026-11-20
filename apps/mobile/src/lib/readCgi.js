@@ -46,6 +46,23 @@ function oneLine(s) {
   return s.replace(/[\r\n]+/g, '').replace(/<>/g, '')
 }
 
+/**
+ * `attr`（例: `class="post-content"`）を持つタグの中身。5ch は class の後ろに
+ * itemprop などの属性を足すことがあるので、タグの終わりまで読み飛ばしてから取る。
+ * 終わりは同じタグ名の閉じタグの最初の出現（入れ子は考えない）。
+ */
+function inner(s, attr) {
+  const at = s.indexOf(attr)
+  if (at < 0) return null
+  const open = s.lastIndexOf('<', at)
+  if (open < 0) return null
+  const tag = /^[a-z0-9]+/i.exec(s.slice(open + 1, at))?.[0]
+  if (!tag) return null
+  const gt = s.indexOf('>', at)
+  if (gt < 0) return null
+  return between(s, '', `</${tag}>`, gt + 1)
+}
+
 function between(s, start, end, from = 0) {
   const i = s.indexOf(start, from)
   if (i < 0) return null
@@ -67,7 +84,13 @@ function mailOf(nameHtml) {
 
 /** 名前欄。メール欄のリンク（a タグ）を外し、`</b>(ﾜｯﾁｮｲ …)<b>` の形は残す。 */
 function nameOf(nameHtml) {
-  return nameHtml.replace(/<a\b[^>]*>/gi, '').replace(/<\/a>/gi, '')
+  return (
+    nameHtml
+      .replace(/<a\b[^>]*>/gi, '')
+      .replace(/<\/a>/gi, '')
+      // `<b itemprop="name">` のような属性付きは dat と同じ素の <b> にそろえる
+      .replace(/<b\s[^>]*>/gi, '<b>')
+  )
 }
 
 /**
@@ -108,8 +131,8 @@ function parseModern(html) {
   for (const chunk of chunks) {
     const noRaw = /class="postid">\s*(\d+)/.exec(chunk)?.[1]
     const nameHtml =
-      between(chunk, 'class="postusername">', '</span>') ??
-      between(chunk, 'class="name">', '</span>') ??
+      inner(chunk, 'class="postusername"') ??
+      inner(chunk, 'class="name"') ??
       ''
     // 日付・ID・BE は `class="date"` からヘッダの終わりまでのスパンに並ぶ
     const dateStart = chunk.indexOf('class="date"')
@@ -120,14 +143,15 @@ function parseModern(html) {
         chunk.indexOf('>', dateStart) + 1,
         end < 0 ? undefined : end,
       )
-      dateAndId = dropTags(seg.replace(/<\/span>/gi, ' '))
+      // 日付は <span class="date"> のほか <time class="date"> の形もある
+      dateAndId = dropTags(seg.replace(/<\/(?:span|time)>/gi, ' '))
         .replace(/\s+/g, ' ')
         .trim()
     }
     const body =
-      between(chunk, 'class="post-content">', '</div>') ??
-      between(chunk, 'class="message">', '</div>') ??
-      between(chunk, 'class="msg">', '</div>')
+      inner(chunk, 'class="post-content"') ??
+      inner(chunk, 'class="message"') ??
+      inner(chunk, 'class="msg"')
     if (body === null && !nameHtml) continue
     posts.push({
       no: noRaw ? Number(noRaw) : null,

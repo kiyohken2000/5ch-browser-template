@@ -112,6 +112,22 @@ describe('parseReadCgiHtml / readCgiToDat', () => {
     })
   })
 
+  test('class の後ろに属性が付いた形 (2026-11 の過去ログ) も読む', () => {
+    const p = (no, body) =>
+      `<div id="${no}" data-id="${no}" class="clear post"><div open="" class="post-header"><div><button type="button" class="postid">${no}</button><span class="postusername" itemprop="author" itemscope=""><b itemprop="name">名無し <small></small></b>(ﾜｯﾁｮｲ 1f45-AsUR)<b></b></span></div><span class="post-meta"><time class="date" itemprop="datePublished" datetime="2025-11-13T15:30:27.7+09:00">2025/11/13(木) 15:30:27.70</time><span class="uid">ID:RBfEivmj0</span></span></div><div class="post-content" itemprop="text"> ${body} </div></div>`
+    const got = parseReadCgiHtml(
+      `<title>過去ログ</title>${p(1, '本文1')}${p(2, '本文2')}`,
+    )
+    expect(got.posts).toHaveLength(2)
+    expect(got.posts[0]).toMatchObject({
+      no: 1,
+      name: '<b>名無し <small></small></b>(ﾜｯﾁｮｲ 1f45-AsUR)<b></b>',
+      dateAndId: '2025/11/13(木) 15:30:27.70 ID:RBfEivmj0',
+      body: ' 本文1 ',
+    })
+    expect(got.posts[1].body).toBe(' 本文2 ')
+  })
+
   test('レスが無い HTML は空文字', () => {
     expect(readCgiToDat(parseReadCgiHtml('<html>404</html>'))).toBe('')
   })
