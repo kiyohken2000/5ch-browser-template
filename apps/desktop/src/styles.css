@@ -3944,9 +3944,36 @@ button.search-history-btn:hover {
   margin-top: 4px;
 }
 
+/* サムネの枠は読み込みの前後で大きさを変えない (設定サイズの正方形)。
+   画像が読み込まれて枠が広がると、上の方のレスほど読んでいる位置が押し下げられる
+   (.response-scroll は overflow-anchor: none なのでブラウザも補正しない)。
+   画像は枠の中に縦横比を保って収め、設定より小さい画像は引き伸ばさない。 */
 .thumb-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--thumb-size, 200px);
+  height: var(--thumb-size, 200px);
+  box-sizing: border-box;
   position: relative;
+  background: #f0f0f0;
+  border-radius: 2px;
+}
+.dark .thumb-link {
+  background: #2a2d32;
+}
+/* 読み込めたら下地を消し、画像そのものの枠線だけを見せる */
+.thumb-link:has(> img.thumb-loaded) {
+  background: transparent;
+}
+/* 自動読み込みを切っているときの「クリックで表示」と動画は、押すまで何も読まないので
+   正方形を取らず小さいままにする (押したあとの変化は利用者の操作による) */
+.thumb-link:has(> .thumb-gate-manual),
+.thumb-link.video-gate {
+  display: inline-block;
+  width: auto;
+  height: auto;
+  background: none;
 }
 .thumb-link::after {
   content: "Ctrlを押しながらポイントするとポップアップ表示します";
@@ -4000,14 +4027,23 @@ a.body-link-image:hover::after {
 }
 
 .response-thumb {
-  max-width: var(--thumb-size, 200px);
-  max-height: var(--thumb-size, 200px);
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
   min-width: 40px;
   min-height: 30px;
+  box-sizing: border-box;
   border: 1px solid #d0d0d0;
   cursor: pointer;
   background: #f0f0f0;
   object-fit: contain;
+}
+.dark .response-thumb {
+  border-color: #474c54;
+  background: #2a2d32;
+}
+.response-thumb.thumb-loaded {
+  background: transparent;
 }
 
 .response-thumb:hover {
@@ -4016,9 +4052,6 @@ a.body-link-image:hover::after {
 
 .youtube-thumb {
   position: relative;
-}
-.youtube-thumb-img {
-  object-fit: cover;
 }
 .youtube-play-icon {
   position: absolute;
@@ -4067,8 +4100,6 @@ a.body-link-image:hover::after {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
   box-sizing: border-box;
   border: 1px dashed #c8ccd2;
   border-radius: 3px;
@@ -4107,6 +4138,7 @@ a.imgur-album-more {
   padding: 4px 8px;
   font-size: 11px;
   color: #888;
+  text-align: center;
 }
 
 .thumb-gate-blocked {
@@ -4120,6 +4152,11 @@ a.imgur-album-more {
   cursor: pointer;
   max-width: 200px;
   line-height: 1.4;
+}
+/* サイズ制限で弾いた案内は正方形の枠の中に収める */
+.thumb-link > .thumb-gate-blocked {
+  max-width: calc(100% - 8px);
+  box-sizing: border-box;
 }
 .thumb-gate-blocked:hover {
   background: #fcecd0;

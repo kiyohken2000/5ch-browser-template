@@ -11090,8 +11090,18 @@ export default function App() {
       link.title = "画像を読み込めませんでした (リンク切れ)";
       link.innerHTML = BROKEN_THUMB_ICON_HTML;
     };
+    // 読み込めたサムネは下地 (読み込み前の灰色の枠) を消す。枠の大きさは前後で同じ。
+    const onLoad = (ev: Event) => {
+      const img = ev.target;
+      if (!(img instanceof HTMLImageElement) || !img.classList.contains("response-thumb")) return;
+      img.classList.add("thumb-loaded");
+    };
     document.addEventListener("error", onError, true);
-    return () => document.removeEventListener("error", onError, true);
+    document.addEventListener("load", onLoad, true);
+    return () => {
+      document.removeEventListener("error", onError, true);
+      document.removeEventListener("load", onLoad, true);
+    };
   }, []);
 
   const revealGatedThumb = (gateBlocked: HTMLElement) => {

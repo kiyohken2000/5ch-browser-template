@@ -8825,6 +8825,23 @@ try {
         externalRequests.includes(DEAD_IMAGE),
         `the dead image should have been tried once, got ${JSON.stringify(externalRequests)}`,
       );
+      // サムネの枠は読み込みの前後・リンク切れでも同じ正方形 (読む位置がずれないように)
+      const thumbBoxes = await page.$$eval(".response-scroll .response-thumbs-row .thumb-link", (els) =>
+        els.map((el) => {
+          const r = el.getBoundingClientRect();
+          return { w: Math.round(r.width), h: Math.round(r.height), broken: el.classList.contains("thumb-broken") };
+        }),
+      );
+      const thumbSizePx = await page.evaluate(() => {
+        const host = document.querySelector(".response-scroll");
+        return host ? parseFloat(getComputedStyle(host).getPropertyValue("--thumb-size")) || 200 : 200;
+      });
+      assert(
+        thumbBoxes.length > 0
+          && thumbBoxes.some((b) => b.broken)
+          && thumbBoxes.every((b) => b.w === thumbSizePx && b.h === thumbSizePx),
+        `every thumbnail box should be a ${thumbSizePx}px square before and after loading, got ${JSON.stringify(thumbBoxes)}`,
+      );
       const deadLink = await page.$eval(
         `.response-scroll a.body-link[href="${DEAD_IMAGE}"]`,
         (el) => el.textContent,
