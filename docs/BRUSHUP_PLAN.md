@@ -1207,6 +1207,37 @@ https://github.com/ollaya-dev/ollaya (Apache-2.0、Rust、2026-09-23 公開)。�
 
 **判断**: 変更なし。モバイル版向けの比較候補に **d3-edge / d3-lite / d1-omni-600M** を追加する(Julia-1・Horizon small / base と同じく llama-server で [N23] の手書き 12 件 + 実スレ規模の適合率を現行と比べる)。いずれも日本語の yes/no 判定は誰も測っていない
 
+### [N30] AI カタログへの日本語特化モデルの追加 — ステータス: ⏸ 見送り(2026-11-21。再検討条件は本節末尾)
+
+**背景**: 2026-11-21 時点で、要約・会話用のカタログ(`apps/desktop/src-tauri/ai-models.json`)に足す意味のある日本語特化モデルが出ていないかを調べた。あわせて llama-cpp-2 の更新要否も確認した。
+
+**Liquid AI(LFM 系)**:
+
+- 公式の `LiquidAI/lfm-jp` コレクションに、採用済みの `LFM2.5-1.2B-JP-202606`(6 月)より新しい日本語テキストモデルは無い。ほかは LFM2.5-Audio-1.5B-JP(音声)、LFM2-350M-ENJP-MT(英日翻訳専用)、LFM2-350M-PII-Extract-JP(個人情報抽出専用)で、9 月の更新は既存モデルの GGUF だけ
+- **LFM3**(2026-10-27): LFM3-1.7B / VL-2B / Audio-2B / Omni-2B / d1-2B / d1-Omni-2B の 6 モデル。**日本語特化版は無く**、日本語の数値も出ていない。公式 GGUF はあるが、tri-hybrid(短い畳み込み + スライディング窓 + 全体 attention)の新構造なので、0.1.154 の llama-cpp-2 では読めない可能性が高い
+- 非公式の `CloudGoat/LFM2.5-2.6B-JP`(個人の追加学習)があるが、公式ではないので対象外
+
+**その他の日本語特化モデル(0.5B〜9B)**:
+
+| モデル | 規模 / 構造 | ライセンス | 見立て |
+|---|---|---|---|
+| LLM-jp-4.1 8B(NII、`llm-jp/llm-jp-4.1-8b-thinking`) | 8B、arch `llama`、ctx 65,536。公式 GGUF あり(10-20 更新) | Apache-2.0 | **唯一の試す価値あり**。0.1.154 のまま動くはず。MT-Bench JA 7.58(gpt-5.4 判定)。ただし **thinking 版しか無い**ので要約前に長い思考が入り遅い。同サイズの Qwen3.5-9B との直接比較の数字は無い |
+| Nemotron Nano 9B v2 Japanese(NVIDIA) | 9B、Transformer + Mamba 混合 | NVIDIA Nemotron Open Model License(未読) | 2026-02 公開で新しくない。Qwen3.5-9B と同枠で置き換える理由が無い |
+| PLaMo 3 Translate(PFN) | 0.8B〜31B、公式 GGUF あり | PLaMo コミュニティライセンス | **2026-11-09 に見送り済み**(`docs/MOBILE_FEASIBILITY_STUDY.md`)。無料配布でも事前登録・表記などの義務が付く |
+| Qwen3 Swallow 8B | Qwen3 ベース | Apache-2.0 | GGUF が無い(AWQ-INT4 のみ)。ベースが一世代前 |
+| Qwen3.5-FT-Japanese-CoT 0.8B / 4B | Qwen3.5 の個人追加学習 | MIT | 元の Qwen3.5 より良い根拠が無い |
+| Sarashina3 mini / nano(SB Intuitions) | — | — | API 提供のみ。重みは未公開(HF の最新は Sarashina2.2) |
+
+**見送り理由**: 小型枠は LFM2.5-JP と Qwen3.5-2B / 4B、大型枠は Qwen3.5-9B と Gemma4 で埋まっている。日本語特化の新モデルは主力が 8B 以上か、ライセンス・形式に問題がある。
+
+**llama-cpp-2 の更新**: 0.1.154(2026-08-05)のまま据え置く(最新は 0.1.161、2026-11-03)。カタログの全モデルが 0.1.154 で動いており、更新が要るのは判定モデル(Julia-1 / d3 / d1、[N28])・ModernBERT 系判定器・LFM3 を実際に組み込むときだけ。先に上げると 3 OS(Metal / Vulkan)のビルドと推論・判定器の再確認が必要になるため、**組み込む候補が実測で勝ったときにまとめて上げる**。0.1.154 のバグを踏んだ場合は例外
+
+**再検討する場合の条件**:
+
+1. LLM-jp-4.1 8B を llama-server で動かし、実スレの要約を Qwen3.5-9B と比べる(品質と、思考込みの応答時間)。思考を抑える設定が効くか、instruct 版が出るかで評価が変わる
+2. **LFM3 の日本語版(LFM3-JP)** が出たら、LFM2.5-1.2B-JP の後継として最優先で検討する(llama-cpp-2 の更新が前提)
+3. 2B 以下で Apache-2.0 / MIT かつ既存 arch の日本語特化モデルが出たら、LFM2.5-1.2B-JP・Qwen3.5-2B と比べる
+
 ### 却下・取り下げ分(再提案しないこと)
 
 - [N9] スレ閲覧履歴 — ☑ 実装済みだった(App.tsx に閲覧履歴・書き込み履歴リスト UI が既存)
