@@ -1198,6 +1198,15 @@ https://github.com/ollaya-dev/ollaya (Apache-2.0、Rust、2026-09-23 公開)。�
 
 **判断**: デスクトップは現行のまま。モバイル版で曖昧 NG を軽くしたくなった時点で、Julia-1(168 MB)と Horizon small / base を、[N23] の手書き 12 件 + 実スレ規模の適合率で現行と比べる(llama-server で試すだけでアプリのコード変更は不要)。勝った候補が出たときに限り、llama-cpp-2 の更新と組み込みに進む
 
+**追跡調査(2026-11-21)**: 日本語で現行を明確に上回る新モデルは無い。見送りのまま。ただし 11-12 の調査で漏れていた 10 月公開の候補が 2 系統あった。
+
+- **Decision 3.0(vLLM Semantic Router、`vllm-sr/d3-*`)**: 2026-10-10〜11 公開、Apache-2.0。d3-edge(約 0.6B、d3-lite の枝刈り版)/ d3-lite(0.85B、Qwen3.5-0.8B ベース)/ d3-nano(2.2B、Qwen3.5-2B)/ d3-mini / d3-flash / d3(27B)。ggml-org に `vllm-d3-*-GGUF` があり llama-server でそのまま試せる。ベンチ値は開発元の自己評価のみで第三者再現なし、日本語の数字なし
+- **Liquid AI d1**: `LiquidAI/d1-omni-600M`(587M、LFM2.5-Encoder-350M ベース、テキスト + 画像 / 音声)と `d1-3B`。GGUF は ggml-org コレクションにあり。開発元自身が「初期の研究リリース」と明記、Decision Index 0.2.1 で 15.95(Strands Decider 2B は 28.97)。日本語の数字なし
+- **XDecideBench**(arXiv 2611.01370、2026-11-01、v2 は 11-08。122 言語 / 9 スイート): 主評価の Core12 に**日本語は含まれない**。Core12 の Brier skill は pplx-decider .712、Jev .688、Clef .674、Clef-flash(ローカル実行可、9B).631、Kev-4B .449、**laya-multilingual .119**。Julia-1・d3・d1-omni は評価対象外。ローカルで強いのは 9B 以上で、曖昧 NG には重すぎる
+- ggml-org の Decision models コレクションに上記以外の新規追加は見当たらない(Clef / Clef-Flash / Laya / Julia-1 の GGUF は 11-12 頃に更新されているが、新モデルではない)
+
+**判断**: 変更なし。モバイル版向けの比較候補に **d3-edge / d3-lite / d1-omni-600M** を追加する(Julia-1・Horizon small / base と同じく llama-server で [N23] の手書き 12 件 + 実スレ規模の適合率を現行と比べる)。いずれも日本語の yes/no 判定は誰も測っていない
+
 ### 却下・取り下げ分(再提案しないこと)
 
 - [N9] スレ閲覧履歴 — ☑ 実装済みだった(App.tsx に閲覧履歴・書き込み履歴リスト UI が既存)
