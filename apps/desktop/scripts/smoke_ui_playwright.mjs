@@ -3044,6 +3044,30 @@ try {
     await page.$("#smoke-gate-yt .youtube-play-icon"),
     "a revealed YouTube thumbnail should bring back the PiP play icon",
   );
+  // 出した画像は「×」で「クリックで表示」の枠に戻せ、もう一度押せばまた出ること
+  assert(await page.$("#smoke-gate-img .thumb-hide-btn"), "a revealed thumbnail should have a hide button");
+  assert(await page.$("#smoke-gate-yt .thumb-hide-btn"), "a revealed YouTube thumbnail should have a hide button");
+  await page.evaluate(() => {
+    const opt = { bubbles: true, cancelable: true, view: window };
+    document.querySelector("#smoke-gate-img .thumb-hide-btn").dispatchEvent(new MouseEvent("click", opt));
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  assert(
+    !(await page.$("#smoke-gate-img img.response-thumb")) && !(await page.$("#smoke-gate-img .thumb-hide-btn")),
+    "the hide button should remove the revealed image",
+  );
+  assert(
+    (await page.textContent("#smoke-gate-img .thumb-gate-blocked")) === "クリックで表示",
+    "the hide button should bring back the click-to-show placeholder",
+  );
+  assert(await page.$("#smoke-gate-yt img.response-thumb"), "hiding one image should leave the others shown");
+  await page.evaluate(() => {
+    const opt = { bubbles: true, cancelable: true, view: window };
+    document.querySelector("#smoke-gate-img .thumb-gate-blocked").dispatchEvent(new MouseEvent("click", opt));
+  });
+  await new Promise((r) => setTimeout(r, 100));
+  assert(await page.$("#smoke-gate-img img.response-thumb"), "a re-hidden thumbnail should be revealable again");
+  console.log("smoke-ui: hide revealed thumbnail ok");
   await page.evaluate(() => document.querySelector("#smoke-gate-row")?.remove());
   await thumbAutoLoadToggle.check();
   await new Promise((r) => setTimeout(r, 150));

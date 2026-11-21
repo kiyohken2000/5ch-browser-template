@@ -4141,6 +4141,39 @@ a.imgur-album-more {
   text-align: center;
 }
 
+/* 「クリックで表示」から出した画像を隠し直す「×」。マウスを乗せたときだけ出す */
+.thumb-hide-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+  z-index: 1;
+}
+.thumb-link:hover > .thumb-hide-btn,
+.thumb-hide-btn:focus-visible {
+  opacity: 1;
+}
+.thumb-hide-btn:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+@media (hover: none) {
+  .thumb-hide-btn {
+    opacity: 1;
+  }
+}
+
 .thumb-gate-blocked {
   display: inline-block;
   padding: 6px 10px;

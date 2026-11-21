@@ -11219,6 +11219,7 @@ export default function App() {
     };
   }, []);
 
+  const revealedGateHtmlRef = useRef(new WeakMap<HTMLElement, string>());
   const revealGatedThumb = (gateBlocked: HTMLElement) => {
     const albumKey = gateBlocked.dataset.revealImgurAlbum;
     if (albumKey) {
@@ -11251,13 +11252,39 @@ export default function App() {
     if (!src) return;
     const parent = gateBlocked.closest<HTMLElement>(".thumb-size-gate");
     if (!parent) return;
+    // 「×」で隠し直せるよう、差し替える前の枠 (自前で組んだ HTML) を覚えておく。
+    const gateHtml = parent.innerHTML;
     // YouTube のサムネは ▶ の重ね表示ごと作り直す。
     parent.innerHTML = parent.classList.contains("youtube-thumb")
       ? `<img class="response-thumb youtube-thumb-img" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="YouTube" /><span class="youtube-play-icon" aria-hidden="true">▶</span>`
       : `<img class="response-thumb" src="${src}" loading="lazy" referrerpolicy="no-referrer" alt="" />`;
+    const hideBtn = document.createElement("button");
+    hideBtn.type = "button";
+    hideBtn.className = "thumb-hide-btn";
+    hideBtn.title = "画像を隠す";
+    hideBtn.setAttribute("aria-label", "画像を隠す");
+    hideBtn.textContent = "×";
+    parent.appendChild(hideBtn);
+    revealedGateHtmlRef.current.set(parent, gateHtml);
+  };
+  // 「クリックで表示」から出した画像を「×」で元の枠に戻す。
+  const hideRevealedThumb = (btn: HTMLElement) => {
+    const parent = btn.closest<HTMLElement>(".thumb-size-gate");
+    if (!parent) return;
+    const gateHtml = revealedGateHtmlRef.current.get(parent);
+    if (gateHtml == null) return;
+    revealedGateHtmlRef.current.delete(parent);
+    parent.innerHTML = gateHtml;
   };
   const handlePopupImageClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
+    const hideBtn = target.closest<HTMLElement>(".thumb-hide-btn");
+    if (hideBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      hideRevealedThumb(hideBtn);
+      return;
+    }
     const gateBlocked = target.closest<HTMLElement>(".thumb-gate-blocked");
     if (gateBlocked) {
       e.preventDefault();
@@ -14956,6 +14983,14 @@ export default function App() {
               }}
               onClick={(e) => {
                 const target = e.target as HTMLElement;
+                // 「クリックで表示」から出した画像の「×」: 元の枠に戻す (画像を開かない)
+                const thumbHideBtn = target.closest<HTMLElement>(".thumb-hide-btn");
+                if (thumbHideBtn) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  hideRevealedThumb(thumbHideBtn);
+                  return;
+                }
                 // body-link: 対応している掲示板 (5ch / bbspink / kenmo / エッヂ) のスレはタブで、
                 // それ以外は外部ブラウザで開く。URL はアドレスバーと同じく正規化し、
                 // l50 付きなどでも一覧から開いたタブと同じタブになるようにする
@@ -18486,7 +18521,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>225項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>226項目</span></div>
               </fieldset>
               </>)}
             </div>
