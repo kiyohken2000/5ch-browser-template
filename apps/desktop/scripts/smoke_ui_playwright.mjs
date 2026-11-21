@@ -1524,9 +1524,13 @@ try {
   assert(shortcutsPanel, "shortcuts panel should be visible");
   const kbds = await page.$$eval(".shortcut-row kbd", (els) => els.length);
   assert(kbds >= 10, `shortcuts should list at least 10 keys, got ${kbds}`);
-  // 誤爆しやすいショートカット (ダブルクリック引用 / R / A / ←→ / Delete) だけチェックボックスで ON/OFF できる
+  // 誤爆しやすいショートカット (ダブルクリック引用 / R / F / G / A / ←→ / Delete) だけチェックボックスで ON/OFF できる
   const toggles = await page.$$eval(".shortcut-row .shortcut-toggle", (els) => els.length);
-  assert(toggles === 5, `shortcuts panel should have 5 toggles, got ${toggles}`);
+  assert(toggles === 7, `shortcuts panel should have 7 toggles, got ${toggles}`);
+  for (const key of ["F / Shift+F", "G (文字を選択中)"]) {
+    const row = await page.$(`.shortcut-row:has(kbd:text-is("${key}"))`);
+    assert(row && (await row.$(".shortcut-toggle")), `${key} shortcut should be listed with a toggle`);
+  }
   const deleteRow = await page.$('.shortcut-row:has(kbd:text-is("Backspace / Delete"))');
   assert(deleteRow && (await deleteRow.$(".shortcut-toggle")), "the Backspace / Delete shortcut should be listed with a toggle");
   // Ctrl+←/→ の行も "←/→" を含むので、kbd が丸ごと一致する行だけを見る
@@ -1561,6 +1565,86 @@ try {
   await page.click(".shortcuts-header button:has-text('閉じる')");
   await new Promise((r) => setTimeout(r, 100));
   console.log("smoke-ui: shortcuts dialog ok");
+
+  // --- 文字を選んで F: 選んだ語でスレ内検索。選んでいない F は何もしない ---
+  {
+    const responseSearch = ".response-nav-bar .thread-search";
+    const before = await page.$eval(responseSearch, (el) => el.value);
+    await page.keyboard.press("f");
+    assert((await page.$eval(responseSearch, (el) => el.value)) === before, "bare F without a selection should not touch the response search");
+    const word = await page.evaluate(() => {
+      const body = document.querySelector('.response-scroll .response-block[data-response-no="2"] .response-body');
+      const text = body?.firstChild;
+      if (!text || text.nodeType !== Node.TEXT_NODE) return "";
+      const raw = text.textContent ?? "";
+      const start = raw.search(/\S/);
+      if (start < 0) return "";
+      const end = Math.min(raw.length, start + 1);
+      const range = document.createRange();
+      range.setStart(text, start);
+      range.setEnd(text, end);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return sel.toString().trim();
+    });
+    assert(word, "should be able to select text in a response body");
+    const modeBtn = ".response-nav-bar .response-search-mode-btn";
+    assert((await page.$eval(modeBtn, (el) => el.textContent)) === "絞り込み", "response search should start in filter mode");
+    const allBlocks = await page.$$eval(".response-scroll .response-block", (els) => els.length);
+    await page.evaluate(() => document.body.focus());
+    await page.keyboard.press("f");
+    await new Promise((r) => setTimeout(r, 150));
+    assert((await page.$eval(responseSearch, (el) => el.value)) === word, `F with a selection should search the thread for "${word}"`);
+    // 選んだ語の検索はジャンプモードで始まり、そのまま残る。フォーカスは検索欄に移さない
+    assert((await page.$eval(modeBtn, (el) => el.textContent)) === "ジャンプ", "F with a selection should switch to jump mode");
+    assert(!(await page.evaluate(() => document.activeElement?.classList.contains("thread-search"))), "F should leave the focus off the search box");
+    const fCount = () => page.$eval(".response-nav-bar .response-search-jump-count", (el) => el.textContent ?? "");
+    const fTotal = Number((await fCount()).split("/")[1]);
+    const fFirst = await fCount();
+    assert(fTotal > 1, `the selected word should match more than one response, got "${fFirst}"`);
+    {
+      assert(/^\d+\/\d+$/.test(fFirst), `F should jump to the next match right away, got "${fFirst}"`);
+      await page.keyboard.press("f");
+      await new Promise((r) => setTimeout(r, 150));
+      const fSecond = Number((await fCount()).split("/")[0]);
+      assert(fSecond === (Number(fFirst.split("/")[0]) % fTotal) + 1, `a second F should go to the next match, got ${fSecond} after ${fFirst}`);
+      await page.keyboard.press("Shift+F");
+      await new Promise((r) => setTimeout(r, 150));
+      assert((await fCount()) === fFirst, `Shift+F should go back to ${fFirst}, got "${await fCount()}"`);
+    }
+    await page.click('.response-nav-bar button[title="検索クリア"]');
+    await new Promise((r) => setTimeout(r, 100));
+    console.log("smoke-ui: selection F search ok");
+
+    // --- ジャンプモード: レスを減らさず、Enter / ボタンで一致レスへ順に移動する ---
+    await page.fill(responseSearch, word);
+    await new Promise((r) => setTimeout(r, 100));
+    const blocksInJump = await page.$$eval(".response-scroll .response-block", (els) => els.length);
+    assert(blocksInJump === allBlocks, `jump mode should keep every response visible (${allBlocks}), got ${blocksInJump}`);
+    const countText = () => page.$eval(".response-nav-bar .response-search-jump-count", (el) => el.textContent ?? "");
+    const total = Number((await countText()).split("/")[1]);
+    assert(total >= 1, `jump mode should count the matches, got "${await countText()}"`);
+    await page.focus(responseSearch);
+    await page.keyboard.press("Enter");
+    await new Promise((r) => setTimeout(r, 150));
+    const first = await countText();
+    assert(/^\d+\/\d+$/.test(first), `Enter should move to a match, got "${first}"`);
+    await page.click(".response-nav-bar .response-search-next");
+    await new Promise((r) => setTimeout(r, 150));
+    const second = Number((await countText()).split("/")[0]);
+    const expected = (Number(first.split("/")[0]) % total) + 1;
+    assert(second === expected, `the next button should go to match ${expected}, got ${second}`);
+    const selectedNo = await page.$eval(".response-scroll .response-block.selected", (el) => el.getAttribute("data-response-no")).catch(() => null);
+    assert(selectedNo, "jumping should select the matched response");
+    await page.click(modeBtn);
+    await new Promise((r) => setTimeout(r, 80));
+    const blocksInFilter = await page.$$eval(".response-scroll .response-block", (els) => els.length);
+    assert(blocksInFilter === total, `switching back to filter mode should leave only the ${total} matches, got ${blocksInFilter}`);
+    await page.click('.response-nav-bar button[title="検索クリア"]');
+    await new Promise((r) => setTimeout(r, 100));
+    console.log("smoke-ui: response search jump mode ok");
+  }
 
   // --- ダブルクリックで「ここまで読んだ」を設定したとき、選択状態を残さない ---
   const openShortcutsPanel = async () => {

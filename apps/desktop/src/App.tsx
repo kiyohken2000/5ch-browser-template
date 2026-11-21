@@ -244,7 +244,7 @@ function buildTranslationPrompt(text: string, targetLangNativeName: string): str
 }
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
-  Star, X, ChevronLeft, ChevronRight, ChevronDown, Ban, Search,
+  Star, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Ban, Search,
   Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser, Flame, LayersPlus, Lock,
 } from "lucide-react";
 
@@ -667,8 +667,8 @@ const DEFAULT_GESTURE_BINDINGS: Record<string, GestureActionId> = {
 };
 // ON/OFF を切り替えられるショートカット。修飾キー無しで発火して通常操作 (単語選択のダブルクリックなど)
 // と衝突しうるものだけを対象にする。Ctrl 系は誤爆しにくいので固定。
-type ToggleableShortcutId = "dblclick-quote" | "key-r-quote" | "key-a-autoscroll" | "key-arrow-refs" | "key-delete-back";
-const TOGGLEABLE_SHORTCUT_IDS: ToggleableShortcutId[] = ["dblclick-quote", "key-r-quote", "key-a-autoscroll", "key-arrow-refs", "key-delete-back"];
+type ToggleableShortcutId = "dblclick-quote" | "key-r-quote" | "key-f-search" | "key-g-websearch" | "key-a-autoscroll" | "key-arrow-refs" | "key-delete-back";
+const TOGGLEABLE_SHORTCUT_IDS: ToggleableShortcutId[] = ["dblclick-quote", "key-r-quote", "key-f-search", "key-g-websearch", "key-a-autoscroll", "key-arrow-refs", "key-delete-back"];
 // レス行のダブルクリックに割り当てる動作。既定は従来どおり引用して書き込み。
 type DblClickAction = "quote" | "read-marker";
 const DBL_CLICK_ACTIONS: DblClickAction[] = ["quote", "read-marker"];
@@ -859,6 +859,7 @@ const MOUSE_TAKEOVER_DISTANCE = 24;
 // "" は「フィルタなし = 板のスレ一覧」。dat落ちキャッシュは板依存で起動時に
 // 再取得が要るため対象外。
 const THREAD_FILTER_MODE_KEY = "desktop.threadFilterMode.v1";
+const RESPONSE_SEARCH_MODE_KEY = "desktop.responseSearchMode.v1";
 // localStorage に置いていた UI 状態のうち、ユーザーが手で開いて書き換えたり
 // 消したりしたくなるものは data/<file>.json を実体にする。localStorage 側は
 // 同期的に読める副本として残し (Tauri なしのスモークテストもこれで動く)、
@@ -4456,6 +4457,19 @@ export default function App() {
   const [newResponseStart, setNewResponseStart] = useState<number | null>(null);
   const threadFetchTimesRef = useRef<Record<string, string>>({});
   const [responseSearchQuery, setResponseSearchQuery] = useState("");
+  // レス検索の見せ方。filter = 一致したレスだけ残す / jump = 全レスを出したまま一致へ順に飛ぶ
+  // (前後の流れを追えるように)。最後に選んだ方を覚えておく。
+  const [responseSearchMode, setResponseSearchMode] = useState<"filter" | "jump">(() => {
+    try {
+      return localStorage.getItem(RESPONSE_SEARCH_MODE_KEY) === "jump" ? "jump" : "filter";
+    } catch {
+      return "filter";
+    }
+  });
+  // ジャンプモードで今いる一致レスの番号。null = まだ飛んでいない (表示位置から探す)
+  const [responseSearchJumpNo, setResponseSearchJumpNo] = useState<number | null>(null);
+  // 文字を選んで F を押したとき、検索語の反映後に飛ぶ起点。from = 選択を含んでいたレス番号
+  const pendingSearchJumpRef = useRef<{ word: string; from: number } | null>(null);
   // レス検索 / リンク絞り込みを掛ける直前の読書位置。絞り込み中は先頭から表示し、
   // 解除したときここへ戻す (以前は scrollTop がそのまま残り、無関係な位置や先頭に飛んでいた)
   const responseFilterOriginRef = useRef<{ threadUrl: string; no: number } | null>(null);
@@ -5618,21 +5632,37 @@ export default function App() {
   };
 
   // 絞り込みが「無し → 有り」になる直前に読書位置を控える
+  // ジャンプモードの検索語はレスを減らさないので、絞り込みとしては数えない
+  const responseSearchFilters = responseSearchQuery !== "" && responseSearchMode === "filter";
   const rememberResponseFilterOrigin = () => {
-    if (responseSearchQuery !== "" || responseLinkFilter !== "") return;
+    if (responseSearchFilters || responseLinkFilter !== "") return;
     responseFilterOriginRef.current = { threadUrl, no: getVisibleResponseNo() };
   };
   const setResponseSearchQueryTracked = (q: string) => {
-    if (q !== "") rememberResponseFilterOrigin();
+    if (q !== "" && responseSearchMode === "filter") rememberResponseFilterOrigin();
     setResponseSearchQuery(q);
   };
+  const changeResponseSearchMode = (mode: "filter" | "jump") => {
+    if (mode === responseSearchMode) return;
+    // 検索語を入れたまま絞り込みへ切り替えると絞り込みが始まるので、その前の位置を控える
+    if (mode === "filter" && responseSearchQuery !== "") rememberResponseFilterOrigin();
+    setResponseSearchMode(mode);
+    try {
+      localStorage.setItem(RESPONSE_SEARCH_MODE_KEY, mode);
+    } catch (e) {
+      console.warn("desktop.responseSearchMode.v1 save failed", e);
+    }
+  };
+  useEffect(() => {
+    setResponseSearchJumpNo(null);
+  }, [responseSearchQuery, responseSearchMode, threadUrl]);
   const toggleResponseLinkFilter = (kind: Exclude<typeof responseLinkFilter, "">) => {
     const next = responseLinkFilter === kind ? "" : kind;
     if (next !== "") rememberResponseFilterOrigin();
     setResponseLinkFilter(next);
   };
   useLayoutEffect(() => {
-    const active = responseSearchQuery !== "" || responseLinkFilter !== "";
+    const active = responseSearchFilters || responseLinkFilter !== "";
     const wasActive = responseFilterWasActiveRef.current;
     responseFilterWasActiveRef.current = active;
     if (active === wasActive) return;
@@ -5650,7 +5680,7 @@ export default function App() {
     if (origin.no <= 1) container.scrollTop = 0;
     else scrollToResponseNo(origin.no);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [responseSearchQuery, responseLinkFilter]);
+  }, [responseSearchFilters, responseLinkFilter]);
 
   // 設定「『ここまで読んだ』の位置から開く」が ON のときの復元先。着地点は「続き」
   // ボタンと同じ「マーカーの次のレス」に揃える。null = 設定 OFF かマーカー無しなので
@@ -9049,6 +9079,12 @@ export default function App() {
     });
   };
 
+  const responseMatchesSearch = (r: (typeof responseItems)[number], query: string) => {
+    const q = query.toLowerCase();
+    const plainText = decodeHtmlEntities(r.text.replace(/<[^>]+>/g, "")).toLowerCase();
+    return plainText.includes(q) || r.name.toLowerCase().includes(q) || r.time.toLowerCase().includes(q);
+  };
+
   const visibleResponseItems = responseItems.filter((r) => {
     const ngResult = ngResultMap.get(r.id);
     if (ngResult === "hide") return false;
@@ -9056,11 +9092,8 @@ export default function App() {
       const cats = responseCategoryMap.get(r.id);
       if (!cats || !cats.some((c) => c.keyword === threadCategoryFilter)) return false;
     }
-    if (responseSearchQuery) {
-      const q = responseSearchQuery.toLowerCase();
-      const plainText = decodeHtmlEntities(r.text.replace(/<[^>]+>/g, "")).toLowerCase();
-      const nameText = r.name.toLowerCase();
-      if (!(plainText.includes(q) || nameText.includes(q) || r.time.toLowerCase().includes(q))) return false;
+    if (responseSearchFilters) {
+      if (!responseMatchesSearch(r, responseSearchQuery)) return false;
     }
     if (responseLinkFilter === "mine") {
       if (!myPostNos.has(r.id)) return false;
@@ -9082,6 +9115,40 @@ export default function App() {
     }
     return true;
   });
+  // ジャンプモードで飛び先になるレス番号 (表示中のレスのうち検索語に一致するもの)
+  const responseSearchJumpNos = responseSearchMode === "jump" && responseSearchQuery
+    ? visibleResponseItems.filter((r) => responseMatchesSearch(r, responseSearchQuery)).map((r) => r.id)
+    : [];
+  // 次 (+1) / 前 (-1) の一致レスへ飛ぶ。まだ飛んでいなければ今の表示位置から探し、端まで行ったら反対の端へ回る
+  // `from` を渡すとそのレスの次から探す (文字を選んで F: 選んだレス自体はもう見ているので飛ばす)
+  const jumpToResponseSearchMatch = (dir: 1 | -1, from?: number) => {
+    const nos = responseSearchJumpNos;
+    if (nos.length === 0) {
+      setStatus(`「${responseSearchQuery}」に一致するレスはありません`);
+      return;
+    }
+    let target: number | undefined;
+    if (dir === 1) {
+      const base = from ?? responseSearchJumpNo ?? getVisibleResponseNo() - 1;
+      target = nos.find((no) => no > base) ?? nos[0];
+    } else {
+      const base = responseSearchJumpNo ?? getVisibleResponseNo();
+      target = [...nos].reverse().find((no) => no < base) ?? nos[nos.length - 1];
+    }
+    setResponseSearchJumpNo(target);
+    selectResponseAndScroll(target);
+  };
+  // keydown のハンドラは描画ごとに作り直さないので、最新の一致一覧で飛べるよう ref 越しに呼ぶ
+  const jumpToResponseSearchMatchRef = useRef(jumpToResponseSearchMatch);
+  jumpToResponseSearchMatchRef.current = jumpToResponseSearchMatch;
+  // 文字を選んで F で検索語を入れたとき、一致一覧が新しい語で描画されてから最初の一致へ飛ぶ
+  useEffect(() => {
+    const pending = pendingSearchJumpRef.current;
+    if (!pending || pending.word !== responseSearchQuery || responseSearchMode !== "jump") return;
+    pendingSearchJumpRef.current = null;
+    jumpToResponseSearchMatch(1, pending.from);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [responseSearchQuery, responseSearchMode]);
   const activeResponse = visibleResponseItems.find((r) => r.id === selectedResponse) ?? visibleResponseItems[0];
   // 現在表示中スレの「ここまで読んだ」マーカー位置
   const currentReadMarker: number | null =
@@ -10470,6 +10537,54 @@ export default function App() {
         }
         return;
       }
+      // 文字を選んだ状態の F / G。右クリックメニューは WebView 標準のまま触らず、
+      // 選択中だけ効くキーにする。F は選んだ語でジャンプ検索を始め、検索中は選択なしの
+      // F / Shift+F で次 / 前の一致へ進む (それ以外の素の F / G は何もせず素通しする)。
+      if ((e.key.toLowerCase() === "f" || e.key.toLowerCase() === "g") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const selection = window.getSelection();
+        const word = (selection?.toString() ?? "").replace(/\s+/g, " ").trim();
+        if (e.key.toLowerCase() === "f") {
+          if (isShortcutDisabled("key-f-search")) return;
+          if (activeTabIndex < 0 || threadTabs.length === 0) return;
+          if (!word) {
+            if (responseSearchMode !== "jump" || !responseSearchQuery) return;
+            e.preventDefault();
+            jumpToResponseSearchMatchRef.current(e.shiftKey ? -1 : 1);
+            return;
+          }
+          e.preventDefault();
+          // 選択を含むレスの次の一致から始める。レスの外 (スレ一覧など) で選んだときは表示位置から
+          const anchorEl = selection?.anchorNode instanceof Element ? selection.anchorNode : selection?.anchorNode?.parentElement;
+          const fromNo = Number(anchorEl?.closest<HTMLElement>(".response-scroll [data-response-no]")?.dataset.responseNo ?? NaN);
+          const from = Number.isFinite(fromNo) ? fromNo : getVisibleResponseNo() - 1;
+          selection?.removeAllRanges();
+          addSearchHistory("response", word);
+          // レスナビバーを隠していると検索欄が無く、件数も見えないので出す。
+          // フォーカスはレス側に残す (検索欄に移すと次の F がそこへ打ち込まれる)
+          if (!responseSearchRef.current) setResponseNavBarForced(true);
+          if (responseSearchMode === "jump" && responseSearchQuery === word) {
+            jumpToResponseSearchMatchRef.current(1, from);
+            return;
+          }
+          pendingSearchJumpRef.current = { word, from };
+          changeResponseSearchMode("jump");
+          setResponseSearchQuery(word);
+          return;
+        }
+        if (!word || e.shiftKey) return;
+        if (isShortcutDisabled("key-g-websearch")) return;
+        e.preventDefault();
+        const url = `https://www.google.com/search?q=${encodeURIComponent(word)}`;
+        if (isTauriRuntime()) {
+          void invoke("open_external_url", { url }).catch((err) => {
+            console.warn("open_external_url failed", err);
+            window.open(url, "_blank");
+          });
+        } else {
+          window.open(url, "_blank");
+        }
+        return;
+      }
       if (e.key.toLowerCase() === "a" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
         if (isShortcutDisabled("key-a-autoscroll")) return;
         e.preventDefault();
@@ -10488,7 +10603,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedThread, selectedResponse, visibleThreadItems, responseItems, activeTabIndex, threadTabs, responseReloadMenuOpen, threadFilterMenuOpen, focusedPane, tabList, responseNavBarForced, threadPaneAutoToggle, threadPaneBackRestore]);
+  }, [selectedThread, selectedResponse, visibleThreadItems, responseItems, activeTabIndex, threadTabs, responseReloadMenuOpen, threadFilterMenuOpen, focusedPane, tabList, responseNavBarForced, threadPaneAutoToggle, threadPaneBackRestore, responseSearchQuery, responseLinkFilter, responseSearchMode]);
 
   useEffect(() => {
     // レイアウトを切り替えると行の位置も列幅も変わるので、出しっぱなしのポップアップは畳む
@@ -15785,10 +15900,17 @@ export default function App() {
                   onChange={(e) => setResponseSearchQueryTracked(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.nativeEvent.isComposing) return;
-                    if (e.key === "Enter") { addSearchHistory("response", responseSearchQuery); setSearchHistoryDropdown(null); }
+                    if (e.key === "Enter") {
+                      addSearchHistory("response", responseSearchQuery);
+                      setSearchHistoryDropdown(null);
+                      if (responseSearchMode === "jump" && responseSearchQuery) {
+                        e.preventDefault();
+                        jumpToResponseSearchMatch(e.shiftKey ? -1 : 1);
+                      }
+                    }
                     if (e.key === "Escape") setSearchHistoryDropdown(null);
                   }}
-                  placeholder="レス検索 (Enter:保存 / 右クリック:削除)"
+                  placeholder={responseSearchMode === "jump" ? "レス検索 (Enter:次 / Shift+Enter:前)" : "レス検索 (Enter:保存 / 右クリック:削除)"}
                 />
                 <button
                   className="search-history-btn"
@@ -15815,7 +15937,23 @@ export default function App() {
                   </div>
                 )}
               </div>
+              {responseSearchQuery && responseSearchMode === "jump" && (
+                <span className="response-search-jump">
+                  <span className="response-search-jump-count">
+                    {responseSearchJumpNos.length === 0
+                      ? "0件"
+                      : `${responseSearchJumpNo != null && responseSearchJumpNos.includes(responseSearchJumpNo) ? responseSearchJumpNos.indexOf(responseSearchJumpNo) + 1 : "-"}/${responseSearchJumpNos.length}`}
+                  </span>
+                  <button className="title-action-btn response-search-prev" onClick={() => jumpToResponseSearchMatch(-1)} title="前の一致 (Shift+Enter)"><ChevronUp size={14} /></button>
+                  <button className="title-action-btn response-search-next" onClick={() => jumpToResponseSearchMatch(1)} title="次の一致 (Enter)"><ChevronDown size={14} /></button>
+                </span>
+              )}
               {responseSearchQuery && <button className="title-action-btn" onClick={() => setResponseSearchQuery("")} title="検索クリア"><X size={14} /></button>}
+              <button
+                className={`response-search-mode-btn${responseSearchMode === "jump" ? " active" : ""}`}
+                onClick={() => changeResponseSearchMode(responseSearchMode === "jump" ? "filter" : "jump")}
+                title={responseSearchMode === "jump" ? "ジャンプ: 全レスを出したまま一致へ移動 (クリックで絞り込みに切替)" : "絞り込み: 一致したレスだけ表示 (クリックでジャンプに切替)"}
+              >{responseSearchMode === "jump" ? "ジャンプ" : "絞り込み"}</button>
               <span className="link-filter-buttons">
                 <button className={`link-filter-btn ${responseLinkFilter === "image" ? "active" : ""}`} onClick={() => toggleResponseLinkFilter("image")} title="画像リンク"><Image size={13} /></button>
                 <button className={`link-filter-btn ${responseLinkFilter === "video" ? "active" : ""}`} onClick={() => toggleResponseLinkFilter("video")} title="動画リンク"><Film size={13} /></button>
@@ -17188,7 +17326,7 @@ export default function App() {
             return null;
           })()}
           <button onClick={() => { void navigator.clipboard.writeText(watchoiMenu.watchoi); setStatus("ワッチョイをコピーしました"); setWatchoiMenu(null); }}>ワッチョイをコピー</button>
-          <button onClick={() => { setResponseSearchQueryTracked(watchoiMenu.watchoi); addSearchHistory("response", watchoiMenu.watchoi); setStatus(`ワッチョイでレス抽出: ${watchoiMenu.watchoi}`); setWatchoiMenu(null); }}>このワッチョイでレス抽出</button>
+          <button onClick={() => { if (responseSearchMode !== "filter") { rememberResponseFilterOrigin(); changeResponseSearchMode("filter"); } setResponseSearchQueryTracked(watchoiMenu.watchoi); addSearchHistory("response", watchoiMenu.watchoi); setStatus(`ワッチョイでレス抽出: ${watchoiMenu.watchoi}`); setWatchoiMenu(null); }}>このワッチョイでレス抽出</button>
         </div>
       )}
       {idMenu && (
@@ -17584,6 +17722,8 @@ export default function App() {
                 ["Ctrl+3", "ステータスバーの表示/非表示"],
                 ["Ctrl+4", "スレタブバーの表示/非表示"],
                 ["R", "選択レスを引用して書き込み", "key-r-quote"],
+                ["F / Shift+F", "選択した文字でジャンプ検索 / 検索中は F で次の一致へ (Shift+F で前へ)", "key-f-search"],
+                ["G (文字を選択中)", "選択した文字を Google で検索 (ブラウザで開く)", "key-g-websearch"],
                 ["A", "オートスクロールのオン/オフ", "key-a-autoscroll"],
                 ["←/→", "← 選択レスが参照しているレス / → 選択レスを参照しているレス をポップアップ", "key-arrow-refs"],
                 ["Backspace / Delete", "スレ一覧に戻る (設定「マウスの戻るボタン / Backspace・Delete キーでスレ一覧に戻る」が有効なとき)", "key-delete-back"],
@@ -18346,7 +18486,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>223項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>225項目</span></div>
               </fieldset>
               </>)}
             </div>

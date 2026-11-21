@@ -5937,6 +5937,44 @@ a.imgur-album-more {
   border-color: #4a90d9;
 }
 
+/* レス検索の「絞り込み / ジャンプ」切替と、ジャンプモードの件数・前後ボタン */
+.response-search-mode-btn {
+  background: transparent;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  padding: 1px 6px;
+  margin-left: 4px;
+  cursor: pointer;
+  color: #555;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.response-search-mode-btn:hover {
+  background: #e8e8e8;
+}
+.dark .response-search-mode-btn {
+  border-color: #555;
+  color: #bbb;
+}
+.dark .response-search-mode-btn:hover {
+  background: #444;
+}
+.response-search-jump {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  white-space: nowrap;
+}
+.response-search-jump-count {
+  font-size: 11px;
+  color: #666;
+  margin: 0 3px;
+  font-variant-numeric: tabular-nums;
+}
+.dark .response-search-jump-count {
+  color: #aaa;
+}
+
 /* --- 入力コンボ演出 (設定 > 書き込み > 入力コンボ演出) --- */
 .typing-combo-badge {
   position: fixed;
