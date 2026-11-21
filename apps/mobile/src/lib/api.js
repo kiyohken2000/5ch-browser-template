@@ -45,6 +45,14 @@ const read5chJson = (url, options) =>
 const read5chBytes = (url, options) =>
   explainForbidden(() => getBytes(url, options))
 
+/**
+ * 5ch.io のドメインにあるが板ではないホスト。`headline.5ch.io` はヘッドライン
+ * （まとめページ）で、subject.txt を持たない（`unknown bucket` が返る）。
+ * bbsmenu の BBSPINK カテゴリにもここへのリンクが入っていて、
+ * bbspink の板を落とした後にヘッドラインだけが残っていた。
+ */
+const NON_BOARD_HOSTS = new Set(['headline.5ch.io'])
+
 /** bbsmenu の JSON をカテゴリの配列にする。板でないもの・対象外のホストは落とす。 */
 function categoriesOf(json, prefix = '') {
   const categories = []
@@ -63,6 +71,7 @@ function categoriesOf(json, prefix = '') {
       } catch (e) {
         continue
       }
+      if (NON_BOARD_HOSTS.has(location.host)) continue
       boards.push({
         name: b.board_name,
         url: location.boardUrl(),

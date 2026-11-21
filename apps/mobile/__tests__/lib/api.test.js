@@ -208,6 +208,50 @@ describe('dat落ちしたスレ（過去ログ）', () => {
   })
 })
 
+describe('板一覧', () => {
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  const entry = (category, name, url) => ({
+    category_name: category,
+    board_name: name,
+    url,
+  })
+
+  it('ヘッドラインを落とし、板が残らないカテゴリ（BBSPINK）は出さない', async () => {
+    const menu = {
+      menu_list: [
+        {
+          category_content: [
+            entry('ヘッドライン', '総合', 'https://headline.5ch.io/bbyall/'),
+          ],
+        },
+        {
+          category_content: [
+            entry('ニュース', 'ニュース', 'https://headline.5ch.io/bbynews/'),
+            entry('ニュース', 'ニュース速報+', 'https://asahi.5ch.io/newsplus/'),
+          ],
+        },
+        {
+          category_content: [
+            entry('BBSPINK', 'TOPページ', 'https://www.bbspink.com/'),
+            entry('BBSPINK', '総合ヘッドライン', 'https://headline.5ch.io/bbypinkH1/'),
+            entry('BBSPINK', 'AV+', 'https://mercury.bbspink.com/avplus/'),
+          ],
+        },
+      ],
+    }
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ...respond(200),
+      json: async () => menu,
+    })
+    const got = await fetchBbsmenu()
+    expect(got.categories.map((c) => c.name)).toEqual(['ニュース'])
+    expect(got.categories[0].boards.map((b) => b.board)).toEqual(['newsplus'])
+  })
+})
+
 describe('接続を拒否されたとき', () => {
   const BOARD = 'https://mao.5ch.io/ngt/'
   const reads = [
