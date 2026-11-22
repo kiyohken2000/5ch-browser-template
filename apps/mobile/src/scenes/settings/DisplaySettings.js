@@ -116,6 +116,11 @@ export default function DisplaySettings({ navigation }) {
           hint="切ると灰色になります。ID の形のアイコンと、自分で強調した ID の色は残ります"
         />
         <SettingToggle
+          settingKey="nameColor"
+          label="名前を色付きにする"
+          hint="切ると本文と同じ色になります。自分で強調した名前の色は残ります"
+        />
+        <SettingToggle
           settingKey="trailingBlankLine"
           label="本文の末尾に空行を足す"
           hint="レスの下側をタップしやすくします"

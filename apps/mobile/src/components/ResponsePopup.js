@@ -116,6 +116,7 @@ function PopupLayer({
             onBe={onBe}
             highlights={textOptions?.highlights}
             idColors={textOptions?.idColors !== false}
+            nameColor={textOptions?.nameColor !== false}
           />
           <ResponseBody
             parsed={item.parsed}

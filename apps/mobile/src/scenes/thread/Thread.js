@@ -735,6 +735,7 @@ export default function Thread({ route, navigation }) {
       collapsedLines: settings.collapsePreviewLines,
       trailingBlank: settings.trailingBlankLine,
       idColors: settings.idColors,
+      nameColor: settings.nameColor,
       highlights,
     }),
     [
@@ -744,6 +745,7 @@ export default function Thread({ route, navigation }) {
       settings.collapsePreviewLines,
       settings.trailingBlankLine,
       settings.idColors,
+      settings.nameColor,
       highlights,
     ],
   )

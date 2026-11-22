@@ -57,6 +57,8 @@ export const DEFAULTS = {
    * （デスクトップ版の「ID を色分けして表示する」と同じ）
    */
   idColors: true,
+  /** 名前を色付き（緑）で出す。切ると本文と同じ色になる。自分で付けた強調の色は残す */
+  nameColor: true,
   /** 書き込みに BE / UPLIFT を使うか。ログインは保ったまま切り替える */
   postWithBe: true,
   postWithUplift: true,

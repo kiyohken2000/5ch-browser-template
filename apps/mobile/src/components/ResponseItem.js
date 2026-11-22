@@ -162,6 +162,7 @@ function ResponseItem({
           onBe={onBe}
           highlights={textOptions?.highlights}
           idColors={textOptions?.idColors !== false}
+          nameColor={textOptions?.nameColor !== false}
           isNew={isNew}
         />
 

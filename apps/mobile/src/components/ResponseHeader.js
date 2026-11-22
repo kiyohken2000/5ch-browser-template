@@ -27,6 +27,7 @@ export default function ResponseHeader({
   highlights,
   isNew,
   idColors = true,
+  nameColor = true,
 }) {
   const { name, watchoi } = splitNameWatchoi(row.name)
   const idHighlight = matchColor(row.id, highlights?.ids)
@@ -62,7 +63,10 @@ export default function ResponseHeader({
         <Text
           style={[
             styles.name,
-            { color: theme.resName, fontSize: fontSize - 3 },
+            {
+              color: nameColor ? theme.resName : theme.text,
+              fontSize: fontSize - 3,
+            },
           ]}
         >
           {splitHighlights(name || '名無し', highlights?.names).map((part, i) =>
