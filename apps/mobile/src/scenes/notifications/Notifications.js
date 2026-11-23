@@ -23,7 +23,7 @@ import { useDispatch, useSelector } from 'react-redux'
 
 import GlassSheetBackground from 'components/GlassSheetBackground'
 import useSheetAnimation from 'components/useSheetAnimation'
-import { longPressHaptic } from 'lib/haptics'
+import { longPressHaptic, selectionHaptic } from 'lib/haptics'
 import { visibleHomeSegments } from 'lib/homeSegments'
 import { formatWhen } from 'lib/notify'
 import {
@@ -274,6 +274,7 @@ export default function Notifications({ navigation }) {
                 accessibilityRole="button"
                 style={styles.menuItem}
                 onPress={() => {
+                  selectionHaptic()
                   dispatch(toggleFavorite(menuThread))
                   closeMenu()
                 }}

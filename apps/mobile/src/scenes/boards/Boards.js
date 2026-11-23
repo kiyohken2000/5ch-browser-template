@@ -27,6 +27,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import ClearInputButton from 'components/ClearInputButton'
 import Icon from 'components/Icon'
 import { fetchBbsmenu } from 'lib/api'
+import { refreshHaptic, selectionHaptic } from 'lib/haptics'
 import { enabledCompatSites } from 'lib/sites'
 import { recentWithoutFavorites } from 'lib/boards'
 import { KEYS, load, save } from 'lib/storage'
@@ -277,6 +278,7 @@ export default function Boards({ navigation }) {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => {
+              refreshHaptic()
               setRefreshing(true)
               read(true)
             }}
@@ -364,7 +366,10 @@ export default function Boards({ navigation }) {
               {item.name}
             </Text>
             <Pressable
-              onPress={() => dispatch(toggleBoardFavorite(item))}
+              onPress={() => {
+                selectionHaptic()
+                dispatch(toggleBoardFavorite(item))
+              }}
               hitSlop={10}
               accessibilityRole="button"
               accessibilityLabel={

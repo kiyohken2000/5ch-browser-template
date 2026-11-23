@@ -3,7 +3,6 @@
  * タップでビューア、長押しでそのレスへ移動する。
  */
 
-import * as Haptics from 'expo-haptics'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BackHandler,
@@ -17,22 +16,18 @@ import {
 import { useSelector } from 'react-redux'
 
 import { cachedImageHash, isHashBlocked } from 'lib/imageHash'
-import { saveAllImages } from 'lib/saveAllImages'
+import { resultHaptic } from 'lib/haptics'
+import {
+  saveAllImages,
+  saveAllResultMessage,
+  saveAllSucceeded,
+} from 'lib/saveAllImages'
 import { saveImage } from 'lib/saveImage'
 import Icon from './Icon'
 import { Thumb } from './ResponseMedia'
 
 const COLUMNS = 3
 const GAP = 2
-
-function resultMessage({ saved, failed, permissionDenied, folderError }) {
-  if (permissionDenied) return '写真への保存を設定から許可してください'
-  if (folderError) {
-    return '保存先のフォルダに書き込めません。設定で選び直してください'
-  }
-  if (failed > 0) return `${saved} 枚を保存、${failed} 枚は保存できませんでした`
-  return `${saved} 枚を保存しました`
-}
 
 export default function ImageGallery({
   images,
@@ -92,14 +87,9 @@ export default function ImageGallery({
       isCancelled: () => cancelRef.current,
     })
     setProgress(null)
-    const ok =
-      !result.permissionDenied && !result.folderError && result.failed === 0
-    setSaveResult({ ok, message: resultMessage(result) })
-    Haptics.notificationAsync(
-      ok
-        ? Haptics.NotificationFeedbackType.Success
-        : Haptics.NotificationFeedbackType.Warning,
-    ).catch((e) => console.warn(`[gallery] 振動できない: ${e?.message || e}`))
+    const ok = saveAllSucceeded(result)
+    setSaveResult({ ok, message: saveAllResultMessage(result) })
+    resultHaptic(ok)
   }, [confirming, images, mediaOptions.imageNg, saveFolder])
 
   let saveLabel = 'すべて保存'

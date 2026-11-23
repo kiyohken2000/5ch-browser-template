@@ -26,7 +26,7 @@ import PagerView from 'react-native-pager-view'
 import { useDispatch, useSelector } from 'react-redux'
 
 import { fetchSubject } from 'lib/api'
-import { longPressHaptic } from 'lib/haptics'
+import { longPressHaptic, refreshHaptic, selectionHaptic } from 'lib/haptics'
 import { FIXED_HOME_SEGMENT, visibleHomeSegments } from 'lib/homeSegments'
 import { listCachedThreadIds } from 'lib/threadCache'
 import {
@@ -485,7 +485,10 @@ export default function Home({ navigation }) {
                   // スピナーが固まって残るのを消すため
                   key={current === key ? 'shown' : 'hidden'}
                   refreshing={refreshingKey === key && current === key}
-                  onRefresh={() => checkAll(key)}
+                  onRefresh={() => {
+                    refreshHaptic()
+                    checkAll(key)
+                  }}
                   tintColor={theme.accent}
                 />
               }
@@ -531,6 +534,7 @@ export default function Home({ navigation }) {
               accessibilityRole="button"
               style={styles.menuItem}
               onPress={() => {
+                selectionHaptic()
                 dispatch(toggleFavorite(menuItem))
                 closeMenu()
               }}
@@ -547,8 +551,10 @@ export default function Home({ navigation }) {
                 style={styles.menuItem}
                 onPress={() => {
                   if (watchedIds.has(menuItem.threadId)) {
+                    selectionHaptic()
                     dispatch(removeFromWatch(menuItem.threadId))
                   } else if (canAddWatch(watchList, menuItem.threadId)) {
+                    selectionHaptic()
                     dispatch(toggleWatch(menuItem))
                   } else {
                     showToast(WATCH_LIMIT_TOAST)

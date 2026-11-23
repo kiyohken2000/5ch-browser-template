@@ -36,7 +36,7 @@ import GlassSheetBackground from 'components/GlassSheetBackground'
 import Icon from 'components/Icon'
 import useSheetAnimation from 'components/useSheetAnimation'
 import { fetchSubject } from 'lib/api'
-import { longPressHaptic } from 'lib/haptics'
+import { longPressHaptic, refreshHaptic, selectionHaptic } from 'lib/haptics'
 import { openInAppBrowser } from 'lib/inAppBrowser'
 import { visibleThreads } from 'lib/ng'
 import { MAX_THREAD_ALERTS } from 'lib/notify'
@@ -90,7 +90,10 @@ function renderMenuBackdrop(props) {
 
 function copyText(text, done) {
   Clipboard.setStringAsync(text)
-    .then(() => showToast({ title: done }))
+    .then(() => {
+      selectionHaptic()
+      showToast({ title: done })
+    })
     .catch((e) => console.warn(`[threads] コピーに失敗: ${e?.message || e}`))
 }
 
@@ -439,9 +442,11 @@ export default function Threads({ route, navigation }) {
       } else if (action === 'browser') {
         openInAppBrowser(item.threadUrl)
       } else if (action === 'ng') {
+        selectionHaptic()
         dispatch(addNg({ list: 'threadWords', value: item.title }))
         showToast({ title: 'スレタイNGに追加しました' })
       } else if (action === 'favorite') {
+        selectionHaptic()
         dispatch(toggleFavorite(refOf(item)))
         showToast({
           title: menuState?.favorite
@@ -454,6 +459,7 @@ export default function Threads({ route, navigation }) {
           showToast(WATCH_LIMIT_TOAST)
           return
         } else dispatch(toggleWatch(refOf(item)))
+        selectionHaptic()
         showToast({
           title: menuState?.watched ? '監視をやめました' : '監視に追加しました',
         })
@@ -607,6 +613,7 @@ export default function Threads({ route, navigation }) {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={() => {
+              refreshHaptic()
               setRefreshing(true)
               read()
             }}

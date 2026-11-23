@@ -35,3 +35,23 @@ export async function saveAllImages(urls, { save, onProgress, isCancelled }) {
   }
   return { saved, failed, permissionDenied: false, folderError: false }
 }
+
+/** 一括保存の結果を、利用者に見せる一文にする。 */
+export function saveAllResultMessage({
+  saved,
+  failed,
+  permissionDenied,
+  folderError,
+}) {
+  if (permissionDenied) return '写真への保存を設定から許可してください'
+  if (folderError) {
+    return '保存先のフォルダに書き込めません。設定で選び直してください'
+  }
+  if (failed > 0) return `${saved} 枚を保存、${failed} 枚は保存できませんでした`
+  return `${saved} 枚を保存しました`
+}
+
+/** 一括保存がすべてうまくいったか。 */
+export function saveAllSucceeded(result) {
+  return !result.permissionDenied && !result.folderError && result.failed === 0
+}

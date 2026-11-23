@@ -64,6 +64,7 @@ import {
 import { clearCookies, loadAccount } from 'lib/accountStore'
 import { ACCOUNTS } from 'lib/auth'
 import { findThreadBySubject } from 'lib/api'
+import { resultHaptic } from 'lib/haptics'
 import { resultText, submitPost, submitThread } from 'lib/post'
 import { withPostAccounts } from 'lib/postAccounts'
 import { setSetting } from 'slices/settings.slice'
@@ -439,9 +440,11 @@ export default function Post({ route, navigation }) {
     )
 
     if (got.kind !== 'success') {
+      resultHaptic(false)
       setResult(got)
       return
     }
+    resultHaptic(true)
     if (comboEnabled) {
       emitComboEvents([
         { type: 'banner', text: 'SHIPPED!!', variant: 'shipped' },

@@ -11,7 +11,6 @@
  * ジェスチャはすべて UI スレッドで処理する（不変条件 4）。
  */
 
-import * as Haptics from 'expo-haptics'
 import { Image } from 'expo-image'
 import React, { useCallback, useMemo, useRef, useState } from 'react'
 import {
@@ -40,6 +39,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useSelector } from 'react-redux'
 import { scheduleOnRN } from 'react-native-worklets'
 
+import { resultHaptic } from 'lib/haptics'
 import {
   PhotoPermissionError,
   SAVE_FOLDER_ERROR,
@@ -246,9 +246,7 @@ export default function ImageViewer({
     try {
       await saveImage(current.url, { folderUri: saveFolder })
       showMessage(saveFolder ? 'フォルダに保存しました' : '写真に保存しました')
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-        (e) => console.warn(`[viewer] 触覚を返せない: ${e?.message || e}`),
-      )
+      resultHaptic(true)
     } catch (e) {
       console.warn(`[viewer] 画像を保存できない: ${e?.message || e}`)
       let text = '保存できませんでした'
@@ -258,6 +256,7 @@ export default function ImageViewer({
         text = '保存先のフォルダに書き込めません。設定で選び直してください'
       }
       showMessage(text)
+      resultHaptic(false)
     } finally {
       setSaving(false)
     }

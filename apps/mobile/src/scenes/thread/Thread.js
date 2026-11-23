@@ -29,7 +29,6 @@ import {
 import { FlashList } from '@shopify/flash-list'
 import { BlurView } from 'expo-blur'
 import * as Clipboard from 'expo-clipboard'
-import * as Haptics from 'expo-haptics'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import React, {
   forwardRef,
@@ -72,7 +71,12 @@ import {
   findReportThreadUrl,
 } from 'lib/api'
 import { buildBacklinks, parseBody } from 'lib/body'
-import { longPressHaptic } from 'lib/haptics'
+import {
+  longPressHaptic,
+  refreshHaptic,
+  resultHaptic,
+  selectionHaptic,
+} from 'lib/haptics'
 import {
   getReadPosition,
   noToRemember,
@@ -125,11 +129,17 @@ import { addAiRule } from 'slices/ai.slice'
 import CopySheet from 'components/CopySheet'
 import { beProfileUrl, beThreadHistoryUrl } from 'lib/be'
 import { wordHits } from 'lib/highlights'
-import { computeImageHash } from 'lib/imageHash'
+import { cachedImageHash, computeImageHash, isHashBlocked } from 'lib/imageHash'
 import { openInAppBrowser } from 'lib/inAppBrowser'
 import { getCachedImgurAlbum } from 'lib/imgurAlbum'
 import { collectImages, extractMedia } from 'lib/media'
 import { quoteReply } from 'lib/postDrafts'
+import {
+  saveAllImages,
+  saveAllResultMessage,
+  saveAllSucceeded,
+} from 'lib/saveAllImages'
+import { saveImage } from 'lib/saveImage'
 import { compatSiteOf } from 'lib/sites'
 import { CONTACT_URL, DELETION_REQUEST_URL } from 'lib/terms'
 import useIsCellular from 'lib/useIsCellular'
@@ -241,12 +251,6 @@ function renderMenuBackdrop(props) {
       disappearsOnIndex={-1}
       pressBehavior="close"
     />
-  )
-}
-
-function haptic() {
-  Haptics.selectionAsync().catch((e) =>
-    console.warn(`[thread] 触覚を返せない: ${e?.message || e}`),
   )
 }
 
@@ -390,6 +394,7 @@ export default function Thread({ route, navigation }) {
   }, [dispatch, threadId, threadUrl, boardUrl, boardName, initialTitle])
 
   const onToggleFavorite = useCallback(() => {
+    selectionHaptic()
     dispatch(
       toggleFavorite({
         threadId,
@@ -407,6 +412,7 @@ export default function Thread({ route, navigation }) {
       showToast(WATCH_LIMIT_TOAST)
       return
     }
+    selectionHaptic()
     dispatch(
       toggleWatch({
         threadId,
@@ -1093,7 +1099,10 @@ export default function Thread({ route, navigation }) {
 
   const copy = useCallback((text, label) => {
     Clipboard.setStringAsync(text)
-      .then(() => showToast({ title: 'コピーしました', body: label }))
+      .then(() => {
+        selectionHaptic()
+        showToast({ title: 'コピーしました', body: label })
+      })
       .catch((e) => console.warn(`[thread] コピーに失敗: ${e?.message || e}`))
   }, [])
 
@@ -1382,6 +1391,7 @@ export default function Thread({ route, navigation }) {
     (payload, label) => {
       dispatch(addNg(payload))
       closeMenu()
+      selectionHaptic()
       showToast({ title: 'NG に追加しました', body: label })
     },
     [dispatch, closeMenu],
@@ -1391,6 +1401,7 @@ export default function Thread({ route, navigation }) {
     (list, value, label) => {
       dispatch(addHighlight({ list, value }))
       closeMenu()
+      selectionHaptic()
       showToast({ title: '強調表示に追加しました', body: label })
     },
     [dispatch, closeMenu],
@@ -1437,6 +1448,20 @@ export default function Thread({ route, navigation }) {
     showToast({ title: '書き込みました' })
     readDelta().then(() => setTimeout(scrollToLast, 120))
   }, [postedAt, readDelta, scrollToLast])
+
+  /** レスの画像を順に保存する（デスクトップ版の「画像を保存」と同じ）。 */
+  const saveRowImages = useCallback(
+    async (urls) => {
+      showToast({ title: `画像を保存しています（${urls.length}枚）` })
+      const result = await saveAllImages(urls, {
+        save: (url) => saveImage(url, { folderUri: settings.imageSaveFolder }),
+      })
+      const ok = saveAllSucceeded(result)
+      resultHaptic(ok)
+      showToast({ title: saveAllResultMessage(result) })
+    },
+    [settings.imageSaveFolder],
+  )
 
   const menuActions = useMemo(() => {
     if (!menuRow) return EMPTY_MENU
@@ -1596,6 +1621,27 @@ export default function Thread({ route, navigation }) {
         })
       },
     }
+    // NG で画像を隠したレスや、画像 NG に当たる画像は保存しない
+    const imageUrls = collectImages([menuRow], getCachedImgurAlbum)
+      .map((image) => image.url)
+      .filter(
+        (url) =>
+          !isHashBlocked(
+            cachedImageHash(url),
+            imageNg?.entries,
+            imageNg?.threshold,
+          ),
+      )
+    const saveImages =
+      imageUrls.length > 0
+        ? {
+            label: `画像を保存（${imageUrls.length}枚）`,
+            run: () => {
+              closeMenu()
+              saveRowImages(imageUrls)
+            },
+          }
+        : null
     const readMarker =
       marker?.lastReadNo === no
         ? {
@@ -1636,6 +1682,7 @@ export default function Thread({ route, navigation }) {
           toggleAa(menuRow)
         },
       },
+      ...(saveImages ? [saveImages] : []),
       { label: MENU_GROUP_TITLES.copy, opens: 'copy' },
       { label: MENU_GROUP_TITLES.ng, opens: 'ng' },
       ...(aiItems.length > 0
@@ -1655,6 +1702,8 @@ export default function Thread({ route, navigation }) {
     ngRows.length,
     marker?.lastReadNo,
     toggleAa,
+    imageNg,
+    saveRowImages,
   ])
 
   // ---- 既読位置 ------------------------------------------------------------
@@ -1974,7 +2023,7 @@ export default function Thread({ route, navigation }) {
     if (checkingRef.current) return
     checkingRef.current = true
     setCheckingNew(true)
-    haptic()
+    refreshHaptic()
     await readDeltaAndReport()
     checkingRef.current = false
     setCheckingNew(false)
@@ -2009,7 +2058,7 @@ export default function Thread({ route, navigation }) {
       const env = gestureEnvRef.current
       const action = normalizeGestures(env.gestures)[pattern]
       if (action === 'none') return
-      haptic()
+      selectionHaptic()
       if (action === 'scrollTop') scrollToFirst()
       else if (action === 'scrollBottom') scrollToLast()
       else if (action === 'checkNew') checkNew()
@@ -2431,6 +2480,7 @@ export default function Thread({ route, navigation }) {
               <RefreshControl
                 refreshing={refreshing}
                 onRefresh={() => {
+                  refreshHaptic()
                   setRefreshing(true)
                   readDeltaAndReport()
                 }}
