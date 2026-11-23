@@ -14757,7 +14757,22 @@ export default function App() {
             className={`thread-tab-bar-wrap${tabWidth === "narrow" ? " tabs-narrow" : ""}${tabUniformWidth ? " tabs-uniform" : ""}${tabMultiRow ? " tabs-multi-row" : ""}`}
             style={{ "--tab-rows": tabRows, "--tab-fs-delta": `${tabFontSize - 11}px` } as React.CSSProperties}
           >
-          <div className="thread-tab-bar" ref={tabBarRef}>
+          <div
+            className="thread-tab-bar"
+            ref={tabBarRef}
+            onMouseDown={(e) => {
+              // 空白部分の中クリックで自動スクロールが始まらないようにする
+              if (e.button === 1 && !(e.target as HTMLElement).closest(".thread-tab:not(.placeholder)")) e.preventDefault();
+            }}
+            onAuxClick={(e) => {
+              // 空白部分の中クリックで最後に閉じたタブを開き直す (Ctrl+Shift+T と同じ)
+              if (e.button !== 1) return;
+              if ((e.target as HTMLElement).closest(".thread-tab:not(.placeholder)")) return;
+              e.preventDefault();
+              const last = closedTabsRef.current.pop();
+              if (last) openThreadInTab(last.threadUrl, last.title);
+            }}
+          >
             {threadTabs.length === 0 && (
               <div className="thread-tab placeholder active">
                 <span className="thread-tab-title">未取得</span>
@@ -18521,7 +18536,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>226項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>227項目</span></div>
               </fieldset>
               </>)}
             </div>

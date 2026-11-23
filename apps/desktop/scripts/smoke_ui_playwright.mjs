@@ -1236,6 +1236,31 @@ try {
       const tabsAfterClose = await page.$$(".thread-tab");
       assert(tabsAfterClose.length === tabsAfter.length - 1, "closing tab should reduce tab count");
       console.log("smoke-ui: tab close ok");
+
+      // タブバーの空白部分を中クリックすると、最後に閉じたタブが開き直される
+      const closedTitle = await tabsAfter[1].evaluate((el) => el.querySelector(".thread-tab-title")?.textContent?.trim() ?? "");
+      await page.evaluate(() => {
+        const bar = document.querySelector(".thread-tab-bar");
+        if (bar) bar.dispatchEvent(new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      const tabsAfterReopen = await page.$$eval(".thread-tab-title", (els) => els.map((el) => el.textContent?.trim() ?? ""));
+      assert(
+        tabsAfterReopen.length === tabsAfterClose.length + 1 && tabsAfterReopen.includes(closedTitle),
+        `middle-clicking empty tab bar should reopen the closed tab, got ${JSON.stringify(tabsAfterReopen)}`,
+      );
+      // タブ上の中クリックは閉じるだけで、開き直しは起きない
+      await page.evaluate(() => {
+        const tab = document.querySelector(".thread-tab-bar .thread-tab:last-child");
+        if (tab) tab.dispatchEvent(new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      const tabsAfterMiddleClose = await page.$$(".thread-tab");
+      assert(
+        tabsAfterMiddleClose.length === tabsAfterReopen.length - 1,
+        `middle-clicking a tab should only close it, got ${tabsAfterReopen.length} -> ${tabsAfterMiddleClose.length}`,
+      );
+      console.log("smoke-ui: middle-click empty tab bar reopens closed tab ok");
     }
   }
 
