@@ -3576,6 +3576,12 @@ button.search-history-btn:hover {
 .tab-scroll-btn:hover {
   background: #c8c8c8;
 }
+/* 閉じたタブの履歴が空のとき。ホバーの色変えはテーマごとにあるので、
+   反応そのものを止めて押せそうに見せない。 */
+.tab-scroll-btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
 .thread-tab-bar {
   display: flex;
   gap: 0;

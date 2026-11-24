@@ -1239,10 +1239,12 @@ try {
 
       // タブバーの空白部分を中クリックすると、最後に閉じたタブが開き直される
       const closedTitle = await tabsAfter[1].evaluate((el) => el.querySelector(".thread-tab-title")?.textContent?.trim() ?? "");
-      await page.evaluate(() => {
-        const bar = document.querySelector(".thread-tab-bar");
-        if (bar) bar.dispatchEvent(new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+      // 合成イベントではなく実際のマウス中ボタンで、タブの無い右端を押す
+      const barBox = await page.$eval(".thread-tab-bar", (el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.right - 8, y: r.top + r.height / 2 };
       });
+      await page.mouse.click(barBox.x, barBox.y, { button: "middle" });
       await new Promise((r) => setTimeout(r, 100));
       const tabsAfterReopen = await page.$$eval(".thread-tab-title", (els) => els.map((el) => el.textContent?.trim() ?? ""));
       assert(
@@ -1250,15 +1252,50 @@ try {
         `middle-clicking empty tab bar should reopen the closed tab, got ${JSON.stringify(tabsAfterReopen)}`,
       );
       // タブ上の中クリックは閉じるだけで、開き直しは起きない
-      await page.evaluate(() => {
-        const tab = document.querySelector(".thread-tab-bar .thread-tab:last-child");
-        if (tab) tab.dispatchEvent(new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+      const lastTabBox = await page.$eval(".thread-tab-bar .thread-tab:last-child", (el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
       });
+      await page.mouse.click(lastTabBox.x, lastTabBox.y, { button: "middle" });
       await new Promise((r) => setTimeout(r, 100));
       const tabsAfterMiddleClose = await page.$$(".thread-tab");
       assert(
         tabsAfterMiddleClose.length === tabsAfterReopen.length - 1,
         `middle-clicking a tab should only close it, got ${tabsAfterReopen.length} -> ${tabsAfterMiddleClose.length}`,
+      );
+      // タブで埋まって空白が無くても押せるよう、スクロールの外に「閉じたタブを開く」ボタンがある。
+      // 普通の左クリックで開き直し、説明には次に開くスレの名前が出る
+      const reopenBtn = ".thread-tab-bar-wrap .tab-reopen-btn";
+      const reopenTitle = await page.$eval(reopenBtn, (el) => ({ disabled: el.disabled, title: el.getAttribute("title") || "" }));
+      assert(
+        !reopenTitle.disabled && reopenTitle.title.startsWith("閉じたタブを開く: "),
+        `the reopen button should be enabled and name the tab it reopens, got ${JSON.stringify(reopenTitle)}`,
+      );
+      await page.click(reopenBtn);
+      await new Promise((r) => setTimeout(r, 100));
+      const tabsAfterButtonReopen = await page.$$(".thread-tab");
+      assert(
+        tabsAfterButtonReopen.length === tabsAfterMiddleClose.length + 1,
+        `clicking the reopen button should reopen the closed tab, got ${tabsAfterMiddleClose.length} -> ${tabsAfterButtonReopen.length}`,
+      );
+      // 履歴を使い切ったらボタンは押せなくなる
+      for (let i = 0; i < 25; i += 1) {
+        if (await page.$eval(reopenBtn, (el) => el.disabled)) break;
+        await page.click(reopenBtn);
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      assert(await page.$eval(reopenBtn, (el) => el.disabled), "the reopen button should be disabled once no closed tabs are left");
+      // 空白の中クリックは履歴が空なら、何も起きない代わりにステータスバーで伝える
+      const barBox2 = await page.$eval(".thread-tab-bar", (el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.right - 8, y: r.top + r.height / 2 };
+      });
+      await page.mouse.click(barBox2.x, barBox2.y, { button: "middle" });
+      await new Promise((r) => setTimeout(r, 100));
+      const emptyStatus = await page.$eval(".status-bar .status-main", (el) => el.textContent || "");
+      assert(
+        emptyStatus.includes("開き直せる閉じたタブがありません"),
+        `middle-clicking with no closed tabs left should say so in the status bar, got ${emptyStatus}`,
       );
       console.log("smoke-ui: middle-click empty tab bar reopens closed tab ok");
     }
@@ -7843,15 +7880,41 @@ try {
       await trs[i].click();
       await new Promise((r) => setTimeout(r, 500));
     };
+    // 表示中は押した行が先頭へ飛ばず、その場に留まる (見ていた位置を見失わないため)
     await clickMruRow(mruTitle(4));
     const afterOpen = await checkMruRows([mruTitle(4)]);
     assert(
-      afterOpen[0].title === mruTitle(4),
-      `the opened thread should move to the head of the recent list, got ${afterOpen[0].title}`,
+      afterOpen[3].title === mruTitle(4) && afterOpen[0].title === mruTitle(1),
+      `opening a thread from the shown recent list should keep its row in place, got ${afterOpen.slice(0, 5).map((r) => r.title).join(",")}`,
     );
     assert(
       afterOpen.filter((r) => r.selected).length === 1 && afterOpen.find((r) => r.selected).title === mruTitle(4),
       `the opened row should stay the selected one, got ${JSON.stringify(afterOpen.filter((r) => r.selected))}`,
+    );
+    // 左ペインの「最近読んだスレ」は表示中でも新しい順 (開いた R04 が先頭)
+    const sidebarRecent = await mruPage.$$eval(".recent-thread-item .fav-thread-title", (els) => els.map((el) => (el.textContent || "").trim()));
+    if (sidebarRecent.length > 0) {
+      assert(sidebarRecent[0] === mruTitle(4), `the sidebar recent list should stay newest-first, got ${sidebarRecent.slice(0, 3).join(",")}`);
+    }
+    // 更新すると新しい順に揃う。行の既読数・レス数・選択行はそのスレに付いたまま
+    await mruPage.click('.title-action-btn[title="スレ一覧を更新"]');
+    await mruPage.waitForFunction(
+      (want) => {
+        const first = document.querySelector(".pane.threads tbody .thread-title-cell");
+        return first && (first.textContent || "").trim() === want;
+      },
+      mruTitle(4),
+      { timeout: 10000 },
+    );
+    await new Promise((r) => setTimeout(r, 300));
+    const afterRefresh = await checkMruRows([mruTitle(4)]);
+    assert(
+      afterRefresh[0].title === mruTitle(4) && afterRefresh[1].title === mruTitle(1) && afterRefresh[4].title === mruTitle(5),
+      `refreshing the recent list should put it back in newest-first order, got ${afterRefresh.slice(0, 5).map((r) => r.title).join(",")}`,
+    );
+    assert(
+      afterRefresh.filter((r) => r.selected).length === 1 && afterRefresh.find((r) => r.selected).title === mruTitle(4),
+      `the selected row should follow its thread after the reorder, got ${JSON.stringify(afterRefresh.filter((r) => r.selected))}`,
     );
 
     // 並び替え + スクロールした状態で開く -> スクロール位置が飛ばないこと

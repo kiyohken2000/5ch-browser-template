@@ -245,7 +245,7 @@ function buildTranslationPrompt(text: string, targetLangNativeName: string): str
 import {
   ClipboardList, RefreshCw, Pencil, FilePenLine, Save,
   Star, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Ban, Search,
-  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser, Flame, LayersPlus, Lock,
+  Image, ImageOff, Images, Film, ExternalLink, Upload, History, Copy, Trash2, Pin, Download, EyeOff, Columns3, RotateCcw, Play, Pause, Sun, Moon, Sparkles, BrainCircuit, FolderOpen, PanelLeft, PanelTop, PanelBottom, User, Smile, Tag, Eraser, Flame, LayersPlus, Lock, Undo2,
 } from "lucide-react";
 
 type AuthEnvStatus = {
@@ -1040,6 +1040,26 @@ const sanitizePaneFontSize = (raw: string) => {
 };
 const upsertRecentThread = (list: RecentThread[], entry: RecentThread): RecentThread[] =>
   [entry, ...list.filter((item) => item.threadUrl !== entry.threadUrl)].slice(0, MAX_RECENT_THREADS);
+// 最近開いた / 書き込んだスレをスレ一覧に表示している間の記録。押した行が先頭へ飛んで
+// 見ていた位置を見失わないよう、記録済みのスレは位置を変えずに日時だけ進める。
+// 新しい順への並べ直しは、次に一覧を開いたときと更新したときに sortRecentThreads で行う。
+// 履歴に無いスレは先頭に足し、溢れたら一番古いものを落とす (末尾が一番古いとは限らない)。
+const touchRecentThreadInPlace = (list: RecentThread[], entry: RecentThread): RecentThread[] => {
+  const idx = list.findIndex((item) => item.threadUrl === entry.threadUrl);
+  if (idx >= 0) return list.map((item, i) => (i === idx ? entry : item));
+  let rest = list;
+  if (rest.length >= MAX_RECENT_THREADS) {
+    let oldest = 0;
+    rest.forEach((item, i) => { if (item.updatedAt < rest[oldest].updatedAt) oldest = i; });
+    rest = rest.filter((_, i) => i !== oldest);
+  }
+  return [entry, ...rest].slice(0, MAX_RECENT_THREADS);
+};
+// 新しい順 (安定ソートなので同時刻は今の並びのまま)。
+const sortRecentThreads = (list: RecentThread[]): RecentThread[] =>
+  [...list].sort((a, b) => b.updatedAt - a.updatedAt);
+const sameThreadOrder = (a: RecentThread[], b: RecentThread[]) =>
+  a.length === b.length && a.every((t, i) => t.threadUrl === b[i].threadUrl);
 const clampMenuPosition = (x: number, y: number, width: number, height: number) => ({
   x: clamp(x, MENU_EDGE_PADDING, Math.max(MENU_EDGE_PADDING, window.innerWidth - width - MENU_EDGE_PADDING)),
   y: clamp(y, MENU_EDGE_PADDING, Math.max(MENU_EDGE_PADDING, window.innerHeight - height - MENU_EDGE_PADDING)),
@@ -3844,14 +3864,15 @@ export default function App() {
   // お気に入り検索で絞り込んだあとの行。一覧と一括削除が同じ配列を見るようにして、
   // 「表示されている分だけ消える」を保証する。
   const favSearchNeedle = favSearchQuery.trim().toLowerCase();
-  const visibleRecentOpened = useMemo(
-    () => (favSearchNeedle ? recentOpenedThreads.filter((rt) => rt.title.toLowerCase().includes(favSearchNeedle)) : recentOpenedThreads),
-    [recentOpenedThreads, favSearchNeedle],
-  );
-  const visibleRecentPosted = useMemo(
-    () => (favSearchNeedle ? recentPostedThreads.filter((rt) => rt.title.toLowerCase().includes(favSearchNeedle)) : recentPostedThreads),
-    [recentPostedThreads, favSearchNeedle],
-  );
+  // 左ペインは常に新しい順で見せる (スレ一覧に表示中は保存側の並びを止めているため)。
+  const visibleRecentOpened = useMemo(() => {
+    const sorted = sortRecentThreads(recentOpenedThreads);
+    return favSearchNeedle ? sorted.filter((rt) => rt.title.toLowerCase().includes(favSearchNeedle)) : sorted;
+  }, [recentOpenedThreads, favSearchNeedle]);
+  const visibleRecentPosted = useMemo(() => {
+    const sorted = sortRecentThreads(recentPostedThreads);
+    return favSearchNeedle ? sorted.filter((rt) => rt.title.toLowerCase().includes(favSearchNeedle)) : sorted;
+  }, [recentPostedThreads, favSearchNeedle]);
   const [cachedThreadList, setCachedThreadList] = useState<{ threadUrl: string; title: string; resCount: number }[]>([]);
   // 保存ログ一覧 (全板) を表示中かどうか。false のときは従来どおり現在の板の dat落ちのみ。
   // showCachedOnly が false の間は参照しないので、解除時にリセットしなくてよい。
@@ -4020,6 +4041,9 @@ export default function App() {
     clearTabNewCount(url);
   };
   const closedTabsRef = useRef<{ threadUrl: string; title: string }[]>([]);
+  // 閉じたタブの履歴の末尾 (次に開き直すタブ)。ref は描画に乗らないので、
+  // タブバーの「閉じたタブを開く」ボタンの押せる / 押せないと説明はこれで出す。
+  const [lastClosedTab, setLastClosedTab] = useState<{ threadUrl: string; title: string } | null>(null);
   const tabsRestoredRef = useRef(false);
   // このセッションで一度でもタブを持ったか (下の保存エフェクトのコメント参照)。
   const tabsDirtyRef = useRef(false);
@@ -5847,8 +5871,7 @@ export default function App() {
       setStatus("ロック中のタブです (右クリックから解除できます)");
       return;
     }
-    closedTabsRef.current.push({ threadUrl: closing.threadUrl, title: closing.title });
-    if (closedTabsRef.current.length > 20) closedTabsRef.current.shift();
+    rememberClosedTab(closing);
     // 裏タブ (中クリック / 非アクティブタブの ×) も保存する。以前はアクティブタブしか
     // 保存しておらず、裏タブを閉じると読書位置が失われて次回先頭から表示されていた。
     saveTabReadPosition(closing.threadUrl, index === activeTabIndex);
@@ -5931,6 +5954,35 @@ export default function App() {
   };
 
   // keep(index) が true のタブだけ残して他を閉じる。「他のタブ」「右側」「左側」の共通処理
+  // 閉じたタブの履歴 (Ctrl+Shift+T / タブバーの空白の中クリックで開き直す)。最大 20 件。
+  // まとめて閉じる経路 (他のタブ / 右側 / 左側 / すべて) もここを通す。
+  const rememberClosedTab = (tab: { threadUrl: string; title: string }) => {
+    closedTabsRef.current.push({ threadUrl: tab.threadUrl, title: tab.title });
+    if (closedTabsRef.current.length > 20) closedTabsRef.current.shift();
+    setLastClosedTab(closedTabsRef.current[closedTabsRef.current.length - 1] ?? null);
+  };
+  const reopenLastClosedTab = () => {
+    const last = closedTabsRef.current.pop();
+    setLastClosedTab(closedTabsRef.current[closedTabsRef.current.length - 1] ?? null);
+    if (last) {
+      openThreadInTab(last.threadUrl, last.title);
+      return;
+    }
+    // 何も起きないと「壊れている」のか「履歴が空」なのか区別できないので伝える
+    setStatus("開き直せる閉じたタブがありません");
+  };
+  // タブバーの空白 (タブの無い部分) の中クリック。
+  // mousedown を止めないと中ボタンの自動スクロールが始まる。
+  const isOnTab = (target: EventTarget) => Boolean((target as HTMLElement).closest(".thread-tab:not(.placeholder)"));
+  const onTabBarBlankMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 1 && !isOnTab(e.target)) e.preventDefault();
+  };
+  const onTabBarBlankAuxClick = (e: React.MouseEvent) => {
+    if (e.button !== 1 || isOnTab(e.target)) return;
+    e.preventDefault();
+    reopenLastClosedTab();
+  };
+
   const closeTabsExcept = (keep: (index: number) => boolean) => {
     // ロック中のタブは「他のタブ」「右側」「左側」「すべて」でも残す
     const keepOrLocked = (index: number) => keep(index) || threadTabs[index].locked === true;
@@ -5940,6 +5992,7 @@ export default function App() {
     // 閉じるタブの読書位置を保存してから捨てる (以前は保存せずに破棄していた)
     threadTabs.forEach((tab, i) => {
       if (keepOrLocked(i)) return;
+      rememberClosedTab(tab);
       saveTabReadPosition(tab.threadUrl, i === activeTabIndex);
       forgetTabState(tab.threadUrl);
     });
@@ -5979,7 +6032,10 @@ export default function App() {
     // こちらへ戻ってくるのは「ロックが 1 つも無い」ときだけなので、往復はしない。
     if (threadTabs.some((t) => t.locked)) { closeTabsExcept(() => false); return; }
     // 全タブぶんの読書位置を保存してから捨てる (以前は保存せずに破棄していた)
-    threadTabs.forEach((tab, i) => saveTabReadPosition(tab.threadUrl, i === activeTabIndex));
+    threadTabs.forEach((tab, i) => {
+      rememberClosedTab(tab);
+      saveTabReadPosition(tab.threadUrl, i === activeTabIndex);
+    });
     tabCacheRef.current.clear();
     tabLastModifiedRef.current.clear();
     setTabNewCounts(new Map());
@@ -7235,11 +7291,12 @@ export default function App() {
       boardUrl: getBoardUrlFromThreadUrl(normalizedUrl),
       updatedAt: Date.now(),
     };
-    // 開いたスレは先頭へ移る (MRU)。既読マップ・選択行のキーは「今表示しているリストでの
-    // index + 1」なので、最近読んだスレを表示中に並べ替えると番号が別のスレを指してしまう。
-    // 削除系と同じく引き直す。
+    // 開いたスレは先頭へ移る (MRU)。ただし最近読んだスレを一覧に表示している間は、
+    // 押した行が飛ばないよう位置を変えない (並べ直しは次に開いたとき / 更新したとき)。
+    // 既読マップ・選択行のキーは「今表示しているリストでの index + 1」なので、
+    // 表示中に行が増えたときは削除系と同じく引き直す。
     const prev = recentOpenedThreads;
-    const next = upsertRecentThread(prev, entry);
+    const next = showRecentOpenedOnly ? touchRecentThreadInPlace(prev, entry) : upsertRecentThread(prev, entry);
     // ref は effect を待たずここで進める。開いた直後の取得がこの tick のうちに
     // 返ってくると、effect より先に「今のリストでの位置」を引くため。
     recentOpenedThreadsRef.current = next;
@@ -7255,9 +7312,9 @@ export default function App() {
       boardUrl: getBoardUrlFromThreadUrl(normalizedUrl),
       updatedAt: Date.now(),
     };
-    // 最近開いたスレと同じ理由で、表示中なら引き直す (書き込むと先頭へ移る)。
+    // 最近開いたスレと同じ。表示中は位置を変えず、行が増えたら引き直す。
     const prev = recentPostedThreads;
-    const next = upsertRecentThread(prev, entry);
+    const next = showRecentPostedOnly ? touchRecentThreadInPlace(prev, entry) : upsertRecentThread(prev, entry);
     recentPostedThreadsRef.current = next;
     setRecentPostedThreads(next);
     saveUiJson(RECENT_POSTED_THREADS_KEY, JSON.stringify(next));
@@ -7341,6 +7398,29 @@ export default function App() {
     setRecentPostedThreads(next);
     saveUiJson(RECENT_POSTED_THREADS_KEY, JSON.stringify(next));
     if (showRecentPostedOnly) remapSavedThreadCounts(prev, next);
+  };
+  // 一覧に表示している間は止めていた並びを、新しい順に揃える (一覧を開いたとき / 更新したとき)。
+  // 表示中なら位置キーの既読マップ・選択行も引き直す。揃えた後の配列を返すので、
+  // 呼び出し側はそれで既読数・レス数を取り直す。
+  const resortRecentOpenedThreads = (): RecentThread[] => {
+    const prev = recentOpenedThreadsRef.current;
+    const next = sortRecentThreads(prev);
+    if (sameThreadOrder(prev, next)) return prev;
+    recentOpenedThreadsRef.current = next;
+    setRecentOpenedThreads(next);
+    saveUiJson(RECENT_OPENED_THREADS_KEY, JSON.stringify(next));
+    if (showRecentOpenedOnly) remapSavedThreadCounts(prev, next);
+    return next;
+  };
+  const resortRecentPostedThreads = (): RecentThread[] => {
+    const prev = recentPostedThreadsRef.current;
+    const next = sortRecentThreads(prev);
+    if (sameThreadOrder(prev, next)) return prev;
+    recentPostedThreadsRef.current = next;
+    setRecentPostedThreads(next);
+    saveUiJson(RECENT_POSTED_THREADS_KEY, JSON.stringify(next));
+    if (showRecentPostedOnly) remapSavedThreadCounts(prev, next);
+    return next;
   };
 
   const appendKakikomiLog = async (entry: {
@@ -10431,10 +10511,7 @@ export default function App() {
       }
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === "t") {
         e.preventDefault();
-        const last = closedTabsRef.current.pop();
-        if (last) {
-          openThreadInTab(last.threadUrl, last.title);
-        }
+        reopenLastClosedTab();
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === "/" || e.code === "Slash")) {
@@ -10910,9 +10987,9 @@ export default function App() {
         const parsed = JSON.parse(raw) as RecentThread[];
         if (Array.isArray(parsed)) {
           setRecentOpenedThreads(
-            parsed
+            sortRecentThreads(parsed
               .filter((t): t is RecentThread => Boolean(t && typeof t.threadUrl === "string" && typeof t.title === "string" && typeof t.boardUrl === "string" && typeof t.updatedAt === "number"))
-              .slice(0, MAX_RECENT_THREADS)
+              .slice(0, MAX_RECENT_THREADS))
           );
         }
       }
@@ -10923,9 +11000,9 @@ export default function App() {
         const parsed = JSON.parse(raw) as RecentThread[];
         if (Array.isArray(parsed)) {
           setRecentPostedThreads(
-            parsed
+            sortRecentThreads(parsed
               .filter((t): t is RecentThread => Boolean(t && typeof t.threadUrl === "string" && typeof t.title === "string" && typeof t.boardUrl === "string" && typeof t.updatedAt === "number"))
-              .slice(0, MAX_RECENT_THREADS)
+              .slice(0, MAX_RECENT_THREADS))
           );
         }
       }
@@ -13997,9 +14074,9 @@ export default function App() {
           if (showFavoritesOnly) {
             void fetchFavNewCounts();
           } else if (showRecentOpenedOnly) {
-            void fetchSavedThreadCounts(recentOpenedThreads, "recent-opened");
+            void fetchSavedThreadCounts(resortRecentOpenedThreads(), "recent-opened");
           } else if (showRecentPostedOnly) {
-            void fetchSavedThreadCounts(recentPostedThreads, "recent-posted");
+            void fetchSavedThreadCounts(resortRecentPostedThreads(), "recent-posted");
           } else {
             void fetchThreadListFromCurrent();
           }
@@ -14066,7 +14143,7 @@ export default function App() {
                 setShowRecentOpenedOnly((v) => !v);
                 if (willEnable) {
                   setShowCachedOnly(false); setShowThreadSearchOnly(false); setShowFavoritesOnly(false); setShowRecentPostedOnly(false);
-                  void fetchSavedThreadCounts(recentOpenedThreads, "recent-opened");
+                  void fetchSavedThreadCounts(resortRecentOpenedThreads(), "recent-opened");
                 } else {
                   reloadFetchedThreadsReadStatus();
                 }
@@ -14077,7 +14154,7 @@ export default function App() {
                 setShowRecentPostedOnly((v) => !v);
                 if (willEnable) {
                   setShowCachedOnly(false); setShowThreadSearchOnly(false); setShowFavoritesOnly(false); setShowRecentOpenedOnly(false);
-                  void fetchSavedThreadCounts(recentPostedThreads, "recent-posted");
+                  void fetchSavedThreadCounts(resortRecentPostedThreads(), "recent-posted");
                 } else {
                   reloadFetchedThreadsReadStatus();
                 }
@@ -14760,18 +14837,9 @@ export default function App() {
           <div
             className="thread-tab-bar"
             ref={tabBarRef}
-            onMouseDown={(e) => {
-              // 空白部分の中クリックで自動スクロールが始まらないようにする
-              if (e.button === 1 && !(e.target as HTMLElement).closest(".thread-tab:not(.placeholder)")) e.preventDefault();
-            }}
-            onAuxClick={(e) => {
-              // 空白部分の中クリックで最後に閉じたタブを開き直す (Ctrl+Shift+T と同じ)
-              if (e.button !== 1) return;
-              if ((e.target as HTMLElement).closest(".thread-tab:not(.placeholder)")) return;
-              e.preventDefault();
-              const last = closedTabsRef.current.pop();
-              if (last) openThreadInTab(last.threadUrl, last.title);
-            }}
+            // 空白部分の中クリックで最後に閉じたタブを開き直す (Ctrl+Shift+T と同じ)
+            onMouseDown={onTabBarBlankMouseDown}
+            onAuxClick={onTabBarBlankAuxClick}
           >
             {threadTabs.length === 0 && (
               <div className="thread-tab placeholder active">
@@ -14891,6 +14959,15 @@ export default function App() {
               </div>
             ))}
           </div>
+          {/* 閉じたタブを開き直す (Ctrl+Shift+T と同じ)。タブで埋まって空白が無くても押せるよう
+              スクロールの外に置く。履歴が空なら押せない。 */}
+          <button
+            className="tab-scroll-btn tab-reopen-btn"
+            onClick={reopenLastClosedTab}
+            disabled={!lastClosedTab}
+            title={lastClosedTab ? `閉じたタブを開く: ${lastClosedTab.title} (Ctrl+Shift+T)` : "閉じたタブはありません"}
+            aria-label="閉じたタブを開く"
+          ><Undo2 size={14} /></button>
           {/* 多段表示では横スクロールしないので、左右ボタンも出さない。 */}
           {!tabMultiRow && (
             <>
