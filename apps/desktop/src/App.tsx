@@ -542,8 +542,11 @@ type ThreadTab = {
 // 一致だと一時的な通信エラーを dat落ちと誤判定してしまう。
 const isNotFoundError = (msg: string): boolean => /unexpected status:\s*404\b/.test(msg);
 
+// 文字参照は &#20994; のような数値のものも文字に直す。5ch は Shift_JIS に無い文字 (「刂」や
+// 絵文字など) を数値の文字参照にして保存するので、直さないと書き込み後の自分のレスの照合で
+// 送った本文と一致せず、[自分] の印が付かない。
 const stripHtmlForMatch = (html: string): string =>
-  html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&gt;/g, ">").replace(/&lt;/g, "<").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, " ").trim();
+  decodeHtmlEntities(html.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 
 // 5ch は Be ログイン中の書き込みに Be アイコン (sssp://img.5ch.io/ico/xxx.gif) を
 // 本文の先頭へ差し込む。送信した本文側には無いので、自分のレスの照合ではこれを
