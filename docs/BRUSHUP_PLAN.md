@@ -1238,6 +1238,24 @@ https://github.com/ollaya-dev/ollaya (Apache-2.0、Rust、2026-09-23 公開)。�
 2. **LFM3 の日本語版(LFM3-JP)** が出たら、LFM2.5-1.2B-JP の後継として最優先で検討する(llama-cpp-2 の更新が前提)
 3. 2B 以下で Apache-2.0 / MIT かつ既存 arch の日本語特化モデルが出たら、LFM2.5-1.2B-JP・Qwen3.5-2B と比べる
 
+### [N31] 翻訳モデルを Hy-MT2-1.8B から Hy-MT3-1.8B に差し替える — ステータス: ❌ 却下 (2026-11-26)
+
+**背景**: Tencent が 2026-11-24 に翻訳特化モデル Hy MT3(30B-A3B / 7B / 1.8B、102 言語、Apache-2.0)を公開した。公式 GGUF(`tencent/Hy-MT3-1.8B-GGUF`、Q4_K_M 1.35 GB)がある。翻訳機能が使う現行の Hy-MT2-1.8B(Q4_K_M 1.1 GB)の後継にあたる。
+
+**互換性(確認済み)**:
+
+- 1.8B は MT2 と同じ `hunyuan-dense`(層数・次元も同一)。GGUF 埋め込みの chat template も MT2 と一字一句同じで、思考モードの指定も無い。現行の `hunyuan` テンプレート(`App.tsx` の `buildTranslationPrompt`)のまま動く
+- 30B-A3B は新 arch の `hy_v3` だが、llama-cpp-sys-2 0.1.154 同梱の llama.cpp は `hunyuan-dense` も `hy_v3` も対応している
+- 差し替える場合の変更はカタログ登録と `TRANSLATION_MODEL_ID`、`aiTemplateFromModelId` の接頭辞判定くらい
+
+**実測**(llama.cpp b12728 Vulkan、Ember と同じ指示文・temperature 0.7 / top_p 0.9・seed 固定。5ch 風の文 11 件、英中韓→日 6 件、日→英中韓 5 件):
+
+- MT3 は口語・スラングで良い。韓国語の「노답」「ㅋㅋ」を MT2 は誤訳・素通しだが MT3 は「どうしようもない」「笑」と訳す。「氪了两千块」を MT2 は「2000ドルを払っても」、MT3 は「2000円を課金しても」
+- 5ch 語→英語は両方ダメ(「草」→ Grass、「ワイ氏」→ 人名、「保守」の誤訳)
+- 普通の文はほぼ同等。生成速度は MT3 が約 2 割遅い(4.2 → 3.4 tok/s、この PC)
+
+**却下理由**: ユーザー判断で不採用。現行の Hy-MT2-1.8B を据え置く。
+
 ### 却下・取り下げ分(再提案しないこと)
 
 - [N9] スレ閲覧履歴 — ☑ 実装済みだった(App.tsx に閲覧履歴・書き込み履歴リスト UI が既存)
