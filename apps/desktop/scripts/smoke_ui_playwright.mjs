@@ -9339,6 +9339,35 @@ try {
     console.log("smoke-ui: the ! sort survives toggling the thread list filter ok");
   }
 
+  // 自分の書き込み (書き込み履歴にあるレス) には NG が既定で効かず、項目の「自分除外」を
+  // OFF にすると効く。
+  {
+    const p = await context.newPage();
+    await p.addInitScript(() => {
+      localStorage.setItem("desktop.myPosts.v1", JSON.stringify({
+        "https://mao.5ch.io/test/read.cgi/ngt/9240230711/": [{ no: 5, at: 1758900000000, title: "", body: "" }],
+      }));
+    });
+    await p.goto(targetUrl, { waitUntil: "load" });
+    await p.waitForSelector('.response-block.my-post[data-response-no="5"]', { timeout: 3000 });
+    const isAbone = (no) => p.$(`.response-block.abone-block[data-response-no="${no}"]`).then(Boolean);
+    await p.click('.menu-item:has-text("編集")');
+    await p.click('.menu-dropdown button:has-text("NGフィルタ")');
+    await p.waitForSelector(".ng-filter-panel");
+    await p.selectOption(".ng-panel-add .ng-mode-select", "abone");
+    await p.fill(".ng-panel-add input", "確認");
+    await p.click(".ng-panel-add button:has-text('追加')");
+    // 「確認」は >>2 と >>5 の本文に入っている
+    assert(await isAbone(2), "NG word should still apply to other people's responses");
+    assert(!(await isAbone(5)), "NG word should not apply to my own response by default");
+    const ownLabel = await p.$eval(".ng-list li .ng-own-toggle", (el) => el.textContent);
+    assert(ownLabel === "自分除外ON", `own-post toggle should default to 自分除外ON, got ${ownLabel}`);
+    await p.click(".ng-list li .ng-own-toggle");
+    assert(await isAbone(5), "turning 自分除外 off should apply the NG word to my own response");
+    await p.close();
+    console.log("smoke-ui: ng skips my own posts unless the entry includes them ok");
+  }
+
   console.log("smoke-ui: ok");
 } finally {
   if (browser) {

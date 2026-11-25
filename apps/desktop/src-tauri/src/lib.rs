@@ -1387,6 +1387,10 @@ enum NgEntry {
         // ワードのみ: 一致したレスと同じ ID / ワッチョイのレスもスレ内で NG にする。
         #[serde(default, rename = "chainId", skip_serializing_if = "std::ops::Not::not")]
         chain_id: bool,
+        // 自分の書き込みにも効かせる。既定 (false) は自分のレスを NG の対象から外す。
+        // ここに無いとラウンドトリップで落ち、再起動のたびに「自分除外ON」へ戻る。
+        #[serde(default, rename = "includeOwn", skip_serializing_if = "std::ops::Not::not")]
+        include_own: bool,
     },
 }
 

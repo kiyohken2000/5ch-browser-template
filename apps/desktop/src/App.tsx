@@ -397,7 +397,7 @@ const normalizeMyPosts = (raw: unknown): MyPostsMap => {
 // abone = レス番と枠は残して中身を「あぼーん」に置き換える (レス番が飛ばない)
 type NgMode = "hide" | "hide-images" | "abone";
 // chainId (ワードのみ): 一致したレスの ID / ワッチョイを持つレスも同じスレ内でまとめて NG にする
-type NgEntry = { value: string; mode: NgMode; disabled?: boolean; excludeNo1?: boolean; match?: "partial" | "exact"; addedAt?: number; chainId?: boolean };
+type NgEntry = { value: string; mode: NgMode; disabled?: boolean; excludeNo1?: boolean; match?: "partial" | "exact"; addedAt?: number; chainId?: boolean; includeOwn?: boolean };
 type NgFilters = { words: (string | NgEntry)[]; ids: (string | NgEntry)[]; names: (string | NgEntry)[]; thread_words: (string | NgEntry)[] };
 // 曖昧 NG (AI ルール)。predicates は「この書き込みは政治の話題である。」のような
 // 平叙文で、複数書くと AND (実測で複合 1 文より適合率が高い。docs/BRUSHUP_PLAN.md [N23])。
@@ -485,6 +485,9 @@ const ngEntryExcludeNo1 = (e: string | NgEntry): boolean => typeof e === "string
 const ngEntryDisabled = (e: string | NgEntry): boolean => typeof e === "string" ? false : (e.disabled ?? false);
 const ngEntryMatch = (e: string | NgEntry): "partial" | "exact" => typeof e === "string" ? "partial" : (e.match ?? "partial");
 const ngEntryChainId = (e: string | NgEntry): boolean => typeof e === "string" ? false : (e.chainId ?? false);
+// 自分の書き込み (書き込み履歴にあるレス) にも効かせるか。既定は効かせない (「自分除外ON」)。
+// 既定を「項目なし = 除外」にしたので、この機能より前に登録した NG も自分のレスには効かない。
+const ngEntryIncludeOwn = (e: string | NgEntry): boolean => typeof e === "string" ? false : (e.includeOwn ?? false);
 // 登録日時。NG ID 自動削除の導入より前に登録されたエントリは持たないので null を返す
 // (= 自動削除の対象外。既存の登録を後付けの基準で消さないため)。
 // 導入バージョンは docs/BRUSHUP_PLAN.md の [N17] 参照。
@@ -5295,6 +5298,17 @@ export default function App() {
     });
   };
 
+  const toggleNgEntryIncludeOwn = (type: "words" | "ids" | "names", value: string) => {
+    void persistNgFilters({
+      ...ngFilters,
+      [type]: ngFilters[type].map((e) => {
+        if (ngVal(e) !== value) return e;
+        const base = typeof e === "string" ? { value: e, mode: "hide" as const } : e;
+        return { ...base, includeOwn: !ngEntryIncludeOwn(e) };
+      }),
+    });
+  };
+
   const toggleNgEntryChainId = (value: string) => {
     void persistNgFilters({
       ...ngFilters,
@@ -5362,9 +5376,10 @@ export default function App() {
   // mode: このレス自身の NG 判定。chainMode: 「ID連鎖」付きワードに一致したときのそのモード
   // (呼び出し側がこのレスの ID / ワッチョイを同スレ内の他レスへ広げる)。
   // reason: mode を決めた NG 項目 (あぼーんを開いたときに「なぜ隠れたか」として出す)。
-  const evalNg = (resp: { name: string; time: string; text: string; responseNo?: number }): { mode: NgMode | null; chainMode: NgMode | null; reason: string | null } => {
+  const evalNg = (resp: { name: string; time: string; text: string; responseNo?: number; isMine?: boolean }): { mode: NgMode | null; chainMode: NgMode | null; reason: string | null } => {
     if (ngFilters.words.length === 0 && ngFilters.ids.length === 0 && ngFilters.names.length === 0) return { mode: null, chainMode: null, reason: null };
     const isNo1 = resp.responseNo === 1;
+    const isMine = resp.isMine === true;
     // raise() の中で書き換えるので、宣言時の null に絞り込まれないよう型を明示しておく
     let result = null as NgMode | null;
     let reason = null as string | null;
@@ -5382,6 +5397,7 @@ export default function App() {
     for (const w of ngFilters.words) {
       if (ngEntryDisabled(w)) continue;
       if (isNo1 && ngEntryExcludeNo1(w)) continue;
+      if (isMine && !ngEntryIncludeOwn(w)) continue;
       const wMatch = ngEntryMatch(w);
       // 完全一致と正規表現は表示どおりのプレーンテキストに当てる (resp.text は dat の HTML で、
       // 行頭と行末の空白・&gt;・<a> タグが残っており ^ $ \n > などが効かないため)
@@ -5400,6 +5416,7 @@ export default function App() {
     for (const n of ngFilters.names) {
       if (ngEntryDisabled(n)) continue;
       if (isNo1 && ngEntryExcludeNo1(n)) continue;
+      if (isMine && !ngEntryIncludeOwn(n)) continue;
       const nVal = ngVal(n);
       if (ngMatch(nVal, isNgRegex(nVal) ? responseHtmlToPlainText(resp.name) : decodeHtmlEntities(resp.name))) {
         const m = ngEntryMode(n);
@@ -5414,6 +5431,7 @@ export default function App() {
         for (const entry of ngFilters.ids) {
           if (ngEntryDisabled(entry)) continue;
           if (isNo1 && ngEntryExcludeNo1(entry)) continue;
+          if (isMine && !ngEntryIncludeOwn(entry)) continue;
           if (idMatch[1] === ngVal(entry)) {
             const m = ngEntryMode(entry);
             const why = `NG ID「${ngVal(entry)}」`;
@@ -5425,7 +5443,7 @@ export default function App() {
     }
     return { mode: result, chainMode, reason };
   };
-  const getNgResult = (resp: { name: string; time: string; text: string; responseNo?: number }): NgMode | null => evalNg(resp).mode;
+  const getNgResult = (resp: { name: string; time: string; text: string; responseNo?: number; isMine?: boolean }): NgMode | null => evalNg(resp).mode;
   const isNgFiltered = (resp: { name: string; time: string; text: string }): boolean => getNgResult(resp) !== null;
 
   const saveBookmark = (url: string, responseNo: number) => {
@@ -8158,7 +8176,11 @@ export default function App() {
     setAboneRevealed(new Set());
   }, [activeThreadUrl]);
 
-  // 閾値以上で、かつ有効なルールに引っかかったレス。レス番号 -> 理由。
+  // 今のスレで自分が書いたレス (書き込み履歴にあるもの)。NG の自動判定 (曖昧 NG・連投 ID・
+  // 連鎖・同じ本文の連投) からは常に外し、登録した NG は項目の「自分除外」に従う。
+  const myPostNos = useMemo(() => new Set((myPosts[activeThreadUrl] ?? []).map((e) => e.no)), [myPosts, activeThreadUrl]);
+
+  // 閾値以上で、かつ有効なルールに引っかかったレス。レス番号 -> 理由。自分のレスは外す。
   const ngAiHiddenMap = useMemo(() => {
     const map = new Map<number, { ruleId: string; prob: number; label: string }>();
     for (const rule of ngAiRules) {
@@ -8167,13 +8189,14 @@ export default function App() {
       if (!scores) continue;
       for (const [no, prob] of scores) {
         if (prob < rule.threshold) continue;
+        if (myPostNos.has(no)) continue;
         const prev = map.get(no);
         // 複数ルールに当たったら確率の高い方を理由として見せる
         if (!prev || prob > prev.prob) map.set(no, { ruleId: rule.id, prob, label: ngAiRuleLabel(rule) });
       }
     }
     return map;
-  }, [ngAiCandidates, ngAiRules]);
+  }, [ngAiCandidates, ngAiRules, myPostNos]);
 
   const ngAiHiddenCount = useMemo(
     () => [...ngAiHiddenMap.keys()].filter((no) => !ngAiRevealed.has(no)).length,
@@ -8746,7 +8769,6 @@ export default function App() {
     }
   };
 
-  const myPostNos = useMemo(() => new Set((myPosts[activeThreadUrl] ?? []).map((e) => e.no)), [myPosts, activeThreadUrl]);
   const replyToMeNos = useMemo(() => {
     if (myPostNos.size === 0) return new Set<number>();
     const set = new Set<number>();
@@ -9049,7 +9071,7 @@ export default function App() {
       else if (strongerNgMode(cur.mode, mode) !== cur.mode) m.set(key, { mode, from });
     };
     for (const r of responseItems) {
-      const { mode, chainMode, reason } = evalNg({ name: r.name, time: r.time, text: r.text, responseNo: r.id });
+      const { mode, chainMode, reason } = evalNg({ name: r.name, time: r.time, text: r.text, responseNo: r.id, isMine: myPostNos.has(r.id) });
       if (mode) apply(r.id, mode, reason ?? "NG");
       if (!chainMode) continue;
       const id = extractId(r.time);
@@ -9059,7 +9081,7 @@ export default function App() {
     // 2 パス目: 同じ ID / ワッチョイのレスにも同じモードを適用する (>>1 は除く)
     if (chainIds.size > 0 || chainWatchois.size > 0) {
       for (const r of responseItems) {
-        if (r.id === 1) continue;
+        if (r.id === 1 || myPostNos.has(r.id)) continue;
         const id = extractId(r.time);
         const byId = id ? chainIds.get(id) : undefined;
         const byWatchoi = r.watchoi ? chainWatchois.get(r.watchoi) : undefined;
@@ -9077,7 +9099,7 @@ export default function App() {
         if (id && id !== "???") counts.set(id, (counts.get(id) ?? 0) + 1);
       }
       for (const r of responseItems) {
-        if (r.id === 1) continue;
+        if (r.id === 1 || myPostNos.has(r.id)) continue;
         const id = extractId(r.time);
         if (!id || id === "???") continue;
         const count = counts.get(id) ?? 0;
@@ -9089,6 +9111,7 @@ export default function App() {
     // 長文。ID 連投と同じく NG リストには入れず、このスレの表示中だけ効かせる。
     if (ngDupBodyMode) {
       for (const no of findDupBodyResponses(responseItems)) {
+        if (myPostNos.has(no)) continue;
         apply(no, ngDupBodyMode, "同じ本文の連投・同じ文字の繰り返し");
       }
     }
@@ -9101,13 +9124,13 @@ export default function App() {
         const mode = map.get(r.id);
         if (mode !== "hide" && mode !== "abone") continue;
         for (const from of ngChainRefMap.get(r.id) ?? []) {
-          if (from === r.id || from === 1) continue;
+          if (from === r.id || from === 1 || myPostNos.has(from)) continue;
           apply(from, ngChainRepliesMode, `NGレスへの返信 (>>${r.id})`);
         }
       }
     }
     return { ngResultMap: map, ngReasonMap: reasons };
-  }, [responseItems, ngFilters, ngChainReplies, ngChainRepliesMode, ngChainRefMap, ngIdPostCount, ngIdPostCountMode, ngDupBodyMode]);
+  }, [responseItems, ngFilters, ngChainReplies, ngChainRepliesMode, ngChainRefMap, ngIdPostCount, ngIdPostCountMode, ngDupBodyMode, myPostNos]);
   const ngFilteredCount = ngResultMap.size;
   // あぼーん指定で、まだ「表示」で開いていないレス。本文欄とポップアップで中身を伏せる。
   const isAboneMasked = (responseNo: number): boolean =>
@@ -9280,14 +9303,14 @@ export default function App() {
   const galleryImages = useMemo(() => {
     const items: { url: string; responseNo: number }[] = [];
     for (const r of fetchedResponses) {
-      if (getNgResult({ name: r.name || "", time: r.dateAndId || "", text: r.body || "", responseNo: r.responseNo })) continue;
+      if (getNgResult({ name: r.name || "", time: r.dateAndId || "", text: r.body || "", responseNo: r.responseNo, isMine: myPostNos.has(r.responseNo) })) continue;
       for (const url of extractImageUrls(r.body || "")) {
         items.push({ url, responseNo: r.responseNo });
       }
     }
     return items;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchedResponses, ngFilters]);
+  }, [fetchedResponses, ngFilters, myPostNos]);
 
   // 画像一覧サブペインにも本文と同じサイズ制限を掛ける。
   // HEAD の結果は本文側 (imageSizeCacheRef) と共有するので、同じ URL へ二重にリクエストしない。
@@ -16646,6 +16669,7 @@ export default function App() {
                       const mode = ngEntryMode(entry);
                       const off = ngEntryDisabled(entry);
                       const exNo1 = ngEntryExcludeNo1(entry);
+                      const exOwn = !ngEntryIncludeOwn(entry);
                       const isExact = ngEntryMatch(entry) === "exact";
                       const chainId = ngEntryChainId(entry);
                       const addedAt = ngEntryAddedAt(entry);
@@ -16669,6 +16693,13 @@ export default function App() {
                             onClick={() => toggleNgEntryExcludeNo1(type, v)}
                             title={exNo1 ? ">>1を除外中 (クリックで解除)" : ">>1には適用しない (クリックで有効)"}
                           >{exNo1 ? ">>1除外ON" : ">>1除外OFF"}</button>
+                          <button
+                            className={`ng-toggle ng-own-toggle ${exOwn ? "ng-toggle-on" : "ng-toggle-off"}`}
+                            onClick={() => toggleNgEntryIncludeOwn(type, v)}
+                            title={exOwn
+                              ? "自分の書き込み (書き込み履歴にあるレス) には適用しません (クリックで自分にも適用)"
+                              : "自分の書き込みにも適用しています (クリックで自分を除外)"}
+                          >{exOwn ? "自分除外ON" : "自分除外OFF"}</button>
                           {type === "words" && (
                             <button
                               className={`ng-toggle ng-chain-toggle ${chainId ? "ng-toggle-on" : "ng-toggle-off"}`}
@@ -18617,7 +18648,7 @@ export default function App() {
               <fieldset>
                 <legend>情報</legend>
                 <div className="settings-row"><span>バージョン</span><span>{currentVersion}</span></div>
-                <div className="settings-row"><span>スモークテスト</span><span>227項目</span></div>
+                <div className="settings-row"><span>スモークテスト</span><span>228項目</span></div>
               </fieldset>
               </>)}
             </div>
