@@ -819,6 +819,15 @@ try {
   const ngModeBack = await page.$eval(".ng-list li .ng-mode-label", (el) => el.textContent);
   assert(ngModeBack === "あぼーん", `画像 should cycle back to あぼーん, got ${ngModeBack}`);
   await page.click(".ng-remove");
+  // 本文の文字参照 (>>5 の「完」は &#23436;) も、表示どおりの文字で部分一致に当たる
+  await page.selectOption(".ng-panel-add .ng-mode-select", "abone");
+  await page.fill(".ng-panel-add input", "確認完了");
+  await page.click(".ng-panel-add button:has-text('追加')");
+  assert(
+    await page.$('.response-block.abone-block[data-response-no="5"]'),
+    "partial NG word should match a body written with numeric character references",
+  );
+  await page.click(".ng-remove");
   await page.selectOption(".ng-panel-add .ng-mode-select", "hide");
   console.log("smoke-ui: ng abone mode ok");
 

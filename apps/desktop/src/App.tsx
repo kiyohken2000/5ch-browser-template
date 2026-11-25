@@ -5370,6 +5370,9 @@ export default function App() {
     let reason = null as string | null;
     let chainMode: NgMode | null = null;
     let plainBody: string | null = null;
+    // 部分一致は dat の HTML に当てる (URL などタグ内の文字にも当たるよう、タグは残す)。
+    // ただし &#20994; のような文字参照は表示どおりの文字に直す (「倉刂」が当たらなかった報告)
+    let decodedBody: string | null = null;
     // より強いモードに上がったときだけ理由を差し替える (同じ強さなら最初に当たった項目のまま)
     const raise = (m: NgMode, why: string) => {
       const next = strongerNgMode(result, m);
@@ -5384,7 +5387,7 @@ export default function App() {
       // 行頭と行末の空白・&gt;・<a> タグが残っており ^ $ \n > などが効かないため)
       const wTarget = wMatch === "exact" || isNgRegex(ngVal(w))
         ? (plainBody ??= responseHtmlToPlainText(resp.text))
-        : resp.text;
+        : (decodedBody ??= decodeHtmlEntities(resp.text));
       if (ngMatch(ngVal(w), wTarget, wMatch)) {
         const m = ngEntryMode(w);
         raise(m, `NGワード「${ngReasonValue(ngVal(w))}」`);
@@ -5398,7 +5401,7 @@ export default function App() {
       if (ngEntryDisabled(n)) continue;
       if (isNo1 && ngEntryExcludeNo1(n)) continue;
       const nVal = ngVal(n);
-      if (ngMatch(nVal, isNgRegex(nVal) ? responseHtmlToPlainText(resp.name) : resp.name)) {
+      if (ngMatch(nVal, isNgRegex(nVal) ? responseHtmlToPlainText(resp.name) : decodeHtmlEntities(resp.name))) {
         const m = ngEntryMode(n);
         const why = `NG名前「${ngReasonValue(nVal)}」`;
         if (m === "hide") return { mode: "hide", chainMode, reason: why };
@@ -7910,13 +7913,14 @@ export default function App() {
       : isTauriRuntime()
       ? []
       : [
+          // >>5 の「完」は文字参照 (&#23436;) で持たせ、NG ワードの部分一致が表示どおりの文字に当たるかを確かめる。
           // >>2 / >>4 / >>5 は同じ ID。スモークテストで NG ワードの ID 連鎖と、
           // 連投 ID の自動 NG (3 レス以上) を確認するため 3 件に揃えてある。
           { id: 1, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:00 ID:Smoke0001", text: "投稿フロートレース準備完了", beNumber: null, watchoi: null },
           { id: 2, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "sage", time: "2026/03/07 10:02 ID:SmokeSame", text: "BE/UPLIFT/どんぐりログイン確認済み", beNumber: null, watchoi: null },
           { id: 3, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:04 ID:Smoke0003", text: ">>1 次: subject/dat取得連携 ID:SmokeSame と ID:SmokeGhost0 を参照", beNumber: null, watchoi: null },
           { id: 4, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:06 ID:SmokeSame", text: ">>3 参考 https://example.com/page を参照", beNumber: null, watchoi: null },
-          { id: 5, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:08 ID:SmokeSame", text: "スレ一覧とレス表示の疎通まで確認完了", beNumber: null, watchoi: null },
+          { id: 5, name: "名無しさん", nameWithoutWatchoi: "名無しさん", mail: "", time: "2026/03/07 10:08 ID:SmokeSame", text: "スレ一覧とレス表示の疎通まで確認&#23436;了", beNumber: null, watchoi: null },
         ]),
   ], [fetchedResponses]);
   const extractId = (time: string) => {
