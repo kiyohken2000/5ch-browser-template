@@ -191,7 +191,11 @@ describe('スレ一覧の NG', () => {
     const opt = { includeWords: false }
     expect(isNgThreadTitle('嫌儲民がまた', filters, opt)).toBe(false)
     expect(isNgThreadTitle('【悲報】なにか', filters, opt)).toBe(true)
-    const threads = [{ title: 'ふつう' }, { title: '嫌儲' }, { title: '【悲報】x' }]
+    const threads = [
+      { title: 'ふつう' },
+      { title: '嫌儲' },
+      { title: '【悲報】x' },
+    ]
     expect(visibleThreads(threads, filters, opt).map((t) => t.title)).toEqual([
       'ふつう',
       '嫌儲',
@@ -309,5 +313,69 @@ describe('あぼーんを手で開く', () => {
     expect(shouldHideImages(opened)).toBe(false)
     expect(isAboneMasked(closed)).toBe(true)
     expect(shouldHideImages(closed)).toBe(true)
+  })
+})
+
+describe('自分の書き込みの除外', () => {
+  const row = (no, id, plainBody, anchors = []) => ({
+    no,
+    id,
+    name: '名無し',
+    plainBody,
+    parsed: { directAnchors: anchors },
+  })
+
+  it('登録した NG は既定で自分のレスに効かない', () => {
+    const filters = {
+      ...emptyFilters(),
+      words: [{ value: '草', mode: 'hide' }],
+    }
+    expect(
+      evalNg({ ...resp(2, '', 'a', '草'), mine: true }, filters).mode,
+    ).toBeNull()
+    expect(evalNg(resp(2, '', 'a', '草'), filters).mode).toBe('hide')
+  })
+
+  it('includeOwn の付いた項目は自分のレスにも効く', () => {
+    const filters = {
+      ...emptyFilters(),
+      words: [{ value: '草', mode: 'abone', includeOwn: true }],
+      names: [{ value: 'コテ', mode: 'hide' }],
+      ids: [{ value: 'me', mode: 'hide' }],
+    }
+    const mine = { ...resp(2, 'コテ', 'me', '草'), mine: true }
+    expect(evalNg(mine, filters).mode).toBe('abone')
+  })
+
+  it('自動の NG（連投 ID・ID 連鎖・同じ本文・曖昧 NG）から自分のレスを外す', () => {
+    const filters = {
+      ...emptyFilters(),
+      words: [{ value: '荒らし', mode: 'hide', chainId: true }],
+    }
+    const rows = [
+      row(2, 'a', '荒らし'),
+      row(3, 'a', '自分'),
+      row(4, 'a', 'ほか'),
+    ]
+    const got = applyNg(rows, filters, {
+      autoIdCount: 2,
+      aiHits: new Map([[3, 'ルール']]),
+      mineNos: new Set([3]),
+    })
+    expect(got.map((r) => r.ngMode)).toEqual(['hide', null, 'hide'])
+  })
+
+  it('返信の連鎖でも自分のレスは隠さない', () => {
+    const filters = { ...emptyFilters(), ids: [{ value: 'x', mode: 'hide' }] }
+    const rows = [
+      row(2, 'x', 'NG'),
+      row(3, 'b', '返信', [2]),
+      row(4, 'c', '返信', [2]),
+    ]
+    const got = applyNg(rows, filters, {
+      chainReplies: true,
+      mineNos: new Set([3]),
+    })
+    expect(got.map((r) => r.ngMode)).toEqual(['hide', null, 'abone'])
   })
 })

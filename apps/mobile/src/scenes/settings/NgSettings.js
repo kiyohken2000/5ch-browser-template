@@ -181,6 +181,21 @@ function NgItem({ list, raw, open, onToggleOpen, expireDays, theme }) {
               />
             </View>
           )}
+          {list === 'threadWords' ? null : (
+            <View style={styles.switchRow}>
+              <Text style={{ color: theme.textDim, fontSize: 13 }}>
+                自分の書き込みには効かせない
+              </Text>
+              <Switch
+                accessibilityLabel={`${entry.value} を自分の書き込みに効かせない`}
+                value={!entry.includeOwn}
+                onValueChange={(excludeOwn) =>
+                  update({ includeOwn: !excludeOwn })
+                }
+                trackColor={{ true: theme.accent }}
+              />
+            </View>
+          )}
           <View style={styles.switchRow}>
             <Text style={{ color: theme.textDim, fontSize: 13 }}>有効</Text>
             <Switch
@@ -313,7 +328,8 @@ export default function NgSettings() {
                 NG ワードをスレタイにも使う
               </Text>
               <Text style={[styles.blockHint, { color: theme.textFaint }]}>
-                「NG ワード（本文）」に一致するスレをスレ一覧でも隠します。スレタイだけ隠したい語は「スレ一覧の
+                「NG
+                ワード（本文）」に一致するスレをスレ一覧でも隠します。スレタイだけ隠したい語は「スレ一覧の
                 NG ワード」へ
               </Text>
             </View>

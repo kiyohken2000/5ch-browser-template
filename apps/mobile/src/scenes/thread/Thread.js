@@ -637,6 +637,16 @@ export default function Thread({ route, navigation }) {
     [threadId],
   )
 
+  // 自分のレスは本文と時刻の照合で求める（lib/extract.js）。NG の自動判定からも外す
+  const mineNos = useMemo(
+    () =>
+      findMyResNumbers(
+        parsedRows,
+        myPosts.filter((p) => p.threadId === threadId),
+      ),
+    [parsedRows, myPosts, threadId],
+  )
+
   /**
    * **NG はここで 1 回だけ掛ける。**
    * 本文リストも参照ポップアップも ID シートも被参照一覧も検索も、全部この配列を引く。
@@ -650,6 +660,7 @@ export default function Thread({ route, navigation }) {
         chainReplies: settings.ngChainReplies,
         chainRepliesMode: settings.ngChainRepliesMode,
         aiHits,
+        mineNos,
       }),
     [
       parsedRows,
@@ -660,6 +671,7 @@ export default function Thread({ route, navigation }) {
       settings.ngChainReplies,
       settings.ngChainRepliesMode,
       aiHits,
+      mineNos,
     ],
   )
   // あぼーんのうち「表示」で手で開いたレス。スレを移ると忘れる（保存はしない）
@@ -680,16 +692,6 @@ export default function Thread({ route, navigation }) {
     [ngRows, aboneRevealed],
   )
   const idSeqs = useMemo(() => idSequences(parsedRows), [parsedRows])
-
-  // 自分のレスは本文と時刻の照合で求める（lib/extract.js）
-  const mineNos = useMemo(
-    () =>
-      findMyResNumbers(
-        parsedRows,
-        myPosts.filter((p) => p.threadId === threadId),
-      ),
-    [parsedRows, myPosts, threadId],
-  )
 
   const closeViewer = useCallback(() => setViewerUrl(null), [])
   const addImageToNg = useCallback(

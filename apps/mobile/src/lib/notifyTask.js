@@ -24,6 +24,7 @@ import { AppState, Platform } from 'react-native'
 
 import { fetchDat, fetchDatDelta, fetchSubject } from './api'
 import { parseBody } from './body'
+import { findMyResNumbers } from './extract'
 import { setCustomUserAgent } from './http'
 import { applyNg, emptyFilters, isNgThreadTitle } from './ng'
 import {
@@ -260,13 +261,18 @@ async function loadEntries(target) {
   return [...parsed.entries, ...got.entries]
 }
 
-/** NG で隠れる（`hide` / `abone`）レス番号。曖昧 NG と画像 NG はここでは見ない。 */
-function hiddenNumbers(entries, filters, settings) {
+/**
+ * NG で隠れる（`hide` / `abone`）レス番号。曖昧 NG と画像 NG はここでは見ない。
+ * 自分の書き込みはスレ画面と同じく NG の自動判定から外す（外さないと、自分のレスが
+ * 連投 ID で隠れたときに、その返信まで「返信の連鎖」で隠れて通知されない）。
+ */
+function hiddenNumbers(entries, filters, settings, posts) {
   const rows = entries.map((e) => {
     const parsed = parseBody(e.body)
     return { ...e, parsed, plainBody: parsed.plain }
   })
   const judged = applyNg(rows, filters, {
+    mineNos: findMyResNumbers(rows, posts || []),
     autoIdCount: settings.ngAutoIdCount,
     autoIdMode: settings.ngAutoIdMode,
     dupBodyMode: settings.ngDupBodyMode,
@@ -289,7 +295,7 @@ async function checkReplies(target, count, record, filters, settings) {
     entries,
     posts: target.posts,
     fromNo: base,
-    hidden: hiddenNumbers(entries, filters, settings),
+    hidden: hiddenNumbers(entries, filters, settings, target.posts),
   })
   const last = entries.length ? entries[entries.length - 1].no : count
   const line = (r) => ({

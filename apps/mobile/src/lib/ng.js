@@ -24,7 +24,11 @@ const NG_MODE_RANK = { 'hide-images': 0, abone: 1, hide: 2 }
 /**
  * NG の 1 項目。文字列だけで与えてもよい（モードは `hide` 扱い）。
  * @typedef {{value: string, mode?: string, disabled?: boolean,
- *            match?: 'partial'|'exact', chainId?: boolean, excludeNo1?: boolean}} NgEntry
+ *            match?: 'partial'|'exact', chainId?: boolean, excludeNo1?: boolean,
+ *            includeOwn?: boolean}} NgEntry
+ *
+ * `includeOwn` は自分の書き込みにも効かせるか。既定（項目なし）は効かせない（「自分除外」が ON）。
+ * 既定を「項目なし = 除外」にしたので、この項目より前に登録した NG も自分のレスには効かない。
  */
 
 export function normalizeEntry(entry) {
@@ -73,7 +77,8 @@ const reasonValue = (value) => {
 /**
  * 1 レスの NG 判定。
  *
- * @param {{no: number, name: string, id: string, plainBody: string}} resp
+ * @param {{no: number, name: string, id: string, plainBody: string, mine?: boolean}} resp
+ *   `mine` は自分の書き込み。`includeOwn` の付いた項目だけを当てる
  * @param {object} filters
  * @returns {{mode: string|null, chainMode: string|null, by: string|null}}
  *   `mode` が null なら素通し。`chainMode` は「ID 連鎖」指定のワードに
@@ -88,6 +93,7 @@ export function evalNg(resp, filters) {
   }
 
   const isNo1 = resp.no === 1
+  const isMine = resp.mine === true
   let mode = null
   let chainMode = null
   let by = null
@@ -103,6 +109,7 @@ export function evalNg(resp, filters) {
     const w = normalizeEntry(raw)
     if (w.disabled) continue
     if (isNo1 && w.excludeNo1) continue
+    if (isMine && !w.includeOwn) continue
     if (ngMatch(w.value, resp.plainBody, w.match)) {
       raise(w.mode, `ワード: ${reasonValue(w.value)}`)
       if (w.chainId) chainMode = strongerMode(chainMode, w.mode)
@@ -115,6 +122,7 @@ export function evalNg(resp, filters) {
     const n = normalizeEntry(raw)
     if (n.disabled) continue
     if (isNo1 && n.excludeNo1) continue
+    if (isMine && !n.includeOwn) continue
     if (ngMatch(n.value, resp.name, n.match)) {
       raise(n.mode, `名前: ${reasonValue(n.value)}`)
       if (mode === 'hide') return { mode, chainMode, by }
@@ -126,6 +134,7 @@ export function evalNg(resp, filters) {
       const e = normalizeEntry(raw)
       if (e.disabled) continue
       if (isNo1 && e.excludeNo1) continue
+      if (isMine && !e.includeOwn) continue
       // ID は部分一致させない。完全一致だけ（デスクトップ版と同じ）
       if (resp.id === e.value) {
         raise(e.mode, `ID: ${e.value}`)
@@ -146,6 +155,8 @@ export function evalNg(resp, filters) {
  * できるようにするため。**隠すときは `visibleResponses` を使う。**
  *
  * パスの順はデスクトップ版と同じ。**どのパスも `>>1` は対象外**（スレの説明が入るので）。
+ * **自分の書き込み（`options.mineNos`）は 2 以降の自動の判定から常に外す。** 1 は項目の
+ * `includeOwn` に従う。
  *   1. エントリに直接一致
  *   2. ID 連鎖: 連鎖指定のワードに当たったレスの ID とワッチョイを、同じスレの他レスへ
  *   3. 連投 ID の自動 NG: しきい値以上書いた ID。ID は日替わりなのでリストには溜めない
@@ -156,18 +167,23 @@ export function evalNg(resp, filters) {
  * @param {object} filters
  * @param {{autoIdCount?: number, autoIdMode?: string, dupBodyMode?: string|null,
  *          chainReplies?: boolean, chainRepliesMode?: string,
- *          aiHits?: Map<number, string>}} [options]
+ *          aiHits?: Map<number, string>, mineNos?: Set<number>}} [options]
  */
 export function applyNg(responses, filters, options = {}) {
   const { autoIdCount = 0, autoIdMode = 'hide' } = options
   const { chainReplies = false, chainRepliesMode = 'abone' } = options
   const { aiHits = null } = options
   const { dupBodyMode = null } = options
+  const { mineNos = null } = options
+  const isMine = (no) => (mineNos ? mineNos.has(no) : false)
   const dupHits =
     dupBodyMode === 'hide' || dupBodyMode === 'abone'
       ? findDupBodyNumbers(responses)
       : null
-  const first = responses.map((r) => ({ resp: r, ...evalNg(r, filters) }))
+  const first = responses.map((r) => ({
+    resp: r,
+    ...evalNg(isMine(r.no) ? { ...r, mine: true } : r, filters),
+  }))
   const watchoiOf = (r) => splitNameWatchoi(r.name).watchoi
 
   const chainedIds = new Map()
@@ -192,7 +208,7 @@ export function applyNg(responses, filters, options = {}) {
   const rows = first.map((row) => {
     let { mode, by } = row
     const { no, id } = row.resp
-    if (no !== 1) {
+    if (no !== 1 && !isMine(no)) {
       const raise = (next, label) => {
         if (next && strongerMode(mode, next) !== mode) {
           mode = strongerMode(mode, next)
@@ -227,7 +243,12 @@ export function applyNg(responses, filters, options = {}) {
     if (row.no !== 1 && (row.ngMode === 'hide' || row.ngMode === 'abone')) {
       for (const from of repliedBy.get(row.no) || []) {
         const target = byNo.get(from)
-        if (target && target.no !== 1 && target.no !== row.no) {
+        if (
+          target &&
+          target.no !== 1 &&
+          target.no !== row.no &&
+          !isMine(target.no)
+        ) {
           const next = strongerMode(target.ngMode, chainRepliesMode)
           if (next !== target.ngMode) {
             target.ngMode = next

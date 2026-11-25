@@ -113,7 +113,7 @@
 | `read` | `read` | スレ | `{ n, resetAt }`（何番まで読んだか） | 既読 |
 | | `marker` | スレ | `{ no }`（ここまで読んだ） | 窓つき集合 |
 | | `pos` | スレ | `{ no }`（読んでいた位置） | 窓つき集合 |
-| `ng` | `ngWords` / `ngNames` / `ngThreadWords` | NG の値 | `{ mode, match, disabled, excludeNo1, chainId, addedAt }` | 集合 |
+| `ng` | `ngWords` / `ngNames` / `ngThreadWords` | NG の値 | `{ mode, match, disabled, excludeNo1, chainId, includeOwn, addedAt }` | 集合 |
 | | `hlWords` / `hlNames` | 強調の値 | `{ color, disabled, titleOff, addedAt }` | 集合 |
 | | `aiRules` | ルールの `id` | `{ predicates, threshold, disabled, addedAt }` | 集合 |
 | | `prefs` | 設定の名前（§6-3） | 設定の値 | 集合 |
@@ -324,7 +324,7 @@ KINDS = { threads: 'set', read: 'read', marker: 'window', recent: 'capped', … 
 | `read` | `read_status.json`（`load_read_status` / `save_read_status`）。`boardUrl → threadKey → lastReadNo` | **`readStatusQueueRef` に載せる。** 前進のみの制限があるので、`resetAt` で消すときは `clearReadStatus` と同じ経路で消す |
 | `marker` | `readMarker`（`setReadMarkerForThread`、`read_marker.json`）。`boardUrl → threadKey → no` | 時刻は無い（控えで補う） |
 | `pos` | `threadScrollPositions`（ref、`desktop.scrollPositions.v1`）。`スレの URL → レス番号` | 件数の上限が無い。取り出しは窓（90 日）で絞れないので、控えに無いものだけ `now` を付ける |
-| `ngWords` / `ngNames` / `ngThreadWords` | `ngFilters`（`setNgFilters`、`save_ng_filters` → `ng_filters.json`）。要素は文字列か `{ value, mode, disabled, excludeNo1, match, addedAt, chainId }` | **`ids` は触らない。** 文字列の要素は `{ mode: "hide" }` として取り出す。`thread_words` ↔ `ngThreadWords` |
+| `ngWords` / `ngNames` / `ngThreadWords` | `ngFilters`（`setNgFilters`、`save_ng_filters` → `ng_filters.json`）。要素は文字列か `{ value, mode, disabled, excludeNo1, match, addedAt, chainId, includeOwn }` | **`ids` は触らない。** 文字列の要素は `{ mode: "hide" }` として取り出す。`thread_words` ↔ `ngThreadWords` |
 | `hlWords` / `hlNames` | `highlightFilters`（`save_highlight_filters`）。要素は文字列か `{ value, color, disabled, titleOff, addedAt }` | **`ids` は触らない** |
 | `aiRules` | `ngAiRules`（`desktop.ngAiRules.v1`、実体は `data/ng_ai_rules.json`） | ルールを消したら、既存の「ルールの判定結果を消す」処理も通す |
 | `prefs` | §6-3 | 既存の setter を通す（localStorage と `data/settings.json` がそろう） |
@@ -344,7 +344,7 @@ KINDS = { threads: 'set', read: 'read', marker: 'window', recent: 'capped', … 
 | `read` | `watch.watchList` の各行の `lastSeenCount`（`KEYS.watchList`） | 控え（`watchList`）に無いスレの既読が来たら、**行を足す**（`watched: false`、`totalCount` は `n`）。新着数は `totalCount - lastSeenCount` で出るので、`totalCount < n` にならないようにする |
 | `marker` | `watch.readMarkers`（`KEYS.readMarkers`）。`{ lastReadNo, totalCount, updatedAt, manualAt }`。**`manualAt` があるものだけが印**（`manualReadMarkers`） | 反映のとき `manualAt = at` を入れる |
 | `pos` | `KEYS.scrollPositions`（`src/lib/readPosition.js`）。`threadId → { no, at }`、最大 300 | メモリの `positions` も更新する（モジュールの中に持っている） |
-| `ngWords` / `ngNames` / `ngThreadWords` | `ng` slice（`KEYS.ngFilters`）。`{ value, mode, chainId, match, addedAt }` | **`ids` は触らない** |
+| `ngWords` / `ngNames` / `ngThreadWords` | `ng` slice（`KEYS.ngFilters`）。`{ value, mode, chainId, match, addedAt, excludeNo1, includeOwn }` | **`ids` は触らない** |
 | `hlWords` / `hlNames` | `highlight` slice（`KEYS.highlights`）。`{ value, color, addedAt, … }` | **`ids` は触らない** |
 | `aiRules` | `ai` slice の `rules`（`KEYS.aiSettings`） | — |
 | `prefs` | `settings` slice（`KEYS.settings`） | §6-3 |
