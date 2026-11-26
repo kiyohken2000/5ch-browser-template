@@ -283,6 +283,12 @@ KINDS = { threads: 'set', read: 'read', marker: 'window', recent: 'capped', … 
 - 401 が返ったらトークンを取り直して 1 回だけやり直す。それでも 401 なら「もう一度ログイン」の状態にする。
 - 403 / 429 / 5xx は、その回の同期をやめて次の機会に回す。続けて失敗したら間隔を広げる
   （1 分 → 5 分 → 30 分）。
+- ただし **`403 storageQuotaExceeded`（利用者のドライブの容量がいっぱい）は待っても直らない**。
+  間隔を広げてやり直すのは同じだが、設定の画面に「Google ドライブの容量がいっぱいなので同期できません。
+  ドライブに空きを作ると再開します。この端末のデータはそのまま使えます」と出す。件数を減らして押し込むことはしない
+  （容量の大半は利用者のほかのファイルで、Ember の文書を削っても空かない）。
+- 403 の理由は応答の `error.errors[].reason` で見分ける。`userRateLimitExceeded` / `rateLimitExceeded` は
+  429 と同じ扱い。`insufficientPermissions`（範囲が足りない）は待っても直らないので「もう一度ログイン」にする。
 
 ### 5-4. 1 回の同期の流れ
 
@@ -405,7 +411,7 @@ KINDS = { threads: 'set', read: 'read', marker: 'window', recent: 'capped', … 
 | 控え（自分の文書の写し） | `<既定のデータフォルダ>/sync_base/<種類>.json` | `ember.syncBase.<種類>.v1` |
 | 相手のファイルの md5 と中身の写し | `<既定のデータフォルダ>/sync_cache/` | `ember.syncCache.v1` |
 | 反映の前の退避 | `<既定のデータフォルダ>/sync_backup/` | `ember.syncBackup.*` |
-| トークン | `<既定のデータフォルダ>/sync_token.json` | Google の SDK が持つ（アプリは保存しない） |
+| トークン | `<既定のデータフォルダ>/sync_token.json`（§7-2 の注意） | Google の SDK が持つ（アプリは保存しない） |
 
 - **「既定のデータフォルダ」は `core_store::default_data_dir()`**（`location.json` と同じ場所）。
   `portable_data_dir()`（同期フォルダへ向けられる）には置かない。2 台の PC がフォルダを共有していると、
@@ -418,6 +424,17 @@ KINDS = { threads: 'set', read: 'read', marker: 'window', recent: 'capped', … 
 - アクセストークン、リフレッシュトークン、認可コードは **Cookie と同じ扱い。ログに出さない。**
 - デスクトップのトークンのファイルは、`save_json` と同じく一時ファイル + rename で書く。
 - ログアウトでは、Google の取り消し（`https://oauth2.googleapis.com/revoke`）を呼び、端末のトークンを消す。
+  **ただし段階 0 の §10-2 #7 の結果しだい。** 取り消しは「その利用者がそのアプリに与えた許可」ごと消す可能性があり、
+  デスクトップとモバイルは同じプロジェクトのクライアントなので、1 台でやめると**ほかの端末の同期まで止まる**おそれがある。
+  止まるなら、ログアウトは端末のトークンを消すだけにし、取り消しは「すべての端末で Google の接続を切る」として
+  確認つきで別に置く（OBB の設計 `docs/sync-drive.md` 5.7 も同じ扱い）。
+- **デスクトップのトークンのファイルは平文。** リフレッシュトークンが漏れると、`drive.appdata` の範囲
+  （Ember の同期の文書だけ）を読み書き・削除される。中身は暗号化していないので、お気に入り・既読・書き込み履歴が読める。
+  OS の資格情報（Windows の資格情報マネージャー / macOS のキーチェーン）に置けば防げるが、新しい crate（`keyring` など）が
+  要るので初版では見送る（足すならユーザーの承認が要る）。初版の守りは次の 3 つ:
+  - ファイルは既定のデータフォルダ（`default_data_dir()`）だけに置く。`portable_data_dir()`（OneDrive などへ向けられる）に置かない
+  - バックアップ・書き出し・ログ・診断情報に含めない
+  - 設定の同期の項目に「この PC のユーザーフォルダを読める人はログインを引き継げます」と小さく書く
 
 ### 7-3. 同期をやめる
 
@@ -443,6 +460,9 @@ KINDS = { threads: 'set', read: 'read', marker: 'window', recent: 'capped', … 
 | 壊れた JSON を取ってくる | JSON として読めない、`schema` や `sets` が無い文書は捨てる。その端末の前回の写しを使う |
 | 端末の時計が狂っている | §4-5 の切り詰め |
 | 利用者が Google 側で許可を取り消した | 401 → 「もう一度ログイン」。データはそのまま |
+| リフレッシュトークンが無効になった（6 か月使わなかった。同じアカウント・同じクライアントで 100 本を超えて古いものから無効になった。同意画面が「テスト」の間の 7 日の期限） | トークンの更新が `invalid_grant` → 「もう一度ログイン」。データはそのまま。100 本の上限は、ログインし直すたびに 1 本増えるので、ログインのやり直しを繰り返す試験で当たりうる |
+| ドライブの容量がいっぱい | §5-3 の `storageQuotaExceeded` |
+| 同じファイルの上書きで古い版がたまる | §10-2 #8 で確かめる。Drive は上書きの前の版を残す（バイナリのファイルはふつう 30 日、100 版を超えると早めに消える） |
 
 ## 8. ログイン（OAuth）
 
@@ -583,6 +603,8 @@ Rust 側（`apps/desktop/src-tauri/src/lib.rs`）に足す。新しいコマン�
 | 4 | 板がサーバーを移ったとき、両アプリが既読をどう引き継いでいるか（§3 の識別子の前提） | 両方のコードを読む（デスクトップ `normalizeThreadUrl` の周り、モバイル `urls.js`） | §3 を直す |
 | 5 | §6 の「値の表し方が違うかもしれない項目」（NG の `mode`、強調の `color`、アップロード履歴の時刻、最近開いたスレの時刻の項目名） | 両方のコードを読む | §4-2 の表を直す |
 | 6 | モバイルの `findMyResNumbers` の規則 | `src/lib/extract.js` とそのテストを読む | §6-4 を直す |
+| 7 | **1 つのクライアントのトークンを `/revoke` で取り消すと、もう 1 つのクライアント（同じプロジェクト・同じアカウント）のトークンも無効になるか** | #1 のスクリプトで両方のクライアントでログインし、片方を取り消してから、もう片方でトークンの更新と一覧を試す | 無効になるなら §7-2 のとおり、ログアウトでは取り消しを呼ばない |
+| 8 | 同じファイルを `PATCH` で上書きしたとき、古い版（リビジョン）が残るか。残るなら利用者の容量に数えられるか | 同じファイルを 20 回ほど上書きし、`GET /drive/v3/files/<id>/revisions` と `GET /drive/v3/about?fields=storageQuota` を見る | 版が残って容量に数えられるなら、上書きのときに `keepRevisionForever=false` を明示し、書き直しの間隔（§5-5）を見直す |
 
 - スクリプトは `_temp_sync/` に置き、**コミットしない**（`_temp` / `_temp_*` は gitignore 済み）。
   `curl` は使えない（この環境では exit 43）。`node` の `fetch` を使う。
@@ -678,3 +700,6 @@ smoke の `anchor-ref` / `anchor-popup` が通ることを必ず見る。
   - OAuth 2.0 for Desktop Apps: https://developers.google.com/identity/protocols/oauth2/native-app
   - Loopback IP Address flow Migration Guide: https://developers.google.com/identity/protocols/oauth2/resources/loopback-migration
 - モバイルのライブラリ: https://react-native-google-signin.github.io/docs/original
+- 他の専ブラの同じ方式の設計（2026-11-27 に読んだ。§5-3・§7-2・§7-5・§10-2 #7〜8 はここからの指摘）:
+  OBB（https://github.com/contentsview08/bbs-browser）の `docs/sync-drive.md`。暗号化・差分ファイル・
+  QR でトークンを配る形は取り入れない（Ember は文書が小さく、モバイルは各端末でログインするため）
