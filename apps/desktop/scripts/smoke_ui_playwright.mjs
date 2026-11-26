@@ -2653,6 +2653,15 @@ try {
     console.log("smoke-ui: hover preview fit toggle ok");
   }
 
+  // 更新で新着が届いたときの新着レスへの移動: 設定で止められる。既定 ON (従来動作)
+  {
+    await showSetting(page, '.settings-body label.settings-row:has-text("更新で新着が届いたら新着レスへ移動")');
+    const jumpNewToggle = page
+      .locator(".settings-body label.settings-row", { hasText: "更新で新着が届いたら新着レスへ移動" })
+      .locator("input[type=checkbox]");
+    assert(await jumpNewToggle.isChecked(), "jump to new responses on refresh should be on by default");
+  }
+
   // 人気レス (赤レス) 抽出: しきい値以上の >>N を受けたレスだけを炎ボタンで絞り込む。赤表示は既定オフ
   {
     await showSetting(page, '.settings-body label.settings-row:has-text("人気レスの被参照数しきい値")');

@@ -3803,6 +3803,11 @@ export default function App() {
   const [titleClickRefresh, setTitleClickRefresh] = useState(false);
   // レス選択時にそのレスを表示領域内へ自動スクロールするか (既定 ON = 従来動作)
   const [autoScrollToSelected, setAutoScrollToSelected] = useState(true);
+  // スレ更新で新着が届いたとき最初の新着レスへ飛ぶか (既定 ON = 従来動作)。
+  // 更新処理は古いクロージャから呼ばれることがあるため ref でも持つ。
+  const [jumpToNewOnRefresh, setJumpToNewOnRefresh] = useState(true);
+  const jumpToNewOnRefreshRef = useRef(true);
+  jumpToNewOnRefreshRef.current = jumpToNewOnRefresh;
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(false);
   const [autoScrollSpeed, setAutoScrollSpeed] = useState(40);
   // スレ一覧のホイールスクロールを「1ノッチ = N行」に固定するか (既定 OFF = OS任せの従来動作)。
@@ -6684,7 +6689,7 @@ export default function App() {
       if (opts?.keepSelection) {
         // auto-refresh: keep current selection, don't reset
         // scroll to first new response if there are new ones
-        if (prevCount > 0 && rows.length > prevCount && !opts.skipNewJump) {
+        if (prevCount > 0 && rows.length > prevCount && !opts.skipNewJump && jumpToNewOnRefreshRef.current) {
           // scrollIntoView を一度呼ぶだけだと、読書位置の復元 (scrollToResponseNo) が
           // 最大 2 秒かけて再アンカーし続けるため新着位置から引き戻されていた。
           // スレ一覧から開いているスレへ戻ると、復元と新着ジャンプが必ずこの順で重なる。
@@ -10808,6 +10813,7 @@ export default function App() {
           titleClickRefresh?: boolean;
           autoScrollSpeed?: number;
           autoScrollToSelected?: boolean;
+          jumpToNewOnRefresh?: boolean;
           wheelRowScrollEnabled?: boolean;
           wheelScrollRows?: number;
         };
@@ -10951,6 +10957,7 @@ export default function App() {
           setWheelScrollRows(Math.max(1, Math.min(20, Math.round(parsed.wheelScrollRows))));
         }
         if (typeof parsed.autoScrollToSelected === "boolean") setAutoScrollToSelected(parsed.autoScrollToSelected);
+        if (typeof parsed.jumpToNewOnRefresh === "boolean") setJumpToNewOnRefresh(parsed.jumpToNewOnRefresh);
       } catch { /* ignore */ }
     };
     // Try localStorage first, then file-based persistence
@@ -12099,6 +12106,7 @@ export default function App() {
       titleClickRefresh,
       autoScrollSpeed,
       autoScrollToSelected,
+      jumpToNewOnRefresh,
       wheelRowScrollEnabled,
       wheelScrollRows,
     });
@@ -12107,7 +12115,7 @@ export default function App() {
       layoutPrefsPendingRef.current = payload;
       flushLayoutPrefs();
     }
-  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, narrowBoardPanePx, narrowThreadPanePx, paneLayoutMode, boardPaneHidden, threadPaneHidden, responsePaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, textThicken, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, idColorEnabled, responseHoverHighlightEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, wheelRowScrollEnabled, wheelScrollRows]);
+  }, [layoutPrefsLoaded, boardPanePx, threadPanePx, responseTopRatio, narrowBoardPanePx, narrowThreadPanePx, paneLayoutMode, boardPaneHidden, threadPaneHidden, responsePaneHidden, threadPaneAutoToggle, threadPaneBackRestore, boardsFontSize, threadsFontSize, responsesFontSize, tabFontSize, darkMode, glassMode, glassLite, glassUltraLite, fontFamily, textThicken, threadColWidths, showBoardButtons, favBoardButtonEnabled, toolBarVisible, responseNavBarVisible, statusBarVisible, tabBarVisible, keepSortOnRefresh, composeSubmitKey, typingConfettiEnabled, typingComboEnabled, imageSizeLimit, hoverPreviewEnabled, idPopupEnabled, idColorEnabled, responseHoverHighlightEnabled, selectedBoard, hoverPreviewDelay, hoverPreviewFitEnabled, hotResponseThreshold, hotResponseRedEnabled, thumbSize, thumbMaskEnabled, thumbMaskStrength, thumbMaskForceOnStart, youtubeThumbsEnabled, thumbAutoLoadEnabled, restoreSession, openAtReadMarker, autoRefreshInterval, alwaysOnTop, mouseGestureEnabled, gestureBindings, threadAgeColorEnabled, disabledShortcuts, dblClickAction, composeSize, composePos, composeDocked, composeDockPx, tabRows, threadColVisible, threadColOrder, responseBodyBottomPad, collapseLongEnabled, collapseLongLines, collapseLongChars, collapsePreviewChars, responseMetaInline, showResponseMail, titleClickRefresh, autoScrollSpeed, autoScrollToSelected, jumpToNewOnRefresh, wheelRowScrollEnabled, wheelScrollRows]);
 
   useEffect(() => {
     if (!typingConfettiEnabled && !typingComboEnabled) return;
@@ -18292,6 +18300,10 @@ export default function App() {
                 <label className="settings-row">
                   <input type="checkbox" checked={autoScrollToSelected} onChange={(e) => setAutoScrollToSelected(e.target.checked)} />
                   <span>レス選択時に自動スクロールして表示</span>
+                </label>
+                <label className="settings-row">
+                  <input type="checkbox" checked={jumpToNewOnRefresh} onChange={(e) => setJumpToNewOnRefresh(e.target.checked)} />
+                  <span>更新で新着が届いたら新着レスへ移動</span>
                 </label>
                 <label className="settings-row">
                   <span>オートスクロール速度 (px/秒)</span>
