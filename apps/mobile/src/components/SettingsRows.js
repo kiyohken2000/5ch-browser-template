@@ -108,7 +108,7 @@ export function SettingChoices({ settingKey, label, hint, options }) {
   )
 }
 
-/** `settingKey` の数値を 1 ずつ増減する行。 */
+/** `settingKey` の数値を 1 ずつ増減する行。`note` は値のあとに添える説明 */
 export function SettingStepper({
   settingKey,
   label,
@@ -116,6 +116,7 @@ export function SettingStepper({
   max,
   fallback,
   autoLabel,
+  note,
 }) {
   const theme = useEmberTheme()
   const { settings, set } = useSettingValues()
@@ -129,7 +130,9 @@ export function SettingStepper({
   return (
     <SettingRow
       label={label}
-      hint={auto ? `${value}pt（${autoLabel}）` : `${value}pt`}
+      hint={[auto ? `${value}pt（${autoLabel}）` : `${value}pt`, note]
+        .filter(Boolean)
+        .join('・')}
     >
       <View style={styles.chips}>
         {autoLabel && !auto ? (

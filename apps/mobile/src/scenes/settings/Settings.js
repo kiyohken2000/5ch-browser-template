@@ -70,7 +70,7 @@ export default function Settings({ navigation }) {
         {link('表示', 'DisplaySettings')}
         {link('スレを読む', 'ReadingSettings')}
         {link('ホーム', 'HomeSettings')}
-        {link('スレ一覧の並べ替え', 'ThreadListSettings')}
+        {link('スレ一覧', 'ThreadListSettings')}
         {link('画像とリンク', 'MediaSettings')}
       </SettingsSection>
 

@@ -231,7 +231,7 @@ function SettingsStack() {
         ['DisplaySettings', DisplaySettings, '表示'],
         ['ReadingSettings', ReadingSettings, 'スレを読む'],
         ['HomeSettings', HomeSettings, 'ホーム'],
-        ['ThreadListSettings', ThreadListSettings, 'スレ一覧の並べ替え'],
+        ['ThreadListSettings', ThreadListSettings, 'スレ一覧'],
         ['MediaSettings', MediaSettings, '画像とリンク'],
         ['ComposeSettings', ComposeSettings, '書き込み'],
         ['DataSettings', DataSettings, '履歴とキャッシュ'],

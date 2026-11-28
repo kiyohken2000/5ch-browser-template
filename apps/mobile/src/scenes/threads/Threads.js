@@ -39,6 +39,7 @@ import { fetchSubject } from 'lib/api'
 import { longPressHaptic, refreshHaptic, selectionHaptic } from 'lib/haptics'
 import { openInAppBrowser } from 'lib/inAppBrowser'
 import { visibleThreads } from 'lib/ng'
+import { newMarkColor, newMarkText } from 'lib/newMark'
 import { MAX_THREAD_ALERTS } from 'lib/notify'
 import {
   DEFAULT_SORT,
@@ -117,6 +118,11 @@ export default function Threads({ route, navigation }) {
   const titleFontSize = useSelector(
     (state) => state.settings.threadTitleFontSize,
   )
+  // 増えたスレの印。出さない設定なら空文字
+  const newMark = newMarkText(
+    useSelector((state) => state.settings.newMarkStyle),
+  )
+  const markColor = useSelector((state) => state.settings.newMarkColor)
   const sortModesShown = useSelector((state) => state.settings.sortModesShown)
 
   const [threads, setThreads] = useState([])
@@ -691,12 +697,15 @@ export default function Threads({ route, navigation }) {
                 ]}
                 numberOfLines={2}
               >
-                {newKeys.has(item.threadKey) ? (
+                {newMark && newKeys.has(item.threadKey) ? (
                   <Text
                     accessibilityLabel="新着スレ"
-                    style={{ color: theme.accent, fontWeight: '700' }}
+                    style={{
+                      color: newMarkColor(markColor, theme),
+                      fontWeight: '700',
+                    }}
                   >
-                    {'[新着] '}
+                    {newMark}
                   </Text>
                 ) : null}
                 {splitHighlights(title, titleWords).map((part, i) =>

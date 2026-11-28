@@ -7,6 +7,7 @@ import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 import { DEFAULT_GESTURES } from 'lib/gestures'
 import { DEFAULT_HOME_SHOWN } from 'lib/homeSegments'
 import { setCustomUserAgent } from 'lib/http'
+import { DEFAULT_NEW_MARK_COLOR, DEFAULT_NEW_MARK_STYLE } from 'lib/newMark'
 import { applySiteSettings, SITE_SETTING_KEYS } from 'lib/sites'
 import { DEFAULT_SORT_SHOWN } from 'lib/sort'
 import { KEYS, load, save } from 'lib/storage'
@@ -72,8 +73,12 @@ export const DEFAULTS = {
   typingCombo: false,
   /** オートスクロールの速さ（pt/秒） */
   autoScrollSpeed: 40,
-  /** スレ一覧のスレタイの文字サイズ（pt） */
+  /** スレ一覧のスレタイの文字サイズ（pt）。ホームと通知の一覧もこれに合わせる */
   threadTitleFontSize: 15,
+  /** スレ一覧で増えたスレに付ける印の形（lib/newMark.js） */
+  newMarkStyle: DEFAULT_NEW_MARK_STYLE,
+  /** その印の色（lib/newMark.js） */
+  newMarkColor: DEFAULT_NEW_MARK_COLOR,
   /** 板一覧の板名の文字サイズ（pt）。見出しはここから小さくする */
   boardListFontSize: 15,
   /** スレ一覧の並べ替えのボタンに出すモード */

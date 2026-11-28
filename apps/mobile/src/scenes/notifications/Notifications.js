@@ -50,6 +50,18 @@ const KIND_LABEL = {
   thread: 'スレ立て',
 }
 
+/**
+ * 通知の一覧の文字。スレタイを `size` にし、本文と種類・時刻はそこから小さくする。
+ * 既定の 15pt で、以前の固定値（15 / 13 / 11pt、行の高さ 21 / 19）と同じになる
+ */
+function notifyFonts(size) {
+  return {
+    title: { fontSize: size, lineHeight: size + 6 },
+    body: { fontSize: size - 2, lineHeight: size + 4 },
+    small: { fontSize: size - 4 },
+  }
+}
+
 function warn(e) {
   console.warn(`[notify] 既読にできない: ${e?.message || e}`)
 }
@@ -93,6 +105,11 @@ export default function Notifications({ navigation }) {
   const favorites = useSelector((state) => state.watch.favorites)
   const watchList = useSelector((state) => state.watch.watchList)
   const segmentsShown = useSelector((state) => state.settings.homeSegmentsShown)
+  // 文字の大きさはスレ一覧に合わせる。既定の 15pt で、以前の固定値と同じになる
+  const titleFontSize = useSelector(
+    (state) => state.settings.threadTitleFontSize,
+  )
+  const fonts = useMemo(() => notifyFonts(titleFontSize), [titleFontSize])
   const watchShown = useMemo(
     () => visibleHomeSegments(segmentsShown).some((x) => x.key === 'watch'),
     [segmentsShown],
@@ -166,18 +183,18 @@ export default function Notifications({ navigation }) {
         />
         <View style={styles.rowBody}>
           <View style={styles.meta}>
-            <Text style={[styles.kind, { color: theme.textDim }]}>
+            <Text style={[styles.kind, fonts.small, { color: theme.textDim }]}>
               {KIND_LABEL[item.kind] || '通知'}
               {item.boardName ? `・${item.boardName}` : ''}
             </Text>
-            <Text style={[styles.time, { color: theme.textFaint }]}>
+            <Text style={[fonts.small, { color: theme.textFaint }]}>
               {formatWhen(item.at)}
             </Text>
           </View>
           <Text
             numberOfLines={2}
             style={[
-              styles.title,
+              fonts.title,
               {
                 color: item.read ? theme.textDim : theme.text,
                 fontWeight: item.read ? '400' : '700',
@@ -189,7 +206,7 @@ export default function Notifications({ navigation }) {
           <Text
             numberOfLines={3}
             style={[
-              styles.body,
+              fonts.body,
               { color: item.read ? theme.textFaint : theme.textDim },
             ]}
           >
@@ -198,7 +215,7 @@ export default function Notifications({ navigation }) {
         </View>
       </Pressable>
     ),
-    [open, theme],
+    [open, theme, fonts],
   )
 
   return (
@@ -348,10 +365,7 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4, marginTop: 6, marginRight: 8 },
   rowBody: { flex: 1, gap: 3 },
   meta: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  kind: { fontSize: 11, flexShrink: 1 },
-  time: { fontSize: 11 },
-  title: { fontSize: 15, lineHeight: 21 },
-  body: { fontSize: 13, lineHeight: 19 },
+  kind: { flexShrink: 1 },
   empty: { padding: 32, alignItems: 'center' },
   footer: { fontSize: 11, textAlign: 'center', padding: 16 },
   menu: { paddingBottom: 32 },

@@ -75,6 +75,7 @@ export default function DisplaySettings({ navigation }) {
           label="スレ一覧の文字サイズ"
           min={11}
           max={24}
+          note="ホームと通知にも効きます"
         />
         <SettingStepper
           settingKey="boardListFontSize"
