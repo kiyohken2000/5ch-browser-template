@@ -744,6 +744,9 @@ export default function Thread({ route, navigation }) {
       trailingBlank: settings.trailingBlankLine,
       idColors: settings.idColors,
       nameColor: settings.nameColor,
+      lineHeight: settings.bodyLineHeight,
+      headerFontSize: settings.headerFontSize,
+      rowPadding: settings.rowPaddingVertical,
       highlights,
     }),
     [
@@ -754,6 +757,9 @@ export default function Thread({ route, navigation }) {
       settings.trailingBlankLine,
       settings.idColors,
       settings.nameColor,
+      settings.bodyLineHeight,
+      settings.headerFontSize,
+      settings.rowPaddingVertical,
       highlights,
     ],
   )

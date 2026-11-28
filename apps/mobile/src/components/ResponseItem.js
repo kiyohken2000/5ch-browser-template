@@ -44,6 +44,7 @@ function ResponseItem({
   onToggleAbone,
 }) {
   const [expanded, setExpanded] = useState(false)
+  const lineHeight = textOptions?.lineHeight || 1.55
 
   if (isAboneMasked(row)) {
     // 誤爆の確認用。押したレスだけ中身を出し、もう一度押すと伏せる
@@ -113,6 +114,9 @@ function ResponseItem({
         delayLongPress={350}
         style={[
           styles.card,
+          textOptions?.rowPadding != null
+            ? { paddingVertical: textOptions.rowPadding }
+            : null,
           {
             backgroundColor: highlighted ? theme.accentDim : theme.surface,
             borderColor: theme.border,
@@ -153,6 +157,7 @@ function ResponseItem({
           row={row}
           theme={theme}
           fontSize={fontSize}
+          headerFontSize={textOptions?.headerFontSize}
           backlinks={backlinks}
           mine={mine}
           replyToMe={replyToMe}
@@ -173,7 +178,9 @@ function ResponseItem({
                   styles.collapsed,
                   {
                     maxHeight:
-                      (textOptions?.collapsedLines || 10) * fontSize * 1.55,
+                      (textOptions?.collapsedLines || 10) *
+                      fontSize *
+                      lineHeight,
                   },
                 ]
               : null
@@ -191,7 +198,7 @@ function ResponseItem({
           />
         </View>
         {textOptions?.trailingBlank ? (
-          <View style={{ height: fontSize * 1.55 }} />
+          <View style={{ height: fontSize * lineHeight }} />
         ) : null}
 
         <ResponseMedia

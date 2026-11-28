@@ -16,6 +16,12 @@ export const DEFAULTS = {
   theme: 'auto',
   /** レス本文の文字サイズ（pt）。デスクトップ版は 10〜32 を許す */
   fontSize: 15,
+  /** 本文の行間（文字サイズに掛ける倍率） */
+  bodyLineHeight: 1.55,
+  /** レスのヘッダー（番号・名前・ID・日付）の文字サイズ（pt）。null は本文より 3pt 小さく */
+  headerFontSize: null,
+  /** レスの上下の余白（pt） */
+  rowPaddingVertical: 7,
   /** バーをすりガラスにする。iOS のみで、本文には掛けない（§9-3） */
   glass: true,
   /** サムネイルのマスク。公共の場で開くのでモバイルでは既定で入れる（§8-4） */

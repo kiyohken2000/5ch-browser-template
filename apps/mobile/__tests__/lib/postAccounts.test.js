@@ -1,4 +1,4 @@
-import { withPostAccounts } from 'lib/postAccounts'
+import { waitForRestore, withPostAccounts } from 'lib/postAccounts'
 
 function setup(results = {}) {
   const log = []
@@ -29,6 +29,7 @@ describe('withPostAccounts', () => {
   it('オフのものがあれば、消してオンだけ入り直し、投稿後に戻す', async () => {
     const { log, deps, post } = setup()
     await withPostAccounts(['be', 'uplift'], { be: false }, post, deps)
+    await waitForRestore()
     expect(log).toEqual(['clear', 'login:uplift', 'post', 'login:be'])
   })
 
@@ -40,6 +41,7 @@ describe('withPostAccounts', () => {
       post,
       deps,
     )
+    await waitForRestore()
     expect(log).toEqual(['clear', 'post', 'login:be', 'login:uplift'])
   })
 
@@ -51,6 +53,7 @@ describe('withPostAccounts', () => {
       post,
       deps,
     )
+    await waitForRestore()
     expect(got.kind).toBe('failed')
     expect(log).not.toContain('post')
     expect(log).toContain('login:be')
@@ -68,6 +71,7 @@ describe('withPostAccounts', () => {
         deps,
       ),
     ).rejects.toThrow('x')
+    await waitForRestore()
     expect(log).toContain('login:be')
   })
 
@@ -75,5 +79,63 @@ describe('withPostAccounts', () => {
     const { log, deps, post } = setup()
     await withPostAccounts(['uplift'], { be: false }, post, deps)
     expect(log).toEqual(['post'])
+  })
+
+  it('ログインの戻しを待たずに結果を返す', async () => {
+    const log = []
+    let release
+    const gate = new Promise((r) => {
+      release = r
+    })
+    const deps = {
+      clear: async () => log.push('clear'),
+      login: async (p) => {
+        if (p === 'be') await gate
+        log.push(`login:${p}`)
+        return { ok: true }
+      },
+    }
+    const got = await withPostAccounts(
+      ['be'],
+      { be: false },
+      async () => {
+        log.push('post')
+        return { kind: 'success' }
+      },
+      deps,
+    )
+    expect(got.kind).toBe('success')
+    expect(log).toEqual(['clear', 'post'])
+    release()
+    await waitForRestore()
+    expect(log).toEqual(['clear', 'post', 'login:be'])
+  })
+
+  it('戻しの途中に来た次の書き込みは、戻し終わってから Cookie に触る', async () => {
+    const log = []
+    let release
+    const gate = new Promise((r) => {
+      release = r
+    })
+    const deps = {
+      clear: async () => log.push('clear'),
+      login: async (p) => {
+        if (p === 'be' && log.length < 3) await gate
+        log.push(`login:${p}`)
+        return { ok: true }
+      },
+    }
+    const post = async () => {
+      log.push('post')
+      return { kind: 'success' }
+    }
+    await withPostAccounts(['be'], { be: false }, post, deps)
+    const second = withPostAccounts(['be'], { be: false }, post, deps)
+    await Promise.resolve()
+    expect(log).toEqual(['clear', 'post'])
+    release()
+    await second
+    await waitForRestore()
+    expect(log).toEqual(['clear', 'post', 'login:be', 'clear', 'post', 'login:be'])
   })
 })

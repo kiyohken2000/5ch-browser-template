@@ -47,6 +47,30 @@ export default function DisplaySettings({ navigation }) {
           max={32}
         />
         <SettingStepper
+          settingKey="headerFontSize"
+          label="レスのヘッダーの文字サイズ"
+          min={8}
+          max={28}
+          fallback={settings.fontSize - 3}
+          autoLabel="本文に合わせる"
+        />
+        <SettingChoices
+          settingKey="bodyLineHeight"
+          label="本文の行間"
+          options={[
+            [1.25, '狭い'],
+            [1.4, 'やや狭い'],
+            [1.55, '標準'],
+            [1.8, '広い'],
+          ]}
+        />
+        <SettingStepper
+          settingKey="rowPaddingVertical"
+          label="レスの上下の余白"
+          min={0}
+          max={16}
+        />
+        <SettingStepper
           settingKey="threadTitleFontSize"
           label="スレ一覧の文字サイズ"
           min={11}

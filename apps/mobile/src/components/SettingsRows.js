@@ -109,17 +109,39 @@ export function SettingChoices({ settingKey, label, hint, options }) {
 }
 
 /** `settingKey` の数値を 1 ずつ増減する行。 */
-export function SettingStepper({ settingKey, label, min, max }) {
+export function SettingStepper({
+  settingKey,
+  label,
+  min,
+  max,
+  fallback,
+  autoLabel,
+}) {
   const theme = useEmberTheme()
   const { settings, set } = useSettingValues()
-  const value = settings[settingKey]
+  // `autoLabel` を渡すと、値が null のあいだは `fallback` を表示して「自動」として扱う
+  const auto = autoLabel && settings[settingKey] == null
+  const value = auto ? fallback : settings[settingKey]
   const buttons = [
     ['－', `${label}を小さくする`, Math.max(min, value - 1)],
     ['＋', `${label}を大きくする`, Math.min(max, value + 1)],
   ]
   return (
-    <SettingRow label={label} hint={`${value}pt`}>
+    <SettingRow
+      label={label}
+      hint={auto ? `${value}pt（${autoLabel}）` : `${value}pt`}
+    >
       <View style={styles.chips}>
+        {autoLabel && !auto ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${label}を${autoLabel}`}
+            onPress={() => set(settingKey, null)}
+            style={[styles.stepper, { borderColor: theme.border }]}
+          >
+            <Text style={{ color: theme.text, fontSize: 12 }}>自動</Text>
+          </Pressable>
+        ) : null}
         {buttons.map(([mark, a11yLabel, next]) => (
           <Pressable
             key={mark}

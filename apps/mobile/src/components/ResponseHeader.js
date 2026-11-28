@@ -17,6 +17,7 @@ export default function ResponseHeader({
   row,
   theme,
   fontSize,
+  headerFontSize,
   backlinks,
   mine,
   replyToMe,
@@ -31,7 +32,9 @@ export default function ResponseHeader({
 }) {
   const { name, watchoi } = splitNameWatchoi(row.name)
   const idHighlight = matchColor(row.id, highlights?.ids)
-  const small = fontSize - 4
+  // ヘッダーの基準。設定が無ければ本文より 3pt 小さく（以前の見た目）
+  const base = headerFontSize ?? fontSize - 3
+  const small = base - 1
   // 色分けを切っても形のアイコンは残すので、同じ人かどうかは見分けられる
   const color = idColors ? idColor(row.id, theme.dark) : null
 
@@ -39,7 +42,7 @@ export default function ResponseHeader({
     <View style={styles.wrap}>
       <View style={styles.line}>
         <Text
-          style={[styles.no, { color: theme.resNo, fontSize: fontSize - 3 }]}
+          style={[styles.no, { color: theme.resNo, fontSize: base }]}
         >
           {row.no}
         </Text>
@@ -65,7 +68,7 @@ export default function ResponseHeader({
             styles.name,
             {
               color: nameColor ? theme.resName : theme.text,
-              fontSize: fontSize - 3,
+              fontSize: base,
             },
           ]}
         >
@@ -116,7 +119,7 @@ export default function ResponseHeader({
                     backlinks.length >= POPULAR_MIN_BACKLINKS
                       ? theme.danger
                       : theme.link,
-                  fontSize: fontSize - 3,
+                  fontSize: base,
                 },
               ]}
             >

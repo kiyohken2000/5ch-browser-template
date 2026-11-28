@@ -65,7 +65,7 @@ function InlineTokens({
         {
           color: theme.text,
           fontSize,
-          lineHeight: fontSize * 1.55,
+          lineHeight: fontSize * (textOptions?.lineHeight || 1.55),
           fontWeight: WEIGHTS[textOptions?.weight] || WEIGHTS.normal,
           fontFamily: resolveFontFamily(textOptions?.font),
         },

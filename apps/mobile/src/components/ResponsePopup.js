@@ -111,6 +111,7 @@ function PopupLayer({
             row={item}
             theme={theme}
             fontSize={fontSize}
+            headerFontSize={textOptions?.headerFontSize}
             idSeq={idSeqs?.get(item.no)}
             onId={onId}
             onBe={onBe}
